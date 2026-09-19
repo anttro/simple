@@ -940,12 +940,8 @@
 				</fieldset>
 			</div>
 			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
-				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</legend>
-				<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
-			</fieldset>
-			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mt-4">
 				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Network simulation">Network simulation</legend>
-				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.</div>
+				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.</div>
 				<div class="flex flex-wrap gap-1.5 mb-2">
 					<button data-needs="card" onclick="netSimRun('cold_boot')" class="px-2.5 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Cold boot">Cold boot</button>
 					<button data-needs="card" onclick="netSimRun('attach_eps')" class="px-2.5 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="EPS attach">EPS attach</button>
@@ -1029,6 +1025,10 @@
 				</details>
 				<div id="netsim-status" class="text-xs text-gray-400 dark:text-slate-500 mb-1"></div>
 				<div id="netsim-log" class="text-xs font-mono text-gray-600 dark:text-slate-400 max-h-[30vh] overflow-auto"></div>
+			</fieldset>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mt-4">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</legend>
+				<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
 			</fieldset>
 		</div>
 		<div id="phone-sub-tr" class="hidden">
@@ -12730,7 +12730,7 @@ const LANG_RU = {
 	'No events configured.': 'Нет настроенных событий.',
 	'Fetched proactive commands:': 'Извлечённые проактивные команды:',
 	'Network simulation': 'Симуляция сети',
-	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE) — см. projects/UICC_NAA.md. Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN и 5GS location-файлы не затрагиваются.',
+	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN и 5GS location-файлы не затрагиваются.',
 	'Cold boot': 'Холодная загрузка',
 	'EPS attach': 'Подключение EPS',
 	'2G attach': 'Подключение 2G',
