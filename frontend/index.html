@@ -1226,15 +1226,26 @@
 		</div>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP80 (GSM 03.48, ETSI TS 102 225)">SCP80 (GSM 03.48, ETSI TS 102 225)</legend>
-			<div class="flex gap-2 mb-2 flex-wrap">
+			<div class="flex gap-2 mb-2 flex-wrap items-end">
 				<input id="cards-kic" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="KIc" maxlength="2">
 				<input id="cards-kid" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="KID" maxlength="2">
 				<input id="cards-spi1" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI1" maxlength="2">
 				<input id="cards-spi2" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI2" maxlength="2">
-				<input id="cards-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="ISD TAR" maxlength="6" value="000000">
-				<input id="cards-uicc-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="UICC TAR" maxlength="6" value="B00000">
-				<input id="cards-usim-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="USIM TAR" maxlength="6" value="B00001">
 				<input id="cards-cntr" class="w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="Counter" maxlength="10">
+				<div class="flex gap-2">
+					<div>
+						<label for="cards-tar" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">ISD TAR</label>
+						<input id="cards-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" maxlength="6" value="000000">
+					</div>
+					<div>
+						<label for="cards-uicc-tar" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">UICC RFM TAR</label>
+						<input id="cards-uicc-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" maxlength="6" value="B00000">
+					</div>
+					<div>
+						<label for="cards-usim-tar" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">ADF RFM TAR</label>
+						<input id="cards-usim-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" maxlength="6" value="B00001">
+					</div>
+				</div>
 			</div>
 			<div class="flex gap-2">
 				<input id="cards-kic-key" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="KIc key (32 hex chars)">
@@ -1258,7 +1269,7 @@
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI1</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI2</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR (ISD/UICC/USIM)</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR (ISD/UICC RFM/ADF RFM)</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Cntr">Cntr</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="SCP81">SCP81</th>
 					<th class="border-b border-gray-200 dark:border-slate-700"></th>
@@ -6263,7 +6274,7 @@ function cardsRender() {
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.kid) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi1) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi2) + '</td>';
-		html += '<td class="py-1 px-2 font-mono text-xs" title="ISD / UICC / USIM">' + esc(cardsTarValue('tar', c.tar)) + ' ' + esc(cardsTarValue('uiccTar', c.uiccTar)) + ' ' + esc(cardsTarValue('usimTar', c.usimTar)) + '</td>';
+		html += '<td class="py-1 px-2 font-mono text-xs" title="ISD / UICC RFM / ADF RFM">' + esc(cardsTarValue('tar', c.tar)) + ' ' + esc(cardsTarValue('uiccTar', c.uiccTar)) + ' ' + esc(cardsTarValue('usimTar', c.usimTar)) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.cntr) + '</td>';
 		html += '<td class="py-1 px-2 text-center">' + ota + '</td>';
 		html += '<td class="py-1 px-2 whitespace-nowrap"><button onclick="cardsEdit(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">' + t('Edit') + '</button> '

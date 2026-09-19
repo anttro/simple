@@ -36,6 +36,12 @@ test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', 
     assert.match(scp80, /id="cards-tar"[^>]*value="000000"/);
     assert.match(scp80, /id="cards-uicc-tar"[^>]*value="B00000"/);
     assert.match(scp80, /id="cards-usim-tar"[^>]*value="B00001"/);
+    // the TAR fields are labelled and sit to the right of Counter
+    assert.match(scp80, />ISD TAR<\/label>/);
+    assert.match(scp80, />UICC RFM TAR<\/label>/);
+    assert.match(scp80, />ADF RFM TAR<\/label>/);
+    assert.ok(scp80.indexOf('id="cards-cntr"') < scp80.indexOf('id="cards-tar"'),
+        'TAR fields must follow the Counter field');
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
