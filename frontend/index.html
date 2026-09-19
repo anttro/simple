@@ -909,15 +909,15 @@
 		</div>
 		<div id="phone-sub-phone">
 			<div class="flex flex-wrap items-start gap-4 mb-4">
-				<div class="border border-gray-200 dark:border-slate-700 rounded p-3">
-					<div class="mb-1 text-sm text-gray-500 dark:text-slate-400" data-l10n="STK menu">STK menu</div>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="STK menu">STK menu</legend>
 					<div class="flex items-center gap-2">
 						<button id="stk-menu-btn" data-needs="card" onclick="stkMenuOpen()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" style="display:none">STK: <span id="stk-menu-title"></span></button>
 						<span id="stk-menu-none" class="text-xs text-gray-500 dark:text-slate-400" style="display:none" data-l10n="No menu set by the card">No menu set by the card</span>
 					</div>
-				</div>
-				<div class="border border-gray-200 dark:border-slate-700 rounded p-3">
-					<div class="mb-1 text-sm text-gray-500 dark:text-slate-400" data-l10n="STATUS and Polling">STATUS and Polling</div>
+				</fieldset>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="STATUS and Polling">STATUS and Polling</legend>
 					<div class="flex items-center gap-2">
 						<button id="pli-status-btn" data-needs="card" onclick="pysimStatusPoll()" class="px-2.5 py-1 text-sm rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send STATUS">Send STATUS</button>
 						<span class="text-xs text-gray-500 dark:text-slate-400">|</span>
@@ -925,22 +925,24 @@
 						<button id="pli-pause-btn" data-needs="server" onclick="pysimPollToggle()" class="px-2.5 py-1 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed">OFF</button>
 						<span id="pli-poll-stat" class="text-xs text-gray-400"></span>
 					</div>
-				</div>
-				<div class="border border-gray-200 dark:border-slate-700 rounded p-3">
-					<div class="mb-1 text-sm text-gray-500 dark:text-slate-400" data-l10n="TERMINAL PROFILE">TERMINAL PROFILE</div>
+				</fieldset>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TERMINAL PROFILE">TERMINAL PROFILE</legend>
 					<div class="flex items-center gap-2">
 						<button id="tp-send-btn" data-needs="card" onclick="tpSend()" class="px-2.5 py-1 text-sm rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
 						<button id="tp-configure-btn" data-needs="server" onclick="tpOpen()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Configure">Configure</button>
 						<span id="tp-status" class="text-xs text-gray-400 dark:text-slate-500"></span>
 					</div>
-				</div>
-				<div class="flex-1 min-w-0 border border-gray-200 dark:border-slate-700 rounded p-3">
-					<div class="mb-1 text-sm text-gray-500 dark:text-slate-400" data-l10n="Events that the card monitors (SET UP EVENT LIST):">Events that the card monitors (SET UP EVENT LIST):</div>
+				</fieldset>
+				<fieldset class="flex-1 min-w-0 border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Events that the card monitors (SET UP EVENT LIST):">Events that the card monitors (SET UP EVENT LIST):</legend>
 					<div id="pysim-event-list" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
-				</div>
+				</fieldset>
 			</div>
-			<div class="mb-2 text-sm text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</div>
-			<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</legend>
+				<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
+			</fieldset>
 		</div>
 		<div id="phone-sub-tr" class="hidden">
 			<div class="flex justify-between items-center mb-2">
@@ -959,11 +961,8 @@
 			<button class="scp81-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-scp81-sub="scripts" onclick="scp81SwitchSubtab('scripts')" data-l10n="Scripts">Scripts</button>
 		</div>
 		<div id="scp81-sub-listener">
-			<div class="flex items-center gap-2 mb-2">
-				<span class="text-sm text-gray-500 dark:text-slate-400" data-l10n="HTTP OTA listener">HTTP OTA listener</span>
-				<span id="scp81-state" class="text-xs text-gray-400"></span>
-			</div>
-			<div class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"><span data-l10n="HTTP OTA listener">HTTP OTA listener</span> <span id="scp81-state" class="text-xs text-gray-400"></span></legend>
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
 						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Mode">Mode</label>
@@ -994,9 +993,9 @@
 				<div id="scp81-psk-note" class="mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="PSK keys come from the card presets (Cards tab): the listener picks the key by the identity the card sends in the TLS handshake.">PSK keys come from the card presets (Cards tab): the listener picks the key by the identity the card sends in the TLS handshake.</div>
 				<div id="scp81-redirect-note" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="Redirect: every BIP channel the card opens is connected to this Host:Port (the external HTTP OTA platform); TLS is terminated there, and the address the card requests is only logged.">Redirect: every BIP channel the card opens is connected to this Host:Port (the external HTTP OTA platform); TLS is terminated there, and the address the card requests is only logged.</div>
 				<div id="scp81-passthru-note" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="Pass-through: the terminal connects each BIP channel to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port above are not used, TLS is terminated by that platform, and the server's network is used (lab only).">Pass-through: the terminal connects each BIP channel to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port above are not used, TLS is terminated by that platform, and the server's network is used (lab only).</div>
-			</div>
+			</fieldset>
 			<details id="scp81-opts" class="border border-gray-200 dark:border-slate-700 rounded mb-3">
-				<summary class="p-3 cursor-pointer select-none text-sm text-gray-500 dark:text-slate-400">
+				<summary class="w-fit list-inside relative -top-2 -mb-1 mx-3 px-1 cursor-pointer select-none text-xs font-medium text-gray-500 dark:text-slate-400 bg-neutral-50 dark:bg-slate-900">
 					<span data-l10n="Options (applied at Start)">Options (applied at Start)</span>
 					<span id="scp81-opts-badge" class="ml-1 text-xs text-amber-500 dark:text-amber-400"></span>
 				</summary>
@@ -1038,20 +1037,17 @@
 					<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300 cursor-pointer mt-3"><input type="checkbox" id="opt-link-events" onchange="scp81OptionsPersist()" class="rounded"> <span data-l10n="Show link events (Channel status ENVELOPEs, TS 102 223 7.5.11)">Show link events (Channel status ENVELOPEs, TS 102 223 7.5.11)</span></label>
 				</div>
 			</details>
-			<div class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
-				<div class="flex justify-between items-center mb-2">
-					<span class="text-sm text-gray-500 dark:text-slate-400" data-l10n="Script results (R-APDUs)">Script results (R-APDUs)</span>
-					<span id="scp81-results-state" class="text-xs text-gray-400"></span>
-				</div>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"><span data-l10n="Script results (R-APDUs)">Script results (R-APDUs)</span> <span id="scp81-results-state" class="text-xs text-gray-400"></span></legend>
 				<div id="scp81-results" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[35vh] overflow-auto"></div>
-			</div>
-			<div class="border border-gray-200 dark:border-slate-700 rounded p-3">
-				<div class="flex justify-between items-center mb-2">
-					<span class="text-sm text-gray-500 dark:text-slate-400" data-l10n="HTTP OTA log">HTTP OTA log</span>
+			</fieldset>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="HTTP OTA log">HTTP OTA log</legend>
+				<div class="flex justify-end mb-1">
 					<button data-needs="server" onclick="scp81LogClear()" class="px-2.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Clear">Clear</button>
 				</div>
 				<div id="scp81-log" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[55vh] overflow-auto"></div>
-			</div>
+			</fieldset>
 		</div>
 		<div id="scp81-sub-scripts" class="hidden">
 			<div class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">

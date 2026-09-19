@@ -27,17 +27,35 @@ test('cards list shows the SCP81 PSK column with blue/red row buttons', () => {
 
 test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', () => {
     const fieldsets = [...html.matchAll(/<fieldset[\s\S]*?<\/fieldset>/g)].map(m => m[0]);
-    assert.strictEqual(fieldsets.length, 2);
-    assert.match(fieldsets[0], /<legend[^>]*data-l10n="SCP80 \(GSM 03\.48, ETSI TS 102 225\)"/);
-    assert.match(fieldsets[0], /id="cards-kic"/);
-    assert.match(fieldsets[0], /id="cards-kid-key"/);
-    assert.match(fieldsets[1], /<legend[^>]*data-l10n="SCP81 \(HTTP OTA\)"/);
-    assert.match(fieldsets[1], /id="cards-psk-id"/);
-    assert.match(fieldsets[1], /id="cards-psk-key"/);
+    const scp80 = fieldsets.find(f => /data-l10n="SCP80 \(GSM 03\.48, ETSI TS 102 225\)"/.test(f));
+    const scp81 = fieldsets.find(f => /data-l10n="SCP81 \(HTTP OTA\)"/.test(f));
+    assert.ok(scp80, 'SCP80 card fieldset not found');
+    assert.ok(scp81, 'SCP81 card fieldset not found');
+    assert.match(scp80, /id="cards-kic"/);
+    assert.match(scp80, /id="cards-kid-key"/);
+    assert.match(scp81, /id="cards-psk-id"/);
+    assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
-    assert.match(fieldsets[1], /data-l10n="SCP81 HTTP OTA: the listener picks the key/);
+    assert.match(scp81, /data-l10n="SCP81 HTTP OTA: the listener picks the key/);
     // the ICCID field is not in either group
     assert.ok(!fieldsets.some(f => f.includes('id="cards-iccid"')));
+});
+
+test('labelled containers use fieldsets with embedded legends', () => {
+    const legendCls = '<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"';
+    for (const label of ['STK menu', 'STATUS and Polling', 'TERMINAL PROFILE',
+        'Events that the card monitors (SET UP EVENT LIST):', 'Fetched proactive commands:',
+        'HTTP OTA log']) {
+        assert.ok(html.includes(legendCls + ' data-l10n="' + label + '"'), 'no legend for ' + label);
+    }
+    // legends with dynamic state spans put data-l10n on the inner span so
+    // translatePage() does not wipe the sibling
+    assert.ok(html.includes('<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"><span data-l10n="HTTP OTA listener">HTTP OTA listener</span> <span id="scp81-state"'));
+    assert.ok(html.includes('<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"><span data-l10n="Script results (R-APDUs)">Script results (R-APDUs)</span> <span id="scp81-results-state"'));
+    // the Options block stays a details/summary, with the summary styled as
+    // the embedded label (page-background patch over the border)
+    assert.match(html, /<details id="scp81-opts" class="border border-gray-200 dark:border-slate-700 rounded mb-3">\s*<summary class="w-fit list-inside[^"]*bg-neutral-50 dark:bg-slate-900"/);
+    assert.match(html, /<summary class="w-fit list-inside[^"]*">\s*<span data-l10n="Options \(applied at Start\)">/);
 });
 
 test('PLI qualifier tables cover all standard qualifiers', () => {
