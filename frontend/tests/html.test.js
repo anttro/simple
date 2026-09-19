@@ -213,6 +213,7 @@ test('phone simulator has the network-simulation fieldset', () => {
     assert.ok(html.includes('id="netsim-log"'));
     assert.ok(html.includes('id="netsim-status"'));
     assert.match(html, /id="netsim-mcc" value="001"/);
+    assert.ok(html.includes('data-l10n="Sets the PLMN written to'));
     // scenario buttons need the card (the server writes real EFs)
     assert.match(html, /data-needs="card" onclick="netSimRun\('service_lost'\)"/);
 });
@@ -224,6 +225,23 @@ test('phone simulator action buttons are green and the TP status sits below them
     // the last button and before the status element)
     const block = html.slice(html.indexOf('id="tp-send-btn"'), html.indexOf('id="tp-status"'));
     assert.ok(block.lastIndexOf('</div>') > block.lastIndexOf('</button>'));
+});
+
+test('cards and custom files expose only file import/export', () => {
+    assert.ok(!html.includes('data-l10n="Export as JSON"'));
+    assert.ok(!html.includes('data-l10n="Paste & import"'));
+    assert.ok(!html.includes('data-l10n="Import JSON from clipboard"'));
+    for (const fn of ['cardsExportFile', 'cardsImportFile', 'pysimCustomExportFile', 'pysimCustomImportFile']) {
+        assert.ok(html.includes('function ' + fn + '('), fn);
+    }
+    assert.ok(!html.includes('function cardsExport('));
+    assert.ok(!html.includes('function pysimCustomExport('));
+    assert.ok(!html.includes('cardsImportField('));
+    assert.ok(!html.includes('pysimCustomImportField('));
+    // import feedback goes to the transient status line
+    assert.ok(html.includes('function ioStatus('));
+    assert.ok(html.includes("ioStatus('cards-io'"));
+    assert.ok(html.includes("ioStatus('pysim-cf-io'"));
 });
 
 test('SCP81 listener exposes its four modes with the matching notes', () => {

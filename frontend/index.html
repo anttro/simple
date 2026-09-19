@@ -763,13 +763,10 @@
 				<div id="pysim-cf-list" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
 			<input type="file" id="pysim-cf-file" accept=".json,application/json" class="hidden" onchange="pysimCustomImportFile(this)">
 				<div class="flex flex-wrap gap-2 mt-2">
-					<button onclick="pysimCustomExport()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export as JSON">Export as JSON</button>
 					<button onclick="pysimCustomExportFile()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export to file">Export to file</button>
 					<button onclick="document.getElementById('pysim-cf-file').click()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import from file">Import from file</button>
-					<button onclick="pysimCustomImportField()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Paste & import">Paste &amp; import</button>
-					<button onclick="pysimCustomImport()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import JSON from clipboard">Import JSON from clipboard</button>
 				</div>
-				<textarea id="pysim-cf-io" class="hidden mt-2 w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800" rows="6"></textarea>
+				<div id="pysim-cf-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
 			</div>
 			</div>
 			<div id="profiler-editor" class="hidden">
@@ -972,6 +969,7 @@
 							</div>
 							<button data-needs="server" onclick="netSimRandomOperator()" class="px-2 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Random roaming operator">Random roaming operator</button>
 						</div>
+						<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.">Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.</div>
 						<div id="netsim-op-results" class="text-xs font-mono max-h-32 overflow-auto"></div>
 						<div class="flex flex-wrap items-end gap-2">
 							<div>
@@ -1266,13 +1264,10 @@
 		</div>
 		<input type="file" id="cards-file" accept=".json,application/json" class="hidden" onchange="cardsImportFile(this)">
 		<div class="flex flex-wrap gap-2 mt-2">
-			<button onclick="cardsExport()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export as JSON">Export as JSON</button>
 			<button onclick="cardsExportFile()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export to file">Export to file</button>
 			<button onclick="document.getElementById('cards-file').click()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import from file">Import from file</button>
-			<button onclick="cardsImportField()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Paste &amp; import">Paste &amp; import</button>
-			<button onclick="cardsImport()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import JSON from clipboard">Import JSON from clipboard</button>
 		</div>
-		<textarea id="cards-io" rows="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 hidden" placeholder="JSON data"></textarea>
+		<div id="cards-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
 	</div>
 
 	<div id="event-send-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
@@ -1388,7 +1383,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.5.0';
+const SIMPLE_VERSION = '2.5.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6298,13 +6293,6 @@ function cardsApply(idx) {
 	genSp();
 }
 
-function cardsExport() {
-	const el = document.getElementById('cards-io');
-	el.value = JSON.stringify(cards, null, 2);
-	el.classList.remove('hidden');
-	el.select();
-}
-
 function downloadJson(name, obj) {
 	const blob = new Blob([JSON.stringify(obj, null, 2)], {type: 'application/json'});
 	const a = document.createElement('a');
@@ -6314,13 +6302,22 @@ function downloadJson(name, obj) {
 	URL.revokeObjectURL(a.href);
 }
 
+// Transient status line used by the file import handlers (Cards, custom files).
+function ioStatus(id, text) {
+	const el = document.getElementById(id);
+	if (!el) return;
+	el.textContent = text;
+	el.classList.remove('hidden');
+	clearTimeout(el._hideTimer);
+	el._hideTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
 function cardsExportFile() {
 	downloadJson('simple-cards.json', cards);
 }
 
-async function cardsImport(text) {
+function cardsImport(text) {
 	try {
-		if (text == null) text = await navigator.clipboard.readText();
 		const imported = JSON.parse(text);
 		if (!Array.isArray(imported)) throw new Error('Expected an array');
 		let added = 0;
@@ -6345,9 +6342,7 @@ async function cardsImport(text) {
 		}
 		cardsSave();
 		cardsRender();
-		const el = document.getElementById('cards-io');
-		el.value = 'Imported ' + added + ' cards.';
-		setTimeout(() => { el.classList.add('hidden'); }, 2000);
+		ioStatus('cards-io', 'Imported ' + added + ' cards.');
 	} catch (e) {
 		alert('Import error: ' + e.message);
 	}
@@ -6360,16 +6355,6 @@ function cardsImportFile(input) {
 	const reader = new FileReader();
 	reader.onload = () => cardsImport(reader.result);
 	reader.readAsText(file);
-}
-
-function cardsImportField() {
-	const el = document.getElementById('cards-io');
-	const val = el.value.trim();
-	if (!el.classList.contains('hidden') && val.startsWith('[')) { cardsImport(val); return; }
-	el.value = '';
-	el.placeholder = 'Paste JSON array here, then press Paste & import again';
-	el.classList.remove('hidden');
-	el.focus();
 }
 
 // ===== pysim sub-tabs =====
@@ -9582,20 +9567,12 @@ function pysimCustomRender() {
 	el.innerHTML = html;
 }
 
-function pysimCustomExport() {
-	const el = document.getElementById('pysim-cf-io');
-	el.value = JSON.stringify(pysimCustomFiles, null, 2);
-	el.classList.remove('hidden');
-	el.select();
-}
-
 function pysimCustomExportFile() {
 	downloadJson('simple-custom-files.json', pysimCustomFiles);
 }
 
-async function pysimCustomImport(text) {
+function pysimCustomImport(text) {
 	try {
-		if (text == null) text = await navigator.clipboard.readText();
 		const imported = JSON.parse(text);
 		if (!Array.isArray(imported)) throw new Error('Expected an array');
 		const res = pysimCustomNormalizeEntries(imported, pysimCustomFiles);
@@ -9604,9 +9581,7 @@ async function pysimCustomImport(text) {
 		pysimCustomSave();
 		pysimCustomRender();
 		pysimCustomRefreshTree();
-		const el = document.getElementById('pysim-cf-io');
-		el.value = 'Imported ' + added + ' file(s)' + (res.dropped ? ', dropped ' + res.dropped : '') + '.';
-		setTimeout(() => { el.classList.add('hidden'); }, 2000);
+		ioStatus('pysim-cf-io', 'Imported ' + added + ' file(s)' + (res.dropped ? ', dropped ' + res.dropped : '') + '.');
 	} catch (e) {
 		alert('Import error: ' + e.message);
 	}
@@ -9619,16 +9594,6 @@ function pysimCustomImportFile(input) {
 	const reader = new FileReader();
 	reader.onload = () => pysimCustomImport(reader.result);
 	reader.readAsText(file);
-}
-
-function pysimCustomImportField() {
-	const el = document.getElementById('pysim-cf-io');
-	const val = el.value.trim();
-	if (!el.classList.contains('hidden') && val.startsWith('[')) { pysimCustomImport(val); return; }
-	el.value = '';
-	el.placeholder = 'Paste JSON array here, then press Paste & import again';
-	el.classList.remove('hidden');
-	el.focus();
 }
 
 // ===== Profiler =====
@@ -12560,11 +12525,8 @@ const LANG_RU = {
 	'Card reader': 'Картридер',
 	'Card presets are stored locally in your browser. JSON export/import buttons are below the card list.': 'Данные карт хранятся локально в браузере. Кнопки экспорта/импорта JSON — под списком карт.',
 	'Add': 'Добавить',
-	'Export as JSON': 'Экспорт в JSON',
 	'Export to file': 'Экспорт в файл',
 	'Import from file': 'Импорт из файла',
-	'Paste & import': 'Вставить и импортировать',
-	'Import JSON from clipboard': 'Импорт JSON из буфера',
 	'Name': 'Имя',
 	'ICCID': 'ICCID',
 	'Cntr': 'Сч',
@@ -12742,6 +12704,7 @@ const LANG_RU = {
 	'CB reconfig': 'Перенастройка CB',
 	'Parameters': 'Параметры',
 	'Operator search (country / brand / MCC-MNC)': 'Поиск оператора (страна / бренд / MCC-MNC)',
+	'Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don\'t use it.': 'Задаёт PLMN, записываемый в LOCI/PSLOCI/EPSLOCI. Используется в сценариях «Подключение EPS», «Подключение 2G» и «Принято SMS» (реальные LAI/RAI/TAI; в SMS — только при включённой перезаписи location), а также «Холодная загрузка», «Потеря сервиса», «Ограниченный сервис» и «Роуминг запрещён» (фиктивные файлы сохраняют этот PLMN). «Серия переподключений», «Перенастройка CB» и AUTHENTICATE его не используют.',
 	'Random roaming operator': 'Случайный роуминг-оператор',
 	'Advanced identity (empty = random)': 'Дополнительные идентификаторы (пусто = случайно)',
 	'Algorithm': 'Алгоритм',
