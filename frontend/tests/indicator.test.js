@@ -21,12 +21,13 @@ function extractFunc(src, name) {
 	return src.slice(m.index, i + 1);
 }
 
-let code = 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\nvar _pysimEquipping = false;\nvar _pysimCardIccid = null;\n';
+let code = 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\nvar _pysimEquipping = false;\nvar _pysimCardIccid = null;\nvar _pysimHeaderIccid = undefined;\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimNeedsHint') + '\n';
 code += extractFunc(html, 'pysimApplyAvailability') + '\n';
 code += extractFunc(html, 'pysimUpdateStateIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += 'globalThis.t = s => s;\n';
 eval(code);
 
@@ -51,6 +52,7 @@ function setup() {
 		'state-indicator': fakeEl(),
 		'state-indicator-dot': fakeEl(),
 		'state-indicator-img': fakeEl(),
+		'state-indicator-iccid': fakeEl(),
 	};
 	els['state-indicator-img'].src = '';
 	globalThis.document = { getElementById: id => els[id] || null, querySelectorAll: () => [] };
@@ -58,6 +60,7 @@ function setup() {
 	_pysimCardEquipped = false;
 	_pysimEquipping = false;
 	_pysimCardIccid = null;
+	_pysimHeaderIccid = undefined;
 	return els;
 }
 
@@ -130,6 +133,21 @@ test('dot color transitions do not accumulate', () => {
 test('indicator markup carries the dot and image elements', () => {
 	assert.match(html, /id="state-indicator-dot"/);
 	assert.match(html, /id="state-indicator-img"[^>]*src="nosim\.svg"/);
+});
+
+test('header prints the equipped card ICCID next to the card image', () => {
+	const els = setup();
+	pysimUpdateIccidIndicator('89701450001700031958');
+	const el = els['state-indicator-iccid'];
+	assert.strictEqual(el.textContent, '89701450001700031958');
+	assert.ok(!el.classes.has('hidden'));
+	// no card session -> hidden again
+	pysimUpdateIccidIndicator(null);
+	assert.strictEqual(el.textContent, '');
+	assert.ok(el.classes.has('hidden'));
+	// markup order: image, ICCID, ADM badge
+	assert.ok(html.indexOf('id="state-indicator-img"') < html.indexOf('id="state-indicator-iccid"'));
+	assert.ok(html.indexOf('id="state-indicator-iccid"') < html.indexOf('id="state-indicator-adm"'));
 });
 
 test('card-iccid controls need an equipped card with a readable ICCID', () => {

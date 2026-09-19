@@ -23,6 +23,7 @@
 			<span id="state-indicator" class="flex items-center select-none" style="cursor:default" title="Connecting...">
 				<span id="state-indicator-dot" class="text-xs text-gray-400" title="Connecting...">●</span>
 				<img id="state-indicator-img" class="hidden dark:invert" style="width:30px;height:30px" alt="" src="nosim.svg">
+				<span id="state-indicator-iccid" class="hidden ml-0.5 text-xs font-mono text-gray-500 dark:text-slate-400 whitespace-nowrap"></span>
 				<span id="state-indicator-adm" class="hidden ml-0.5 text-xs font-mono" title=""></span>
 			</span>
 			<button id="install-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" style="display:none">INSTALL PWA [for offline use]</button>
@@ -1383,7 +1384,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.5.1';
+const SIMPLE_VERSION = '2.5.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4803,6 +4804,7 @@ let _pysimCardEquipped = false;
 let _pysimEquipping = false;
 let _pysimAdmVerified = null;      // null = no card session
 let _pysimCardIccid = null;        // EF.ICCID digits of the equipped card (null = unknown)
+let _pysimHeaderIccid = undefined; // last value rendered in the header indicator
 let _pysimAvailabilityTimer = null;
 
 function pysimAvailabilityState() {
@@ -4885,10 +4887,30 @@ function pysimUpdateAdmIndicator(status) {
 	el.setAttribute('title', t(verified ? 'ADM verified' : 'ADM not verified'));
 }
 
+// EF.ICCID digits of the equipped card, printed next to the card image
+// (hidden while there is no card session or the ICCID is unreadable).
+function pysimUpdateIccidIndicator(iccid) {
+	const el = document.getElementById('state-indicator-iccid');
+	if (!el) return;
+	const value = iccid || null;
+	if (value === _pysimHeaderIccid) return;
+	_pysimHeaderIccid = value;
+	if (!value) {
+		el.classList.add('hidden');
+		el.textContent = '';
+		return;
+	}
+	el.textContent = value;
+	el.classList.remove('hidden');
+}
+
 function pysimSetServerAvailable(available) {
 	if (_pysimServerAvailable === available) return;
 	_pysimServerAvailable = available;
-	if (available !== true) pysimUpdateAdmIndicator(null);
+	if (available !== true) {
+		pysimUpdateAdmIndicator(null);
+		pysimUpdateIccidIndicator(null);
+	}
 	pysimApplyAvailability();
 }
 
@@ -7886,6 +7908,7 @@ function pysimCardStateUpdate(status) {
 	_pysimEquipping = !!status.equipping;
 	_pysimCardIccid = status.connected ? (status.iccid || null) : null;
 	pysimUpdateAdmIndicator(status);
+	pysimUpdateIccidIndicator(_pysimCardIccid);
 	pysimApplyAvailability();
 	if (pysimProactiveSeqChanged(status.proactive_seq)
 		&& isViewVisible('tab-phone') && isViewVisible('phone-sub-phone')) {

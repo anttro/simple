@@ -24,6 +24,7 @@ function extractFunc(src, name) {
 let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\n'
 	+ 'var _pysimProactiveSeq = null;\nvar _pysimStkSig = null;\nvar _pysimAdmVerified = null;\n'
+	+ 'var _pysimHeaderIccid = undefined;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
@@ -31,6 +32,7 @@ code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimProactiveSeqChanged') + '\n';
 code += extractFunc(html, 'pysimStkStatusChanged') + '\n';
 code += extractFunc(html, 'pysimUpdateAdmIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += extractFunc(html, 'pysimSetServerAvailable') + '\n';
 code += '\nglobalThis.esc = s => s;\n';
 code += 'globalThis.t = s => s;\n';
@@ -54,16 +56,19 @@ function fakeIndicator() {
 function setup() {
 	const el = { textContent: 'status line', innerHTML: '' };
 	const adm = fakeIndicator();
+	const iccidEl = fakeIndicator();
 	const calls = { connected: [], resets: [], refreshStatus: [], proactive: 0, autoIccid: [] };
 	_pysimCardStateKey = null;
 	_pysimCardSession = null;
 	_pysimProactiveSeq = null;
 	_pysimAdmVerified = null;
+	_pysimHeaderIccid = undefined;
 	_pysimServerAvailable = null;
 	_cardsAutoIccid = null;
 	_pysimCardIccid = null;
 	globalThis.document = {
-		getElementById: id => id === 'state-indicator-adm' ? adm : el,
+		getElementById: id => id === 'state-indicator-adm' ? adm
+			: (id === 'state-indicator-iccid' ? iccidEl : el),
 		querySelectorAll: () => [],
 	};
 	globalThis.pysimSetConnected = v => calls.connected.push(v);
@@ -72,7 +77,7 @@ function setup() {
 	globalThis.isViewVisible = () => true;
 	globalThis.pysimProactiveLogRender = () => { calls.proactive++; };
 	globalThis.cardsAutoSelectByIccid = iccid => { calls.autoIccid.push(iccid); return -1; };
-	return { el, adm, calls };
+	return { el, adm, iccidEl, calls };
 }
 
 function status(extra) {
@@ -249,4 +254,19 @@ test('losing the server hides the ADM badge', () => {
 	assert.ok(!adm.classes.has('hidden'));
 	pysimSetServerAvailable(false);
 	assert.ok(adm.classes.has('hidden'));
+});
+
+test('the header indicator prints the equipped card ICCID', () => {
+	const { iccidEl } = setup();
+	pysimCardStateUpdate(status({ connected: true, card_present: true, card_session: 2, iccid: '89701450001700031958' }));
+	assert.strictEqual(iccidEl.textContent, '89701450001700031958');
+	assert.ok(!iccidEl.classes.has('hidden'));
+	// equipped but unreadable -> hidden again
+	pysimCardStateUpdate(status({ connected: true, card_present: true, card_session: 2, iccid: null }));
+	assert.strictEqual(iccidEl.textContent, '');
+	assert.ok(iccidEl.classes.has('hidden'));
+	// losing the server hides it too
+	pysimCardStateUpdate(status({ connected: true, card_present: true, card_session: 2, iccid: '89701450001700031958' }));
+	pysimSetServerAvailable(false);
+	assert.ok(iccidEl.classes.has('hidden'));
 });
