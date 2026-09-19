@@ -919,7 +919,7 @@
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="STATUS and Polling">STATUS and Polling</legend>
 					<div class="flex items-center gap-2">
-						<button id="pli-status-btn" data-needs="card" onclick="pysimStatusPoll()" class="px-2.5 py-1 text-sm rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send STATUS">Send STATUS</button>
+						<button id="pli-status-btn" data-needs="card" onclick="pysimStatusPoll()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send STATUS">Send STATUS</button>
 						<span class="text-xs text-gray-500 dark:text-slate-400">|</span>
 						<span class="text-xs text-gray-500 dark:text-slate-400" data-l10n="Polling">Polling</span>
 						<button id="pli-pause-btn" data-needs="server" onclick="pysimPollToggle()" class="px-2.5 py-1 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed">OFF</button>
@@ -929,10 +929,10 @@
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TERMINAL PROFILE">TERMINAL PROFILE</legend>
 					<div class="flex items-center gap-2">
-						<button id="tp-send-btn" data-needs="card" onclick="tpSend()" class="px-2.5 py-1 text-sm rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
+						<button id="tp-send-btn" data-needs="card" onclick="tpSend()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
 						<button id="tp-configure-btn" data-needs="server" onclick="tpOpen()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Configure">Configure</button>
-						<span id="tp-status" class="text-xs text-gray-400 dark:text-slate-500"></span>
 					</div>
+					<div id="tp-status" class="text-xs mt-1 text-gray-400 dark:text-slate-500"></div>
 				</fieldset>
 				<fieldset class="flex-1 min-w-0 border border-gray-200 dark:border-slate-700 rounded p-3">
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Events that the card monitors (SET UP EVENT LIST):">Events that the card monitors (SET UP EVENT LIST):</legend>
@@ -7617,7 +7617,7 @@ function tpStatusMsg(text, cls) {
 	const el = document.getElementById('tp-status');
 	if (!el) return;
 	el.textContent = text || '';
-	el.className = 'text-xs ' + (cls || 'text-gray-400 dark:text-slate-500');
+	el.className = 'text-xs mt-1 ' + (cls || 'text-gray-400 dark:text-slate-500');
 }
 
 async function tpRefresh() {

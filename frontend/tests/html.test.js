@@ -217,6 +217,15 @@ test('phone simulator has the network-simulation fieldset', () => {
     assert.match(html, /data-needs="card" onclick="netSimRun\('service_lost'\)"/);
 });
 
+test('phone simulator action buttons are green and the TP status sits below them', () => {
+    assert.match(html, /id="tp-send-btn"[^>]*bg-emerald-600/);
+    assert.match(html, /id="pli-status-btn"[^>]*bg-emerald-600/);
+    // #tp-status is outside the button row (the row's </div> comes after
+    // the last button and before the status element)
+    const block = html.slice(html.indexOf('id="tp-send-btn"'), html.indexOf('id="tp-status"'));
+    assert.ok(block.lastIndexOf('</div>') > block.lastIndexOf('</button>'));
+});
+
 test('SCP81 listener exposes its four modes with the matching notes', () => {
     for (const v of ['tls', 'redirect', 'passthru', 'dump']) {
         assert.ok(html.includes('value="' + v + '"'), v);
