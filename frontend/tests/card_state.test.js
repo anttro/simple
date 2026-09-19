@@ -24,7 +24,8 @@ function extractFunc(src, name) {
 let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\n'
 	+ 'var _pysimProactiveSeq = null;\nvar _pysimStkSig = null;\nvar _pysimAdmVerified = null;\n'
-	+ 'var _pysimHeaderIccid = undefined;\n'
+	+ 'var _pysimAdmKey = null;\n'
+	+ 'var _pysimHeaderIccid = undefined;\nvar _pysimHeaderScp80 = undefined;\nvar _pysimHeaderScp81 = undefined;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
@@ -33,6 +34,12 @@ code += extractFunc(html, 'pysimProactiveSeqChanged') + '\n';
 code += extractFunc(html, 'pysimStkStatusChanged') + '\n';
 code += extractFunc(html, 'pysimUpdateAdmIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
+code += extractFunc(html, 'cardsMatchedPreset') + '\n';
+code += extractFunc(html, 'cardsAdmPresent') + '\n';
+code += extractFunc(html, 'cardsScp80Complete') + '\n';
+code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'pysimSetServerAvailable') + '\n';
 code += '\nglobalThis.esc = s => s;\n';
 code += 'globalThis.t = s => s;\n';
@@ -57,27 +64,36 @@ function setup() {
 	const el = { textContent: 'status line', innerHTML: '' };
 	const adm = fakeIndicator();
 	const iccidEl = fakeIndicator();
+	const scp80El = fakeIndicator();
+	const scp81El = fakeIndicator();
 	const calls = { connected: [], resets: [], refreshStatus: [], proactive: 0, autoIccid: [] };
 	_pysimCardStateKey = null;
 	_pysimCardSession = null;
 	_pysimProactiveSeq = null;
 	_pysimAdmVerified = null;
+	_pysimAdmKey = null;
 	_pysimHeaderIccid = undefined;
+	_pysimHeaderScp80 = undefined;
+	_pysimHeaderScp81 = undefined;
 	_pysimServerAvailable = null;
 	_cardsAutoIccid = null;
 	_pysimCardIccid = null;
 	globalThis.document = {
 		getElementById: id => id === 'state-indicator-adm' ? adm
-			: (id === 'state-indicator-iccid' ? iccidEl : el),
+			: (id === 'state-indicator-iccid' ? iccidEl
+			: (id === 'state-indicator-scp80' ? scp80El
+			: (id === 'state-indicator-scp81' ? scp81El : el))),
 		querySelectorAll: () => [],
 	};
+	globalThis.cards = [];
+	globalThis.cardsFindByIccid = () => -1;
 	globalThis.pysimSetConnected = v => calls.connected.push(v);
 	globalThis.pysimResetCardData = refresh => calls.resets.push(refresh);
 	globalThis.pysimApplyAvailability = () => {};
 	globalThis.isViewVisible = () => true;
 	globalThis.pysimProactiveLogRender = () => { calls.proactive++; };
 	globalThis.cardsAutoSelectByIccid = iccid => { calls.autoIccid.push(iccid); return -1; };
-	return { el, adm, iccidEl, calls };
+	return { el, adm, iccidEl, scp80El, scp81El, calls };
 }
 
 function status(extra) {
@@ -229,7 +245,7 @@ test('the header ADM badge shows verified / not verified / hidden', () => {
 	assert.strictEqual(adm.textContent, 'ADM ✓');
 	assert.ok(adm.classes.has('text-emerald-600'));
 	assert.ok(adm.classes.has('dark:text-emerald-400'));
-	assert.strictEqual(adm.title, 'ADM verified');
+	assert.strictEqual(adm.title, 'Verified — no ADM key in the card preset');
 	// an unchanged state must not rewrite the badge
 	adm.textContent = '';
 	pysimCardStateUpdate(status({ connected: true, adm_verified: true }));
@@ -239,7 +255,7 @@ test('the header ADM badge shows verified / not verified / hidden', () => {
 	assert.strictEqual(adm.textContent, 'ADM ✗');
 	assert.ok(adm.classes.has('text-red-500'));
 	assert.ok(!adm.classes.has('text-emerald-600'));
-	assert.strictEqual(adm.title, 'ADM not verified');
+	assert.strictEqual(adm.title, 'No ADM key in the card preset — not verified');
 	// no card session hides it
 	pysimCardStateUpdate(status({ connected: false }));
 	assert.ok(adm.classes.has('hidden'));
@@ -248,12 +264,60 @@ test('the header ADM badge shows verified / not verified / hidden', () => {
 	assert.deepStrictEqual(calls.connected, [true, false]);
 });
 
-test('losing the server hides the ADM badge', () => {
+test('the ADM badge marks an ADM key in the matching preset', () => {
 	const { adm } = setup();
-	pysimCardStateUpdate(status({ connected: true, adm_verified: true }));
+	const st = extra => status(Object.assign({ connected: true, iccid: '89701450001700031958' }, extra));
+	globalThis.cards = [{ name: 'C', adm: '0011' }];
+	globalThis.cardsFindByIccid = () => 0;
+	pysimCardStateUpdate(st({ adm_verified: true }));
+	assert.strictEqual(adm.textContent, 'ADM ✓ ⚿');
+	assert.strictEqual(adm.title, 'ADM key in the card preset — verified');
+	// key present, verification lost (e.g. card reset)
+	pysimCardStateUpdate(st({ adm_verified: false }));
+	assert.strictEqual(adm.textContent, 'ADM ✗ ⚿');
+	assert.strictEqual(adm.title, 'ADM key in the card preset — not verified');
+	// verified manually, preset has no ADM -> no key glyph
+	globalThis.cards = [];
+	pysimCardStateUpdate(st({ adm_verified: true }));
+	assert.strictEqual(adm.textContent, 'ADM ✓');
+	assert.strictEqual(adm.title, 'Verified — no ADM key in the card preset');
+	// whitespace-only preset ADM counts as absent
+	globalThis.cards = [{ name: 'C', adm: '   ' }];
+	globalThis.cardsFindByIccid = () => 0;
+	pysimCardStateUpdate(st({ adm_verified: true }));
+	assert.strictEqual(adm.textContent, 'ADM ✓');
+});
+
+test('the header SCP80/SCP81 markers follow the matching preset', () => {
+	const { scp80El, scp81El } = setup();
+	globalThis.cards = [{ name: 'C', kic: '15', kid: '15', spi1: '16', spi2: '01',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cardsFindByIccid = () => 0;
+	pysimCardStateUpdate(status({ connected: true, card_session: 2, iccid: '89701450001700031958' }));
+	assert.strictEqual(scp80El.textContent, 'SCP80');
+	assert.strictEqual(scp81El.textContent, 'SCP81');
+	assert.ok(!scp80El.classes.has('hidden'));
+	assert.ok(!scp81El.classes.has('hidden'));
+	// disconnect hides them again
+	pysimCardStateUpdate(status({ connected: false, card_present: false, card_session: 3 }));
+	assert.ok(scp80El.classes.has('hidden'));
+	assert.ok(scp81El.classes.has('hidden'));
+	assert.strictEqual(scp80El.textContent, '');
+});
+
+test('losing the server hides the ADM badge and the preset markers', () => {
+	const { adm, scp80El, scp81El } = setup();
+	globalThis.cards = [{ name: 'C', adm: '0011', kic: '15', kid: '15', spi1: '16', spi2: '01',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cardsFindByIccid = () => 0;
+	pysimCardStateUpdate(status({ connected: true, adm_verified: true, iccid: '89701450001700031958' }));
 	assert.ok(!adm.classes.has('hidden'));
+	assert.ok(!scp80El.classes.has('hidden'));
+	assert.ok(!scp81El.classes.has('hidden'));
 	pysimSetServerAvailable(false);
 	assert.ok(adm.classes.has('hidden'));
+	assert.ok(scp80El.classes.has('hidden'));
+	assert.ok(scp81El.classes.has('hidden'));
 });
 
 test('the header indicator prints the equipped card ICCID', () => {

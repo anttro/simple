@@ -24,6 +24,7 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEdit',
 	'cardsAdd', 'cardsImport', 'cardsApply', 'ramApplyCard',
+	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
 	'spTarKeyForPack', 'spPresetTar', 'packToSp']) {
 	code += extractFunc(html, fn) + '\n';
 }
@@ -83,6 +84,26 @@ test('cardsTarValue falls back to the per-target spec defaults', () => {
 	assert.strictEqual(cardsTarValue('uiccTar', ''), 'B00000');
 	assert.strictEqual(cardsTarValue('usimTar', null), 'B00001');
 	assert.strictEqual(cardsTarValue('nope', ''), '');
+});
+
+test('preset completeness predicates used by the header markers', () => {
+	const full = { kic: '15', kid: '15', spi1: '16', spi2: '01', cntr: '0000000001',
+		kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY', adm: '0011' };
+	assert.ok(cardsScp80Complete(full));
+	assert.ok(cardsScp81Complete(full));
+	assert.ok(cardsAdmPresent(full));
+	// every SCP80 field is required; whitespace counts as empty
+	for (const field of ['kic', 'kid', 'spi1', 'spi2', 'cntr', 'kicKey', 'kidKey']) {
+		const c = Object.assign({}, full);
+		c[field] = '   ';
+		assert.ok(!cardsScp80Complete(c), 'SCP80 marked complete with empty ' + field);
+	}
+	assert.ok(!cardsScp81Complete({ pskIdentity: 'id' }));
+	assert.ok(!cardsScp81Complete({ pskKey: 'KEY' }));
+	assert.ok(!cardsScp80Complete(null));
+	assert.ok(!cardsScp81Complete(null));
+	assert.ok(!cardsAdmPresent(null));
+	assert.ok(!cardsAdmPresent({ adm: ' ' }));
 });
 
 test('clearing the card form keeps the TAR spec defaults', () => {

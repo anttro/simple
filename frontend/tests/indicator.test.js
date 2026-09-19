@@ -21,13 +21,18 @@ function extractFunc(src, name) {
 	return src.slice(m.index, i + 1);
 }
 
-let code = 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\nvar _pysimEquipping = false;\nvar _pysimCardIccid = null;\nvar _pysimHeaderIccid = undefined;\n';
+let code = 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\nvar _pysimEquipping = false;\nvar _pysimCardIccid = null;\nvar _pysimHeaderIccid = undefined;\nvar _pysimHeaderScp80 = undefined;\nvar _pysimHeaderScp81 = undefined;\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimNeedsHint') + '\n';
 code += extractFunc(html, 'pysimApplyAvailability') + '\n';
 code += extractFunc(html, 'pysimUpdateStateIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
+code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
+code += extractFunc(html, 'cardsScp80Complete') + '\n';
+code += extractFunc(html, 'cardsScp81Complete') + '\n';
+code += extractFunc(html, 'cardsMatchedPreset') + '\n';
 code += 'globalThis.t = s => s;\n';
 eval(code);
 
@@ -53,6 +58,8 @@ function setup() {
 		'state-indicator-dot': fakeEl(),
 		'state-indicator-img': fakeEl(),
 		'state-indicator-iccid': fakeEl(),
+		'state-indicator-scp80': fakeEl(),
+		'state-indicator-scp81': fakeEl(),
 	};
 	els['state-indicator-img'].src = '';
 	globalThis.document = { getElementById: id => els[id] || null, querySelectorAll: () => [] };
@@ -61,6 +68,10 @@ function setup() {
 	_pysimEquipping = false;
 	_pysimCardIccid = null;
 	_pysimHeaderIccid = undefined;
+	_pysimHeaderScp80 = undefined;
+	_pysimHeaderScp81 = undefined;
+	globalThis.cards = [];
+	globalThis.cardsFindByIccid = () => -1;
 	return els;
 }
 
@@ -145,9 +156,44 @@ test('header prints the equipped card ICCID next to the card image', () => {
 	pysimUpdateIccidIndicator(null);
 	assert.strictEqual(el.textContent, '');
 	assert.ok(el.classes.has('hidden'));
-	// markup order: image, ICCID, ADM badge
+	// markup order: image, ICCID, ADM badge, SCP80, SCP81
 	assert.ok(html.indexOf('id="state-indicator-img"') < html.indexOf('id="state-indicator-iccid"'));
 	assert.ok(html.indexOf('id="state-indicator-iccid"') < html.indexOf('id="state-indicator-adm"'));
+	assert.ok(html.indexOf('id="state-indicator-adm"') < html.indexOf('id="state-indicator-scp80"'));
+	assert.ok(html.indexOf('id="state-indicator-scp80"') < html.indexOf('id="state-indicator-scp81"'));
+});
+
+test('SCP80/SCP81 markers follow the matching preset completeness', () => {
+	const els = setup();
+	globalThis.cards = [{ name: 'C', kic: '15', kid: '15', spi1: '16', spi2: '01',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cardsFindByIccid = () => 0;
+	_pysimCardIccid = '89701450001700031958';
+	pysimUpdatePresetIndicators();
+	const e80 = els['state-indicator-scp80'];
+	const e81 = els['state-indicator-scp81'];
+	assert.strictEqual(e80.textContent, 'SCP80');
+	assert.strictEqual(e81.textContent, 'SCP81');
+	assert.ok(!e80.classes.has('hidden'));
+	assert.ok(!e81.classes.has('hidden'));
+	assert.strictEqual(e80.attrs.title, 'SCP80 preset complete');
+	assert.strictEqual(e81.attrs.title, 'SCP81 preset complete');
+	// SCP80 incomplete (missing key) -> only the SCP81 marker stays
+	globalThis.cards[0].kicKey = '';
+	pysimUpdatePresetIndicators();
+	assert.ok(e80.classes.has('hidden'));
+	assert.strictEqual(e80.textContent, '');
+	assert.strictEqual(e80.attrs.title, undefined);
+	assert.ok(!e81.classes.has('hidden'));
+	// no matching preset -> both hidden
+	globalThis.cardsFindByIccid = () => -1;
+	pysimUpdatePresetIndicators();
+	assert.ok(e81.classes.has('hidden'));
+	// explicit null ICCID (no card / server lost) hides them
+	globalThis.cardsFindByIccid = () => 0;
+	pysimUpdatePresetIndicators(null);
+	assert.ok(e80.classes.has('hidden'));
+	assert.ok(e81.classes.has('hidden'));
 });
 
 test('card-iccid controls need an equipped card with a readable ICCID', () => {

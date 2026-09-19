@@ -25,6 +25,8 @@
 				<img id="state-indicator-img" class="hidden dark:invert" style="width:30px;height:30px" alt="" src="nosim.svg">
 				<span id="state-indicator-iccid" class="hidden ml-0.5 text-xs font-mono text-gray-500 dark:text-slate-400 whitespace-nowrap"></span>
 				<span id="state-indicator-adm" class="hidden ml-2 text-xs font-mono" title=""></span>
+				<span id="state-indicator-scp80" class="hidden ml-2 text-xs font-mono text-gray-500 dark:text-slate-400" title=""></span>
+				<span id="state-indicator-scp81" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400" title=""></span>
 			</span>
 			<button id="install-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" style="display:none">INSTALL PWA [for offline use]</button>
 			<a href="https://github.com/anttro/simple" target="_blank" class="text-xs text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300">github</a>
@@ -1398,7 +1400,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.6.0';
+const SIMPLE_VERSION = '2.6.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4841,8 +4843,11 @@ let _pysimServerAvailable = null;  // null until probed
 let _pysimCardEquipped = false;
 let _pysimEquipping = false;
 let _pysimAdmVerified = null;      // null = no card session
+let _pysimAdmKey = null;           // ADM key present in the matching preset
 let _pysimCardIccid = null;        // EF.ICCID digits of the equipped card (null = unknown)
 let _pysimHeaderIccid = undefined; // last value rendered in the header indicator
+let _pysimHeaderScp80 = undefined; // last SCP80/SCP81 marker state
+let _pysimHeaderScp81 = undefined;
 let _pysimAvailabilityTimer = null;
 
 function pysimAvailabilityState() {
@@ -4903,26 +4908,31 @@ function pysimApplyAvailability() {
 }
 
 // Compact ADM state next to the header's card indicator: "ADM ✓" when the
-// administrator PIN was verified (pySim rs.adm_verified), "ADM ✗" otherwise.
-// Hidden without a card session; only rewrites the DOM when the state changes
-// (the 2s /api/status poll calls this on every update).
+// administrator PIN was verified (pySim rs.adm_verified), "ADM ✗" otherwise;
+// a trailing key glyph (⚿) marks that the matching card preset carries an ADM
+// key. Hidden without a card session; only rewrites the DOM when the state
+// changes (the 2s /api/status poll calls this on every update).
 function pysimUpdateAdmIndicator(status) {
 	const el = document.getElementById('state-indicator-adm');
 	if (!el) return;
 	const verified = (status && status.connected) ? !!status.adm_verified : null;
-	if (verified === _pysimAdmVerified) return;
+	const key = verified === null ? null : cardsAdmPresent(cardsMatchedPreset());
+	if (verified === _pysimAdmVerified && key === _pysimAdmKey) return;
 	_pysimAdmVerified = verified;
+	_pysimAdmKey = key;
 	el.classList.remove('text-emerald-600', 'dark:text-emerald-400', 'text-red-500');
 	if (verified === null) {
 		el.classList.add('hidden');
 		el.removeAttribute('title');
 		return;
 	}
-	el.textContent = verified ? 'ADM ✓' : 'ADM ✗';
+	el.textContent = 'ADM ' + (verified ? '✓' : '✗') + (key ? ' ⚿' : '');
 	el.classList.remove('hidden');
 	el.classList.add(verified ? 'text-emerald-600' : 'text-red-500');
 	if (verified) el.classList.add('dark:text-emerald-400');
-	el.setAttribute('title', t(verified ? 'ADM verified' : 'ADM not verified'));
+	el.setAttribute('title', t(key
+		? (verified ? 'ADM key in the card preset — verified' : 'ADM key in the card preset — not verified')
+		: (verified ? 'Verified — no ADM key in the card preset' : 'No ADM key in the card preset — not verified')));
 }
 
 // EF.ICCID digits of the equipped card, printed next to the card image
@@ -4942,12 +4952,37 @@ function pysimUpdateIccidIndicator(iccid) {
 	el.classList.remove('hidden');
 }
 
+// Gray SCP80/SCP81 markers: shown only while the equipped card's ICCID matches
+// a preset with complete settings for that view; never color-coded.
+function pysimUpdatePresetIndicator(id, label, tip, show, prev) {
+	const el = document.getElementById(id);
+	if (!el) return prev;
+	if (show === prev) return prev;
+	if (show) {
+		el.textContent = label;
+		el.classList.remove('hidden');
+		el.setAttribute('title', t(tip));
+	} else {
+		el.textContent = '';
+		el.classList.add('hidden');
+		el.removeAttribute('title');
+	}
+	return show;
+}
+
+function pysimUpdatePresetIndicators(iccid) {
+	const c = cardsMatchedPreset(iccid);
+	_pysimHeaderScp80 = pysimUpdatePresetIndicator('state-indicator-scp80', 'SCP80', 'SCP80 preset complete', cardsScp80Complete(c), _pysimHeaderScp80);
+	_pysimHeaderScp81 = pysimUpdatePresetIndicator('state-indicator-scp81', 'SCP81', 'SCP81 preset complete', cardsScp81Complete(c), _pysimHeaderScp81);
+}
+
 function pysimSetServerAvailable(available) {
 	if (_pysimServerAvailable === available) return;
 	_pysimServerAvailable = available;
 	if (available !== true) {
 		pysimUpdateAdmIndicator(null);
 		pysimUpdateIccidIndicator(null);
+		pysimUpdatePresetIndicators(null);
 	}
 	pysimApplyAvailability();
 }
@@ -6262,7 +6297,7 @@ function cardsRender() {
 	for (let i = 0; i < cards.length; i++) {
 		const c = cards[i];
 		let ota = '<span class="text-gray-400">—</span>';
-		if (c.pskKey && c.pskIdentity) {
+		if (cardsScp81Complete(c)) {
 			ota = '<span class="text-emerald-600 dark:text-emerald-400" title="' + esc(c.pskIdentity) + '">✓</span>';
 		} else if (c.pskKey || c.pskIdentity) {
 			ota = '<span class="text-amber-500" title="' + esc(t('PSK identity and PSK key must be set together')) + '">⚠</span>';
@@ -6315,6 +6350,29 @@ function cardsFindByIccid(iccid) {
 	const norm = cardsNormIccid(iccid);
 	if (!norm) return -1;
 	return cards.findIndex(c => cardsNormIccid(c.iccid) === norm);
+}
+
+// Completeness predicates used by the header indicators: SCP80 needs all
+// SPI/keys/counter fields, SCP81 the PSK pair; the ADM key is optional.
+function cardsScp80Complete(c) {
+	return !!(c && String(c.kic || '').trim() && String(c.kid || '').trim()
+		&& String(c.spi1 || '').trim() && String(c.spi2 || '').trim()
+		&& String(c.cntr || '').trim() && String(c.kicKey || '').trim() && String(c.kidKey || '').trim());
+}
+
+function cardsScp81Complete(c) {
+	return !!(c && String(c.pskIdentity || '').trim() && String(c.pskKey || '').trim());
+}
+
+function cardsAdmPresent(c) {
+	return !!(c && String(c.adm || '').trim());
+}
+
+// The preset whose ICCID matches the equipped card (null when none/unreadable).
+function cardsMatchedPreset(iccid) {
+	const value = iccid === undefined ? _pysimCardIccid : iccid;
+	const idx = value ? cardsFindByIccid(value) : -1;
+	return idx >= 0 ? cards[idx] : null;
 }
 
 function cardsFindDuplicateIccid(iccid, skipIdx) {
@@ -7973,6 +8031,7 @@ function pysimCardStateUpdate(status) {
 	_pysimCardIccid = status.connected ? (status.iccid || null) : null;
 	pysimUpdateAdmIndicator(status);
 	pysimUpdateIccidIndicator(_pysimCardIccid);
+	pysimUpdatePresetIndicators(_pysimCardIccid);
 	pysimApplyAvailability();
 	if (pysimProactiveSeqChanged(status.proactive_seq)
 		&& isViewVisible('tab-phone') && isViewVisible('phone-sub-phone')) {
@@ -13051,6 +13110,12 @@ const LANG_RU = {
 	'Show link events (Channel status ENVELOPEs, TS 102 223 7.5.11)': 'Показывать события канала (ENVELOPE Channel status, TS 102 223 7.5.11)',
 	'ADM verified': 'ADM подтверждён',
 	'ADM not verified': 'ADM не подтверждён',
+	'ADM key in the card preset — verified': 'Ключ ADM в предустановке — подтверждён',
+	'ADM key in the card preset — not verified': 'Ключ ADM в предустановке — не подтверждён',
+	'Verified — no ADM key in the card preset': 'Подтверждён — ключа ADM в предустановке нет',
+	'No ADM key in the card preset — not verified': 'Ключа ADM в предустановке нет — не подтверждён',
+	'SCP80 preset complete': 'Предустановка SCP80 заполнена',
+	'SCP81 preset complete': 'Предустановка SCP81 заполнена',
 	'TERMINAL PROFILE': 'TERMINAL PROFILE',
 	'Preset (device model)': 'Пресет (модель устройства)',
 	'Profile (hex)': 'Профиль (hex)',
