@@ -1305,7 +1305,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.3.1';
+const SIMPLE_VERSION = '2.4.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6838,19 +6838,19 @@ async function pysimFsRead() {
 	const out = document.getElementById('pysim-fs-content');
 	const statusEl = document.getElementById('pysim-fs-status');
 	out.innerHTML = '';
-	statusEl.textContent = 'Loading...';
+	statusEl.textContent = t('Loading...');
 	try {
 		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
 		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
-		body.mode = pysimFsDecodedMode ? 'decoded' : 'raw';
+		body.mode = 'raw';   // decoding is client-side (works offline in snapshots too)
 		const data = await pysimFetch('/api/read', body);
 		if (!data.success) {
 			statusEl.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error');
 			return;
 		}
 		statusEl.textContent = 'SW: ' + data.sw + ' OK';
-		if (data.decoded) {
-			out.innerHTML = '<pre class="text-xs leading-relaxed">' + esc(JSON.stringify(data.decoded, null, 2)) + '</pre>';
+		if (pysimFsDecodedMode) {
+			out.innerHTML = pysimFsDecodedHtml(node || { name: rawName, fid: null }, data);
 		} else if (data.records) {
 			let html = '';
 			for (const r of data.records) {
@@ -6866,6 +6866,59 @@ async function pysimFsRead() {
 		}
 	} catch (e) {
 		statusEl.textContent = 'Error: ' + e.message;
+	}
+}
+
+// Decoded view of a read result: label/value fields from the client-side EF
+// decoders, with the server-side pySim JSON behind a disclosure.
+function pysimFsDecodedHtml(node, data) {
+	const name = (node && node.name) || null;
+	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected || '') ? pysimFsSelected : null);
+	const content = data.records ? { kind: 'record', records: data.records } : { kind: 'transparent', data: data.data };
+	const dec = efDecodeFile(node && node.name, fid, content);
+	let html = '';
+	if (!dec || !dec.fn) {
+		html += '<div class="text-xs text-yellow-600 dark:text-yellow-500 mb-1">' + esc(t('No decoder for this file')) + ' — ' + esc(t('showing raw data')) + '</div>';
+		if (data.records) {
+			for (const r of data.records) {
+				html += '<div class="flex items-center gap-1 mb-1"><span class="text-xs w-8 text-gray-500 dark:text-slate-400 shrink-0">' + r.num + '</span>' +
+					'<input class="flex-1 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-800" value="' + esc(r.data) + '" readonly></div>';
+			}
+		} else {
+			html += '<textarea rows="8" readonly class="w-full font-mono text-xs border-0 bg-transparent resize-none">' + esc(data.data || '') + '</textarea>';
+		}
+		return html;
+	}
+	if (dec.records) {
+		for (const r of dec.records) {
+			html += '<div class="mb-2">' +
+				'<div class="text-xs text-gray-500 dark:text-slate-400">' + esc(t('Record')) + ' ' + r.num + (r.empty ? ' — ' + esc(t('empty')) : '') + '</div>' +
+				efRenderFieldsHtml(efFlatten(r.data)) + '</div>';
+		}
+	} else {
+		if (dec.empty) html += '<div class="text-xs text-gray-500 dark:text-slate-400 mb-1">' + esc(t('empty')) + '</div>';
+		html += efRenderFieldsHtml(efFlatten(dec.data));
+	}
+	html += '<details class="mt-2" ontoggle="if (this.open) pysimFsLoadPySimJson()"><summary class="text-xs text-gray-400 dark:text-slate-500 cursor-pointer">' + esc(t('pySim JSON (server)')) + '</summary>' +
+		'<div id="pysim-fs-pysim-json" class="text-xs font-mono mt-1 text-gray-600 dark:text-slate-400 break-all"></div></details>';
+	return html;
+}
+
+async function pysimFsLoadPySimJson() {
+	const el = document.getElementById('pysim-fs-pysim-json');
+	if (!el) return;
+	el.textContent = t('Loading...');
+	try {
+		const rawName = pysimFsSelected;
+		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
+		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+		body.mode = 'decoded';
+		const data = await pysimFetch('/api/read', body);
+		if (data && data.decoded) el.textContent = JSON.stringify(data.decoded, null, 1);
+		else if (data && data.data) el.textContent = data.data;
+		else el.textContent = (data && data.error) || t('No response yet');
+	} catch (e) {
+		el.textContent = 'Error: ' + e.message;
 	}
 }
 
@@ -6966,6 +7019,9 @@ function pysimFsSetMode(mode) {
 		el.classList.toggle('text-gray-700', !active);
 		el.classList.toggle('dark:text-slate-300', !active);
 	});
+	// Re-render the open file in the new mode (not while editing: that would
+	// discard unsaved changes).
+	if (pysimFsSelected && !pysimFsEditMode) pysimFsRead();
 }
 
 function pysimFsResetEdit() {
@@ -10387,6 +10443,7 @@ function profilerRenderSnapshotFiles(s) {
 				'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(f.fciHex) + '</div></div>';
 			html += '</div>';
 		}
+		const dec = f.content ? efDecodeFile(f.name, efFidFromPath(f.path), f.content) : null;
 		html += '<div class="text-xs text-gray-500 dark:text-slate-400 mt-1 mb-0.5">' + esc(t('Contents')) + '</div>';
 		if (!f.content) {
 			html += '<div class="text-xs text-gray-400 dark:text-slate-500">' + esc(t('Not captured')) + '</div>';
@@ -10397,10 +10454,16 @@ function profilerRenderSnapshotFiles(s) {
 					'<input readonly value="' + escHtml(rec.data) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">' +
 					(rec.ms !== undefined ? '<span class="text-xs text-gray-400 w-16 text-right shrink-0">' + esc(profilerFormatMs(rec.ms)) + '</span>' : '') +
 					'</div>';
+				const dr = dec && dec.records ? dec.records.find(x => x.num === rec.num) : null;
+				const sum = dr && !dr.empty ? efDataSummary(dr.data) : '';
+				if (sum) html += '<div class="text-xs text-gray-500 dark:text-slate-400 ml-10">' + esc(sum) + '</div>';
 			}
 			html += '</div>';
 		} else {
 			html += '<input readonly value="' + escHtml(f.content.data || '') + '" class="w-full min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">';
+			if (dec && dec.data && !dec.empty) {
+				html += '<div class="mt-1"><div class="text-xs text-gray-500 dark:text-slate-400 mb-0.5">' + esc(t('Decoded')) + '</div>' + efRenderFieldsHtml(efFlatten(dec.data)) + '</div>';
+			}
 		}
 		html += '</div>';
 	}
@@ -11309,14 +11372,29 @@ function profilerRenderReport(results, labels) {
 			if (c.label === 'extra file') {
 				html += '<div class="text-xs text-red-600 mt-1">' + esc(t('extra file')) + '</div>';
 			} else if (profilerRawDataCheck(c)) {
+				const isContent = c.label === 'content' || /^content\.rec\d+$/.test(c.label);
+				const dd = isContent && typeof efContentDiff === 'function'
+					? efContentDiff(r.name, efFidFromPath(r.path), String(c.expected), String(c.actual)) : null;
 				html += '<div class="mt-1">';
 				html += '<div class="text-xs text-red-600 font-mono pl-2">' + esc(c.label) + '</div>';
-				html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
-					'<span class="' + labelCls + '">' + esc(expLabel) + '</span>' +
-					'<input readonly title="' + escHtml(String(c.expected)) + '" value="' + escHtml(String(c.expected)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
-				html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
-					'<span class="' + labelCls + '">' + esc(actLabel) + '</span>' +
-					'<input readonly title="' + escHtml(String(c.actual)) + '" value="' + escHtml(String(c.actual)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
+				if (dd && dd.rows.length) {
+					html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Decoded comparison')) + ' — ' + esc(expLabel) + ' | ' + esc(actLabel) + '</div>';
+					for (const [label, ev, av] of dd.rows) {
+						html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+							'<span class="' + labelCls + '">' + esc(label) + '</span>' +
+							'<input readonly title="' + escHtml(expLabel) + '" value="' + escHtml(ev) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">' +
+							'<input readonly title="' + escHtml(actLabel) + '" value="' + escHtml(av) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">' +
+							'</div>';
+					}
+				} else {
+					if (dd && dd.sameDecoded) html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2">' + esc(t('Decoded values match; raw bytes differ')) + '</div>';
+					html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+						'<span class="' + labelCls + '">' + esc(expLabel) + '</span>' +
+						'<input readonly title="' + escHtml(String(c.expected)) + '" value="' + escHtml(String(c.expected)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
+					html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+						'<span class="' + labelCls + '">' + esc(actLabel) + '</span>' +
+						'<input readonly title="' + escHtml(String(c.actual)) + '" value="' + escHtml(String(c.actual)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
+				}
 				if (c.label === 'fci') html += fcpDiffHtml(String(c.expected), String(c.actual), labels);
 				html += '</div>';
 			} else {
@@ -11342,6 +11420,820 @@ document.querySelectorAll('.pysim-subtab').forEach(btn => {
 	btn.addEventListener('click', () => pysimSwitchSubtab(btn.dataset.pysimSub));
 });
 window.addEventListener('resize', pysimFsFitTree);
+
+const EF_UST_SERVICES = {1: "Local Phone Book", 2: "Fixed Dialling Numbers (FDN)", 3: "Extension 2", 4: "Service Dialling Numbers (SDN)", 5: "Extension3", 6: "Barred Dialling Numbers (BDN)", 7: "Extension4", 8: "Outgoing Call Information (OCI and OCT)", 9: "Incoming Call Information (ICI and ICT)", 10: "Short Message Storage (SMS)", 11: "Short Message Status Reports (SMSR)", 12: "Short Message Service Parameters (SMSP)", 13: "Advice of Charge (AoC)", 14: "Capability Configuration Parameters 2 (CCP2)", 15: "Cell Broadcast Message Identifier", 16: "Cell Broadcast Message Identifier Ranges", 17: "Group Identifier Level 1", 18: "Group Identifier Level 2", 19: "Service Provider Name", 20: "User controlled PLMN selector with Access Technology", 21: "MSISDN", 22: "Image (IMG)", 23: "Support of Localised Service Areas (SoLSA)", 24: "Enhanced Multi-Level Precedence and Pre-emption Service", 25: "Automatic Answer for eMLPP", 26: "RFU", 27: "GSM Access", 28: "Data download via SMS-PP", 29: "Data download via SMS-CB", 30: "Call Control by USIM", 31: "MO-SMS Control by USIM", 32: "RUN AT COMMAND command", 33: "shall be set to 1", 34: "Enabled Services Table", 35: "APN Control List (ACL)", 36: "Depersonalisation Control Keys", 37: "Co-operative Network List", 38: "GSM security context", 39: "CPBCCH Information", 40: "Investigation Scan", 41: "MexE", 42: "Operator controlled PLMN selector with Access Technology", 43: "HPLMN selector with Access Technology", 44: "Extension 5", 45: "PLMN Network Name", 46: "Operator PLMN List", 47: "Mailbox Dialling Numbers", 48: "Message Waiting Indication Status", 49: "Call Forwarding Indication Status", 50: "Reserved and shall be ignored", 51: "Service Provider Display Information", 52: "Multimedia Messaging Service (MMS)", 53: "Extension 8", 54: "Call control on GPRS by USIM", 55: "MMS User Connectivity Parameters", 56: "Network's indication of alerting in the MS (NIA)", 57: "VGCS Group Identifier List (EFVGCS and EFVGCSS)", 58: "VBS Group Identifier List (EFVBS and EFVBSS)", 59: "Pseudonym", 60: "User Controlled PLMN selector for I-WLAN access", 61: "Operator Controlled PLMN selector for I-WLAN access", 62: "User controlled WSID list", 63: "Operator controlled WSID list", 64: "VGCS security", 65: "VBS security", 66: "WLAN Reauthentication Identity", 67: "Multimedia Messages Storage", 68: "Generic Bootstrapping Architecture (GBA)", 69: "MBMS security", 70: "Data download via USSD and USSD application mode", 71: "Equivalent HPLMN", 72: "Additional TERMINAL PROFILE after UICC activation", 73: "Equivalent HPLMN Presentation Indication", 74: "Last RPLMN Selection Indication", 75: "OMA BCAST Smart Card Profile", 76: "GBA-based Local Key Establishment Mechanism", 77: "Terminal Applications", 78: "Service Provider Name Icon", 79: "PLMN Network Name Icon", 80: "Connectivity Parameters for USIM IP connections", 81: "Home I-WLAN Specific Identifier List", 82: "I-WLAN Equivalent HPLMN Presentation Indication", 83: "I-WLAN HPLMN Priority Indication", 84: "I-WLAN Last Registered PLMN", 85: "EPS Mobility Management Information", 86: "Allowed CSG Lists and corresponding indications", 87: "Call control on EPS PDN connection by USIM", 88: "HPLMN Direct Access", 89: "eCall Data", 90: "Operator CSG Lists and corresponding indications", 91: "Support for SM-over-IP", 92: "Support of CSG Display Control", 93: "Communication Control for IMS by USIM", 94: "Extended Terminal Applications", 95: "Support of UICC access to IMS", 96: "Non-Access Stratum configuration by USIM", 97: "PWS configuration by USIM", 98: "RFU", 99: "URI support by UICC", 100: "Extended EARFCN support", 101: "ProSe", 102: "USAT Application Pairing", 103: "Media Type support", 104: "IMS call disconnection cause", 105: "URI support for MO SHORT MESSAGE CONTROL", 106: "ePDG configuration Information support", 107: "ePDG configuration Information configured", 108: "ACDC support", 109: "MCPTT", 110: "ePDG configuration Information for Emergency Service support", 111: "ePDG configuration Information for Emergency Service configured", 112: "eCall Data over IMS", 113: "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [12]", 114: "From Preferred", 115: "IMS configuration data", 116: "TV configuration", 117: "3GPP PS Data Off", 118: "3GPP PS Data Off Service List", 119: "V2X", 120: "XCAP Configuration Data", 121: "EARFCN list for MTC/NB-IOT UEs", 122: "5GS Mobility Management Information", 123: "5G Security Parameters", 124: "Subscription identifier privacy support", 125: "SUCI calculation by the USIM", 126: "UAC Access Identities support", 127: "Expect control plane-based Steering of Roaming information during initial registration in VPLMN", 128: "Call control on PDU Session by USIM", 129: "5GS Operator PLMN List", 130: "Support for SUPI of type NSI or GLI or GCI", 131: "3GPP PS Data Off separate Home and Roaming lists", 132: "Support for URSP by USIM", 133: "5G Security Parameters extended", 134: "MuD and MiD configuration data", 135: "Support for Trusted non-3GPP access networks by USIM", 136: "Support for multiple records of NAS security context storage for multiple registration", 137: "Pre-configured CAG information list", 138: "SOR-CMCI storage in USIM", 139: "5G ProSe", 140: "Storage of disaster roaming information in USIM", 141: "Pre-configured eDRX parameters", 142: "5G NSWO support", 143: "PWS configuration for SNPN in USIM", 144: "Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access", 145: "K_AUSF derivation configuration", 146: "Network Identifier for SNPN (NID)"};
+const EF_SST_SERVICES = {1: "CHV1 disable function", 2: "Abbreviated Dialling Numbers (ADN)", 3: "Fixed Dialling Numbers (FDN)", 4: "Short Message Storage (SMS)", 5: "Advice of Charge (AoC)", 6: "Capability Configuration Parameters (CCP)", 7: "PLMN selector", 8: "RFU", 9: "MSISDN", 10: "Extension1", 11: "Extension2", 12: "SMS Parameters", 13: "Last Number Dialled (LND)", 14: "Cell Broadcast Message Identifier", 15: "Group Identifier Level 1", 16: "Group Identifier Level 2", 17: "Service Provider Name", 18: "Service Dialling Numbers (SDN)", 19: "Extension3", 20: "RFU", 21: "VGCS Group Identifier List (EFVGCS and EFVGCSS)", 22: "VBS Group Identifier List (EFVBS and EFVBSS)", 23: "enhanced Multi-Level Precedence and Pre-emption Service", 24: "Automatic Answer for eMLPP", 25: "Data download via SMS-CB", 26: "Data download via SMS-PP", 27: "Menu selection", 28: "Call control", 29: "Proactive SIM", 30: "Cell Broadcast Message Identifier Ranges", 31: "Barred Dialling Numbers (BDN)", 32: "Extension4", 33: "De-personalization Control Keys", 34: "Co-operative Network List", 35: "Short Message Status Reports", 36: "Network's indication of alerting in the MS", 37: "Mobile Originated Short Message control by SIM", 38: "GPRS", 39: "Image (IMG)", 40: "SoLSA (Support of Local Service Area)", 41: "USSD string data object supported in Call Control", 42: "RUN AT COMMAND command", 43: "User controlled PLMN Selector with Access Technology", 44: "Operator controlled PLMN Selector with Access Technology", 45: "HPLMN Selector with Access Technology", 46: "CPBCCH Information", 47: "Investigation Scan", 48: "Extended Capability Configuration Parameters", 49: "MExE", 50: "Reserved and shall be ignored", 51: "PLMN Network Name", 52: "Operator PLMN List", 53: "Mailbox Dialling Numbers", 54: "Message Waiting Indication Status", 55: "Call Forwarding Indication Status", 56: "Service Provider Display Information", 57: "Multimedia Messaging Service (MMS)", 58: "Extension 8", 59: "MMS User Connectivity Parameters"};
+const EF_IST_SERVICES = {1: "P-CSCF address", 2: "Generic Bootstrapping Architecture (GBA)", 3: "HTTP Digest", 4: "GBA-based Local Key Establishment Mechanism", 5: "Support of P-CSCF discovery for IMS Local Break Out", 6: "Short Message Storage (SMS)", 7: "Short Message Status Reports (SMSR)", 8: "Support for SM-over-IP including data download via SMS-PP as defined in TS 31.111 [31]", 9: "Communication Control for IMS by ISIM", 10: "Support of UICC access to IMS", 11: "URI support by UICC", 12: "Media Type support", 13: "IMS call disconnection cause", 14: "URI support for MO SHORT MESSAGE CONTROL", 15: "MCPTT", 16: "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [31]", 17: "From Preferred", 18: "IMS configuration data", 19: "XCAP Configuration Data", 20: "WebRTC URI", 21: "MuD and MiD configuration data", 22: "IMS Data Channel indication"};
+const EF_PHASE_NAMES = {0: "phase 1", 2: "phase 2", 3: "phase 2 and higher"};
+
+// ===== EF content decoders (client-side, offline) =====
+// Decode the contents of common EFs for the file manager, the snapshot view,
+// profile-check results and snapshot comparison. Ported/adapted from
+// simtrace-analyser, which sourced the formats from the pinned specs
+// (TS 51.011, TS 31.102, TS 31.103, TS 102 221 Annex A, TS 24.008) and pySim;
+// pySim's server-side read_*_decoded stays available as a cross-check.
+// Decoders are pure functions over byte arrays returning plain objects;
+// efFlatten() turns a decoded object into [label, value] rows for display and
+// efDiffData() into per-field diff rows for the report.
+
+const EF_FIELD_LABELS = {
+	imsi: 'IMSI', iccid: 'ICCID', languages: 'Languages', name: 'Name', number: 'Number',
+	text: 'Text', title: 'Title', icon: 'Icon', mcc: 'MCC', mnc: 'MNC', lac: 'LAC',
+	tac: 'TAC', rac: 'RAC', tmsi: 'TMSI', p_tmsi: 'P-TMSI', guti: 'GUTI', ksi: 'KSI',
+	kc: 'Kc', acm_max: 'ACM max', apns: 'APNs', access_classes: 'Access classes',
+	op_mode: 'Operation mode', test_mode: 'Test mode', additional_info: 'Additional info',
+	mnc_length: 'MNC length', services: 'Services', plmns: 'PLMNs', applications: 'Applications',
+	aid: 'AID', label: 'Label', eap: 'EAP', message_ids: 'Message IDs', ranges: 'Ranges',
+	esc: 'Emergency category', param_indicators: 'Parameter indicators', tp_da: 'TP-DA',
+	sca: 'SCA', tp_pid: 'TP-PID', tp_dcs: 'TP-DCS', tp_vp: 'TP-VP', alpha: 'Alpha',
+	direction: 'Direction', status: 'Status', tpdu: 'TPDU', display_condition: 'Display condition',
+	rfu: 'RFU', ccp: 'CCP', ext: 'Extension', tag: 'Tag', hex: 'Hex', lac_range: 'LAC range',
+	pnn_record: 'PNN record', pnn_record_id: 'PNN record', mcc_mnc: 'MCC/MNC', full: 'Full name',
+	short: 'Short name', eap_types: 'EAP types', dfs: 'DFs', uplink_nas_count: 'Uplink NAS count',
+	downlink_nas_count: 'Downlink NAS count', nas_algorithms: 'NAS algorithms', k_asme: 'K-ASME',
+	ksi_asme: 'KSI-ASME', tmsi_time: 'TMSI time', lac_range_low: 'LAC range low',
+	lac_range_high: 'LAC range high', show_in_hplmn: 'Show in HPLMN', hide_in_oplmn: 'Hide in OPLMN',
+	location_update_status: 'Location update status', eps_update_status: 'EPS update status',
+	update_status: 'Update status', access_tech: 'Access technology', p_tmsi_signature: 'P-TMSI signature',
+};
+
+const EF_GSM7_EXT = { 0x0A: '\n', 0x14: '^', 0x28: '{', 0x29: '}', 0x2F: '\\', 0x3C: '[', 0x3D: '~', 0x3E: ']', 0x40: '|', 0x65: '\u20ac' };
+
+function efBytes(hex) {
+	const n = (hex || '').length >> 1;
+	const out = new Uint8Array(n);
+	for (let i = 0; i < n; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+	return out;
+}
+
+function efHex(b) {
+	let s = '';
+	for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, '0').toUpperCase();
+	return s;
+}
+
+function efSwapNibbles(hex) {
+	let s = '';
+	for (let i = 0; i + 1 < hex.length; i += 2) s += hex[i + 1] + hex[i];
+	return s;
+}
+
+function efAllFf(b) {
+	if (!b.length) return true;
+	for (let i = 0; i < b.length; i++) if (b[i] !== 0xFF) return false;
+	return true;
+}
+
+function efRstripFf(b) {
+	let end = b.length;
+	while (end > 0 && b[end - 1] === 0xFF) end--;
+	return b.subarray(0, end);
+}
+
+function efTlv(data) {
+	const out = [];
+	let i = 0;
+	while (i + 2 <= data.length) {
+		const tag = data[i]; i += 1;
+		let len = data[i]; i += 1;
+		if (len & 0x80) {
+			const n = len & 0x7F;
+			if (n === 0 || i + n > data.length) break;
+			len = 0;
+			for (let k = 0; k < n; k++) len = (len << 8) | data[i++];
+		}
+		if (i + len > data.length) break;
+		out.push({ tag: tag, value: data.slice(i, i + len) });
+		i += len;
+	}
+	return out;
+}
+
+function efUcs2Be(b) {
+	let end = b.length - (b.length % 2);
+	let s = '';
+	for (let i = 0; i + 1 < end; i += 2) {
+		const u = (b[i] << 8) | b[i + 1];
+		if (u === 0) break;
+		s += String.fromCharCode(u);
+	}
+	return s;
+}
+
+function efGsm7Octets(b) {
+	let s = '';
+	for (let i = 0; i < b.length; i++) {
+		const v = b[i];
+		if (v === 0xFF) continue;
+		s += v < GSM7_ALPHABET.length ? GSM7_ALPHABET[v] : '?';
+	}
+	return s;
+}
+
+// TS 102 221 Annex A / TS 24.008 text string (GsmOrUcs2 variants).
+function efAnnexA(b) {
+	if (!b.length || efAllFf(b)) return '';
+	const first = b[0];
+	if (first === 0x80) return efUcs2Be(b.subarray(1));
+	if (first === 0x90) {
+		let d = b.subarray(1);
+		for (let i = 0; i + 1 < d.length; i += 2) {
+			if (d[i] === 0 && d[i + 1] === 0) { d = d.subarray(0, i); break; }
+		}
+		return efUcs2Be(d);
+	}
+	if (first === 0x81 && b.length >= 3) {
+		const num = b[1], base = b[2] << 7;
+		let s = '';
+		for (let i = 0; i < num && 3 + i < b.length; i++) {
+			const ch = b[3 + i];
+			s += (ch & 0x80) ? String.fromCharCode((ch & 0x7F) + base)
+				: (ch < GSM7_ALPHABET.length ? GSM7_ALPHABET[ch] : '?');
+		}
+		return s;
+	}
+	if (first === 0x82 && b.length >= 4) {
+		const num = b[1], base = (b[2] << 8) | b[3];
+		let s = '';
+		for (let i = 0; i < num && 4 + i < b.length; i++) {
+			const ch = b[4 + i];
+			s += (ch & 0x80) ? String.fromCharCode((ch & 0x7F) + base)
+				: (ch < GSM7_ALPHABET.length ? GSM7_ALPHABET[ch] : '?');
+		}
+		return s;
+	}
+	if (first >= 0x83 && first <= 0x87) {
+		const d = efRstripFf(b.subarray(1));
+		return d.length ? gsm7Decode(d) : '';
+	}
+	if (first & 0x80) {
+		const u = b.slice();
+		u[0] &= 0x7F;
+		let end = u.length;
+		while (end >= 2 && u[end - 1] === 0xFF && u[end - 2] === 0xFF) end -= 2;
+		return efUcs2Be(u.subarray(0, end));
+	}
+	const d = efRstripFf(b);
+	let allLow = d.length > 0;
+	for (let i = 0; i < d.length; i++) if (d[i] >= 0x80) { allLow = false; break; }
+	return allLow ? efGsm7Octets(d) : gsm7Decode(d);
+}
+
+// [TON/NPI byte + BCD digits] -> dialling string.
+function efBcdAddress(data) {
+	if (!data.length) return '';
+	const ton = (data[0] >> 4) & 0x07;
+	const digits = [];
+	for (let i = 1; i < data.length; i++) {
+		const lo = data[i] & 0x0F, hi = (data[i] >> 4) & 0x0F;
+		if (lo <= 9) digits.push(String(lo)); else if (lo === 0x0F) break;
+		if (hi <= 9) digits.push(String(hi)); else if (hi === 0x0F) break;
+	}
+	const num = digits.join('');
+	return ton === 1 ? '+' + num : num;
+}
+
+// [length octet (counts the following octets) + TON/NPI + BCD digits],
+// as used by the SMSP TP-DA/SCA fields and TPDU addresses (TS 24.008).
+function efBcdAddressLen(data) {
+	if (data.length < 2) return '';
+	const n = data[0];
+	const ton = (data[1] >> 4) & 0x07;
+	const bcd = data.subarray(2, Math.min(data.length, 1 + n));
+	const digits = efSwapNibbles(efHex(bcd)).replace(/[fF]+$/, '');
+	return ton === 1 ? '+' + digits : digits;
+}
+
+// 3-byte PLMN (TS 24.008) -> {mcc, mnc}
+function efPlmn(b) {
+	if (b.length < 3) return null;
+	const h = efHex(b.subarray(0, 3));
+	const mcc = (h[1] + h[0] + h[3]).replace(/F+$/, '') || '0';
+	const mnc = (h[5] + h[4] + h[2]).replace(/F+$/, '') || '0';
+	return { mcc: mcc, mnc: mnc };
+}
+
+function efPlmnAct(u16) {
+	const techs = new Set();
+	if (u16 & 0x8000) techs.add('UTRAN');
+	if (u16 & 0x0800) techs.add('NG-RAN');
+	if (u16 & 0x0040) techs.add('GSM COMPACT');
+	if (u16 & 0x0020) techs.add('cdma2000 HRPD');
+	if (u16 & 0x0010) techs.add('cdma2000 1xRTT');
+	const e = u16 & 0x7000;
+	if (e === 0x4000 || e === 0x7000) { techs.add('E-UTRAN WB-S1'); techs.add('E-UTRAN NB-S1'); }
+	else if (e === 0x5000) techs.add('E-UTRAN NB-S1');
+	else if (e === 0x6000) techs.add('E-UTRAN WB-S1');
+	const g = u16 & 0x008C;
+	if (g === 0x0080 || g === 0x008C) { techs.add('GSM'); techs.add('EC-GSM-IoT'); }
+	else if (g === 0x0084) techs.add('GSM');
+	else if (g === 0x0086) techs.add('EC-GSM-IoT');
+	return [...techs].sort();
+}
+
+// TS 23.038 Network Name (DCS byte + text) from EF_PNN.
+function efPnnText(value) {
+	if (value.length < 2) return '';
+	const dcs = value[0];
+	const coding = (dcs >> 4) & 0x07;
+	let data = efRstripFf(value.subarray(1));
+	if (coding === 1) {
+		for (let i = 0; i + 1 < data.length; i += 2) {
+			if (data[i] === 0 && data[i + 1] === 0) { data = data.subarray(0, i); break; }
+		}
+		return efUcs2Be(data);
+	}
+	if (coding === 0) {
+		let allLow = data.length > 0;
+		for (let i = 0; i < data.length; i++) if (data[i] >= 0x80) { allLow = false; break; }
+		return allLow ? efGsm7Octets(data) : gsm7Decode(data);
+	}
+	return '';
+}
+
+// ---- decoders ----
+
+function efDecIccid(b) {
+	if (efAllFf(b)) return { empty: true };
+	const digits = efSwapNibbles(efHex(b)).replace(/[fF]+$/, '');
+	return { iccid: digits || null };
+}
+
+function efDecImsi(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length <= 2) return efDecServiceTable(b, EF_IST_SERVICES);   // 6F07 is also EF.IST
+	const digits = efSwapNibbles(efHex(b.subarray(1))).replace(/[fF]+$/, '');
+	// First nibble is the mobile-identity type + parity indicator (TS 24.008).
+	return { imsi: digits.slice(1) || null };
+}
+
+function efDecLi(b) {
+	const codes = [];
+	for (let i = 0; i + 1 < b.length; i += 2) {
+		if (b[i] === 0xFF && b[i + 1] === 0xFF) continue;
+		try {
+			const c = String.fromCharCode(b[i]) + String.fromCharCode(b[i + 1]);
+			if (/^[A-Za-z]{2}$/.test(c)) codes.push(c);
+		} catch (e) {}
+	}
+	return { languages: codes };
+}
+
+function efDecServiceTable(b, table) {
+	const services = [];
+	for (let i = 0; i < b.length; i++) {
+		for (let bit = 0; bit < 8; bit++) {
+			if (b[i] & (1 << bit)) {
+				const n = i * 8 + bit + 1;
+				services.push({ n: n, name: table[n] || 'RFU' });
+			}
+		}
+	}
+	return { services: services };
+}
+
+function efDecPlmnList(b) {
+	const plmns = [];
+	for (let i = 0; i + 2 < b.length; i += 3) {
+		const chunk = b.subarray(i, i + 3);
+		if (efAllFf(chunk)) break;
+		const p = efPlmn(chunk);
+		if (p) plmns.push(p);
+	}
+	return { plmns: plmns };
+}
+
+function efDecPlmnWact(b) {
+	const plmns = [];
+	for (let i = 0; i + 4 < b.length; i += 5) {
+		const chunk = b.subarray(i, i + 5);
+		if (efAllFf(chunk.subarray(0, 3))) break;
+		const p = efPlmn(chunk.subarray(0, 3));
+		if (!p) continue;
+		const act = (chunk[3] << 8) | chunk[4];
+		const techs = efPlmnAct(act);
+		p.access_tech = techs.length ? techs.join(', ') : '0x' + act.toString(16).toUpperCase().padStart(4, '0');
+		plmns.push(p);
+	}
+	return { plmns: plmns };
+}
+
+function efDecSpn(b) {
+	if (b.length < 2) return { raw: efHex(b) };
+	const cond = b[0];
+	const out = { show_in_hplmn: !!(cond & 0x01), hide_in_oplmn: !!(cond & 0x02) };
+	const text = efAnnexA(efRstripFf(b.subarray(1)));
+	if (text) out.name = text;
+	return out;
+}
+
+function efDecLoci(b) {
+	if (b.length < 11) return { raw: efHex(b) };
+	const tmsi = b.subarray(0, 4), lai = b.subarray(4, 9);
+	const p = efPlmn(lai.subarray(0, 3)) || {};
+	return {
+		tmsi: efAllFf(tmsi) ? null : efHex(tmsi),
+		mcc: p.mcc, mnc: p.mnc,
+		lac: '0x' + efHex(lai.subarray(3, 5)),
+		tmsi_time: '0x' + efHex(b.subarray(9, 10)),
+		location_update_status: '0x' + efHex(b.subarray(10, 11)),
+	};
+}
+
+function efDecPsLoci(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 14) return { raw: efHex(b) };
+	const rai = b.subarray(7, 13);
+	const p = efPlmn(rai.subarray(0, 3)) || {};
+	return {
+		p_tmsi: efAllFf(b.subarray(0, 4)) ? null : efHex(b.subarray(0, 4)),
+		p_tmsi_signature: efHex(b.subarray(4, 7)),
+		mcc: p.mcc, mnc: p.mnc,
+		lac: '0x' + efHex(rai.subarray(3, 5)),
+		rac: '0x' + efHex(rai.subarray(5, 6)),
+		update_status: '0x' + efHex(b.subarray(13, 14)),
+	};
+}
+
+function efDecEpsLoci(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 18) return { raw: efHex(b) };
+	const tai = b.subarray(12, 17);
+	const p = efPlmn(tai.subarray(0, 3)) || {};
+	return {
+		guti: efAllFf(b.subarray(0, 12)) ? null : efHex(b.subarray(0, 12)),
+		mcc: p.mcc, mnc: p.mnc,
+		tac: '0x' + efHex(tai.subarray(3, 5)),
+		eps_update_status: '0x' + efHex(b.subarray(17, 18)),
+	};
+}
+
+function efDecEpsNsc(b) {
+	if (!b.length || efAllFf(b)) return { empty: true };
+	let inner = b;
+	for (const t of efTlv(b)) if (t.tag === 0xA0) { inner = t.value; break; }
+	const out = {};
+	for (const t of efTlv(inner)) {
+		if (t.tag === 0x80) out.ksi_asme = efHex(t.value);
+		else if (t.tag === 0x81) out.k_asme = efHex(t.value);
+		else if (t.tag === 0x82) out.uplink_nas_count = parseInt(efHex(t.value) || '0', 16);
+		else if (t.tag === 0x83) out.downlink_nas_count = parseInt(efHex(t.value) || '0', 16);
+		else if (t.tag === 0x84) out.nas_algorithms = efHex(t.value);
+	}
+	return Object.keys(out).length ? out : { raw: efHex(b) };
+}
+
+function efDecKc(b) {
+	if (efAllFf(b)) return { empty: true };
+	const out = {};
+	if (b.length >= 8) out.kc = efHex(b.subarray(0, 8));
+	if (b.length >= 9) out.ksi = (b[8] >> 4) & 0x0F;
+	return Object.keys(out).length ? out : { raw: efHex(b) };
+}
+
+function efDecAcc(b) {
+	if (b.length < 2) return { raw: efHex(b) };
+	const val = (b[0] << 8) | b[1];
+	const classes = [];
+	for (let i = 0; i < 16; i++) if (val & (0x8000 >> i)) classes.push(i);
+	return { access_classes: classes };
+}
+
+function efDecPhase(b) {
+	const v = b.length ? b[0] : 0;
+	return { phase: EF_PHASE_NAMES[v] || '0x' + v.toString(16).toUpperCase().padStart(2, '0') };
+}
+
+function efDecCbmi(b) {
+	const ids = [];
+	for (let i = 0; i + 1 < b.length; i += 2) {
+		const v = (b[i] << 8) | b[i + 1];
+		if (v !== 0xFFFF) ids.push(v);
+	}
+	return { message_ids: ids };
+}
+
+function efDecCbmir(b) {
+	const ranges = [];
+	for (let i = 0; i + 3 < b.length; i += 4) {
+		const rec = b.subarray(i, i + 4);
+		if (efAllFf(rec)) continue;
+		ranges.push([efHex(rec.subarray(0, 2)), efHex(rec.subarray(2, 4))]);
+	}
+	return ranges.length ? { ranges: ranges } : { raw: efHex(b) };
+}
+
+function efDecEcc(b) {
+	if (efAllFf(b)) return { empty: true };
+	const recs = [];
+	for (let i = 0; i + 2 < b.length; i += 3) {
+		const rec = b.subarray(i, i + 3);
+		if (efAllFf(rec)) continue;
+		const digits = efSwapNibbles(efHex(rec.subarray(0, 2))).replace(/[fF]+$/, '');
+		recs.push({ number: digits || null, esc: '0x' + efHex(rec.subarray(2, 3)) });
+	}
+	if (!recs.length) return { raw: efHex(b) };
+	return recs.length === 1 ? recs[0] : { numbers: recs };
+}
+
+function efDecOpl(b) {
+	if (efAllFf(b)) return { empty: true };
+	const recs = [];
+	for (let i = 0; i + 7 < b.length; i += 8) {
+		const rec = b.subarray(i, i + 8);
+		if (efAllFf(rec)) continue;
+		const p = efPlmn(rec.subarray(0, 3)) || {};
+		recs.push({
+			mcc: p.mcc, mnc: p.mnc,
+			lac_range: [efHex(rec.subarray(3, 5)), efHex(rec.subarray(5, 7))],
+			pnn_record: rec[7],
+		});
+	}
+	if (!recs.length) return { raw: efHex(b) };
+	return recs.length === 1 ? recs[0] : { records: recs };
+}
+
+function efDecAd(b) {
+	if (efAllFf(b)) return { empty: true };
+	const op = b[0] & 0x03;
+	const out = {
+		op_mode: { 0: 'normal operation', 1: 'specific features' }[op] || '0x' + op.toString(16).padStart(2, '0'),
+		test_mode: !!(b[0] & 0x04),
+	};
+	if (b.length >= 3) out.additional_info = efHex(b.subarray(1, 3));
+	if (b.length >= 4 && b[3] !== 0xFF) out.mnc_length = b[3];
+	return out;
+}
+
+function efDecAcl(b) {
+	if (efAllFf(b)) return { empty: true };
+	const apns = [];
+	for (const t of efTlv(b.subarray(1))) {
+		if (t.tag === 0xDD) apns.push(t.value.length ? String.fromCharCode.apply(null, t.value) : '(network provided)');
+	}
+	return apns.length ? { apns: apns } : { raw: efHex(b) };
+}
+
+function efDecSmsp(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 28) return { raw: efHex(b) };
+	const y = b.length - 28;
+	const out = {};
+	const alpha = efAnnexA(efRstripFf(b.subarray(0, y)));
+	if (alpha) out.alpha = alpha;
+	const pi = b[y];
+	const flags = [];
+	out.param_indicators = '0x' + pi.toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x01)) out.tp_da = efBcdAddressLen(b.subarray(y + 1, y + 13));
+	if (!(pi & 0x10)) out.sca = efBcdAddressLen(b.subarray(y + 13, y + 25));
+	if (!(pi & 0x02)) out.tp_pid = '0x' + b[y + 25].toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x04)) out.tp_dcs = '0x' + b[y + 26].toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x08)) out.tp_vp = '0x' + b[y + 27].toString(16).toUpperCase().padStart(2, '0');
+	return out;
+}
+
+function efDecSpdi(b) {
+	if (efAllFf(b)) return { empty: true };
+	const plmns = [];
+	const collect = value => {
+		for (let i = 0; i + 2 < value.length; i += 3) {
+			const p = efPlmn(value.subarray(i, i + 3));
+			if (p && !plmns.some(x => x.mcc === p.mcc && x.mnc === p.mnc)) plmns.push(p);
+		}
+	};
+	for (const t of efTlv(b)) {
+		if (t.tag === 0xA3) {
+			let got = false;
+			for (const t2 of efTlv(t.value)) if (t2.tag === 0x80) { collect(t2.value); got = true; }
+			if (!got) collect(t.value);
+		} else if (t.tag === 0x80) collect(t.value);
+	}
+	return plmns.length ? { plmns: plmns } : { raw: efHex(b) };
+}
+
+function efDecNai(b) {
+	if (!b.length || efAllFf(b)) return { empty: true };
+	const data = efRstripFf(b);
+	if (!data.length || ((data[0] === 0x80 || data[0] === 0x81) && data.length <= 2)) return { empty: true };
+	const texts = [];
+	for (const t of efTlv(data)) {
+		if ((t.tag === 0x80 || t.tag === 0x81) && t.value.length) {
+			try { texts.push(new TextDecoder('utf-8').decode(t.value)); } catch (e) {}
+		}
+	}
+	return texts.length ? { text: texts.length === 1 ? texts[0] : texts.join(', ') } : { raw: efHex(b) };
+}
+
+function efDecDir(b) {
+	const apps = [];
+	for (const t of efTlv(b)) {
+		if (t.tag !== 0x61) continue;
+		const app = {};
+		for (const t2 of efTlv(t.value)) {
+			if (t2.tag === 0x4F) app.aid = efHex(t2.value);
+			else if (t2.tag === 0x50) { const l = efAnnexA(t2.value); if (l) app.label = l; }
+			else if (t2.tag === 0x73) {
+				for (const t3 of efTlv(t2.value)) {
+					if (t3.tag !== 0xA0) continue;
+					const eap = {};
+					for (const t4 of efTlv(t3.value)) {
+						if (t4.tag === 0x80) eap.eap_types = Array.prototype.map.call(t4.value, x => ({ 18: 'EAP-SIM', 23: 'EAP-AKA', 50: 'EAP-AKA\'' }[x] || x));
+						else if (t4.tag === 0x81) { eap.dfs = []; for (let i = 0; i + 1 < t4.value.length; i += 2) eap.dfs.push(efHex(t4.value.subarray(i, i + 2))); }
+						else if (t4.tag === 0x82) eap.label = String.fromCharCode.apply(null, t4.value);
+					}
+					app.eap = eap;
+				}
+			}
+		}
+		if (Object.keys(app).length) apps.push(app);
+	}
+	return apps.length ? { applications: apps } : { raw: efHex(b) };
+}
+
+function efDecArr(b) {
+	const rules = [];
+	for (const t of efTlv(b)) rules.push({ tag: '0x' + t.tag.toString(16).toUpperCase().padStart(2, '0'), hex: efHex(t.value) });
+	return rules.length ? { rules: rules } : { raw: efHex(b) };
+}
+
+function efDecPnn(b) {
+	if (efAllFf(b)) return { empty: true };
+	const out = {};
+	for (const t of efTlv(b)) {
+		if (t.tag === 0x43) out.full = efPnnText(t.value);
+		else if (t.tag === 0x45) out.short = efPnnText(t.value);
+	}
+	return Object.keys(out).length ? out : { raw: efHex(b) };
+}
+
+// ADN-format record: alpha + len(1) + TON/NPI(1) + BCD(10) + CCP(1) + EXT1(1).
+function efDecAdn(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 14) return { raw: efHex(b) };
+	const alpha = efRstripFf(b.subarray(0, b.length - 14));
+	const name = efAnnexA(alpha);
+	const number = efBcdAddress(b.subarray(b.length - 13, b.length - 2));
+	const out = { name: name, number: number };
+	if (b[b.length - 2] !== 0xFF) out.ccp = b[b.length - 2];
+	if (b[b.length - 1] !== 0xFF) out.ext1 = b[b.length - 1];
+	return out;
+}
+
+// TS 51.011 §10.5.10 EF_EXT1: record type(1) + extension data(11) + identifier(1).
+// Additional data (type bit 2): count byte + BCD remainder; called party
+// subaddress (type bit 1): TS 24.008 subaddress data.
+function efDecExt1(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 13) return { raw: efHex(b) };
+	const rt = b[0];
+	const out = {};
+	if (rt & 0x02) {
+		const n = b[1];
+		if (n > 0) {
+			const digits = efSwapNibbles(efHex(b.subarray(2, 2 + Math.min(n, 10)))).replace(/[fF]+$/, '');
+			out.number = digits || null;
+		}
+	}
+	if (rt & 0x01) out.subaddress = efHex(b.subarray(1, 12));
+	if (b[12] !== 0xFF) out.next_record = b[12];
+	return Object.keys(out).length ? out : { raw: efHex(b) };
+}
+
+function efDecSms(b) {
+	if (efAllFf(b)) return { empty: true };
+	const s = b[0];
+	let direction = null, status;
+	if ((s & 0x01) === 0x00) { direction = null; status = 'free space'; }
+	else if ((s & 0x07) === 0x01) { direction = 'MT'; status = 'message read'; }
+	else if ((s & 0x07) === 0x03) { direction = 'MT'; status = 'message to be read'; }
+	else if ((s & 0x07) === 0x07) { direction = 'MO'; status = 'message to be sent'; }
+	else if ((s & 0x1F) === 0x05) { direction = 'MO'; status = 'sent (status not requested)'; }
+	else if ((s & 0x1F) === 0x0D) { direction = 'MO'; status = 'sent (status requested, not received)'; }
+	else if ((s & 0x1F) === 0x15) { direction = 'MO'; status = 'sent (status received, not stored)'; }
+	else if ((s & 0x1F) === 0x1D) { direction = 'MO'; status = 'sent (status received, stored)'; }
+	else { direction = null; status = 'RFU'; }
+	const out = { status: status };
+	if (direction) out.direction = direction;
+	const rem = b.subarray(1);
+	if (rem.length) {
+		const scLen = rem[0];
+		const tpdu = efRstripFf(rem.subarray(1 + scLen));
+		if (tpdu.length) out.tpdu = efHex(tpdu);
+	}
+	return out;
+}
+
+// TS 51.011 §10.3.34 EF_SUME: Simple TLVs for the SET UP MENU title.
+function efDecSume(b) {
+	if (efAllFf(b)) return { empty: true };
+	const out = {};
+	for (const t of efTlv(b)) {
+		if (t.tag === 0x05) { const s = efAnnexA(t.value); if (s) out.title = s; }
+		else if (t.tag === 0x1E) out.icon = efHex(t.value);
+	}
+	return Object.keys(out).length ? out : { raw: efHex(b) };
+}
+
+// ---- registry ----
+
+const EF_DECODERS = [
+	{ name: 'EF.ICCID', fid: '2fe2', fn: efDecIccid },
+	{ name: 'EF.IMSI', fid: '6f07', fn: efDecImsi },
+	{ name: 'EF.IST', fid: '6f07', fn: b => efDecServiceTable(b, EF_IST_SERVICES) },
+	{ name: 'EF.UST', fid: '6f38', fn: b => efDecServiceTable(b, EF_UST_SERVICES) },
+	{ name: 'EF.SST', fid: '6f38', fn: b => efDecServiceTable(b, EF_SST_SERVICES) },
+	{ name: 'EF.LI', fid: '6f05', fn: efDecLi },
+	{ name: 'EF.LP', fid: '6f05', fn: efDecLi },
+	{ name: 'EF.PL', fid: '2f05', fn: efDecLi },
+	{ name: 'EF.SPN', fid: '6f46', fn: efDecSpn },
+	{ name: 'EF.PLMNsel', fid: '6f30', fn: efDecPlmnList },
+	{ name: 'EF.PLMNwAcT', fid: '6f60', fn: efDecPlmnWact },
+	{ name: 'EF.OPLMNwAcT', fid: '6f61', fn: efDecPlmnWact },
+	{ name: 'EF.HPLMNwAcT', fid: '6f62', fn: efDecPlmnWact },
+	{ name: 'EF.OPL', fid: '6fc6', fn: efDecOpl },
+	{ name: 'EF.SPDI', fid: '6fcd', fn: efDecSpdi },
+	{ name: 'EF.PNN', fid: '6fc5', fn: efDecPnn },
+	{ name: 'EF.LOCI', fid: '6f7e', fn: efDecLoci },
+	{ name: 'EF.PSLOCI', fid: '6f73', fn: efDecPsLoci },
+	{ name: 'EF.EPSLOCI', fid: '6fe3', fn: efDecEpsLoci },
+	{ name: 'EF.EPSNSC', fid: '6fe4', fn: efDecEpsNsc },
+	{ name: 'EF.LOCIGPRS', fid: '6f53', fn: efDecPsLoci },
+	{ name: 'EF.Kc', fid: '6f20', fn: efDecKc },
+	{ name: 'EF.KcGPRS', fid: '6f52', fn: efDecKc },
+	{ name: 'EF.ACC', fid: '6f78', fn: efDecAcc },
+	{ name: 'EF.PHASE', fid: '6fae', fn: efDecPhase },
+	{ name: 'EF.CBMI', fid: '6f45', fn: efDecCbmi },
+	{ name: 'EF.CBMID', fid: '6f48', fn: efDecCbmi },
+	{ name: 'EF.CBMIR', fid: '6f50', fn: efDecCbmir },
+	{ name: 'EF.ECC', fid: '6fb7', fn: efDecEcc },
+	{ name: 'EF.AD', fid: '6fad', fn: efDecAd },
+	{ name: 'EF.ACL', fid: '6f57', fn: efDecAcl },
+	{ name: 'EF.SMSP', fid: '6f42', fn: efDecSmsp },
+	{ name: 'EF.SMS', fid: '6f3c', fn: efDecSms },
+	{ name: 'EF.ARR', fid: '2f06', fn: efDecArr },
+	{ name: 'EF.ARR', fid: '6f06', fn: efDecArr },
+	{ name: 'EF.DIR', fid: '2f00', fn: efDecDir },
+	{ name: 'EF.IMPI', fid: '6f02', fn: efDecNai },
+	{ name: 'EF.DOMAIN', fid: '6f03', fn: efDecNai },
+	{ name: 'EF.IMPU', fid: '6f04', fn: efDecNai },
+	{ name: 'EF.ADN', fid: '6f3a', fn: efDecAdn },
+	{ name: 'EF.FDN', fid: '6f3b', fn: efDecAdn },
+	{ name: 'EF.SDN', fid: '6f49', fn: efDecAdn },
+	{ name: 'EF.MSISDN', fid: '6f40', fn: efDecAdn },
+	{ name: 'EF.LND', fid: '6f44', fn: efDecAdn },
+	{ name: 'EF.BDN', fid: '6f4d', fn: efDecAdn },
+	{ name: 'EF.EXT1', fid: '6f4a', fn: efDecExt1 },
+	{ name: 'EF.EXT2', fid: '6f4b', fn: efDecExt1 },
+	{ name: 'EF.EXT3', fid: '6f4c', fn: efDecExt1 },
+	{ name: 'EF.EXT4', fid: '6f4e', fn: efDecExt1 },
+	{ name: 'EF.EXT5', fid: '6f55', fn: efDecExt1 },
+	{ name: 'EF.SUME', fid: '6f54', fn: efDecSume },
+];
+
+function efFindDecoder(name, fid) {
+	let n = (name || '').toUpperCase();
+	if (n.includes('/')) n = n.split('/').pop();
+	for (const d of EF_DECODERS) if (d.name === n) return d;
+	const f = (fid || '').toLowerCase();
+	if (f) for (const d of EF_DECODERS) if (d.fid === f) return d;
+	return null;
+}
+
+function efFidFromPath(path) {
+	const seg = (path || '').split('/').pop();
+	return /^[0-9a-fA-F]{4}$/.test(seg) ? seg.toUpperCase() : null;
+}
+
+// ---- content decoding, flattening and diffs ----
+
+function efDecodeBytes(fn, bytes) {
+	try { return fn(bytes); } catch (e) { return { raw: efHex(bytes) }; }
+}
+
+// content: {kind:'transparent', data:'HEX'} | {kind:'record', records:[{num,data}]}
+function efDecodeFile(name, fid, content) {
+	const dec = efFindDecoder(name, fid);
+	if (!dec) return null;
+	const out = { ef: dec.name, fn: dec.fn, data: null, records: null, empty: false };
+	if (!content) return out;
+	if (content.kind === 'record') {
+		out.records = (content.records || []).map(r => {
+			const d = efDecodeBytes(dec.fn, efBytes(r.data || ''));
+			return { num: r.num, data: d, empty: !!(d && d.empty) };
+		});
+	} else {
+		out.data = efDecodeBytes(dec.fn, efBytes(content.data || ''));
+		out.empty = !!(out.data && out.data.empty);
+	}
+	return out;
+}
+
+function efDecodeHex(name, fid, hex) {
+	const dec = efFindDecoder(name, fid);
+	if (!dec || !dec.fn) return null;
+	return efDecodeBytes(dec.fn, efBytes(hex || ''));
+}
+
+function efIsRawOnly(data) {
+	if (!data || typeof data !== 'object') return true;
+	const keys = Object.keys(data);
+	return keys.length === 0 || (keys.length === 1 && keys[0] === 'raw');
+}
+
+function efFieldLabel(k) {
+	if (EF_FIELD_LABELS[k]) return EF_FIELD_LABELS[k];
+	return k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+}
+
+function efPrimitive(v) {
+	return typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v);
+}
+
+// Flatten a decoded object into [label, value] rows (display and diff).
+function efFlatten(data) {
+	const rows = [];
+	if (data === null || data === undefined) return rows;
+	if (typeof data !== 'object') { rows.push(['', efPrimitive(data)]); return rows; }
+	const arrayRows = (label, arr) => {
+		if (!arr.length) return;
+		if (typeof arr[0] !== 'object' || arr[0] === null) {
+			rows.push([label, arr.map(efPrimitive).join(', ')]);
+			return;
+		}
+		arr.forEach((it, i) => {
+			if (Array.isArray(it)) rows.push([label + ' ' + (i + 1), it.map(efPrimitive).join('\u2013')]);
+			else if (it && it.n !== undefined && it.name !== undefined) rows.push(['Service ' + it.n, String(it.name)]);
+			else if (it && it.mcc !== undefined) rows.push(['PLMN ' + (i + 1), it.mcc + '-' + it.mnc + (it.access_tech ? ' (' + it.access_tech + ')' : '')]);
+			else if (it && it.aid !== undefined) rows.push(['Application ' + (i + 1), (it.label ? it.label + ' \u2014 ' : '') + it.aid + (it.eap ? ' [' + (it.eap.eap_types || []).join(', ') + ']' : '')]);
+			else rows.push([label + ' ' + (i + 1), JSON.stringify(it)]);
+		});
+	};
+	for (const k of Object.keys(data)) {
+		const v = data[k];
+		if (v === null || v === undefined) continue;
+		if (Array.isArray(v)) arrayRows(efFieldLabel(k), v);
+		else if (typeof v === 'object') {
+			for (const [k2, v2] of efFlatten(v)) rows.push([efFieldLabel(k) + (k2 ? ' / ' + k2 : ''), v2]);
+		} else {
+			rows.push([efFieldLabel(k), efPrimitive(v)]);
+		}
+	}
+	return rows;
+}
+
+// Per-field diff of two decoded objects: only differing fields.
+function efDiffData(expData, actData) {
+	const e = {}, a = {};
+	for (const [k, v] of efFlatten(expData)) e[k] = v;
+	for (const [k, v] of efFlatten(actData)) a[k] = v;
+	const labels = [...new Set([...Object.keys(e), ...Object.keys(a)])];
+	const rows = [];
+	for (const l of labels) {
+		const ev = e[l], av = a[l];
+		if (ev !== av) rows.push([l, ev === undefined ? '' : ev, av === undefined ? '' : av]);
+	}
+	return rows;
+}
+
+function efDataSummary(data) {
+	if (!data || typeof data !== 'object') return '';
+	if (data.imsi) return 'IMSI ' + data.imsi;
+	if (data.iccid) return 'ICCID ' + data.iccid;
+	if (data.title) return data.title;
+	if (data.name !== undefined && data.number !== undefined) return (data.name + ' ' + data.number).trim();
+	if (data.number) return data.number;
+	if (data.text) return data.text;
+	if (data.languages && data.languages.length) return data.languages.join(' ');
+	if (data.services) return data.services.length + ' services';
+	if (data.plmns) return data.plmns.map(p => p.mcc + '-' + p.mnc).join(', ');
+	if (data.applications) return data.applications.map(x => x.label || x.aid || '').join('; ');
+	if (data.status) return data.status + (data.direction ? ' (' + data.direction + ')' : '');
+	if (data.full) return data.full;
+	if (data.mcc !== undefined && data.mnc !== undefined) return data.mcc + '-' + data.mnc;
+	if (data.kc) return 'Kc ' + data.kc;
+	return '';
+}
+
+function efRenderFieldsHtml(rows) {
+	if (!rows.length) return '<span class="text-gray-400">' + esc(t('No decodable fields')) + '</span>';
+	let html = '<div class="text-xs">';
+	for (const [k, v] of rows) {
+		html += '<div class="flex gap-2 mb-0.5">' +
+			'<span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
+			'<span class="font-mono break-all">' + esc(v) + '</span></div>';
+	}
+	return html + '</div>';
+}
+
+// Mismatching decoded fields for a content check; null when the file has no
+// decoder or either side fails to decode.
+function efContentDiff(name, fid, expectedHex, actualHex) {
+	const exp = efDecodeHex(name, fid, expectedHex);
+	const act = efDecodeHex(name, fid, actualHex);
+	if (exp === null || act === null || efIsRawOnly(exp) || efIsRawOnly(act)) return null;
+	const rows = efDiffData(exp, act);
+	return { rows: rows, sameDecoded: rows.length === 0 };
+}
 
 // ===== i18n =====
 const LANG_RU = {
@@ -11663,6 +12555,15 @@ const LANG_RU = {
 	'Open': 'Открыть',
 	'Contents': 'Содержимое',
 	'Not captured': 'Не прочитано',
+	'Decoded': 'Декодировано',
+	'Record': 'Запись',
+	'empty': 'пусто',
+	'No decoder for this file': 'Нет декодера для этого файла',
+	'showing raw data': 'показаны сырые данные',
+	'No decodable fields': 'Нет декодируемых полей',
+	'pySim JSON (server)': 'pySim JSON (сервер)',
+	'Decoded comparison': 'Декодированное сравнение',
+	'Decoded values match; raw bytes differ': 'Декодированные значения совпадают; отличаются сырые байты',
 	'Back to list': 'Назад к списку',
 	'Add rule': 'Добавить правило',
 	'Scan': 'Сканировать',
