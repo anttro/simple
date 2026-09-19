@@ -310,6 +310,24 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.run('nope')
 
+    def test_missing_files_are_skipped_not_fatal(self):
+        # A card without the EPS files / Kc (e.g. no USIM service 85): the
+        # scenario must still succeed, writing what exists and noting skips.
+        files = {'6F7E': FakeFileInfo(size=11), '6F73': FakeFileInfo(size=14),
+                 '6F43': FakeFileInfo(size=2, data='27FF')}
+        lchan = FakeLchan(files)
+        app = SimpleNamespace(rs=SimpleNamespace(lchan=[lchan]))
+        srv = FakeSrv()
+        runner = netsim.NetSimRunner(srv, app, event_list=[3], sleep=lambda s: None)
+        out = runner.run('service_lost')
+        self.assertTrue(out['success'])
+        skipped = {s['file'] for s in out['steps'] if s['action'] == 'skip'}
+        for key in ('epsnsc', 'epsloci', 'kc', 'kcgprs'):
+            self.assertIn(key, skipped)
+        written = [w[1] for w in lchan.writes]
+        self.assertIn('6F7E', written)
+        self.assertIn('6F73', written)
+
 
 if __name__ == '__main__':
     unittest.main()

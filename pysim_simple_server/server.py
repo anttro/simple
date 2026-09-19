@@ -3706,6 +3706,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_sel = body.get('parent_sel')
             parent_path = body.get('parent_path')
             allow_probe = bool(body.get('allow_probe'))
+            path = body.get('path')
             rs = app.rs
             if not rs:
                 self._send_json({'error': _err('no_card_state', lang)}, 503)
@@ -3714,8 +3715,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             lchan = rs.lchan[0]
             cleanup = None
             try:
-                sel = fid if fid else name
-                _, cleanup = _select_with_parent(lchan, sel, parent_sel, app, parent_path, allow_probe)
+                if path:
+                    _, cleanup = _select_path(lchan, path, app)
+                else:
+                    sel = fid if fid else name
+                    _, cleanup = _select_with_parent(lchan, sel, parent_sel, app, parent_path, allow_probe)
                 ft = _get_file_type(lchan, lchan.selected_file)
                 is_record = ft in ('linear_fixed', 'cyclic')
                 if record_nr:

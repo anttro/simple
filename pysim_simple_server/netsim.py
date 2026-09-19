@@ -405,8 +405,14 @@ class NetSimRunner:
             raise StepError('%s returned SW %s' % (kw.get('action'), sw))
         return step
 
-    def write_binary(self, key, data_hex, pad=True, label=None):
-        path = self._open(key)
+    def write_binary(self, key, data_hex, pad=True, label=None, optional=False):
+        try:
+            path = self._open(key)
+        except StepError as e:
+            if optional:
+                self._add('skip', file=label or key, note=str(e))
+                return None
+            raise
         size = self.lchan.selected_file_size()
         data = data_hex
         if pad and size:
@@ -415,8 +421,14 @@ class NetSimRunner:
         return self._check(data, sw, action='update_binary', file=label or key,
                            path=path)
 
-    def write_record(self, key, data_hex, record=1, pad=True, label=None):
-        path = self._open(key)
+    def write_record(self, key, data_hex, record=1, pad=True, label=None, optional=False):
+        try:
+            path = self._open(key)
+        except StepError as e:
+            if optional:
+                self._add('skip', file=label or key, note=str(e))
+                return None
+            raise
         size = self.lchan.selected_file_record_len()
         data = data_hex
         if pad and size:
@@ -473,29 +485,33 @@ class NetSimRunner:
             self.kasme,
             _hexint(self.p('ul', 0)), _hexint(self.p('dl', 0)),
             _hexint(self.p('algo', '02'), 0x02)),
-            label='epsnsc')
+            label='epsnsc', optional=True)
 
     def write_real_locations(self, status=ST_UPDATED):
         self.write_binary('loci', build_loci(
             self.p('tmsi') or rand_hex(4), self.plmn, self.lac, status),
-            label='loci')
+            label='loci', optional=True)
         self.write_binary('psloci', build_psloci(
             self.p('ptmsi') or rand_hex(4), self.p('ptmsi_sig') or rand_hex(3),
-            self.plmn, self.lac, self.rac, status), label='psloci')
+            self.plmn, self.lac, self.rac, status), label='psloci', optional=True)
         self.write_binary('epsloci', build_epsloci(
             self.p('guti') or rand_hex(12), self.plmn, self.tac, status),
-            label='epsloci')
+            label='epsloci', optional=True)
 
     def write_dummy_locations(self, status=ST_NOT_UPDATED):
-        self.write_binary('loci', build_loci_dummy(self.plmn), label='loci')
-        self.write_binary('psloci', build_psloci_dummy(self.plmn), label='psloci')
-        self.write_binary('epsloci', build_epsloci_dummy(self.plmn), label='epsloci')
+        self.write_binary('loci', build_loci_dummy(self.plmn), label='loci',
+                          optional=True)
+        self.write_binary('psloci', build_psloci_dummy(self.plmn), label='psloci',
+                          optional=True)
+        self.write_binary('epsloci', build_epsloci_dummy(self.plmn),
+                          label='epsloci', optional=True)
 
     def invalidate_kc(self):
         for key in ('kc', 'kcgprs'):
             try:
                 self._open(key)
-            except StepError:
+            except StepError as e:
+                self._add('skip', file=key, note=str(e))
                 continue
             size = self.lchan.selected_file_size() or 9
             self.write_binary(key, build_kc_invalidate(size), pad=False,
@@ -507,7 +523,8 @@ class NetSimRunner:
         for key in ('kc', 'kcgprs'):
             try:
                 self._open(key)
-            except StepError:
+            except StepError as e:
+                self._add('skip', file=key, note=str(e))
                 continue
             size = self.lchan.selected_file_size() or 9
             self.write_binary(key, build_kc(kc, algo, size), pad=False,
@@ -569,7 +586,11 @@ class NetSimRunner:
             self.kasme,
             _hexint(self.p('ul', 0)), _hexint(self.p('dl', 0)),
             _hexint(self.p('algo', '02'), 0x02))
-        self._open('epsnsc')
+        try:
+            self._open('epsnsc')
+        except StepError as e:
+            self._add('skip', file='epsnsc', note=str(e))
+            return
         size = self.lchan.selected_file_record_len() or 54
         invalid = build_epsnsc_invalidate(size, self.kasme)
         for _i in range(max(1, count)):

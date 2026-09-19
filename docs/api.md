@@ -350,6 +350,13 @@ Write raw hex data to a file.
 {"name": "EF.ICCID", "fid": "2FE2", "data": "A0A1A2...", "parent_path": ["MF"]}
 ```
 
+A full path may be used instead of name/fid/parent, like `/api/select` and
+`/api/read`:
+
+```json
+{"path": "ADF.USIM/6F7E", "data": "4FE69DE7..."}
+```
+
 For record files:
 ```json
 {"name": "EF.ADN", "fid": "6F3A", "data": "A0A1...", "record_nr": 1, "parent_path": ["MF", "7F10"]}
