@@ -61,6 +61,15 @@ test('the ADM field sits between From card and Add, outside the card fieldsets',
         'ADM input must sit between the From card and Add buttons');
 });
 
+test('card-dependent profiler buttons show the ICCID and need a readable one', () => {
+    assert.match(html, /id="profiler-from-card-btn" data-needs="card-iccid"/);
+    assert.match(html, /id="snapshot-new-btn" data-needs="card-iccid"/);
+    assert.match(html, /data-needs="card-iccid" onclick="profilerCheck/);
+    // both static buttons carry the dynamic ICCID span
+    assert.match(html, /id="profiler-from-card-btn"[\s\S]*?<span class="profiler-iccid-label"><\/span><\/button>/);
+    assert.match(html, /id="snapshot-new-btn"[\s\S]*?<span class="profiler-iccid-label" data-iccid-sep=": "><\/span><\/button>/);
+});
+
 test('labelled containers use fieldsets with embedded legends', () => {
     const legendCls = '<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"';
     for (const label of ['STK menu', 'STATUS and Polling', 'TERMINAL PROFILE',

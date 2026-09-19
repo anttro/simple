@@ -24,9 +24,9 @@
 				<span id="state-indicator-dot" class="text-xs text-gray-400" title="Connecting...">●</span>
 				<img id="state-indicator-img" class="hidden dark:invert" style="width:30px;height:30px" alt="" src="nosim.svg">
 				<span id="state-indicator-iccid" class="hidden ml-0.5 text-xs font-mono text-gray-500 dark:text-slate-400 whitespace-nowrap"></span>
-				<span id="state-indicator-adm" class="hidden ml-2 text-xs font-mono" title=""></span>
-				<span id="state-indicator-scp80" class="hidden ml-2 text-xs font-mono text-gray-500 dark:text-slate-400" title=""></span>
-				<span id="state-indicator-scp81" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400" title=""></span>
+				<span id="state-indicator-adm" class="hidden ml-2 text-xs font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
+				<span id="state-indicator-scp80" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400 border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
+				<span id="state-indicator-scp81" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400 border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
 			</span>
 			<button id="install-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" style="display:none">INSTALL PWA [for offline use]</button>
 			<a href="https://github.com/anttro/simple" target="_blank" class="text-xs text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300">github</a>
@@ -722,7 +722,7 @@
 				<div id="profiler-list-profiles">
 					<div class="flex flex-wrap gap-2 mb-3">
 						<button onclick="profilerNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New profile">New profile</button>
-						<button data-needs="card" onclick="profilerFromCard()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Profile from card">Profile from card</button>
+						<button id="profiler-from-card-btn" data-needs="card-iccid" onclick="profilerFromCard()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="Profile from card">Profile from card</span><span class="profiler-iccid-label"></span></button>
 						<button onclick="profilerFromSnapshot()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Profile from snapshot">Profile from snapshot</button>
 						<button onclick="document.getElementById('profiler-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import profile">Import profile</button>
 						<input type="file" id="profiler-import-file" accept=".json,application/json" class="hidden" onchange="profilerImportFile(this)">
@@ -731,7 +731,7 @@
 				</div>
 				<div id="profiler-list-snapshots" class="hidden">
 					<div class="flex flex-wrap gap-2 mb-3">
-						<button data-needs="card" onclick="snapshotNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="New snapshot">New snapshot</button>
+						<button id="snapshot-new-btn" data-needs="card-iccid" onclick="snapshotNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="New snapshot">New snapshot</span><span class="profiler-iccid-label" data-iccid-sep=": "></span></button>
 						<button onclick="document.getElementById('snapshot-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import snapshot">Import snapshot</button>
 						<button onclick="snapshotCompareOpen()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Compare snapshots">Compare snapshots</button>
 						<input type="file" id="snapshot-import-file" accept=".json,application/json" class="hidden" onchange="snapshotImportFile(this)">
@@ -1400,7 +1400,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.6.1';
+const SIMPLE_VERSION = '2.6.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4891,6 +4891,15 @@ function pysimUpdateStateIndicator() {
 	}
 }
 
+// Card-dependent action labels carry the equipped card's ICCID; the buttons
+// themselves are disabled without a readable ICCID (data-needs="card-iccid").
+function pysimUpdateCardActionLabels() {
+	document.querySelectorAll('.profiler-iccid-label').forEach(el => {
+		const sep = el.getAttribute('data-iccid-sep') || ' ';
+		el.textContent = _pysimCardIccid ? sep + _pysimCardIccid : '';
+	});
+}
+
 function pysimApplyAvailability() {
 	const state = pysimAvailabilityState();
 	document.querySelectorAll('[data-needs]').forEach(el => {
@@ -4904,6 +4913,7 @@ function pysimApplyAvailability() {
 		if (disabled) el.setAttribute('title', pysimNeedsHint(needs, state));
 		else el.removeAttribute('title');
 	});
+	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();
 }
 
@@ -9920,12 +9930,12 @@ function profilerRenderList() {
 	let html = '';
 	for (let i = 0; i < profiles.length; i++) {
 		const p = profiles[i];
-		html += '<div class="flex items-center gap-2 py-1.5 border-b border-gray-200 dark:border-slate-700">';
+		html += '<div class="flex flex-wrap items-center gap-2 py-1.5 border-b border-gray-200 dark:border-slate-700">';
 		html += '<b>' + esc(p.name) + '</b>';
 		html += '<span class="text-xs text-gray-400 dark:text-slate-500">' + esc(new Date(p.created).toLocaleString()) + '</span>';
 		html += '<span class="text-xs text-gray-400 dark:text-slate-500">(' + p.rules.length + ' ' + esc(t('rules')) + ')</span>';
 		html += '<span class="ml-auto flex gap-1">';
-		html += '<button data-needs="card" onclick="profilerCheck(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Check card')) + ' ▶</button>';
+		html += '<button data-needs="card-iccid" onclick="profilerCheck(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Check card')) + '<span class="profiler-iccid-label"></span></button>';
 		html += '<button onclick="profilerCheckSnapshotPick(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700">' + esc(t('Check card snapshot')) + '</button>';
 		html += '<button onclick="profilerEdit(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">' + esc(t('Edit')) + '</button>';
 		html += '<button onclick="profilerClone(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-gray-600 text-white hover:bg-gray-700">' + esc(t('Clone')) + '</button>';
@@ -13198,6 +13208,7 @@ function refreshDynamicI18n() {
 		else if (profilerView === 'snapshot') profilerRenderSnapshotData();
 	}
 	if (isViewVisible('profiler-scan-modal')) profilerScanRefreshOptions();
+	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();
 	if (isViewVisible('tab-cards')) { cardsRender(); cardsSetFormMode(); }
 	if (isViewVisible('scp81-sub-scripts')) { scriptsRender(); scriptsRebuildSelect(); }

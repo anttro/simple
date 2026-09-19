@@ -26,6 +26,7 @@ code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimNeedsHint') + '\n';
 code += extractFunc(html, 'pysimApplyAvailability') + '\n';
+code += extractFunc(html, 'pysimUpdateCardActionLabels') + '\n';
 code += extractFunc(html, 'pysimUpdateStateIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
@@ -230,4 +231,31 @@ test('indicator image stays within the 32px header row budget', () => {
 	assert.strictEqual(m[1], m[2]);
 	const size = Number(m[1]);
 	assert.ok(size >= 24 && size <= 32, 'size ' + size + 'px would change the header height');
+});
+
+test('header badges are bordered chips with even spacing', () => {
+	for (const id of ['state-indicator-adm', 'state-indicator-scp80', 'state-indicator-scp81']) {
+		const m = new RegExp('id="' + id + '"[^>]*class="([^"]*)"').exec(html);
+		assert.ok(m, id + ' markup not found');
+		assert.match(m[1], /\bborder\b/);
+		assert.match(m[1], /\brounded\b/);
+	}
+	assert.match(html, /id="state-indicator-scp80"[^>]*class="[^"]*ml-1/);
+	assert.match(html, /id="state-indicator-scp81"[^>]*class="[^"]*ml-1/);
+});
+
+test('card action labels carry the equipped ICCID', () => {
+	setup();
+	const plain = fakeEl();
+	const colon = fakeEl();
+	colon.attrs['data-iccid-sep'] = ': ';
+	globalThis.document.querySelectorAll = sel => sel === '.profiler-iccid-label' ? [plain, colon] : [];
+	_pysimCardIccid = '89701450001700031958';
+	pysimUpdateCardActionLabels();
+	assert.strictEqual(plain.textContent, ' 89701450001700031958');
+	assert.strictEqual(colon.textContent, ': 89701450001700031958');
+	_pysimCardIccid = null;
+	pysimUpdateCardActionLabels();
+	assert.strictEqual(plain.textContent, '');
+	assert.strictEqual(colon.textContent, '');
 });
