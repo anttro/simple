@@ -28,6 +28,14 @@ def _default_web_dir():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend')
 
 
+def _default_mcc_mnc_list():
+    # Workspace default: the CC-BY-SA operator list lives outside the repo
+    # (<workspace>/samples/mcc-mnc-list.json); clones can point elsewhere with
+    # --mcc-mnc-list and the endpoint reports available=false when missing.
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.normpath(os.path.join(repo, '..', 'samples', 'mcc-mnc-list.json'))
+
+
 def main():
     global _server_start
     _server_start = time.time()
@@ -38,6 +46,8 @@ def main():
     parser.add_argument('--http-port', type=int, default=8080, help='Bind port (default: 8080)')
     parser.add_argument('--web-dir', default=_default_web_dir(), metavar='PATH',
                         help='Directory with the SIMple PWA static files to serve (default: <repo>/frontend)')
+    parser.add_argument('--mcc-mnc-list', default=_default_mcc_mnc_list(), metavar='PATH',
+                        help='Worldwide MCC/MNC operator list (JSON) for the network-simulation operator picker (default: <workspace>/samples/mcc-mnc-list.json)')
     parser.add_argument('--log-requests', action='store_true', default=False, help='Log request/response payloads to stderr')
     parser.add_argument('--sms-oa', default='12345', metavar='DIGITS',
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
@@ -213,6 +223,7 @@ def main():
     server.terminal_profile = opts.terminal_profile
     server.cli_terminal_profile = opts.terminal_profile
     server.web_dir = opts.web_dir
+    server.mcc_mnc_path = opts.mcc_mnc_list
     server.sim_menu = sim_menu
     server.event_list = event_list
     server.menu_active = False

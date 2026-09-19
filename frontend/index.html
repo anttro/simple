@@ -943,6 +943,93 @@
 				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</legend>
 				<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
 			</fieldset>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mt-4">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Network simulation">Network simulation</legend>
+				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.</div>
+				<div class="flex flex-wrap gap-1.5 mb-2">
+					<button data-needs="card" onclick="netSimRun('cold_boot')" class="px-2.5 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Cold boot">Cold boot</button>
+					<button data-needs="card" onclick="netSimRun('attach_eps')" class="px-2.5 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="EPS attach">EPS attach</button>
+					<button data-needs="card" onclick="netSimRun('attach_2g')" class="px-2.5 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="2G attach">2G attach</button>
+					<button data-needs="card" onclick="netSimRun('service_lost')" class="px-2.5 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Service lost">Service lost</button>
+					<button data-needs="card" onclick="netSimRun('limited_service')" class="px-2.5 py-1 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Limited service">Limited service</button>
+					<button data-needs="card" onclick="netSimRun('roaming_denied')" class="px-2.5 py-1 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Roaming denied">Roaming denied</button>
+					<button data-needs="card" onclick="netSimRun('churn')" class="px-2.5 py-1 text-xs rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Churn">Churn</button>
+					<button data-needs="card" onclick="netSimRun('sms_received')" class="px-2.5 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="SMS received">SMS received</button>
+					<button data-needs="card" onclick="netSimRun('cb_reconfig')" class="px-2.5 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="CB reconfig">CB reconfig</button>
+					<button data-needs="card" onclick="netSimRun('authenticate')" class="px-2.5 py-1 text-xs rounded bg-slate-600 text-white hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="AUTHENTICATE">AUTHENTICATE</button>
+				</div>
+				<details id="netsim-params" class="mb-2">
+					<summary class="cursor-pointer select-none text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Parameters">Parameters</summary>
+					<div class="mt-2 space-y-2">
+						<div class="flex flex-wrap items-end gap-2">
+							<div class="flex-1 min-w-[14rem]">
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Operator search (country / brand / MCC-MNC)">Operator search (country / brand / MCC-MNC)</label>
+								<input id="netsim-op-search" oninput="netSimSearchInput()" placeholder="Telekom / Germany / 26201" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="MCC">MCC</label>
+								<input id="netsim-mcc" value="001" maxlength="3" class="w-16 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="MNC">MNC</label>
+								<input id="netsim-mnc" value="01" maxlength="3" class="w-16 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<button data-needs="server" onclick="netSimRandomOperator()" class="px-2 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Random roaming operator">Random roaming operator</button>
+						</div>
+						<div id="netsim-op-results" class="text-xs font-mono max-h-32 overflow-auto"></div>
+						<div class="flex flex-wrap items-end gap-2">
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="LAC">LAC</label>
+								<input id="netsim-lac" maxlength="4" placeholder="random" class="w-20 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<button onclick="netSimDice('netsim-lac', 2)" class="px-1.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" title="random">🎲</button>
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Cell ID">Cell ID</label>
+								<input id="netsim-cell" maxlength="4" placeholder="random" class="w-20 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<button onclick="netSimDice('netsim-cell', 2)" class="px-1.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" title="random">🎲</button>
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="TAC">TAC</label>
+								<input id="netsim-tac" maxlength="4" placeholder="= LAC" class="w-20 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<button onclick="netSimDice('netsim-tac', 2)" class="px-1.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" title="random">🎲</button>
+							<div>
+								<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="RAC">RAC</label>
+								<input id="netsim-rac" maxlength="2" placeholder="random" class="w-14 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+							</div>
+							<button onclick="netSimDice('netsim-rac', 1)" class="px-1.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" title="random">🎲</button>
+						</div>
+						<details>
+							<summary class="cursor-pointer select-none text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Advanced identity (empty = random)">Advanced identity (empty = random)</summary>
+							<div class="mt-2 flex flex-wrap items-end gap-2">
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">TMSI</label><input id="netsim-tmsi" maxlength="8" class="w-24 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">GUTI</label><input id="netsim-guti" maxlength="24" class="w-56 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">KSI</label><input id="netsim-ksi" maxlength="2" class="w-12 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">KASME</label><input id="netsim-kasme" maxlength="64" class="w-72 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">Kc</label><input id="netsim-kc" maxlength="16" class="w-32 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">UL</label><input id="netsim-ul" maxlength="8" class="w-20 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">DL</label><input id="netsim-dl" maxlength="8" class="w-20 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Algorithm">Algorithm</label><input id="netsim-algo" maxlength="2" class="w-12 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">RAND</label><input id="netsim-rand" maxlength="32" class="w-64 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+								<div><label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400">AUTN</label><input id="netsim-autn" maxlength="32" class="w-64 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></div>
+							</div>
+						</details>
+						<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-slate-300">
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-send-event" checked class="rounded"> <span data-l10n="Send Location status event (if subscribed)">Send Location status event (if subscribed)</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-dummy-locations" checked class="rounded"> <span data-l10n="Dummy location files">Dummy location files</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-invalidate-epsnsc" checked class="rounded"> <span data-l10n="Invalidate EPSNSC">Invalidate EPSNSC</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-keep-kasme" checked class="rounded"> <span data-l10n="Keep KASME (KSI 07 only)">Keep KASME (KSI 07 only)</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-write-kc" checked class="rounded"> <span data-l10n="Write/invalidate Kc">Write/invalidate Kc</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-sms-location" checked class="rounded"> <span data-l10n="SMS: rewrite location too">SMS: rewrite location too</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-cb-clear" class="rounded"> <span data-l10n="CB: clear lists instead of writing IDs">CB: clear lists instead of writing IDs</span></label>
+							<label class="flex items-center gap-1"><span data-l10n="Churn count">Churn count</span><input id="netsim-churn-count" type="number" value="3" min="1" max="20" class="w-14 border border-gray-300 dark:border-slate-600 text-xs rounded px-1 py-0.5 dark:bg-slate-800"></label>
+							<label class="flex items-center gap-1"><span data-l10n="Delay ms">Delay ms</span><input id="netsim-churn-delay" type="number" value="150" min="0" max="5000" class="w-20 border border-gray-300 dark:border-slate-600 text-xs rounded px-1 py-0.5 dark:bg-slate-800"></label>
+						</div>
+					</div>
+				</details>
+				<div id="netsim-status" class="text-xs text-gray-400 dark:text-slate-500 mb-1"></div>
+				<div id="netsim-log" class="text-xs font-mono text-gray-600 dark:text-slate-400 max-h-[30vh] overflow-auto"></div>
+			</fieldset>
 		</div>
 		<div id="phone-sub-tr" class="hidden">
 			<div class="flex justify-between items-center mb-2">
@@ -1301,7 +1388,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.4.0';
+const SIMPLE_VERSION = '2.5.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12231,6 +12318,160 @@ function efContentDiff(name, fid, expectedHex, actualHex) {
 	return { rows: rows, sameDecoded: rows.length === 0 };
 }
 
+// ===== Network simulation (Phone tab) =====
+// Sends the scenario parameters to POST /api/net-sim and renders the step
+// log.  The scenarios are implemented in pysim_simple_server/netsim.py
+// (trace study: projects/UICC_NAA.md section 13).
+
+let _netSimOpResults = [];
+let _netSimSearchTimer = null;
+
+function netSimRandomHex(nbytes) {
+	let s = '';
+	for (let i = 0; i < nbytes; i++) s += Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase();
+	return s;
+}
+
+function netSimDice(id, nbytes) {
+	const el = document.getElementById(id);
+	if (el) el.value = netSimRandomHex(nbytes);
+}
+
+function netSimVal(id) {
+	const el = document.getElementById(id);
+	return el ? el.value.trim() : '';
+}
+
+function netSimChk(id) {
+	const el = document.getElementById(id);
+	return el ? el.checked : false;
+}
+
+function netSimParams() {
+	const p = {
+		send_event: netSimChk('netsim-send-event'),
+		dummy_locations: netSimChk('netsim-dummy-locations'),
+		invalidate_epsnsc: netSimChk('netsim-invalidate-epsnsc'),
+		keep_kasme: netSimChk('netsim-keep-kasme'),
+		write_kc: netSimChk('netsim-write-kc'),
+		sms_location: netSimChk('netsim-sms-location'),
+		cb_clear: netSimChk('netsim-cb-clear'),
+	};
+	const map = {
+		mcc: 'netsim-mcc', mnc: 'netsim-mnc', lac: 'netsim-lac', cell_id: 'netsim-cell',
+		tac: 'netsim-tac', rac: 'netsim-rac', tmsi: 'netsim-tmsi', guti: 'netsim-guti',
+		ksi: 'netsim-ksi', kasme: 'netsim-kasme', kc: 'netsim-kc', ul: 'netsim-ul',
+		dl: 'netsim-dl', algo: 'netsim-algo', rand: 'netsim-rand', autn: 'netsim-autn',
+		churn_count: 'netsim-churn-count', churn_delay_ms: 'netsim-churn-delay',
+	};
+	for (const [key, id] of Object.entries(map)) {
+		const v = netSimVal(id);
+		if (v !== '') p[key] = v;
+	}
+	return p;
+}
+
+async function netSimRun(scenario) {
+	const statusEl = document.getElementById('netsim-status');
+	statusEl.textContent = t('Running') + '...';
+	statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-1';
+	try {
+		const body = netSimParams();
+		body.scenario = scenario;
+		const res = await pysimFetch('/api/net-sim', body);
+		netSimRenderLog(res);
+		if (res.success) {
+			statusEl.textContent = t('Done') + ' — ' + (res.steps || []).length + ' ' + t('steps');
+			statusEl.className = 'text-xs text-emerald-600 dark:text-emerald-400 mb-1';
+		} else {
+			statusEl.textContent = t('Failed') + ': ' + (res.error || '');
+			statusEl.className = 'text-xs text-red-500 mb-1';
+		}
+		pysimEventsRender();
+	} catch (e) {
+		statusEl.textContent = t('Error') + ': ' + e.message;
+		statusEl.className = 'text-xs text-red-500 mb-1';
+	}
+}
+
+function netSimStepText(s) {
+	const sw = (s.sw !== undefined && s.sw !== null) ? ' → SW ' + s.sw : '';
+	if (s.action === 'skip') return t('skip') + ' ' + (s.file || '') + (s.note ? ' — ' + s.note : '');
+	if (s.action === 'event') return 'ENVELOPE ' + (s.file || '') + ' ' + (s.data || '') + sw;
+	if (s.action === 'authenticate') {
+		const parsed = s.parsed ? s.parsed.type : '';
+		return 'AUTHENTICATE ' + parsed + sw + (s.response ? ' ' + s.response : '');
+	}
+	return s.action + ' ' + (s.file || '') + (s.path ? ' (' + s.path + ')' : '') + (s.data ? ' ' + s.data : '') + sw;
+}
+
+function netSimRenderLog(res) {
+	const el = document.getElementById('netsim-log');
+	if (!el) return;
+	let html = '';
+	for (const s of res.steps || []) {
+		const cls = s.ok === false ? 'text-red-500' : (s.action === 'skip' ? 'text-yellow-600' : 'text-gray-600 dark:text-slate-400');
+		html += '<div class="' + cls + ' break-all">' + esc(netSimStepText(s)) + '</div>';
+	}
+	el.innerHTML = html || '<span class="text-gray-400">' + esc(t('No steps')) + '</span>';
+}
+
+function netSimSearchInput() {
+	clearTimeout(_netSimSearchTimer);
+	_netSimSearchTimer = setTimeout(netSimSearch, 250);
+}
+
+async function netSimSearch() {
+	const q = netSimVal('netsim-op-search');
+	const el = document.getElementById('netsim-op-results');
+	if (!el) return;
+	if (q.length < 2) { el.innerHTML = ''; return; }
+	try {
+		const res = await pysimFetch('/api/mcc-mnc?q=' + encodeURIComponent(q));
+		if (!res.available) {
+			el.innerHTML = '<span class="text-yellow-600">' + esc(t('Operator list not loaded (server --mcc-mnc-list)')) + '</span>';
+			return;
+		}
+		_netSimOpResults = res.results || [];
+		el.innerHTML = _netSimOpResults.map((r, i) =>
+			'<div class="cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 rounded px-1" onclick="netSimPickOperator(' + i + ')">' +
+			esc((r.countryName || '') + ' — ' + (r.brand || r.operator || '') + ' (' + r.mcc + '/' + r.mnc + ')') + '</div>').join('');
+	} catch (e) {
+		el.textContent = e.message;
+	}
+}
+
+function netSimPickOperator(i) {
+	const r = _netSimOpResults[i];
+	if (!r) return;
+	document.getElementById('netsim-mcc').value = r.mcc;
+	document.getElementById('netsim-mnc').value = r.mnc;
+	const el = document.getElementById('netsim-op-results');
+	if (el) el.innerHTML = '';
+}
+
+async function netSimRandomOperator() {
+	const statusEl = document.getElementById('netsim-status');
+	try {
+		const exclude = (netSimVal('netsim-mcc') || '') + (netSimVal('netsim-mnc') || '');
+		const res = await pysimFetch('/api/mcc-mnc?random=1' + (exclude ? '&exclude=' + encodeURIComponent(exclude) : ''));
+		if (!res.available) {
+			statusEl.textContent = t('Operator list not loaded (server --mcc-mnc-list)');
+			statusEl.className = 'text-xs text-yellow-600 mb-1';
+			return;
+		}
+		if (res.result) {
+			document.getElementById('netsim-mcc').value = res.result.mcc;
+			document.getElementById('netsim-mnc').value = res.result.mnc;
+			statusEl.textContent = (res.result.countryName || '') + ' — ' + (res.result.brand || res.result.operator || '') + ' (' + res.result.mcc + '/' + res.result.mnc + ')';
+			statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-1';
+		}
+	} catch (e) {
+		statusEl.textContent = t('Error') + ': ' + e.message;
+		statusEl.className = 'text-xs text-red-500 mb-1';
+	}
+}
+
 // ===== i18n =====
 const LANG_RU = {
 	'Generate APDU': 'Сгенерировать APDU',
@@ -12488,6 +12729,38 @@ const LANG_RU = {
 	'Events that the card monitors (SET UP EVENT LIST):': 'События, отслеживаемые картой (SET UP EVENT LIST):',
 	'No events configured.': 'Нет настроенных событий.',
 	'Fetched proactive commands:': 'Извлечённые проактивные команды:',
+	'Network simulation': 'Симуляция сети',
+	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE) - see projects/UICC_NAA.md. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE) — см. projects/UICC_NAA.md. Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN и 5GS location-файлы не затрагиваются.',
+	'Cold boot': 'Холодная загрузка',
+	'EPS attach': 'Подключение EPS',
+	'2G attach': 'Подключение 2G',
+	'Service lost': 'Потеря сервиса',
+	'Limited service': 'Ограниченный сервис',
+	'Roaming denied': 'Роуминг запрещён',
+	'Churn': 'Серия переподключений',
+	'SMS received': 'Принято SMS',
+	'CB reconfig': 'Перенастройка CB',
+	'Parameters': 'Параметры',
+	'Operator search (country / brand / MCC-MNC)': 'Поиск оператора (страна / бренд / MCC-MNC)',
+	'Random roaming operator': 'Случайный роуминг-оператор',
+	'Advanced identity (empty = random)': 'Дополнительные идентификаторы (пусто = случайно)',
+	'Algorithm': 'Алгоритм',
+	'Send Location status event (if subscribed)': 'Отправлять событие Location status (если подписано)',
+	'Dummy location files': 'Фиктивные location-файлы',
+	'Invalidate EPSNSC': 'Инвалидировать EPSNSC',
+	'Keep KASME (KSI 07 only)': 'Сохранять KASME (только KSI 07)',
+	'Write/invalidate Kc': 'Записывать/инвалидировать Kc',
+	'SMS: rewrite location too': 'SMS: перезаписывать и location',
+	'CB: clear lists instead of writing IDs': 'CB: очищать списки вместо записи ID',
+	'Churn count': 'Число циклов',
+	'Delay ms': 'Задержка, мс',
+	'Running': 'Выполняется',
+	'Done': 'Готово',
+	'Failed': 'Ошибка',
+	'steps': 'шагов',
+	'No steps': 'Нет шагов',
+	'skip': 'пропуск',
+	'Operator list not loaded (server --mcc-mnc-list)': 'Список операторов не загружен (--mcc-mnc-list на сервере)',
 	'No commands logged yet.': 'Команды пока не регистрировались.',
 	'Send event notification to the card?': 'Отправить уведомление о событии на карту?',
 	'This event type is not yet supported.': 'Этот тип события пока не поддерживается.',

@@ -474,6 +474,19 @@
 	</ul>
 	<p class="text-sm mb-3">Values persist server-side until restart. When the card issues PLI, the server injects the dictionary values into the TERMINAL RESPONSE.</p>
 
+	<h3 id="network-simulation" class="text-lg font-medium mb-2">8.7 Network simulation</h3>
+	<p class="text-sm mb-2">Replays the write patterns a real phone performs when the network condition changes (trace study in <code class="font-mono text-sm">projects/UICC_NAA.md</code>): EPS attach, service loss / limited service, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration and AUTHENTICATE. One button per scenario; the card must be equipped.</p>
+	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
+		<li><strong>Cold boot</strong> — invalidate EPSNSC (KSI 07, key wiped) and dummy the location files.</li>
+		<li><strong>EPS attach / 2G attach</strong> — store a real EPS NAS context (KSI, KASME, NAS counts, algorithm) and write real LOCI/PSLOCI/EPSLOCI (2G also writes real Kc/KcGPRS).</li>
+		<li><strong>Service lost / Limited service / Roaming denied</strong> — send the Location status event (only when the card subscribed to it), invalidate EPSNSC (optionally keeping the old KASME), dummy the location files (PLMN kept, LAC <code class="font-mono text-sm">FFFE</code>, status <code class="font-mono text-sm">01</code>/<code class="font-mono text-sm">02</code>) and invalidate Kc.</li>
+		<li><strong>Churn</strong> — replay real → invalid EPSNSC records back-to-back (count and delay configurable).</li>
+		<li><strong>SMS received</strong> — bump the EF.SMSstatus counter (read-modify-write) and optionally rewrite the location files.</li>
+		<li><strong>CB reconfig</strong> — write the CBMI/CBMIR message-ID lists or clear them (all FF).</li>
+		<li><strong>AUTHENTICATE</strong> — send AUTHENTICATE (3G/EPS/5G, <code class="font-mono text-sm">00 88 00 81 22</code>) with the given or random RAND/AUTN and show the response (success <code class="font-mono text-sm">DB</code> or synchronisation failure <code class="font-mono text-sm">DC</code> with AUTS).</li>
+	</ul>
+	<p class="text-sm mb-3"><strong>Parameters</strong> (collapsed) provide the operator (searchable worldwide MCC/MNC list served from the server, plus a random roaming picker), LAC/Cell ID/TAC/RAC, optional identity values (empty = random: TMSI, GUTI, KSI, KASME, Kc, NAS counts, algorithm, RAND/AUTN), the scenario toggles and the churn count/delay. The step log lists every write, ENVELOPE and AUTHENTICATE with its SW. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent — FPLMN and 5GS location files are never written (no observed phone does); the writes change the card and are visible to later snapshot comparisons.</p>
+
 </section>
 
 <section class="mb-10">

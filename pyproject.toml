@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysim-simple-server"
-version = "2.4.0"
+version = "2.5.0"
 description = "HTTP REST server wrapping pysim for the SIMple PWA"
 requires-python = ">=3.8"
 # pysim is a git-only dependency installed explicitly by setup.bat/setup.sh.

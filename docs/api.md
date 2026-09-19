@@ -40,6 +40,8 @@ a 2.x PWA).
 | `/api/stk-status` | GET | STK session state (active/pending/type) |
 | `/api/events` | GET | Event list from SET UP EVENT LIST |
 | `/api/event-send` | POST | Send ENVELOPE(Event Download) |
+| `/api/net-sim` | POST | Run a network-condition scenario (attach, service loss, roaming, churn, 2G, SMS, CB, AUTHENTICATE) |
+| `/api/mcc-mnc` | GET | Search the optional MCC/MNC operator list (`?q=`; `?random=1&exclude=`) |
 | `/api/proactive-log` | GET | Last 50 proactive commands |
 | `/api/status-poll` | POST | Manual STATUS poll + FETCH if 91XX |
 | `/api/rescue` | POST | Re-send TERMINAL PROFILE to recover CAT session |
@@ -94,6 +96,15 @@ List all available shell commands for the current card profile.
 Runs pySim's `cardinfo` command and returns its output as `{"output": "..."}`
 (card type, ATR, ICCID and other information pySim reports for the equipped
 card). A shortcut for `POST /api/command` with `{"cmd": "cardinfo"}`.
+
+### `GET /api/mcc-mnc`
+
+Searches the optional worldwide operator list loaded from
+`--mcc-mnc-list` (default `<workspace>/samples/mcc-mnc-list.json`).
+`?q=<text>` matches country, country code, MCC/MNC, brand and operator
+(compact results, max 50); `?random=1[&exclude=MCCMNC]` returns one random
+entry (for roaming tests). When the list is not configured or missing the
+response is `{"available": false}`.
 
 ### `POST /api/command`
 
@@ -404,6 +415,28 @@ event byte values, or `[]` when none was received).
 ### `POST /api/event-send`
 
 Sends an `ENVELOPE(Event Download)` for a subscribed event.
+
+### `POST /api/net-sim`
+
+Runs one network-condition scenario from `projects/UICC_NAA.md` section 13
+against the equipped card and returns the step log:
+
+```json
+{"scenario": "service_lost", "mcc": "262", "mnc": "01", "lac": "6CD7",
+ "send_event": true, "dummy_locations": true, "keep_kasme": true}
+```
+
+Scenarios: `cold_boot`, `attach_eps`, `attach_2g`, `service_lost`,
+`limited_service`, `roaming_denied`, `churn`, `sms_received`, `cb_reconfig`,
+`authenticate`. Optional parameters: `mcc`/`mnc` (or `plmn`), `lac`,
+`cell_id`, `tac`, `rac`, `tmsi`, `ptmsi`, `ptmsi_sig`, `guti`, `ksi`,
+`kasme`, `ul`, `dl`, `algo`, `kc`, `rand`, `autn`, `churn_count`,
+`churn_delay_ms`, and the toggles `send_event`, `dummy_locations`,
+`invalidate_epsnsc`, `keep_kasme`, `write_kc`, `sms_location`, `cb_clear`
+(empty identity values are randomized). The event step is skipped when the
+card did not subscribe to Location status; only UPDATE BINARY/RECORD,
+ENVELOPE and AUTHENTICATE are sent (never FPLMN/5GS location files). The
+response is `{success, error, steps:[{action, file, path, data, sw, ok}]}`.
 
 ```json
 {"event_type": 4, "event_data": "01A0"}

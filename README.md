@@ -595,6 +595,8 @@ The **Phone simulator** tab provides real-time CAT session interaction. It has t
 
 Values persist on the server until restart. Apply → hex updates; Save → POSTs to server. The server will use these values to populate TERMINAL RESPONSE data for future PLI proactive commands.
 
+**Network simulation** — replays the card-facing write patterns of a real phone on network-condition changes (trace study: `projects/UICC_NAA.md`): **Cold boot**, **EPS attach**, **2G attach**, **Service lost**, **Limited service**, **Roaming denied**, **Churn**, **SMS received**, **CB reconfig** and **AUTHENTICATE**. Each scenario sends the Location status event (only when the card subscribed to it), updates the EPS NAS context, location files, Kc and CB/SMS files exactly as observed, and logs every step with its SW. Parameters (collapsed) cover the operator (searchable worldwide MCC/MNC list served by the server, plus a random roaming picker), LAC/Cell ID/TAC/RAC, optional identity values (empty = random: TMSI, GUTI, KSI, KASME, Kc, NAS counts, algorithm, RAND/AUTN), scenario toggles and the churn count/delay. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched. The operator list comes from `--mcc-mnc-list` (default `<workspace>/samples/mcc-mnc-list.json`).
+
 ## SCP81
 
 The **SCP81** tab drives HTTP OTA (GP RAM over HTTP, GPC v2.2 Amendment B) and has two pills: **Listener** and **Scripts**.

@@ -202,6 +202,21 @@ test('every help anchor used by the UI exists in help.html', () => {
     assert.ok(html.includes("? 'scp81-scripts' : 'scp81-listener'"));
 });
 
+test('phone simulator has the network-simulation fieldset', () => {
+    assert.ok(html.includes('data-l10n="Network simulation"'));
+    for (const s of ['cold_boot', 'attach_eps', 'attach_2g', 'service_lost',
+        'limited_service', 'roaming_denied', 'churn', 'sms_received',
+        'cb_reconfig', 'authenticate']) {
+        assert.ok(html.includes("netSimRun('" + s + "')"), s);
+    }
+    assert.ok(html.includes('id="netsim-op-search"'));
+    assert.ok(html.includes('id="netsim-log"'));
+    assert.ok(html.includes('id="netsim-status"'));
+    assert.match(html, /id="netsim-mcc" value="001"/);
+    // scenario buttons need the card (the server writes real EFs)
+    assert.match(html, /data-needs="card" onclick="netSimRun\('service_lost'\)"/);
+});
+
 test('SCP81 listener exposes its four modes with the matching notes', () => {
     for (const v of ['tls', 'redirect', 'passthru', 'dump']) {
         assert.ok(html.includes('value="' + v + '"'), v);

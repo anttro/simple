@@ -1,4 +1,5 @@
 import json
+import random
 import sys
 import os
 import time
@@ -6,12 +7,14 @@ import threading
 import traceback
 import re
 import codecs
+from urllib.parse import unquote_plus
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
 from pySim.transport import ApduTracer, ProactiveHandler
 from pySim.cards import UiccCardBase
 from pysim_simple_server import httpota
+from pysim_simple_server import netsim
 from pysim_simple_server import scp81
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 
@@ -21,7 +24,7 @@ from osmocom.construct import GsmOrUcs2Adapter
 from osmocom.tlv import BER_TLV_IE
 
 
-VERSION = '2.4.0'
+VERSION = '2.5.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -433,6 +436,59 @@ def _read_iccid(app):
     finally:
         if cleanup:
             cleanup()
+
+
+_MCC_MNC_CACHE = {'path': None, 'data': None}
+
+
+def _mcc_mnc_load(path):
+    """Load the optional MCC/MNC operator list (JSON) once; None if absent."""
+    if not path:
+        return None
+    if _MCC_MNC_CACHE['path'] == path:
+        return _MCC_MNC_CACHE['data']
+    data = None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+        if isinstance(loaded, list):
+            data = loaded
+    except Exception:
+        data = None
+    _MCC_MNC_CACHE['path'] = path
+    _MCC_MNC_CACHE['data'] = data
+    return data
+
+
+def _mcc_mnc_search(data, query, limit=50):
+    """Compact substring search over country/brand/operator/MCC/MNC."""
+    q = (query or '').strip().lower()
+    if not q:
+        return []
+    out = []
+    for e in data or []:
+        hay = ' '.join(str(e.get(k) or '') for k in
+                       ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator')).lower()
+        if q not in hay:
+            continue
+        out.append({k: e.get(k) for k in
+                    ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator', 'status')})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _mcc_mnc_random(data, exclude=None):
+    """One random operator entry (optionally excluding 'mccmnc' digits)."""
+    pool = [e for e in (data or [])
+            if (str(e.get('mcc') or '') + str(e.get('mnc') or '')) != (exclude or '')]
+    if not pool:
+        pool = data or []
+    if not pool:
+        return None
+    e = random.choice(pool)
+    return {k: e.get(k) for k in
+            ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator', 'status')}
 
 
 def _parse_tree_output(output):
@@ -3137,6 +3193,32 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req()
             self._send_json({'version': VERSION})
             self._log_resp({'version': VERSION})
+        elif self.path.startswith('/api/mcc-mnc'):
+            self._log_req()
+            q = ''
+            random_pick = False
+            exclude = ''
+            if '?' in self.path:
+                for kv in self.path.split('?', 1)[1].split('&'):
+                    if kv.startswith('q='):
+                        q = unquote_plus(kv[2:])
+                    elif kv.startswith('random='):
+                        random_pick = kv.split('=', 1)[1] not in ('0', 'false', '')
+                    elif kv.startswith('exclude='):
+                        exclude = unquote_plus(kv[8:])
+            path = getattr(self.server, 'mcc_mnc_path', None)
+            data = _mcc_mnc_load(path)
+            if data is None:
+                resp = {'available': False}
+            elif random_pick:
+                resp = {'available': True, 'count': len(data),
+                        'result': _mcc_mnc_random(data, exclude)}
+            else:
+                results = _mcc_mnc_search(data, q)
+                resp = {'available': True, 'count': len(data), 'results': results}
+            self._send_json(resp)
+            self._log_resp({'available': resp['available'],
+                            'results': len(resp.get('results', []))})
         elif self.path == '/api/status':
             self._log_req()
             app = self.server.app
@@ -3374,6 +3456,36 @@ class PysimHandler(BaseHTTPRequestHandler):
                 _handle_card_disconnect()
                 self._send_json({'sw': None, 'error': 'card disconnected'})
                 self._log_resp({'sw': None, 'error': 'card disconnected'})
+        elif self.path == '/api/net-sim':
+            app = self.server.app
+            rs = app.rs if app else None
+            if not app or not rs:
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            scenario = body.get('scenario')
+            if not scenario:
+                self._send_json({'error': 'scenario is required'}, 400)
+                self._log_resp({'error': 'scenario is required'})
+                return
+            try:
+                result = netsim.run_scenario(
+                    sys.modules[__name__], app, scenario, body,
+                    event_list=getattr(self.server, 'event_list', None) or [])
+                self._send_json(result)
+                self._log_resp({'scenario': scenario,
+                                'success': result.get('success'),
+                                'steps': len(result.get('steps', []))})
+            except ValueError as e:
+                self._send_json({'error': str(e)}, 400)
+                self._log_resp({'error': str(e)})
+            except Exception as e:
+                sys.stderr.write('Net-sim error: %s\n' % e)
+                _handle_card_disconnect()
+                self._send_json({'error': 'simulation failed: %s' % e}, 500)
+                self._log_resp({'error': str(e)})
         elif self.path == '/api/rescue':
             scc = self.server.scc
             if not scc:

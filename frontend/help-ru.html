@@ -474,6 +474,19 @@
 	</ul>
 	<p class="text-sm mb-3">Значения хранятся на сервере до перезапуска. Когда карта выдаёт PLI, сервер вставляет значения словаря в TERMINAL RESPONSE.</p>
 
+	<h3 id="network-simulation" class="text-lg font-medium mb-2">8.7 Симуляция сети</h3>
+	<p class="text-sm mb-2">Воспроизводит шаблоны записи реального телефона при смене сетевых условий (исследование трасс в <code class="font-mono text-sm">projects/UICC_NAA.md</code>): подключение EPS, потеря сервиса / ограниченный сервис, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast и AUTHENTICATE. По кнопке на сценарий; карта должна быть подключена.</p>
+	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
+		<li><strong>Холодная загрузка</strong> — инвалидация EPSNSC (KSI 07, ключ стирается) и фиктивные location-файлы.</li>
+		<li><strong>Подключение EPS / 2G</strong> — запись реального контекста EPS NAS (KSI, KASME, счётчики NAS, алгоритм) и реальных LOCI/PSLOCI/EPSLOCI (в 2G дополнительно реальные Kc/KcGPRS).</li>
+		<li><strong>Потеря сервиса / ограниченный сервис / запрет роуминга</strong> — событие Location status (только если карта на него подписана), инвалидация EPSNSC (по желанию с сохранением старого KASME), фиктивные location-файлы (PLMN сохраняется, LAC <code class="font-mono text-sm">FFFE</code>, статус <code class="font-mono text-sm">01</code>/<code class="font-mono text-sm">02</code>) и инвалидация Kc.</li>
+		<li><strong>Серия переподключений</strong> — реальная → невалидная запись EPSNSC подряд (число циклов и задержка настраиваются).</li>
+		<li><strong>Принято SMS</strong> — инкремент счётчика EF.SMSstatus (чтение-изменение-запись) и, по желанию, перезапись location-файлов.</li>
+		<li><strong>Перенастройка CB</strong> — запись списков CBMI/CBMIR или их очистка (все FF).</li>
+		<li><strong>AUTHENTICATE</strong> — команда AUTHENTICATE (3G/EPS/5G, <code class="font-mono text-sm">00 88 00 81 22</code>) с заданными или случайными RAND/AUTN и показ ответа (успех <code class="font-mono text-sm">DB</code> или ошибка синхронизации <code class="font-mono text-sm">DC</code> с AUTS).</li>
+	</ul>
+	<p class="text-sm mb-3"><strong>Параметры</strong> (свёрнуты) задают оператора (поиск по мировому списку MCC/MNC с сервера плюс выбор случайного роуминг-оператора), LAC/Cell ID/TAC/RAC, необязательные идентификаторы (пусто = случайно: TMSI, GUTI, KSI, KASME, Kc, счётчики NAS, алгоритм, RAND/AUTN), переключатели сценария и число циклов/задержку. Журнал шагов показывает каждую запись, ENVELOPE и AUTHENTICATE с их SW. Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE — FPLMN и 5GS location-файлы никогда не записываются (ни один наблюдаемый телефон этого не делает); записи меняют карту и видны в последующих сравнениях снимков.</p>
+
 </section>
 
 <section class="mb-10">
