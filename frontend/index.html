@@ -1220,6 +1220,7 @@
 			<input id="cards-name" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Name (e.g. Foobar SIM)">
 			<input id="cards-iccid" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="ICCID (optional)">
 			<button id="cards-iccid-from-card" data-needs="card-iccid" onclick="cardsIccidFromCard()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="From card">From card</button>
+			<input id="cards-adm" class="w-40 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="ADM (optional)">
 			<button id="cards-add-btn" onclick="cardsAdd()" class="px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 whitespace-nowrap" data-l10n="Add">Add</button>
 			<button id="cards-cancel-btn" onclick="cardsCancelEdit()" class="hidden px-4 py-2.5 bg-gray-500 text-white text-sm font-medium rounded hover:bg-gray-600 whitespace-nowrap" data-l10n="Cancel">Cancel</button>
 		</div>
@@ -1230,7 +1231,9 @@
 				<input id="cards-kid" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="KID" maxlength="2">
 				<input id="cards-spi1" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI1" maxlength="2">
 				<input id="cards-spi2" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI2" maxlength="2">
-				<input id="cards-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="ISD TAR" maxlength="6">
+				<input id="cards-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="ISD TAR" maxlength="6" value="000000">
+				<input id="cards-uicc-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="UICC TAR" maxlength="6" value="B00000">
+				<input id="cards-usim-tar" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="USIM TAR" maxlength="6" value="B00001">
 				<input id="cards-cntr" class="w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="Counter" maxlength="10">
 			</div>
 			<div class="flex gap-2">
@@ -1255,7 +1258,7 @@
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI1</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI2</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR (ISD/UICC/USIM)</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Cntr">Cntr</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="SCP81">SCP81</th>
 					<th class="border-b border-gray-200 dark:border-slate-700"></th>
@@ -1384,7 +1387,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.5.2';
+const SIMPLE_VERSION = '2.6.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2045,7 +2048,7 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 				'<input value="' + escHtml(f.path || '') + '" oninput="' + uf('path') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="7FFF6FC5">';
 			if (chainId === 'chain-usim') {
 				html += '<div class="flex gap-3 mt-1 text-xs"><label class="flex items-center gap-1"><input type="radio" name="ch-usim-' + idx + '-base" value="mf"' + ((f.base || 'mf') === 'mf' ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'base\',\'mf\')"> from MF</label>' +
-					'<label class="flex items-center gap-1"><input type="radio" name="ch-usim-' + idx + '-base" value="df"' + (f.base === 'df' ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'base\',\'df\')"> from current DF</label></div>';
+					'<label class="flex items-center gap-1"><input type="radio" name="ch-usim-' + idx + '-base" value="df"' + (f.base === 'df' ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'base\',\'df\')"> from current DF (ADF.USIM)</label></div>';
 			}
 			html += '</div>';
 		}
@@ -2855,12 +2858,36 @@ async function ramQueueScp81() {
 	}
 }
 
+// Which TAR of the selected preset feeds the SCP80 form: RAM/GP -> ISD,
+// SIM RFM -> UICC, USIM RFM -> USIM (spec defaults when the value is empty).
+let _spTarKey = 'tar';
+
+function spTarKeyForPack(sourceId) {
+	return {
+		'chain-ram-preview': 'tar',
+		'chain-sim-preview': 'uiccTar',
+		'chain-usim-preview': 'usimTar',
+	}[sourceId] || null;
+}
+
+function spPresetTar(key) {
+	const sel = document.getElementById('sp-card-sel');
+	const idx = sel ? parseInt(sel.value, 10) : NaN;
+	const c = (!isNaN(idx) && cards[idx]) ? cards[idx] : null;
+	return cardsTarValue(key, c ? c[key] : '');
+}
+
 function packToSp(sourceId) {
 	const val = document.getElementById(sourceId).value;
 	if (!val) return;
 	switchTab('scp80');
 	scp80SwitchSubtab('sp');
 	document.getElementById('sp-apdu').value = val;
+	const key = spTarKeyForPack(sourceId);
+	if (key) {
+		_spTarKey = key;
+		document.getElementById('sp-tar').value = spPresetTar(key);
+	}
 }
 function spCntrAdjust(delta) {
 	const el = document.getElementById('sp-cntr');
@@ -5318,6 +5345,7 @@ function ramApplyCard(idx) {
 	// getRamSpParams() picks up the right SPI/KIc/KID/TAR/CNTR/keys
 	const i = parseInt(idx, 10);
 	if (!isNaN(i) && cards[i]) _ramCardIdx = i;
+	_spTarKey = 'tar';   // RAM/GP operations target the ISD
 	cardsApply(idx);
 }
 
@@ -6087,6 +6115,13 @@ function cardsPskName(identity) {
 	return c ? c.name : '';
 }
 
+// Spec-default TARs (GP ISD 000000, TS 31.116 UICC B00000, TS 31.115 USIM
+// B00001): an empty preset value means the default for that target.
+function cardsTarValue(key, value) {
+	const defaults = { tar: '000000', uiccTar: 'B00000', usimTar: 'B00001' };
+	return value || defaults[key] || '';
+}
+
 function cardsFormValues() {
 	const val = id => {
 		const el = document.getElementById('cards-' + id);
@@ -6095,11 +6130,14 @@ function cardsFormValues() {
 	return {
 		name: val('name'),
 		iccid: val('iccid'),
+		adm: val('adm').replace(/\s/g, '').toUpperCase(),
 		kic: val('kic'),
 		kid: val('kid'),
 		spi1: val('spi1'),
 		spi2: val('spi2'),
 		tar: val('tar'),
+		uiccTar: val('uicc-tar'),
+		usimTar: val('usim-tar'),
 		cntr: val('cntr'),
 		kicKey: val('kic-key'),
 		kidKey: val('kid-key'),
@@ -6116,15 +6154,24 @@ function cardsSetFormMode() {
 }
 
 function cardsClearForm() {
-	['name','iccid','kic','kid','spi1','spi2','tar','cntr','kic-key','kid-key',
+	['name','iccid','adm','kic','kid','spi1','spi2','cntr','kic-key','kid-key',
 	 'psk-id','psk-key'].forEach(id => {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = '';
+	});
+	// TARs keep their per-target spec defaults instead of being emptied
+	[['tar','tar'],['uicc-tar','uiccTar'],['usim-tar','usimTar']].forEach(([id, key]) => {
+		const el = document.getElementById('cards-' + id);
+		if (el) el.value = cardsTarValue(key, '');
 	});
 }
 
 function cardsAdd() {
 	const v = cardsFormValues();
+	// empty TAR fields fall back to the per-target spec defaults
+	v.tar = cardsTarValue('tar', v.tar);
+	v.uiccTar = cardsTarValue('uiccTar', v.uiccTar);
+	v.usimTar = cardsTarValue('usimTar', v.usimTar);
 	if (!v.name) { alert(t('Name is required')); return; }
 	if (!v.kic || !v.kid) { alert('KIc and KID are required'); return; }
 	if (!v.kicKey || !v.kidKey) { alert('KIc key and KID key are required'); return; }
@@ -6162,8 +6209,11 @@ function cardsEdit(i) {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = value == null ? '' : value;
 	};
-	set('name', c.name); set('iccid', c.iccid); set('kic', c.kic); set('kid', c.kid);
-	set('spi1', c.spi1); set('spi2', c.spi2); set('tar', c.tar); set('cntr', c.cntr);
+	set('name', c.name); set('iccid', c.iccid); set('adm', c.adm); set('kic', c.kic); set('kid', c.kid);
+	set('spi1', c.spi1); set('spi2', c.spi2); set('cntr', c.cntr);
+	set('tar', cardsTarValue('tar', c.tar));
+	set('uicc-tar', cardsTarValue('uiccTar', c.uiccTar));
+	set('usim-tar', cardsTarValue('usimTar', c.usimTar));
 	set('kic-key', c.kicKey); set('kid-key', c.kidKey);
 	set('psk-id', c.pskIdentity); set('psk-key', c.pskKey);
 	cardsSetFormMode();
@@ -6213,7 +6263,7 @@ function cardsRender() {
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.kid) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi1) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi2) + '</td>';
-		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.tar || '') + '</td>';
+		html += '<td class="py-1 px-2 font-mono text-xs" title="ISD / UICC / USIM">' + esc(cardsTarValue('tar', c.tar)) + ' ' + esc(cardsTarValue('uiccTar', c.uiccTar)) + ' ' + esc(cardsTarValue('usimTar', c.usimTar)) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.cntr) + '</td>';
 		html += '<td class="py-1 px-2 text-center">' + ota + '</td>';
 		html += '<td class="py-1 px-2 whitespace-nowrap"><button onclick="cardsEdit(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">' + t('Edit') + '</button> '
@@ -6306,7 +6356,7 @@ function cardsApply(idx) {
 	document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
 	document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
 	updateSpKid();
-	document.getElementById('sp-tar').value = c.tar || 'B00001';
+	document.getElementById('sp-tar').value = cardsTarValue(_spTarKey, c[_spTarKey]);
 	document.getElementById('sp-cntr').value = c.cntr;
 	document.getElementById('sp-kic-key').value = c.kicKey;
 	document.getElementById('sp-kid-key').value = c.kidKey;
@@ -6349,11 +6399,14 @@ function cardsImport(text) {
 			cards.push({
 				name: entry.name,
 				iccid: entry.iccid,
+				adm: (entry.adm || '').replace(/\s/g, '').toUpperCase(),
 				kic: entry.kic || '15',
 				kid: entry.kid || '15',
 				spi1: entry.spi1 || '16',
 				spi2: entry.spi2 || '01',
-				tar: entry.tar || '',
+				tar: cardsTarValue('tar', entry.tar),
+				uiccTar: cardsTarValue('uiccTar', entry.uiccTar),
+				usimTar: cardsTarValue('usimTar', entry.usimTar),
 				cntr: entry.cntr || '0000000001',
 				kicKey: entry.kicKey || '',
 				kidKey: entry.kidKey || '',

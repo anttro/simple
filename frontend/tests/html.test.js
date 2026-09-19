@@ -33,12 +33,26 @@ test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', 
     assert.ok(scp81, 'SCP81 card fieldset not found');
     assert.match(scp80, /id="cards-kic"/);
     assert.match(scp80, /id="cards-kid-key"/);
+    assert.match(scp80, /id="cards-tar"[^>]*value="000000"/);
+    assert.match(scp80, /id="cards-uicc-tar"[^>]*value="B00000"/);
+    assert.match(scp80, /id="cards-usim-tar"[^>]*value="B00001"/);
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
     assert.match(scp81, /data-l10n="SCP81 HTTP OTA: the listener picks the key/);
     // the ICCID field is not in either group
     assert.ok(!fieldsets.some(f => f.includes('id="cards-iccid"')));
+});
+
+test('the ADM field sits between From card and Add, outside the card fieldsets', () => {
+    const fieldsets = [...html.matchAll(/<fieldset[\s\S]*?<\/fieldset>/g)].map(m => m[0]);
+    assert.ok(!fieldsets.some(f => f.includes('id="cards-adm"')));
+    assert.match(html, /id="cards-adm"[^>]*placeholder="ADM \(optional\)"/);
+    const fromIdx = html.indexOf('id="cards-iccid-from-card"');
+    const admIdx = html.indexOf('id="cards-adm"');
+    const addIdx = html.indexOf('id="cards-add-btn"');
+    assert.ok(fromIdx >= 0 && fromIdx < admIdx && admIdx < addIdx,
+        'ADM input must sit between the From card and Add buttons');
 });
 
 test('labelled containers use fieldsets with embedded legends', () => {

@@ -55,7 +55,7 @@
 
 	<h3 id="sim-rfm" class="text-lg font-medium mb-2">2.1 SIM RFM</h3>
 	<p class="mb-2">CLA = <code class="font-mono text-sm">A0</code> (GSM 11.11 / TS 151 011, ISO 7816-4). Remote File Management for classic SIM cards.</p>
-	<p class="mb-2">Commands are assembled as a <strong>chain</strong>: press a command button (e.g. <code class="font-mono text-sm">+&nbsp;SELECT</code>) to append a row, fill that row&rsquo;s fields, and the chain preview (above the pack button) updates automatically. Add a <strong>GET RESPONSE</strong> row to fetch data following a SELECT. Press <strong>Pack into Secured packet</strong> to wrap the whole chain into an SCP80 packet.</p>
+	<p class="mb-2">Commands are assembled as a <strong>chain</strong>: press a command button (e.g. <code class="font-mono text-sm">+&nbsp;SELECT</code>) to append a row, fill that row&rsquo;s fields, and the chain preview (above the pack button) updates automatically. Add a <strong>GET RESPONSE</strong> row to fetch data following a SELECT. Press <strong>Pack into Secured packet</strong> to wrap the whole chain into an SCP80 packet; packing sets the SCP80 TAR to the selected preset&rsquo;s <strong>UICC TAR</strong> (<code class="font-mono text-sm">B00000</code> by default). A SIM RFM session&rsquo;s current DF is MF, so SELECT paths address files from MF.</p>
 	<table class="w-full text-sm mb-3 border-collapse">
 		<thead><tr class="border-b border-gray-300 dark:border-slate-700">
 			<th class="text-left py-1 px-2">Command</th><th class="text-left py-1 px-2">INS</th><th class="text-left py-1 px-2">Description</th>
@@ -95,7 +95,8 @@
 	<p class="mb-2">CLA = <code class="font-mono text-sm">00</code> (ETSI TS 102 221). Same chain builder and command set as SIM. Differences:</p>
 	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
 		<li><strong>SELECT</strong> requests FCP by default (P2=<code class="font-mono text-sm">04</code>) and appends Le=<code class="font-mono text-sm">00</code>; a <strong>Silent (P2=0C)</strong> checkbox selects without requesting FCP (no Le, no response data).</li>
-		<li><strong>By path</strong> offers <strong>from MF</strong> (P1=<code class="font-mono text-sm">08</code>) or <strong>from current DF</strong> (P1=<code class="font-mono text-sm">09</code>).</li>
+		<li><strong>By path</strong> offers <strong>from MF</strong> (P1=<code class="font-mono text-sm">08</code>) or <strong>from current DF</strong> (P1=<code class="font-mono text-sm">09</code>); the current DF of a USIM RFM session is ADF.USIM.</li>
+		<li><strong>Pack into Secured packet</strong> sets the SCP80 TAR to the selected preset&rsquo;s <strong>USIM TAR</strong> (<code class="font-mono text-sm">B00001</code> by default).</li>
 		<li>Each SELECT hop in a chain requests FCP unless marked silent.</li>
 	</ul>
 
@@ -275,7 +276,7 @@
 	<p class="text-sm mb-3">A &ldquo;Verify vs pySim&rdquo; button cross-checks the assembled packet against pySim&rsquo;s reference <code class="font-mono text-sm">OtaDialectSms.encode_cmd</code>. A &ldquo;Send to Card&rdquo; button delivers it via SMS-PP-DOWNLOAD ENVELOPE (when connected to the server). The returned Proof of Receipt is decoded and shown as a PoR status line (status, TAR, counter, raw PoR); the last command&rsquo;s status word and response data are filled into the <strong>Response parser</strong> tab, and a successful PoR advances the replay counter and clears the packet.</p>
 
 	<h3 id="ram" class="text-lg font-medium mb-2">3.2 RAM</h3>
-	<p class="mb-2">Delivers Remote Application Management operations as SCP80 secured packets via SMS-PP-DOWNLOAD ENVELOPE. The card must support SCP03 (AES or 3DES). A saved card preset from the <strong>Cards</strong> tab provides the SPI, keys, TAR, and counter.</p>
+	<p class="mb-2">Delivers Remote Application Management operations as SCP80 secured packets via SMS-PP-DOWNLOAD ENVELOPE. The card must support SCP03 (AES or 3DES). A saved card preset from the <strong>Cards</strong> tab provides the SPI, keys, TAR, and counter (RAM uses the preset's <strong>ISD TAR</strong>, <code class="font-mono text-sm">000000</code> by default).</p>
 
 	<h4 id="ram-operations" class="font-medium mb-1">Operations</h4>
 	<table class="w-full text-sm mb-3 border-collapse">
@@ -298,22 +299,25 @@
 
 <section class="mb-10">
 	<h2 id="cards" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">4. Cards tab</h2>
-	<p class="mb-2">Stores card presets locally in the browser (<code class="font-mono text-sm">localStorage</code>) so the Secured Packet view can auto-fill keys and parameters, and so the SCP81 HTTP OTA listener can look up PSK keys. Cards is a top-level tab. When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in both SCP80 views. The form groups the fields into two bordered blocks: <strong>SCP80 (GSM 03.48, ETSI TS 102 225)</strong> (KIc/KID, SPI1/SPI2, TAR, counter and keys) and <strong>SCP81 (HTTP OTA)</strong> (the PSK identity/key pair with the key-selection note).</p>
+	<p class="mb-2">Stores card presets locally in the browser (<code class="font-mono text-sm">localStorage</code>) so the Secured Packet view can auto-fill keys and parameters, and so the SCP81 HTTP OTA listener can look up PSK keys. Cards is a top-level tab. When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in both SCP80 views. The form groups the fields into two bordered blocks: <strong>SCP80 (GSM 03.48, ETSI TS 102 225)</strong> (KIc/KID, SPI1/SPI2, the ISD/UICC/USIM TARs, counter and keys) and <strong>SCP81 (HTTP OTA)</strong> (the PSK identity/key pair with the key-selection note). The optional <strong>ADM</strong> field sits in the top row and is stored for later use by the file manager.</p>
 	<table class="w-full text-sm mb-3 border-collapse">
 		<thead><tr class="border-b border-gray-300 dark:border-slate-700"><th class="text-left py-1 px-2">Field</th><th class="text-left py-1 px-2">Description</th></tr></thead>
 		<tbody>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Name</td><td class="py-1 px-2">Human-readable label (required)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">ICCID</td><td class="py-1 px-2">Optional card identifier. <strong>From card</strong> fills it with the equipped card's EF.ICCID (enabled only while a readable ICCID is known); saving refuses an ICCID that already exists in the list (compared ignoring spaces and the raw-hex form, and the conflicting preset is named)</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">ADM</td><td class="py-1 px-2">Optional administrator PIN (hex, or up to 8 ASCII digits), stored in the preset for later use by the file manager; not used by the SCP80/SCP81 views</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">KIc / KID</td><td class="py-1 px-2">Key and algorithm indicators (e.g. 15 = index 1, 3DES-CBC2; x2 = AES), required together with the keys</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">SPI1 / SPI2</td><td class="py-1 px-2">Security Parameter Indicators</td></tr>
-			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">TAR</td><td class="py-1 px-2">Toolkit Application Reference</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">ISD TAR</td><td class="py-1 px-2">Toolkit Application Reference for ISD/RAM operations (SCP80 RAM view, RAM/GP chains); spec default <code class="font-mono text-sm">000000</code>, prefilled when empty</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">UICC TAR</td><td class="py-1 px-2">TAR for SIM RFM (TS 31.116); spec default <code class="font-mono text-sm">B00000</code> &mdash; a SIM RFM session selects from MF</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">USIM TAR</td><td class="py-1 px-2">TAR for USIM RFM (TS 31.115); spec default <code class="font-mono text-sm">B00001</code> &mdash; a USIM RFM session's current DF is ADF.USIM</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Counter</td><td class="py-1 px-2">Replay counter (5 bytes); advanced and saved after each successful SCP80 send</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">KIc key / KID key</td><td class="py-1 px-2">16/24/32 hex chars (8/16/24-byte 3DES) or 32/48/64 hex chars (16/24/32-byte AES) keys</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">PSK identity</td><td class="py-1 px-2">SCP81 HTTP OTA: the identity the card sends in the TLS handshake (e.g. <code class="font-mono text-sm">89390100000129506903</code>)</td></tr>
 			<tr><td class="py-1 px-2">PSK key</td><td class="py-1 px-2">SCP81 HTTP OTA: 32 hex chars (16 bytes) for the PSK TLS listener, picked by the identity the card presents</td></tr>
 		</tbody>
 	</table>
-	<p class="text-sm mb-3">The <strong>SCP81</strong> column shows whether the preset supplies a usable PSK pair: <strong>&#10003;</strong> (green) — identity and key set; <strong>&#9888;</strong> (amber) — only one of the two, so the listener ignores the preset; <strong>&mdash;</strong> — no PSK. PSK identity and key must be set together. <strong>Edit</strong> loads a preset into the form (the Add button becomes <strong>Save</strong>; <strong>Cancel</strong> clears it) so fields can be changed without re-entering the card; <strong>Remove</strong> deletes the row. Presets can be shared with <strong>Export to file</strong> and restored with <strong>Import from file</strong>. The selected card preset auto-fills the Secured Packet form; edits are pushed into a running SCP81 listener automatically.</p>
+	<p class="text-sm mb-3">The <strong>SCP81</strong> column shows whether the preset supplies a usable PSK pair: <strong>&#10003;</strong> (green) — identity and key set; <strong>&#9888;</strong> (amber) — only one of the two, so the listener ignores the preset; <strong>&mdash;</strong> — no PSK. PSK identity and key must be set together. <strong>Edit</strong> loads a preset into the form (the Add button becomes <strong>Save</strong>; <strong>Cancel</strong> clears it) so fields can be changed without re-entering the card; <strong>Remove</strong> deletes the row. Presets can be shared with <strong>Export to file</strong> and restored with <strong>Import from file</strong>. The selected card preset auto-fills the Secured Packet form and sets the TAR for the operation (RAM/GP &rarr; ISD TAR, SIM RFM &rarr; UICC TAR, USIM RFM &rarr; USIM TAR); edits are pushed into a running SCP81 listener automatically.</p>
 </section>
 
 <section class="mb-10">
