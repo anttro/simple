@@ -13,7 +13,7 @@ from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
 from . import fastinit
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _LineFilter
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter
 
 
 _server_start = 0
@@ -167,6 +167,7 @@ def main():
     if app is not None and opts.fast_init:
         fastinit.install(app)
     iccid = None
+    netstate_files = None
     if scc and card is not None and hasattr(scc, '_tp'):
         scc._tp.apdu_tracer = _LoggingApduTracer()
         try:
@@ -176,6 +177,12 @@ def main():
             iccid = _read_iccid(app)
             if iccid:
                 sys.stderr.write('INIT: ICCID %s\n' % iccid)
+                # Network state monitor: read the network-related EFs in the
+                # same CAT-free window (skipped without a readable ICCID).
+                try:
+                    netstate_files = _netstate_read(app)
+                except Exception:
+                    netstate_files = None
             t_phase = time.time()
             sys.stderr.write('INIT: sending TERMINAL PROFILE %s (CLA=%s)\n' % (opts.terminal_profile, scc.cat_cla))
             sm, el = _send_terminal_profile(scc, opts.terminal_profile)
@@ -231,6 +238,14 @@ def main():
     server.card_present = card is not None
     server.card_session = 1 if card is not None else 0
     server.iccid = iccid
+    # Network state monitor: install the state read during the startup init
+    # (right after the ICCID, before the TERMINAL PROFILE).  No readable
+    # ICCID means the card is considered unusable - give up.
+    try:
+        _netstate_install(server, netstate_files if iccid else None)
+    except Exception as e:
+        server.net_state = None
+        sys.stderr.write('INIT: network state failed: %s\n' % e)
     server.equipping = False
     # Set server reference for polling timer and mark the card session state
     import pysim_simple_server.server

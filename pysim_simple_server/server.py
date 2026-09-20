@@ -25,7 +25,7 @@ from osmocom.construct import GsmOrUcs2Adapter
 from osmocom.tlv import BER_TLV_IE
 
 
-VERSION = '2.7.0'
+VERSION = '2.7.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -492,14 +492,13 @@ def _mcc_mnc_random(data, exclude=None):
             ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator', 'status')}
 
 
-def _netstate_read(server, keys=None):
+def _netstate_read(app, keys=None):
     """Read the monitored network-state EFs (best effort per file).
 
     The Network state panel caches them: the full set is read once at equip
     (after a readable ICCID), on demand via /api/net-state-refresh, and only
     the card-side files (EF.IMSI) after net-sim / Location-status operations.
     """
-    app = getattr(server, 'app', None)
     rs = getattr(app, 'rs', None) if app else None
     if not app or not rs:
         return {}
@@ -553,24 +552,53 @@ def _netstate_compute(server):
     return netstate.compute_network(state, data)
 
 
+def _netstate_install(server, files, source='init'):
+    """Install a freshly read monitor state (None/{} = nothing readable)."""
+    state = netstate.new_state()
+    netstate.merge_read(state, files or {}, source=source)
+    netstate.set_read_time(state)
+    server.net_state = state
+    _netstate_compute(server)
+
+
+def _netstate_init(server):
+    """Create the monitor state from a fresh read (best effort)."""
+    try:
+        _netstate_install(server, _netstate_read(server.app))
+    except Exception as e:
+        server.net_state = None
+        _tlog('network state read failed: %s' % e)
+
+
+def _netstate_ensure(server):
+    """Monitor state of the current session, created on demand for equip
+    paths that predate it (e.g. the startup init)."""
+    state = getattr(server, 'net_state', None)
+    if state is None and getattr(server, 'iccid', None):
+        _netstate_init(server)
+        state = getattr(server, 'net_state', None)
+    return state
+
+
 def _netstate_after_net_sim(server, scenario, result):
     """Update the cached Network state after a scenario run: the bytes we
     wrote are known without re-reading; the card may update EF.IMSI itself."""
-    state = getattr(server, 'net_state', None)
+    state = _netstate_ensure(server)
     if state is None:
         return
     netstate.apply_steps(state, (result or {}).get('steps') or [])
     service = netsim.SCENARIO_SERVICE.get(scenario)
     if service and (result or {}).get('success'):
         netstate.set_service(state, service, 'net-sim:' + scenario)
-    netstate.merge_read(state, _netstate_read(server, ['imsi']), source='read')
+    netstate.merge_read(state, _netstate_read(server.app, ['imsi']),
+                        source='read')
     _netstate_compute(server)
 
 
 def _netstate_after_event(server, event_type, event_data):
     """Location status changes the simulated service state; the card may also
     switch EF.IMSI (multi-IMSI applets) after such an event."""
-    state = getattr(server, 'net_state', None)
+    state = _netstate_ensure(server)
     if state is None:
         return
     try:
@@ -587,7 +615,8 @@ def _netstate_after_event(server, event_type, event_data):
                    0x02: netstate.SERVICE_NONE}.get(status)
         if service:
             netstate.set_service(state, service, 'event:location-status')
-    netstate.merge_read(state, _netstate_read(server, ['imsi']), source='read')
+    netstate.merge_read(state, _netstate_read(server.app, ['imsi']),
+                        source='read')
     _netstate_compute(server)
 
 
@@ -2481,15 +2510,7 @@ def _apply_equipped_card(server):
         # Network state monitor: read the network-related EFs right after the
         # ICCID (still before the TERMINAL PROFILE opens a CAT session).  A
         # card without a readable ICCID is considered unusable - give up.
-        try:
-            server.net_state = netstate.new_state()
-            netstate.merge_read(server.net_state, _netstate_read(server),
-                                source='init')
-            netstate.set_read_time(server.net_state)
-            _netstate_compute(server)
-        except Exception as e:
-            server.net_state = None
-            _tlog('equip: network state read failed: %s' % e)
+        _netstate_init(server)
     else:
         server.net_state = None
         _tlog('equip: ICCID not readable - network state skipped')
@@ -3625,7 +3646,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 state = netstate.new_state()
                 self.server.net_state = state
             try:
-                files = _netstate_read(self.server, keys)
+                files = _netstate_read(self.server.app, keys)
             except Exception as e:
                 self._send_json({'error': str(e)}, 500)
                 self._log_resp({'error': str(e)})

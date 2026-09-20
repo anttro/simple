@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.0';
+const SIMPLE_VERSION = '2.7.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12690,6 +12690,7 @@ async function netSimRun(scenario) {
 		}
 		pysimEventsRender();
 		if (res.net_state) netStateRender(res.net_state);
+		else netStateFetch();
 	} catch (e) {
 		statusEl.textContent = t('Error') + ': ' + e.message;
 		statusEl.className = 'text-xs text-red-500 mb-1';
