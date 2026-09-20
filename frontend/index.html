@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.2';
+const SIMPLE_VERSION = '2.7.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12643,11 +12643,13 @@ function netStateRender(state) {
 	const loc = state && state.network ? state.network.location : null;
 	const locEl = document.getElementById('netstate-location');
 	if (loc) {
+		const statuses = [];
+		if (loc.roaming) statuses.push(esc(t(NET_STATE_ROAMING[loc.roaming] || loc.roaming)));
+		if (loc.rejected) statuses.push('<span class="text-red-500">⛔ ' + esc(t('PLMN not allowed')) + '</span>');
 		let h = '<span class="font-mono">' + esc(loc.mcc + '-' + loc.mnc) + '</span>';
 		if (loc.country) h += ' · ' + esc(loc.country);
 		if (loc.operator) h += ' · ' + esc(loc.operator);
-		if (loc.roaming) h += ' · ' + esc(t(NET_STATE_ROAMING[loc.roaming] || loc.roaming));
-		if (loc.rejected) h += ' <span class="text-red-500">⛔ ' + esc(t('PLMN not allowed')) + '</span>';
+		if (statuses.length) h += '<span class="block">' + statuses.join(' · ') + '</span>';
 		locEl.innerHTML = h;
 	} else {
 		locEl.innerHTML = '<span class="text-gray-400">—</span>';
@@ -12949,6 +12951,7 @@ const LANG_RU = {
 	'pySim command line': 'Командная строка pySim',
 	'Raw APDU': 'Отправка APDU',
 	'Read': 'Прочитать',
+	'Refresh': 'Обновить',
 	'Save': 'Сохранить',
 	'Raw': 'Данные как на карте',
 	'Decoded': 'Декодированные данные',

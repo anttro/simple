@@ -106,10 +106,23 @@ test('netStateRender paints the service badge, location and rows', () => {
 	assert.ok(els['netstate-location'].innerHTML.includes('Germany'));
 	assert.ok(els['netstate-location'].innerHTML.includes('Guest (roaming)'));
 	assert.ok(els['netstate-location'].innerHTML.includes('PLMN not allowed'));
+	assert.ok(els['netstate-location'].innerHTML.includes(
+		'Telekom<span class="block">Guest (roaming) · <span class="text-red-500">⛔ PLMN not allowed</span></span>'));
+	assert.ok(!els['netstate-location'].innerHTML.includes('Telekom · '));
 	assert.strictEqual(els['netstate-area'].textContent, 'LAI 6CD7');
 	assert.ok(els['netstate-body'].innerHTML.includes('EF.IMSI'));
 	assert.ok(els['netstate-body'].innerHTML.includes('262011234567890'));
 	assert.ok(els['netstate-body'].innerHTML.includes('>write<'));
+});
+
+test('netStateRender keeps the location on one line when there is no status', () => {
+	const els = setup();
+	decoder({});
+	netStateRender({ service: { state: 'normal' }, files: {},
+		network: { location: { mcc: '262', mnc: '01', country: 'Germany',
+			operator: 'Telekom', area: 'LAI', lac: '6CD7' } } });
+	assert.strictEqual(els['netstate-location'].innerHTML,
+		'<span class="font-mono">262-01</span> · Germany · Telekom');
 });
 
 test('netStateRender shows Undefined until something is simulated', () => {
