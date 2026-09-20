@@ -159,6 +159,9 @@ test('decoder registry resolves by name first, then FID; unknown returns null', 
 	assert.strictEqual(efFindDecoder('ADF.USIM/EF.LOCI', null).name, 'EF.LOCI');
 	assert.strictEqual(efFindDecoder('EF.SUME', null).fid, '6f54');
 	assert.strictEqual(efFindDecoder('EF.NOPE', 'ABCD'), null);
+	// mixed-case registry names resolve case-insensitively without a FID
+	assert.strictEqual(efFindDecoder('EF.HPLMNwAcT', null).fid, '6f62');
+	assert.strictEqual(efFindDecoder('ef.plmnwact', null).name, 'EF.PLMNwAcT');
 	assert.strictEqual(efFidFromPath('ADF.USIM/6F07'), '6F07');
 	assert.strictEqual(efFidFromPath('MF/7F10/6F3A'), '6F3A');
 	assert.strictEqual(efFidFromPath('ADF.USIM'), null);

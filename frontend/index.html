@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.15';
+const SIMPLE_VERSION = '2.7.16';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12522,7 +12522,7 @@ const EF_DECODERS = [
 function efFindDecoder(name, fid) {
 	let n = (name || '').toUpperCase();
 	if (n.includes('/')) n = n.split('/').pop();
-	for (const d of EF_DECODERS) if (d.name === n) return d;
+	for (const d of EF_DECODERS) if (d.name.toUpperCase() === n) return d;
 	const f = (fid || '').toLowerCase();
 	if (f) for (const d of EF_DECODERS) if (d.fid === f) return d;
 	return null;
@@ -12772,9 +12772,13 @@ function netStateFlattenTitle(decoded) {
 	return efFlatten(data).map(r => (r[0] ? r[0] + ': ' : '') + r[1]).join(' · ');
 }
 
-function netStatePlmnList(d, withTech) {
-	return (d.plmns || []).map(p => p.mcc + '-' + p.mnc +
-		(withTech && p.access_tech ? ' (' + p.access_tech + ')' : '')).join(', ');
+// Compact PLMN list for the monitor rows: `max` keeps the row short (the
+// full decoded list stays in the row's title tooltip).
+function netStatePlmnList(d, withTech, max) {
+	const list = (d.plmns || []).map(p => p.mcc + '-' + p.mnc +
+		(withTech && p.access_tech ? ' (' + p.access_tech + ')' : ''));
+	if (max && list.length > max) return list.slice(0, max).join(', ') + ' … +' + (list.length - max);
+	return list.join(', ');
 }
 
 function netStateSummary(key, entry) {
@@ -12797,9 +12801,9 @@ function netStateSummary(key, entry) {
 	if (key === 'imsi') {
 		text = d.imsi || '';
 	} else if (key === 'ehplmn' || key === 'spdi' || key === 'fplmn') {
-		text = netStatePlmnList(d);
+		text = netStatePlmnList(d, false, 3);
 	} else if (key === 'hplmnwact') {
-		text = netStatePlmnList(d, true);
+		text = netStatePlmnList(d, true, 3);
 	} else if (NET_STATE_AREA[key]) {
 		const [area, statusKey] = NET_STATE_AREA[key];
 		const plmn = (d.mcc && d.mnc) ? d.mcc + '-' + d.mnc : null;

@@ -89,6 +89,30 @@ test('netStateSummary marks rejection statuses', () => {
 	assert.strictEqual(loci.text, 'LAI 246-81/FFFE · PLMN not allowed');
 });
 
+test('netStatePlmnList limits long lists with a count', () => {
+	const d = { plmns: [
+		{ mcc: '262', mnc: '01' }, { mcc: '246', mnc: '81' },
+		{ mcc: '204', mnc: '04' }, { mcc: '234', mnc: '15' },
+	] };
+	assert.strictEqual(netStatePlmnList(d, false, 3), '262-01, 246-81, 204-04 … +1');
+	assert.strictEqual(netStatePlmnList(d, false), '262-01, 246-81, 204-04, 234-15');
+});
+
+test('netStateSummary abbreviates a long HPLMNwAcT list', () => {
+	setup();
+	decoder({
+		'EF.HPLMNwAcT': { plmns: [
+			{ mcc: '250', mnc: '99', access_tech: 'LTE' },
+			{ mcc: '250', mnc: '32', access_tech: 'LTE' },
+			{ mcc: '250', mnc: '54', access_tech: 'LTE' },
+			{ mcc: '262', mnc: '01', access_tech: 'GSM' },
+			{ mcc: '246', mnc: '81', access_tech: 'GSM' },
+		] },
+	});
+	const s = netStateSummary('hplmnwact', { present: true, kind: 'transparent', data: 'AA' });
+	assert.strictEqual(s.text, '250-99 (LTE), 250-32 (LTE), 250-54 (LTE) … +2');
+});
+
 test('netStateRender paints the service badge, location and rows', () => {
 	const els = setup();
 	decoder({ 'EF.IMSI': { imsi: '262011234567890' } });
