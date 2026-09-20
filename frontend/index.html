@@ -861,13 +861,13 @@
 						<div id="pysim-fs-info" class="mb-1"></div>
 						<div id="pysim-fs-content" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800 min-h-20 overflow-y-auto"></div>
 						<div class="flex gap-2 mt-1 items-center">
-							<button data-needs="card" onclick="pysimFsRead()" id="pysim-fs-read-btn" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Read">Read</button>
-							<button data-needs="card" onclick="pysimFsSave()" id="pysim-fs-save-btn" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 hidden disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
-							<button onclick="pysimFsCancel()" id="pysim-fs-cancel-btn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 hidden" data-l10n="Cancel">Cancel</button>
-							<span class="text-xs text-gray-400 dark:text-slate-500">|</span>
-							<span class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-blue-600 text-white" data-mode="raw" onclick="pysimFsSetMode('raw')" data-l10n="Raw">Raw</span>
-							<span class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300" data-mode="dec" onclick="pysimFsSetMode('dec')" data-l10n="Decoded">Decoded</span>
-							<button data-needs="card" onclick="pysimFsEdit()" id="pysim-fs-edit-btn" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 ml-auto disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Edit">Edit</button>
+							<button type="button" data-needs="card" onclick="pysimFsSetMode('raw')" id="pysim-fs-read-raw-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed" data-mode="raw" data-l10n="Read raw">Read raw</button>
+							<button type="button" data-needs="card" onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
+							<div class="ml-auto flex gap-2">
+								<button data-needs="card" onclick="pysimFsSave()" id="pysim-fs-save-btn" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 hidden disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
+								<button onclick="pysimFsCancel()" id="pysim-fs-cancel-btn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 hidden" data-l10n="Cancel">Cancel</button>
+								<button data-needs="card" onclick="pysimFsEdit()" id="pysim-fs-edit-btn" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Edit raw">Edit raw</button>
+							</div>
 						</div>
 						<div id="pysim-fs-status" class="mt-1 text-xs font-mono text-gray-500 dark:text-slate-400" style="min-height:1.2em"></div>
 					</div>
@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.8';
+const SIMPLE_VERSION = '2.7.9';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7176,6 +7176,7 @@ async function pysimFsClickFile(name) {
 }
 
 async function pysimFsRead() {
+	if (!pysimFsSelected) return false;
 	const rawName = pysimFsSelected;
 	const out = document.getElementById('pysim-fs-content');
 	const statusEl = document.getElementById('pysim-fs-status');
@@ -7188,7 +7189,7 @@ async function pysimFsRead() {
 		const data = await pysimFetch('/api/read', body);
 		if (!data.success) {
 			pysimFsShowError(statusEl, data.sw, data.error);
-			return;
+			return false;
 		}
 		statusEl.textContent = 'SW: ' + data.sw + ' OK';
 		if (pysimFsDecodedMode) {
@@ -7206,8 +7207,10 @@ async function pysimFsRead() {
 		} else {
 			out.innerHTML = '<textarea rows="8" readonly class="w-full font-mono text-xs border-0 bg-transparent resize-none">' + esc(data.data || '(no output)') + '</textarea>';
 		}
+		return true;
 	} catch (e) {
 		statusEl.textContent = 'Error: ' + e.message;
+		return false;
 	}
 }
 
@@ -7267,13 +7270,22 @@ async function pysimFsLoadPySimJson() {
 let pysimFsEditMode = false;
 let pysimFsEditData = null;
 
-function pysimFsEdit() {
+// Edit raw: transparent files become an editable textarea, record files
+// per-record inputs with selection checkboxes.  The decoded view is a
+// read-only field table and a freshly selected file has no content yet, so
+// make sure the editable raw view is loaded first (the pills are read
+// actions; Edit switches back to raw and reads on demand).
+async function pysimFsEdit() {
+	const out = document.getElementById('pysim-fs-content');
+	if (pysimFsDecodedMode || !out.innerHTML.trim()) {
+		pysimFsSetMode('raw', true);
+		if (!await pysimFsRead()) return;
+	}
 	pysimFsEditMode = true;
-	document.getElementById('pysim-fs-read-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-edit-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.remove('hidden');
-	const out = document.getElementById('pysim-fs-content');
+	pysimFsPillsEnabled(false);
 	out.querySelectorAll('textarea, input:not([type=checkbox])').forEach(el => el.removeAttribute('readonly'));
 	out.querySelectorAll('.pysim-fs-record-cb').forEach(cb => cb.classList.remove('hidden'));
 	out.querySelectorAll('input:not([type=checkbox])').forEach(el => {
@@ -7287,10 +7299,10 @@ function pysimFsEdit() {
 
 function pysimFsCancel() {
 	pysimFsEditMode = false;
-	document.getElementById('pysim-fs-read-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-edit-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.add('hidden');
+	pysimFsPillsEnabled(true);
 	const out = document.getElementById('pysim-fs-content');
 	if (pysimFsEditData) out.innerHTML = pysimFsEditData;
 	pysimFsEditData = null;
@@ -7350,7 +7362,12 @@ async function pysimFsSave() {
 	}
 }
 
-function pysimFsSetMode(mode) {
+// The Read raw / Read decoded pills are the read actions: they switch the
+// view mode and (re-)read the selected file.  `skipRead` updates only the
+// pills — used by pysimFsEdit() right before its own read.  While editing
+// they are inert: re-rendering would discard unsaved changes.
+function pysimFsSetMode(mode, skipRead) {
+	if (pysimFsEditMode) return;
 	pysimFsDecodedMode = mode === 'dec';
 	document.querySelectorAll('.pysim-mode-pill').forEach(el => {
 		const active = el.dataset.mode === mode;
@@ -7361,18 +7378,25 @@ function pysimFsSetMode(mode) {
 		el.classList.toggle('text-gray-700', !active);
 		el.classList.toggle('dark:text-slate-300', !active);
 	});
-	// Re-render the open file in the new mode (not while editing: that would
-	// discard unsaved changes).
-	if (pysimFsSelected && !pysimFsEditMode) pysimFsRead();
+	if (!skipRead && pysimFsSelected) pysimFsRead();
+}
+
+// Visual cue for the inert pills while editing (pysimFsSetMode guards the
+// click; this only dims them).
+function pysimFsPillsEnabled(enabled) {
+	document.querySelectorAll('.pysim-mode-pill').forEach(el => {
+		el.classList.toggle('opacity-50', !enabled);
+		el.classList.toggle('pointer-events-none', !enabled);
+	});
 }
 
 function pysimFsResetEdit() {
 	pysimFsEditMode = false;
 	pysimFsEditData = null;
-	document.getElementById('pysim-fs-read-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-edit-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.add('hidden');
+	pysimFsPillsEnabled(true);
 }
 
 // ===== proactive UICC events =====
@@ -13055,11 +13079,12 @@ const LANG_RU = {
 	'Custom files': 'Пользовательские файлы',
 	'pySim command line': 'Командная строка pySim',
 	'Raw APDU': 'Отправка APDU',
-	'Read': 'Прочитать',
+	'Read raw': 'Читать сырые данные',
+	'Read decoded': 'Декодировать',
+	'Edit raw': 'Редактировать сырые данные',
 	'Refresh': 'Обновить',
 	'Last refresh': 'Последнее обновление',
 	'Save': 'Сохранить',
-	'Raw': 'Данные как на карте',
 	'Decoded': 'Декодированные данные',
 	'Edit': 'Редактировать',
 	'Clone': 'Клонировать',
