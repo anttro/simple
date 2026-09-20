@@ -233,19 +233,32 @@ test('efRenderFieldsHtml sizes the label column to its content', () => {
 	assert.match(efRenderFieldsHtml([]), /No decodable fields/);
 });
 
-test('profilerRenderReport shows decoded field diffs and the raw-only note', () => {
+test('profilerRenderReport shows raw and decoded comparisons for content mismatches', () => {
 	const res = {
 		path: 'ADF.USIM/6F07', name: 'EF.IMSI', status: 'fail',
 		checks: [{ label: 'content', expected: '082982608200002080', actual: '082982608200002081', ok: false }],
 	};
 	const out = profilerRenderReport([res], null);
+	// the raw pair is always shown
+	assert.match(out, /Raw comparison/);
+	assert.ok(out.includes('value="082982608200002080"'));
+	assert.ok(out.includes('value="082982608200002081"'));
+	// the decoded per-field diff follows, with expected/actual column headers
 	assert.match(out, /Decoded comparison/);
 	assert.match(out, /IMSI/);
 	assert.match(out, /228062800000208/);
 	assert.match(out, /228062800000218/);
+	assert.match(out, /<span class="flex-1 min-w-0 text-xs text-gray-500 dark:text-slate-400">expected<\/span><span class="flex-1 min-w-0 text-xs text-gray-500 dark:text-slate-400">actual<\/span>/);
+	// custom comparison labels are used for the raw rows and the decoded headers
+	const named = profilerRenderReport([res], { expected: 'master', actual: 'checked' });
+	assert.ok(named.includes('>master</span>'));
+	assert.ok(named.includes('>checked</span>'));
+	// matching decoded values -> note instead of the decoded table, raw pair kept
 	const same = profilerRenderReport([{
 		path: 'ADF.USIM/6F07', name: 'EF.IMSI', status: 'fail',
 		checks: [{ label: 'content', expected: '082982608200002080', actual: '092982608200002080', ok: false }],
 	}], null);
+	assert.match(same, /Raw comparison/);
 	assert.match(same, /Decoded values match/);
+	assert.doesNotMatch(same, /Decoded comparison/);
 });

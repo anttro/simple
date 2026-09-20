@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.14';
+const SIMPLE_VERSION = '2.7.15';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -11780,25 +11780,34 @@ function profilerRenderReport(results, labels) {
 				const isContent = c.label === 'content' || /^content\.rec\d+$/.test(c.label);
 				const dd = isContent && typeof efContentDiff === 'function'
 					? efContentDiff(r.name, efFidFromPath(r.path), String(c.expected), String(c.actual)) : null;
+				const inputCls = 'flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800';
 				html += '<div class="mt-1">';
 				html += '<div class="text-xs text-red-600 font-mono pl-2">' + esc(c.label) + '</div>';
+				// Raw bytes first: the ground truth, always shown.
+				html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Raw comparison')) + '</div>';
+				html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+					'<span class="' + labelCls + '">' + esc(expLabel) + '</span>' +
+					'<input readonly title="' + escHtml(expLabel) + '" value="' + escHtml(String(c.expected)) + '" class="' + inputCls + '"></div>';
+				html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+					'<span class="' + labelCls + '">' + esc(actLabel) + '</span>' +
+					'<input readonly title="' + escHtml(actLabel) + '" value="' + escHtml(String(c.actual)) + '" class="' + inputCls + '"></div>';
+				// Per-field decoded diff, when the decoder can see one; the
+				// expected/actual column headers carry the comparison labels.
 				if (dd && dd.rows.length) {
-					html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Decoded comparison')) + ' — ' + esc(expLabel) + ' | ' + esc(actLabel) + '</div>';
+					html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Decoded comparison')) + '</div>';
+					html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
+						'<span class="' + labelCls + '"></span>' +
+						'<span class="flex-1 min-w-0 text-xs text-gray-500 dark:text-slate-400">' + esc(expLabel) + '</span>' +
+						'<span class="flex-1 min-w-0 text-xs text-gray-500 dark:text-slate-400">' + esc(actLabel) + '</span></div>';
 					for (const [label, ev, av] of dd.rows) {
 						html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
 							'<span class="' + labelCls + '">' + esc(label) + '</span>' +
-							'<input readonly title="' + escHtml(expLabel) + '" value="' + escHtml(ev) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">' +
-							'<input readonly title="' + escHtml(actLabel) + '" value="' + escHtml(av) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800">' +
+							'<input readonly title="' + escHtml(expLabel) + '" value="' + escHtml(ev) + '" class="' + inputCls + '">' +
+							'<input readonly title="' + escHtml(actLabel) + '" value="' + escHtml(av) + '" class="' + inputCls + '">' +
 							'</div>';
 					}
-				} else {
-					if (dd && dd.sameDecoded) html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2">' + esc(t('Decoded values match; raw bytes differ')) + '</div>';
-					html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
-						'<span class="' + labelCls + '">' + esc(expLabel) + '</span>' +
-						'<input readonly title="' + escHtml(String(c.expected)) + '" value="' + escHtml(String(c.expected)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
-					html += '<div class="flex items-center gap-2 mt-0.5 pl-2">' +
-						'<span class="' + labelCls + '">' + esc(actLabel) + '</span>' +
-						'<input readonly title="' + escHtml(String(c.actual)) + '" value="' + escHtml(String(c.actual)) + '" class="flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800"></div>';
+				} else if (dd && dd.sameDecoded) {
+					html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Decoded values match; raw bytes differ')) + '</div>';
 				}
 				if (c.label === 'fci') html += fcpDiffHtml(String(c.expected), String(c.actual), labels);
 				html += '</div>';
@@ -13327,6 +13336,7 @@ const LANG_RU = {
 	'showing raw data': 'показаны сырые данные',
 	'No decodable fields': 'Нет декодируемых полей',
 	'pySim JSON (server)': 'pySim JSON (сервер)',
+	'Raw comparison': 'Сравнение сырых данных',
 	'Decoded comparison': 'Декодированное сравнение',
 	'Decoded values match; raw bytes differ': 'Декодированные значения совпадают; отличаются сырые байты',
 	'Back to list': 'Назад к списку',
