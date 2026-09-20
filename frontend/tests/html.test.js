@@ -293,3 +293,8 @@ test('SCP81 listener exposes its four modes with the matching notes', () => {
     assert.ok(html.includes("mode === 'redirect' && (!hostVal || !portVal)"));
     assert.ok(html.includes("el.disabled = (mode === 'passthru')"));
 });
+
+test('the network monitor labels its refresh timestamp and has no area line', () => {
+    assert.match(html, /data-l10n="Last refresh">Last refresh<\/span>: <span id="netstate-read"><\/span>/);
+    assert.ok(!/id="netstate-area"/.test(html), 'the area line is gone; LAI/RAI/TAI live in the EF rows');
+});

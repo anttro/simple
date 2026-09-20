@@ -47,7 +47,7 @@ eval(code);
 
 function setup() {
 	const els = {};
-	for (const id of ['netstate-badge', 'netstate-location', 'netstate-area',
+	for (const id of ['netstate-badge', 'netstate-location',
 		'netstate-read', 'netstate-body']) {
 		els[id] = { className: '', textContent: '', innerHTML: '' };
 	}
@@ -109,7 +109,7 @@ test('netStateRender paints the service badge, location and rows', () => {
 	assert.ok(els['netstate-location'].innerHTML.includes(
 		'Telekom<span class="block">Guest (roaming) · <span class="text-red-500">⛔ PLMN not allowed</span></span>'));
 	assert.ok(!els['netstate-location'].innerHTML.includes('Telekom · '));
-	assert.strictEqual(els['netstate-area'].textContent, 'LAI 6CD7');
+	assert.strictEqual(els['netstate-read'].textContent, new Date(1700000000 * 1000).toLocaleTimeString());
 	assert.ok(els['netstate-body'].innerHTML.includes('EF.IMSI'));
 	assert.ok(els['netstate-body'].innerHTML.includes('262011234567890'));
 	assert.ok(els['netstate-body'].innerHTML.includes('>write<'));

@@ -1036,8 +1036,7 @@
 					<button id="netstate-refresh-btn" data-needs="card" onclick="netStateRefresh()" class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Refresh">Refresh</button>
 				</div>
 				<div id="netstate-location" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
-				<div id="netstate-area" class="text-xs font-mono text-gray-400 dark:text-slate-500"></div>
-				<div id="netstate-read" class="text-xs text-gray-400 dark:text-slate-500 mt-1"></div>
+				<div class="text-xs text-gray-400 dark:text-slate-500 mt-1"><span data-l10n="Last refresh">Last refresh</span>: <span id="netstate-read"></span></div>
 				<div id="netstate-body" class="mt-2 text-xs font-mono text-gray-600 dark:text-slate-400 max-h-[45vh] overflow-auto"></div>
 			</fieldset>
 			</div>
@@ -1414,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.4';
+const SIMPLE_VERSION = '2.7.5';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12654,7 +12653,6 @@ function netStateRender(state) {
 	} else {
 		locEl.innerHTML = '<span class="text-gray-400">—</span>';
 	}
-	document.getElementById('netstate-area').textContent = loc ? (loc.area + ' ' + loc.lac) : '';
 	document.getElementById('netstate-read').textContent =
 		state && state.read_at ? new Date(state.read_at * 1000).toLocaleTimeString() : '';
 	const files = (state && state.files) || {};
@@ -12952,6 +12950,7 @@ const LANG_RU = {
 	'Raw APDU': 'Отправка APDU',
 	'Read': 'Прочитать',
 	'Refresh': 'Обновить',
+	'Last refresh': 'Последнее обновление',
 	'Save': 'Сохранить',
 	'Raw': 'Данные как на карте',
 	'Decoded': 'Декодированные данные',
