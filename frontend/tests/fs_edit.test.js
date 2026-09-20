@@ -24,9 +24,10 @@ function extractFunc(src, name) {
 let code = 'var pysimFsDecodedMode = false;\n'
 	+ 'var pysimFsEditMode = false;\n'
 	+ 'var pysimFsEditData = null;\n'
-	+ 'var pysimFsSelected = null;\n';
+	+ 'var pysimFsSelected = null;\n'
+	+ 'var pysimFsTreeRoot = null;\n';
 for (const fn of ['pysimFsSetMode', 'pysimFsPillsEnabled', 'pysimFsEdit',
-	'pysimFsCancel', 'pysimFsResetEdit']) {
+	'pysimFsCancel', 'pysimFsResetEdit', 'pysimFsFindNode', 'pysimFsHasDecoder']) {
 	code += extractFunc(html, fn) + '\n';
 }
 eval(code);
@@ -80,6 +81,12 @@ function setup(opts) {
 	pysimFsEditMode = false;
 	pysimFsEditData = null;
 	pysimFsSelected = 'EF.IMSI';
+	pysimFsTreeRoot = { name: 'MF', fid: '3f00', children: [{ name: 'EF.IMSI', fid: '6f07' }] };
+	globalThis.efFindDecoder = (name, fid) => {
+		const n = (name || '').toUpperCase();
+		const f = (fid || '').toLowerCase();
+		return (n === 'EF.IMSI' || f === '6f07') ? { name: 'EF.IMSI', fid: '6f07' } : null;
+	};
 
 	globalThis.document = {
 		getElementById: id => id === 'pysim-fs-content' ? content : (buttons[id] || null),
@@ -179,10 +186,36 @@ test('Reset edit re-enables the pills', () => {
 	assert.ok(!h.pill('dec').classList.contains('opacity-50'));
 });
 
+test('Read decoded is ignored when the file has no decoder', () => {
+	const h = setup();
+	globalThis.efFindDecoder = () => null;
+	pysimFsSetMode('dec');
+	assert.strictEqual(pysimFsDecodedMode, false);
+	assert.strictEqual(h.reads(), 0);
+	assert.ok(!h.pill('dec').classList.contains('bg-blue-600'));
+});
+
+test('pysimFsHasDecoder resolves the selected file by name or FID', () => {
+	setup();
+	assert.strictEqual(pysimFsHasDecoder(), true, 'EF.IMSI is in the tree');
+	// alias name: the decoder is matched by the FID fallback
+	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.ALIAS', fid: '6f07' }] };
+	pysimFsSelected = 'EF.ALIAS';
+	assert.strictEqual(pysimFsHasDecoder(), true);
+	// unknown file -> no decoder
+	globalThis.efFindDecoder = () => null;
+	assert.strictEqual(pysimFsHasDecoder(), false);
+	// nothing selected -> no decoder
+	pysimFsSelected = null;
+	assert.strictEqual(pysimFsHasDecoder(), false);
+});
+
 test('the file manager row exposes the read pills and Edit raw', () => {
 	assert.ok(!html.includes('id="pysim-fs-read-btn"'), 'the redundant Read button is gone');
 	assert.ok(html.includes('data-l10n="Read raw">Read raw<'));
 	assert.ok(html.includes('data-l10n="Read decoded">Read decoded<'));
 	assert.ok(html.includes('data-l10n="Edit raw">Edit raw<'));
 	assert.ok(html.includes('id="pysim-fs-read-raw-btn"') && html.includes('data-needs="card"'));
+	const dec = /<button[^>]*id="pysim-fs-read-dec-btn"[^>]*>/.exec(html);
+	assert.ok(dec && dec[0].includes('data-needs-decoder'), 'the decoded pill is decoder-gated');
 });

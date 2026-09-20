@@ -49,6 +49,7 @@ function fakeEl() {
 		},
 		setAttribute(k, v) { this.attrs[k] = v; },
 		getAttribute(k) { return this.attrs[k]; },
+		hasAttribute(k) { return k in this.attrs; },
 		removeAttribute(k) { delete this.attrs[k]; },
 	};
 }
@@ -223,6 +224,32 @@ test('card-iccid controls need an equipped card with a readable ICCID', () => {
 	// server down -> disabled
 	el = check('server-down', '8970119000004600098');
 	assert.strictEqual(el.disabled, true);
+});
+
+test('Read decoded needs a client-side decoder for the selected file', () => {
+	const run = (hasDecoder, cardEquipped) => {
+		const el = fakeEl();
+		el.setAttribute('data-needs', 'card');
+		el.setAttribute('data-needs-decoder', '');
+		globalThis.document = { querySelectorAll: () => [el], getElementById: () => null };
+		_pysimServerAvailable = true;
+		_pysimCardEquipped = cardEquipped;
+		globalThis.pysimFsHasDecoder = () => hasDecoder;
+		pysimApplyAvailability();
+		return el;
+	};
+	// decoder present, card equipped -> enabled, no tooltip
+	let el = run(true, true);
+	assert.strictEqual(el.disabled, false);
+	assert.strictEqual(el.attrs.title, undefined);
+	// no decoder -> disabled with its own hint
+	el = run(false, true);
+	assert.strictEqual(el.disabled, true);
+	assert.strictEqual(el.attrs.title, 'No decoder for this file');
+	// card missing and no decoder -> the card hint wins
+	el = run(false, false);
+	assert.strictEqual(el.disabled, true);
+	assert.strictEqual(el.attrs.title, 'Insert and equip a card');
 });
 
 test('indicator image stays within the 32px header row budget', () => {

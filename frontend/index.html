@@ -862,7 +862,7 @@
 						<div id="pysim-fs-content" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800 min-h-20 overflow-y-auto"></div>
 						<div class="flex gap-2 mt-1 items-center">
 							<button type="button" data-needs="card" onclick="pysimFsSetMode('raw')" id="pysim-fs-read-raw-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed" data-mode="raw" data-l10n="Read raw">Read raw</button>
-							<button type="button" data-needs="card" onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
+							<button type="button" data-needs="card" data-needs-decoder onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
 							<div class="ml-auto flex gap-2">
 								<button data-needs="card" onclick="pysimFsSave()" id="pysim-fs-save-btn" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 hidden disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
 								<button onclick="pysimFsCancel()" id="pysim-fs-cancel-btn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 hidden" data-l10n="Cancel">Cancel</button>
@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.9';
+const SIMPLE_VERSION = '2.7.10';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4929,8 +4929,15 @@ function pysimApplyAvailability() {
 			// From-card buttons need a readable ICCID, not just a session.
 			disabled = pysimControlDisabled('card', state) || !_pysimCardIccid;
 		}
+		let hint = disabled ? pysimNeedsHint(needs, state) : null;
+		if (el.hasAttribute('data-needs-decoder') && !pysimFsHasDecoder()) {
+			// Client-side decoder required (Read decoded) — the card hint wins
+			// when the card itself is the blocker.
+			disabled = true;
+			if (!hint) hint = t('No decoder for this file');
+		}
 		el.disabled = disabled;
-		if (disabled) el.setAttribute('title', pysimNeedsHint(needs, state));
+		if (hint) el.setAttribute('title', hint);
 		else el.removeAttribute('title');
 	});
 	pysimUpdateCardActionLabels();
@@ -7105,6 +7112,16 @@ function pysimFsFindNode(name, root) {
 	return null;
 }
 
+// Decoder availability for the selected file, resolved exactly like the
+// decoded view does (name from the tree node, FID fallback) — the content is
+// not needed, so the Read decoded pill can be gated before any read.
+function pysimFsHasDecoder() {
+	if (!pysimFsSelected) return false;
+	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
+	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	return !!efFindDecoder(node && node.name, fid);
+}
+
 // Find a node by its canonical path ("MF/7F20/6F46", "ADF.USIM/6F07"), so
 // custom-file parents can be resolved against the loaded tree (standard DFs
 // included, at any depth). Returns null when the path is not loaded yet.
@@ -7172,6 +7189,7 @@ async function pysimFsClickFile(name) {
 	} else {
 		document.getElementById('pysim-fs-detail').classList.add('hidden');
 	}
+	pysimApplyAvailability();
 	pysimRefresh();
 }
 
@@ -7368,6 +7386,7 @@ async function pysimFsSave() {
 // they are inert: re-rendering would discard unsaved changes.
 function pysimFsSetMode(mode, skipRead) {
 	if (pysimFsEditMode) return;
+	if (mode === 'dec' && !pysimFsHasDecoder()) return;
 	pysimFsDecodedMode = mode === 'dec';
 	document.querySelectorAll('.pysim-mode-pill').forEach(el => {
 		const active = el.dataset.mode === mode;
