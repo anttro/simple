@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.16';
+const SIMPLE_VERSION = '2.7.17';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8303,15 +8303,26 @@ function pysimProactiveSeqChanged(seq) {
 	_pysimProactiveSeq = seq;
 	return true;
 }
+// TS 102 223 9.4 command types (values equal the proactive command template
+// tags); the log falls back to 'Cmd 0xNN' for anything not listed.
 const CMD_NAMES = {
-    '03': 'POLL INTERVAL', '05': 'SET UP EVENT LIST',
-    '13': 'SEND SHORT MESSAGE', '20': 'PLAY TONE',
-    '21': 'DISPLAY TEXT', '22': 'GET INKEY', '23': 'GET INPUT',
-    '24': 'SELECT ITEM', '25': 'SET UP MENU',
-    '26': 'PROVIDE LOCAL INFORMATION', '27': 'TIMER MANAGEMENT',
-    '15': 'LAUNCH BROWSER', '70': 'ACTIVATE',
-    '40': 'OPEN CHANNEL', '41': 'CLOSE CHANNEL',
-    '42': 'RECEIVE DATA', '43': 'SEND DATA', '44': 'GET CHANNEL STATUS',
+    '01': 'REFRESH', '02': 'MORE TIME', '03': 'POLL INTERVAL', '04': 'POLLING OFF',
+    '05': 'SET UP EVENT LIST', '10': 'SET UP CALL', '11': 'SEND SS', '12': 'SEND USSD',
+    '13': 'SEND SHORT MESSAGE', '14': 'SEND DTMF', '15': 'LAUNCH BROWSER',
+    '16': 'GEOGRAPHICAL LOCATION REQUEST',
+    '20': 'PLAY TONE', '21': 'DISPLAY TEXT', '22': 'GET INKEY', '23': 'GET INPUT',
+    '24': 'SELECT ITEM', '25': 'SET UP MENU', '26': 'PROVIDE LOCAL INFORMATION',
+    '27': 'TIMER MANAGEMENT', '28': 'SET UP IDLE MODE TEXT',
+    '30': 'PERFORM CARD APDU', '31': 'POWER ON CARD', '32': 'POWER OFF CARD',
+    '33': 'GET READER STATUS', '34': 'RUN AT COMMAND', '35': 'LANGUAGE NOTIFICATION',
+    '40': 'OPEN CHANNEL', '41': 'CLOSE CHANNEL', '42': 'RECEIVE DATA', '43': 'SEND DATA',
+    '44': 'GET CHANNEL STATUS', '45': 'SERVICE SEARCH', '46': 'GET SERVICE INFORMATION',
+    '47': 'DECLARE SERVICE', '50': 'SET FRAMES', '51': 'GET FRAMES STATUS',
+    '60': 'RETRIEVE MULTIMEDIA MESSAGE', '61': 'SUBMIT MULTIMEDIA MESSAGE',
+    '62': 'DISPLAY MULTIMEDIA MESSAGE', '70': 'ACTIVATE',
+    '71': 'CONTACTLESS STATE CHANGED', '72': 'COMMAND CONTAINER',
+    '73': 'ENCAPSULATED SESSION CONTROL', '79': 'LSI COMMAND',
+    '81': 'End of the proactive UICC session',
 };
 
 const CMD_QUALIFIER_SHORT = {

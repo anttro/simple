@@ -35,7 +35,10 @@ eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
 
 test('CMD_NAMES decodes timer management and the BIP commands', () => {
+	assert.strictEqual(CMD_NAMES['01'], 'REFRESH');
+	assert.strictEqual(CMD_NAMES['10'], 'SET UP CALL');
 	assert.strictEqual(CMD_NAMES['27'], 'TIMER MANAGEMENT');
+	assert.strictEqual(CMD_NAMES['28'], 'SET UP IDLE MODE TEXT');
 	assert.strictEqual(CMD_NAMES['40'], 'OPEN CHANNEL');
 	assert.strictEqual(CMD_NAMES['41'], 'CLOSE CHANNEL');
 	assert.strictEqual(CMD_NAMES['42'], 'RECEIVE DATA');
