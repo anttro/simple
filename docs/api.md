@@ -30,6 +30,7 @@ a 2.x PWA).
 | `/api/read` | POST | Read file content |
 | `/api/write` | POST | Write raw hex data to a file |
 | `/api/apdu` | POST | Raw APDU send |
+| `/api/verify-adm` | POST | Verify the card's ADM PIN (from the matched card preset) |
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
@@ -133,6 +134,33 @@ Returns:
 ```json
 {"response": "...", "sw": "9000"}
 ```
+
+### `POST /api/verify-adm`
+
+Verify the card's ADM PIN (TS 102 221 VERIFY, CHV number from the card
+model). The key comes from the PWA's matched card preset and is never stored;
+it is redacted from the request log. Short keys (4-16 hex digits) are padded
+to the 8 CHV bytes with `f`, like pySim's `verify_adm`. The response is
+structured so the UI can warn about the remaining attempts before retrying.
+
+```json
+{"adm": "0011223344556677"}
+```
+
+Returns on success:
+
+```json
+{"ok": true, "sw": "9000"}
+```
+
+On a wrong key (`63Cx`, x attempts left):
+
+```json
+{"ok": false, "sw": "63C2", "attempts_left": 2}
+```
+
+A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
+"blocked": true}` and cannot be recovered without the card's unblock key.
 
 ### `POST /api/help`
 

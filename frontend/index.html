@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.7';
+const SIMPLE_VERSION = '2.7.8';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4858,6 +4858,12 @@ let _pysimCardEquipped = false;
 let _pysimEquipping = false;
 let _pysimAdmVerified = null;      // null = no card session
 let _pysimAdmKey = null;           // ADM key present in the matching preset
+let _pysimAdmCanVerify = false;    // indicator clickable (card + preset key, not blocked)
+let _pysimAdmAttemptsLeft = null;  // last 63Cx result for this card session
+let _pysimAdmBlocked = false;      // 6983/9804 — no further tries until the session changes
+let _pysimAdmVerifying = false;    // verify request in flight (double-click guard)
+let _pysimAdmStateKey = null;      // last rendered indicator state
+let _pysimLastStatus = null;       // last /api/status payload (for local repaints)
 let _pysimCardIccid = null;        // EF.ICCID digits of the equipped card (null = unknown)
 let _pysimHeaderIccid = undefined; // last value rendered in the header indicator
 let _pysimHeaderScp80 = undefined; // last SCP80/SCP81 marker state
@@ -4934,17 +4940,24 @@ function pysimApplyAvailability() {
 // Compact ADM state next to the header's card indicator: "ADM ✓" when the
 // administrator PIN was verified (pySim rs.adm_verified), "ADM ✗" otherwise;
 // a trailing key glyph (⚿) marks that the matching card preset carries an ADM
-// key. Hidden without a card session; only rewrites the DOM when the state
-// changes (the 2s /api/status poll calls this on every update).
+// key.  With a key present the badge is clickable and verifies it on demand;
+// hidden without a card session.  Only rewrites the DOM when the state changes
+// (the 2s /api/status poll calls this on every update).
 function pysimUpdateAdmIndicator(status) {
 	const el = document.getElementById('state-indicator-adm');
 	if (!el) return;
 	const verified = (status && status.connected) ? !!status.adm_verified : null;
 	const key = verified === null ? null : cardsAdmPresent(cardsMatchedPreset());
-	if (verified === _pysimAdmVerified && key === _pysimAdmKey) return;
+	const canVerify = key === true && !_pysimAdmBlocked && !_pysimAdmVerifying;
+	const stateKey = [verified, key, canVerify, _pysimAdmAttemptsLeft, _pysimAdmBlocked].join('|');
+	if (stateKey === _pysimAdmStateKey) return;
+	_pysimAdmStateKey = stateKey;
 	_pysimAdmVerified = verified;
 	_pysimAdmKey = key;
-	el.classList.remove('text-emerald-600', 'dark:text-emerald-400', 'text-red-500');
+	_pysimAdmCanVerify = canVerify;
+	el.classList.remove('text-emerald-600', 'dark:text-emerald-400', 'text-red-500', 'cursor-pointer');
+	el.removeAttribute('onclick');
+	el.removeAttribute('role');
 	if (verified === null) {
 		el.classList.add('hidden');
 		el.removeAttribute('title');
@@ -4954,9 +4967,101 @@ function pysimUpdateAdmIndicator(status) {
 	el.classList.remove('hidden');
 	el.classList.add(verified ? 'text-emerald-600' : 'text-red-500');
 	if (verified) el.classList.add('dark:text-emerald-400');
-	el.setAttribute('title', t(key
-		? (verified ? 'ADM key in the card preset — verified' : 'ADM key in the card preset — not verified')
-		: (verified ? 'Verified — no ADM key in the card preset' : 'No ADM key in the card preset — not verified')));
+	let tip;
+	if (key && _pysimAdmBlocked) {
+		tip = t('ADM is blocked — unblock the card to try again');
+	} else if (key) {
+		tip = t('ADM key in the card preset — click to verify');
+		if (_pysimAdmAttemptsLeft !== null) tip += ' — ' + _pysimAdmAttemptsLeft + ' ' + t('attempt(s) left');
+	} else {
+		tip = t(verified ? 'Verified — no ADM key in the card preset' : 'No ADM key in the card preset — not verified');
+	}
+	el.setAttribute('title', tip);
+	if (canVerify) {
+		el.classList.add('cursor-pointer');
+		el.setAttribute('role', 'button');
+		el.setAttribute('onclick', 'pysimVerifyAdm()');
+	}
+}
+
+// Confirmation text before a repeated ADM attempt (null on the first try).
+// Every wrong key consumes an attempt; a blocked ADM is unrecoverable here.
+function pysimAdmRetryPrompt(attemptsLeft) {
+	if (attemptsLeft === null || attemptsLeft === undefined) return null;
+	if (attemptsLeft <= 1) return t('This is the last attempt before the ADM is blocked. Try again?');
+	return t('ADM verification already failed') + ' — ' + attemptsLeft + ' ' + t('attempt(s) left')
+		+ '. ' + t('A wrong key can block the ADM permanently. Try again?');
+}
+
+// Verify the ADM PIN from the matched card preset (top-bar indicator or the
+// file manager's security-error hint).  `statusEl` receives the result inline
+// when given; otherwise the card status line is used.  Never retries by
+// itself: every attempt after a failure is confirmed first.
+async function pysimVerifyAdm(statusEl) {
+	if (_pysimAdmVerifying) return;
+	const preset = cardsMatchedPreset();
+	if (!cardsAdmPresent(preset)) return;
+	const el = statusEl || document.getElementById('pysim-status');
+	if (_pysimAdmBlocked) {
+		if (el) el.textContent = t('ADM is blocked — unblock the card to try again');
+		return;
+	}
+	const prompt = pysimAdmRetryPrompt(_pysimAdmAttemptsLeft);
+	if (prompt && !confirm(prompt)) return;
+	_pysimAdmVerifying = true;
+	if (el) el.textContent = t('Verifying ADM...');
+	let verifiedOverride;
+	try {
+		const data = await pysimFetch('/api/verify-adm', { adm: preset.adm });
+		if (data.ok) {
+			_pysimAdmAttemptsLeft = null;
+			_pysimAdmBlocked = false;
+			verifiedOverride = true;
+			if (el) el.textContent = t('ADM verified');
+		} else if (data.blocked) {
+			_pysimAdmBlocked = true;
+			if (el) el.textContent = t('ADM is blocked');
+		} else if (typeof data.attempts_left === 'number') {
+			_pysimAdmAttemptsLeft = data.attempts_left;
+			if (el) el.textContent = t('ADM verification failed') + ' — ' + data.attempts_left + ' ' + t('attempt(s) left');
+		} else if (el) {
+			el.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error');
+		}
+	} catch (e) {
+		if (el) el.textContent = t('Error') + ': ' + e.message;
+	} finally {
+		_pysimAdmVerifying = false;
+		const base = _pysimLastStatus || { connected: true };
+		pysimUpdateAdmIndicator(Object.assign({}, base,
+			verifiedOverride === undefined ? {} : { adm_verified: verifiedOverride }));
+	}
+}
+
+// SW codes that mean "verify the ADM PIN first" (access condition / security).
+function pysimAdmSecuritySw(sw) {
+	return sw === '6982' || sw === '9804';
+}
+
+// A new card session (equip/removal) forgets the attempt/blocked state: the
+// counter belongs to the physical card that was just replaced or reset.
+function pysimAdmResetAttempts() {
+	_pysimAdmAttemptsLeft = null;
+	_pysimAdmBlocked = false;
+	_pysimAdmStateKey = null;
+}
+
+// Render a failed file-manager operation; when the SW is a security error and
+// the matched preset carries an ADM, offer verification inline (the key is
+// only ever sent on an explicit click).
+function pysimFsShowError(statusEl, sw, error) {
+	statusEl.textContent = 'SW: ' + (sw || '?') + ' — ' + (error || 'Error');
+	if (!pysimAdmSecuritySw(sw) || !cardsAdmPresent(cardsMatchedPreset()) || _pysimAdmBlocked) return;
+	const btn = document.createElement('button');
+	btn.textContent = t('Verify ADM');
+	btn.className = 'ml-2 px-2 py-0.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700';
+	btn.onclick = () => pysimVerifyAdm(statusEl);
+	statusEl.appendChild(document.createTextNode(' '));
+	statusEl.appendChild(btn);
 }
 
 // EF.ICCID digits of the equipped card, printed next to the card image
@@ -7082,7 +7187,7 @@ async function pysimFsRead() {
 		body.mode = 'raw';   // decoding is client-side (works offline in snapshots too)
 		const data = await pysimFetch('/api/read', body);
 		if (!data.success) {
-			statusEl.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error');
+			pysimFsShowError(statusEl, data.sw, data.error);
 			return;
 		}
 		statusEl.textContent = 'SW: ' + data.sw + ' OK';
@@ -7209,7 +7314,7 @@ async function pysimFsSave() {
 				pysimFsCancel();
 				pysimFsRead();
 			} else {
-				statusEl.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error');
+				pysimFsShowError(statusEl, data.sw, data.error);
 			}
 		} else {
 			// Record file
@@ -7227,7 +7332,7 @@ async function pysimFsSave() {
 					body.record_nr = parseInt(num);
 					const data = await pysimFetch('/api/write', body);
 					if (!data.success) {
-						statusEl.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error') + ' (record ' + num + ')';
+						pysimFsShowError(statusEl, data.sw, (data.error || 'Error') + ' (record ' + num + ')');
 						return;
 					}
 				}
@@ -8054,6 +8159,7 @@ async function pysimResetCardData(refreshStatus) {
 function pysimCardStateUpdate(status) {
 	if (!status || typeof status.connected !== 'boolean') return;
 	_pysimServerAvailable = true;
+	_pysimLastStatus = status;
 	_pysimCardEquipped = !!status.connected;
 	_pysimEquipping = !!status.equipping;
 	_pysimCardIccid = status.connected ? (status.iccid || null) : null;
@@ -8071,6 +8177,7 @@ function pysimCardStateUpdate(status) {
 	const sessionChanged = _pysimCardSession !== null
 		&& status.card_session !== undefined && status.card_session !== _pysimCardSession;
 	if (status.card_session !== undefined) _pysimCardSession = status.card_session;
+	if (sessionChanged) pysimAdmResetAttempts();
 	if (status.connected) {
 		pysimSetConnected(true);
 		pysimResetCardData(true);
@@ -13313,6 +13420,16 @@ const LANG_RU = {
 	'ADM not verified': 'ADM не подтверждён',
 	'ADM key in the card preset — verified': 'Ключ ADM в предустановке — подтверждён',
 	'ADM key in the card preset — not verified': 'Ключ ADM в предустановке — не подтверждён',
+	'ADM key in the card preset — click to verify': 'Ключ ADM в предустановке — нажмите для проверки',
+	'Verify ADM': 'Проверить ADM',
+	'Verifying ADM...': 'Проверка ADM...',
+	'ADM verification failed': 'Проверка ADM не удалась',
+	'ADM verification already failed': 'Проверка ADM уже завершилась неудачей',
+	'attempt(s) left': 'попыток осталось',
+	'A wrong key can block the ADM permanently. Try again?': 'Неверный ключ может навсегда заблокировать ADM. Попробовать снова?',
+	'This is the last attempt before the ADM is blocked. Try again?': 'Это последняя попытка — неверный ключ заблокирует ADM. Попробовать снова?',
+	'ADM is blocked': 'ADM заблокирован',
+	'ADM is blocked — unblock the card to try again': 'ADM заблокирован — разблокируйте карту, чтобы повторить',
 	'Verified — no ADM key in the card preset': 'Подтверждён — ключа ADM в предустановке нет',
 	'No ADM key in the card preset — not verified': 'Ключа ADM в предустановке нет — не подтверждён',
 	'SCP80 preset complete': 'Предустановка SCP80 заполнена',

@@ -23,9 +23,10 @@ import gsm0338  # registers 'gsm03.38' codec
 from construct import GreedyBytes
 from osmocom.construct import GsmOrUcs2Adapter
 from osmocom.tlv import BER_TLV_IE
+from osmocom.utils import rpad
 
 
-VERSION = '2.7.7'
+VERSION = '2.7.8'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2164,13 +2165,15 @@ def _parse_psk_map(raw):
 
 
 def _redact_psk_fields(body):
-    """Copy of a request body with PSK key material masked (keys must never
+    """Copy of a request body with key material masked (keys must never
     reach the logs; identities stay visible for diagnostics)."""
     if not isinstance(body, dict):
         return body
     out = dict(body)
     if out.get('psk_hex'):
         out['psk_hex'] = '<redacted>'
+    if out.get('adm'):
+        out['adm'] = '<redacted>'
     psk_map = out.get('psk_map')
     if isinstance(psk_map, dict):
         out['psk_map'] = {k: '<redacted>' for k in psk_map}
@@ -2670,6 +2673,32 @@ def _send_status(scc):
     (plain F2 00 00 would echo the FCP, which is unnecessary overhead)."""
     p3 = '23' if scc.cat_cla == 'a0' else '00'
     return scc._tp.send_apdu('%sf2000c%s' % (scc.cat_cla, p3))
+
+
+def _verify_adm(scc, app, adm_hex):
+    """Verify the card's ADM PIN (TS 102 221 VERIFY) and report the result.
+
+    ``adm_hex`` is the key from the matched card preset (4-16 hex digits);
+    short keys are padded to the 8 CHV bytes with 'f', like pySim's
+    verify_adm.  The result is structured so the UI can warn about the
+    remaining attempts: every failed VERIFY consumes one, and a blocked ADM
+    cannot be recovered from here (it needs the unblock key).
+    """
+    chv = getattr(getattr(app, 'card', None), '_adm_chv_num', 0x0A)
+    fc = rpad(str(adm_hex).lower(), 16)
+    _data, sw = scc.send_apdu(scc.cla_byte + '2000' + ('%02X' % chv) + '08' + fc)
+    sw = str(sw).upper()
+    if sw == '9000':
+        rs = getattr(app, 'rs', None)
+        if rs is not None:
+            rs.adm_verified = True
+        return {'ok': True, 'sw': sw}
+    if re.fullmatch(r'63C[0-9A-F]', sw):
+        return {'ok': False, 'sw': sw, 'attempts_left': int(sw[3], 16)}
+    if sw in ('6983', '9804'):
+        return {'ok': False, 'sw': sw, 'blocked': True}
+    return {'ok': False, 'sw': sw,
+            'error': 'Security status not satisfied' if sw == '6982' else 'Error'}
 
 
 def _send_event_download(scc, event_type, event_data=None):
@@ -3592,6 +3621,32 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write("APDU: %s → ERROR: %s (%dms)\n" % (apdu_hex, str(e), elapsed))
                 self._send_json(err, 500)
                 self._log_resp(err)
+        elif self.path == '/api/verify-adm':
+            scc = self.server.scc
+            app = self.server.app
+            if not scc or not app:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(_redact_psk_fields(body))
+            adm = re.sub(r'\s', '', str(body.get('adm') or '')).upper()
+            if not re.fullmatch(r'(?:[0-9A-F]{2}){2,8}', adm):
+                resp = {'ok': False, 'error': 'adm must be 4-16 hex digits'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = _verify_adm(scc, app, adm)
+                sys.stderr.write('VERIFY ADM → SW: %s\n' % resp.get('sw'))
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                resp = {'ok': False, 'error': str(e)}
+                sys.stderr.write('VERIFY ADM → ERROR: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
         elif self.path == '/api/status-poll':
             scc = self.server.scc
             if not scc:

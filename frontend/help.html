@@ -356,6 +356,7 @@
 		<li><strong>Edit</strong> — modify hex data, <strong>Save</strong> to write back (or <strong>Cancel</strong>)</li>
 		<li><strong>Raw / Decoded</strong> — toggle between the hex dump and a decoded field table (client-side EF decoders: IMSI, ICCID, SPN, PLMN lists, LOCI/PSLOCI/EPSLOCI, ADN/MSISDN, service tables, SUME, …); the server-side pySim JSON of the same read stays available in the collapsed <em>pySim JSON (server)</em> disclosure</li>
 		<li><strong>Probe all files</strong> — walks the whole tree (including custom files) and marks every entry present (normal) or absent (red ✗, no expand arrow); empty-but-present DFs show <code class="font-mono text-sm">(empty)</code>. Shows progress <em>N / total</em>, can be stopped, and finishes with a present/absent summary. Files are only verified when expanded or probed — browsing stays lazy.</li>
+		<li><strong>ADM</strong> — files that need the administrator PIN fail with <code class="font-mono text-sm">6982</code>/<code class="font-mono text-sm">9804</code>; if the matching card preset (same ICCID) carries an ADM key, a <strong>Verify ADM</strong> button appears next to the error and the header badge (<code class="font-mono text-sm">ADM ✓/✗ ⚿</code>) becomes clickable. Every wrong key consumes an attempt: the remaining attempts are shown and a retry asks for confirmation. A blocked ADM cannot be recovered here — it needs the card&rsquo;s unblock key.</li>
 	</ul>
 
 	<h3 id="pysim-cmdline" class="text-lg font-medium mb-2">6.2 pySim command line</h3>

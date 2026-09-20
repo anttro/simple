@@ -25,6 +25,9 @@ let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _pysimServerAvailable = null;\nvar _pysimCardEquipped = false;\n'
 	+ 'var _pysimProactiveSeq = null;\nvar _pysimStkSig = null;\nvar _pysimAdmVerified = null;\n'
 	+ 'var _pysimAdmKey = null;\n'
+	+ 'var _pysimAdmCanVerify = false;\nvar _pysimAdmAttemptsLeft = null;\n'
+	+ 'var _pysimAdmBlocked = false;\nvar _pysimAdmVerifying = false;\n'
+	+ 'var _pysimAdmStateKey = null;\nvar _pysimLastStatus = null;\n'
 	+ 'var _pysimHeaderIccid = undefined;\nvar _pysimHeaderScp80 = undefined;\nvar _pysimHeaderScp81 = undefined;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
@@ -33,6 +36,7 @@ code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimProactiveSeqChanged') + '\n';
 code += extractFunc(html, 'pysimStkStatusChanged') + '\n';
 code += extractFunc(html, 'pysimUpdateAdmIndicator') + '\n';
+code += extractFunc(html, 'pysimAdmResetAttempts') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
@@ -72,6 +76,12 @@ function setup() {
 	_pysimProactiveSeq = null;
 	_pysimAdmVerified = null;
 	_pysimAdmKey = null;
+	_pysimAdmCanVerify = false;
+	_pysimAdmAttemptsLeft = null;
+	_pysimAdmBlocked = false;
+	_pysimAdmVerifying = false;
+	_pysimAdmStateKey = null;
+	_pysimLastStatus = null;
 	_pysimHeaderIccid = undefined;
 	_pysimHeaderScp80 = undefined;
 	_pysimHeaderScp81 = undefined;
@@ -272,11 +282,12 @@ test('the ADM badge marks an ADM key in the matching preset', () => {
 	globalThis.cardsFindByIccid = () => 0;
 	pysimCardStateUpdate(st({ adm_verified: true }));
 	assert.strictEqual(adm.textContent, 'ADM ✓ ⚿');
-	assert.strictEqual(adm.title, 'ADM key in the card preset — verified');
+	assert.strictEqual(adm.title, 'ADM key in the card preset — click to verify');
+	assert.ok(adm.classes.has('cursor-pointer'), 'the badge is clickable with a preset key');
 	// key present, verification lost (e.g. card reset)
 	pysimCardStateUpdate(st({ adm_verified: false }));
 	assert.strictEqual(adm.textContent, 'ADM ✗ ⚿');
-	assert.strictEqual(adm.title, 'ADM key in the card preset — not verified');
+	assert.strictEqual(adm.title, 'ADM key in the card preset — click to verify');
 	// verified manually, preset has no ADM -> no key glyph
 	globalThis.cards = [];
 	pysimCardStateUpdate(st({ adm_verified: true }));
