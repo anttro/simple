@@ -25,7 +25,7 @@ from osmocom.construct import GsmOrUcs2Adapter
 from osmocom.tlv import BER_TLV_IE
 
 
-VERSION = '2.7.6'
+VERSION = '2.7.7'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -461,6 +461,15 @@ def _mcc_mnc_load(path):
     return data
 
 
+def _mcc_mnc_is_mvno(e):
+    """True for MVNO entries: `bands` marks them (e.g. 'MVNO', 'Satellite MVNO').
+
+    MVNOs do not operate their own radio network, so the network-simulation
+    picker hides them; the full list is kept for operator-name resolution.
+    """
+    return 'mvno' in str(e.get('bands') or '').lower()
+
+
 def _mcc_mnc_search(data, query, limit=50):
     """Compact substring search over country/brand/operator/MCC/MNC."""
     q = (query or '').strip().lower()
@@ -468,6 +477,8 @@ def _mcc_mnc_search(data, query, limit=50):
         return []
     out = []
     for e in data or []:
+        if _mcc_mnc_is_mvno(e):
+            continue
         hay = ' '.join(str(e.get(k) or '') for k in
                        ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator')).lower()
         if q not in hay:
@@ -482,9 +493,10 @@ def _mcc_mnc_search(data, query, limit=50):
 def _mcc_mnc_random(data, exclude=None):
     """One random operator entry (optionally excluding 'mccmnc' digits)."""
     pool = [e for e in (data or [])
-            if (str(e.get('mcc') or '') + str(e.get('mnc') or '')) != (exclude or '')]
+            if (str(e.get('mcc') or '') + str(e.get('mnc') or '')) != (exclude or '')
+            and not _mcc_mnc_is_mvno(e)]
     if not pool:
-        pool = data or []
+        pool = [e for e in (data or []) if not _mcc_mnc_is_mvno(e)]
     if not pool:
         return None
     e = random.choice(pool)
