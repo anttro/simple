@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.5';
+const SIMPLE_VERSION = '2.7.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -13032,7 +13032,7 @@ const LANG_RU = {
 	'No events configured.': 'Нет настроенных событий.',
 	'Fetched proactive commands:': 'Извлечённые проактивные команды:',
 	'Network simulation': 'Симуляция сети',
-	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN записывается только при постоянном отказе «PLMN not allowed» (TS 31.102 4.2.16), а 5GS location-файлы не затрагиваются.',
+	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent "PLMN not allowed" rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN записывается только при постоянном отказе «PLMN not allowed» (TS 31.102 4.2.16), а 5GS location-файлы не затрагиваются.',
 	'Cold boot': 'Холодная загрузка',
 	'EPS attach': 'Подключение EPS',
 	'2G attach': 'Подключение 2G',
@@ -13042,9 +13042,16 @@ const LANG_RU = {
 	'Churn': 'Серия переподключений',
 	'SMS received': 'Принято SMS',
 	'CB reconfig': 'Перенастройка CB',
+	'AUTHENTICATE': 'AUTHENTICATE',
 	'Parameters': 'Параметры',
 	'Operator search (country / brand / MCC-MNC)': 'Поиск оператора (страна / бренд / MCC-MNC)',
 	'Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don\'t use it.': 'Задаёт PLMN, записываемый в LOCI/PSLOCI/EPSLOCI. Используется в сценариях «Подключение EPS», «Подключение 2G» и «Принято SMS» (реальные LAI/RAI/TAI; в SMS — только при включённой перезаписи location), а также «Холодная загрузка», «Потеря сервиса», «Ограниченный сервис» и «Роуминг запрещён» (фиктивные LOCI/PSLOCI сохраняют этот PLMN, фиктивный EPSLOCI стирает TAI PLMN). «Серия переподключений», «Перенастройка CB» и AUTHENTICATE его не используют.',
+	'MCC': 'MCC',
+	'MNC': 'MNC',
+	'LAC': 'LAC',
+	'Cell ID': 'Идентификатор соты',
+	'TAC': 'TAC',
+	'RAC': 'RAC',
 	'Random roaming operator': 'Случайный роуминг-оператор',
 	'Advanced identity (empty = random)': 'Дополнительные идентификаторы (пусто = случайно)',
 	'Algorithm': 'Алгоритм',

@@ -298,3 +298,22 @@ test('the network monitor labels its refresh timestamp and has no area line', ()
     assert.match(html, /data-l10n="Last refresh">Last refresh<\/span>: <span id="netstate-read"><\/span>/);
     assert.ok(!/id="netstate-area"/.test(html), 'the area line is gone; LAI/RAI/TAI live in the EF rows');
 });
+
+test('every data-l10n attribute resolves in LANG_RU after HTML decoding', () => {
+    // translatePage() looks up el.getAttribute('data-l10n') — the browser
+    // decodes entities in attribute values, but NOT inside the <script>
+    // block where LANG_RU lives. Mirror that lookup exactly: a key written
+    // as &quot; in the markup and &quot; in the dict never matches.
+    const dictMatch = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/);
+    assert.ok(dictMatch, 'LANG_RU literal not found');
+    const dict = eval('({' + dictMatch[1] + '})');
+    const entities = {
+        quot: '"', '#34': '"', amp: '&', '#38': '&', apos: "'", '#39': "'",
+        lt: '<', '#60': '<', gt: '>', '#62': '>', nbsp: ' ',
+    };
+    const decode = s => s.replace(/&([a-z]+|#[0-9]+);/gi,
+        (m, e) => entities[e] !== undefined ? entities[e] : m);
+    const attrs = [...html.matchAll(/data-l10n="([^"]*)"/g)].map(m => decode(m[1]));
+    const missing = [...new Set(attrs.filter(k => !(k in dict)))];
+    assert.deepStrictEqual(missing, [], 'data-l10n keys with no LANG_RU entry:\n' + missing.join('\n'));
+});
