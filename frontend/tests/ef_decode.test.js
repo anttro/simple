@@ -24,7 +24,7 @@ function extractFunc(src, name) {
 const FNS = [
 	'efBytes', 'efHex', 'efSwapNibbles', 'efAllFf', 'efRstripFf', 'efTlv', 'efUcs2Be',
 	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efBcdAddressLen', 'efPlmn', 'efPlmnAct', 'efPnnText',
-	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecPlmnList', 'efDecPlmnWact',
+	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
 	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
@@ -84,6 +84,12 @@ test('EF decoders match the pinned spec / pySim test vectors', () => {
 	assert.deepStrictEqual(efDecEcc(efBytes('19f101')), { number: '911', esc: '0x01' });
 	assert.deepStrictEqual(efDecKc(efBytes('837d783609a3858f05')), { kc: '837D783609A3858F', ksi: 0 });
 	assert.deepStrictEqual(efDecPlmnList(efBytes('22F860')), { plmns: [{ mcc: '228', mnc: '06' }] });
+	// EF.FPLMN: a FFFFFF gap in any position is skipped, not a terminator
+	assert.deepStrictEqual(efDecFplmn(efBytes('22F860FFFFFF62F210')),
+		{ plmns: [{ mcc: '228', mnc: '06' }, { mcc: '262', mnc: '01' }] });
+	assert.deepStrictEqual(efDecFplmn(efBytes('FFFFFFFF')), { plmns: [] });
+	assert.strictEqual(efFindDecoder('EF.EHPLMN', null).fn, efDecPlmnList);
+	assert.strictEqual(efFindDecoder('EF.FPLMN', null).fn, efDecFplmn);
 	assert.deepStrictEqual(efDecCbmi(efBytes('0010FFFF0020')), { message_ids: [16, 32] });
 	assert.deepStrictEqual(efDecCbmir(efBytes('0000FFFEFFFF')), { ranges: [['0000', 'FFFE']] });
 	assert.deepStrictEqual(efDecPhase(efBytes('03')), { phase: 'phase 2 and higher' });

@@ -939,9 +939,10 @@
 					<div id="pysim-event-list" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
 				</fieldset>
 			</div>
-			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+			<div class="flex flex-wrap items-start gap-4 mb-4">
+			<fieldset class="flex-1 border border-gray-200 dark:border-slate-700 rounded p-3" style="min-width:30rem">
 				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Network simulation">Network simulation</legend>
-				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.</div>
+				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.</div>
 				<div class="flex flex-wrap gap-1.5 mb-2">
 					<button data-needs="card" onclick="netSimRun('cold_boot')" class="px-2.5 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Cold boot">Cold boot</button>
 					<button data-needs="card" onclick="netSimRun('attach_eps')" class="px-2.5 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="EPS attach">EPS attach</button>
@@ -1017,6 +1018,7 @@
 							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-invalidate-epsnsc" checked class="rounded"> <span data-l10n="Invalidate EPSNSC">Invalidate EPSNSC</span></label>
 							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-keep-kasme" checked class="rounded"> <span data-l10n="Keep KASME (KSI 07 only)">Keep KASME (KSI 07 only)</span></label>
 							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-write-kc" checked class="rounded"> <span data-l10n="Write/invalidate Kc">Write/invalidate Kc</span></label>
+							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-write-fplmn" checked class="rounded"> <span data-l10n="Rejection: write FPLMN">Rejection: write FPLMN</span></label>
 							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-sms-location" checked class="rounded"> <span data-l10n="SMS: rewrite location too">SMS: rewrite location too</span></label>
 							<label class="flex items-center gap-1"><input type="checkbox" id="netsim-cb-clear" class="rounded"> <span data-l10n="CB: clear lists instead of writing IDs">CB: clear lists instead of writing IDs</span></label>
 							<label class="flex items-center gap-1"><span data-l10n="Churn count">Churn count</span><input id="netsim-churn-count" type="number" value="3" min="1" max="20" class="w-14 border border-gray-300 dark:border-slate-600 text-xs rounded px-1 py-0.5 dark:bg-slate-800"></label>
@@ -1027,6 +1029,18 @@
 				<div id="netsim-status" class="text-xs text-gray-400 dark:text-slate-500 mb-1"></div>
 				<div id="netsim-log" class="text-xs font-mono text-gray-600 dark:text-slate-400 max-h-[30vh] overflow-auto"></div>
 			</fieldset>
+			<fieldset class="w-72 shrink-0 border border-gray-200 dark:border-slate-700 rounded p-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Network state">Network state</legend>
+				<div class="flex items-center justify-between gap-2 mb-1">
+					<span id="netstate-badge" class="text-sm font-semibold text-gray-400 dark:text-slate-500"></span>
+					<button id="netstate-refresh-btn" data-needs="card" onclick="netStateRefresh()" class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Refresh">Refresh</button>
+				</div>
+				<div id="netstate-location" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
+				<div id="netstate-area" class="text-xs font-mono text-gray-400 dark:text-slate-500"></div>
+				<div id="netstate-read" class="text-xs text-gray-400 dark:text-slate-500 mt-1"></div>
+				<div id="netstate-body" class="mt-2 text-xs font-mono text-gray-600 dark:text-slate-400 max-h-[45vh] overflow-auto"></div>
+			</fieldset>
+			</div>
 			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mt-4">
 				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Fetched proactive commands:">Fetched proactive commands:</legend>
 				<div id="pysim-proactive-log" class="text-sm font-mono text-gray-600 dark:text-slate-400"></div>
@@ -1400,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.6.2';
+const SIMPLE_VERSION = '2.7.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -1478,6 +1492,7 @@ function phoneSwitchSubtab(name) {
 		stkCheckMenu();
 		pysimEventsRender();
 		pysimProactiveLogRender();
+		netStateFetch();
 		pysimPollStatusInit();
 		tpRefresh();
 	}
@@ -4993,6 +5008,7 @@ function pysimSetServerAvailable(available) {
 		pysimUpdateAdmIndicator(null);
 		pysimUpdateIccidIndicator(null);
 		pysimUpdatePresetIndicators(null);
+		netStateRender(null);
 	}
 	pysimApplyAvailability();
 }
@@ -7953,6 +7969,8 @@ async function pysimEventSend() {
 			result.classList.remove('hidden');
 			result.classList.add('text-amber-600');
 		}
+		if (resp.net_state) netStateRender(resp.net_state);
+		else netStateFetch();
 	} catch (e2) {
 		err.textContent = 'Error: ' + e2.message;
 		err.classList.remove('hidden');
@@ -8031,6 +8049,7 @@ async function pysimResetCardData(refreshStatus) {
 	pysimProactiveLogRender();
 	pysimPliRender();
 	if (refreshStatus) await pysimRefresh();
+	if (isViewVisible('tab-phone')) netStateFetch();
 }
 
 function pysimCardStateUpdate(status) {
@@ -11907,6 +11926,19 @@ function efDecPlmnList(b) {
 	return { plmns: plmns };
 }
 
+// EF.FPLMN: 3-byte PLMN entries; an FFFFFF empty slot may appear in any
+// position and must not terminate the list (TS 31.102 4.2.16).
+function efDecFplmn(b) {
+	const plmns = [];
+	for (let i = 0; i + 2 < b.length; i += 3) {
+		const chunk = b.subarray(i, i + 3);
+		if (efAllFf(chunk)) continue;
+		const p = efPlmn(chunk);
+		if (p) plmns.push(p);
+	}
+	return { plmns: plmns };
+}
+
 function efDecPlmnWact(b) {
 	const plmns = [];
 	for (let i = 0; i + 4 < b.length; i += 5) {
@@ -12254,6 +12286,7 @@ const EF_DECODERS = [
 	{ name: 'EF.PLMNwAcT', fid: '6f60', fn: efDecPlmnWact },
 	{ name: 'EF.OPLMNwAcT', fid: '6f61', fn: efDecPlmnWact },
 	{ name: 'EF.HPLMNwAcT', fid: '6f62', fn: efDecPlmnWact },
+	{ name: 'EF.EHPLMN', fid: '6fd9', fn: efDecPlmnList },
 	{ name: 'EF.OPL', fid: '6fc6', fn: efDecOpl },
 	{ name: 'EF.SPDI', fid: '6fcd', fn: efDecSpdi },
 	{ name: 'EF.PNN', fid: '6fc5', fn: efDecPnn },
@@ -12261,6 +12294,7 @@ const EF_DECODERS = [
 	{ name: 'EF.PSLOCI', fid: '6f73', fn: efDecPsLoci },
 	{ name: 'EF.EPSLOCI', fid: '6fe3', fn: efDecEpsLoci },
 	{ name: 'EF.EPSNSC', fid: '6fe4', fn: efDecEpsNsc },
+	{ name: 'EF.FPLMN', fid: '6f7b', fn: efDecFplmn },
 	{ name: 'EF.LOCIGPRS', fid: '6f53', fn: efDecPsLoci },
 	{ name: 'EF.Kc', fid: '6f20', fn: efDecKc },
 	{ name: 'EF.KcGPRS', fid: '6f52', fn: efDecKc },
@@ -12477,6 +12511,7 @@ function netSimParams() {
 		write_kc: netSimChk('netsim-write-kc'),
 		sms_location: netSimChk('netsim-sms-location'),
 		cb_clear: netSimChk('netsim-cb-clear'),
+		write_fplmn: netSimChk('netsim-write-fplmn'),
 	};
 	const map = {
 		mcc: 'netsim-mcc', mnc: 'netsim-mnc', lac: 'netsim-lac', cell_id: 'netsim-cell',
@@ -12490,6 +12525,151 @@ function netSimParams() {
 		if (v !== '') p[key] = v;
 	}
 	return p;
+}
+
+// ===== Network state monitor =====
+// Cached server-side view of the network-related EFs (read at equip, patched
+// from net-sim writes, refreshed on demand) plus the simulated service state
+// and the derived location/roaming view.  No card polling: the panel fetches
+// the cached state when the Phone tab opens and after net-sim/event actions.
+const NET_STATE_FILES = [
+	['imsi', 'EF.IMSI'], ['ehplmn', 'EF.EHPLMN'], ['spdi', 'EF.SPDI'],
+	['hplmnwact', 'EF.HPLMNwAcT'], ['loci', 'EF.LOCI'], ['psloci', 'EF.PSLOCI'],
+	['epsloci', 'EF.EPSLOCI'], ['epsnsc', 'EF.EPSNSC'], ['cbmi', 'EF.CBMI'],
+	['cbmir', 'EF.CBMIR'], ['smsstatus', 'EF.SMSS'], ['fplmn', 'EF.FPLMN'],
+];
+const NET_STATE_STATUS = {
+	loci: { 0: 'updated', 1: 'not updated', 2: 'PLMN not allowed', 3: 'LA not allowed' },
+	psloci: { 0: 'updated', 1: 'not updated', 2: 'PLMN not allowed' },
+	epsloci: { 0: 'updated', 1: 'not updated', 2: 'roaming not allowed' },
+};
+const NET_STATE_AREA = {
+	loci: ['LAI', 'location_update_status'],
+	psloci: ['RAI', 'update_status'],
+	epsloci: ['TAI', 'eps_update_status'],
+};
+const NET_STATE_ROAMING = { home: 'Home', equivalent: 'Home equivalent', guest: 'Guest (roaming)' };
+const NET_STATE_SERVICE = {
+	normal: ['text-emerald-600 dark:text-emerald-400', '● ', 'Normal service'],
+	limited: ['text-amber-600 dark:text-amber-500', '⚠ ', 'Limited service'],
+	none: ['text-red-500', '⛔ ', 'No service'],
+};
+const NET_STATE_SOURCE = { init: 'init', write: 'write', read: 'read', refresh: 'refresh' };
+
+function netStateFetch() {
+	return pysimFetch('/api/net-state').then(res => {
+		netStateRender(res && res.available ? res.state : null);
+	}).catch(() => {});
+}
+
+function netStateRefresh() {
+	return pysimFetch('/api/net-state-refresh', {}).then(res => {
+		netStateRender(res ? res.state : null);
+	}).catch(() => {});
+}
+
+function netStateStatusWord(key, raw) {
+	const v = parseInt(String(raw || '').replace(/^0x/i, ''), 16);
+	const word = (NET_STATE_STATUS[key] || {})[v];
+	return word ? t(word) : (raw || '');
+}
+
+function netStateFlattenTitle(decoded) {
+	const data = decoded && decoded.data ? decoded.data : {};
+	return efFlatten(data).map(r => (r[0] ? r[0] + ': ' : '') + r[1]).join(' · ');
+}
+
+function netStatePlmnList(d, withTech) {
+	return (d.plmns || []).map(p => p.mcc + '-' + p.mnc +
+		(withTech && p.access_tech ? ' (' + p.access_tech + ')' : '')).join(', ');
+}
+
+function netStateSummary(key, entry) {
+	if (!entry || !entry.present) {
+		return { text: '—', title: t('not present'), cls: 'text-gray-400' };
+	}
+	const name = (NET_STATE_FILES.find(f => f[0] === key) || [])[1];
+	const content = entry.kind === 'record'
+		? { kind: 'record', records: entry.records || [] }
+		: { kind: 'transparent', data: entry.data || '' };
+	const dec = name ? efDecodeFile(name, null, content) : null;
+	if (!dec) {
+		const raw = entry.kind === 'record' ? '' : (entry.data || '');
+		return raw ? { text: raw, title: raw, cls: '' }
+			: { text: '—', title: t('empty'), cls: 'text-gray-400' };
+	}
+	const d = dec.data;
+	if (!d || d.empty) return { text: '—', title: t('empty'), cls: 'text-gray-400' };
+	let text = '';
+	if (key === 'imsi') {
+		text = d.imsi || '';
+	} else if (key === 'ehplmn' || key === 'spdi' || key === 'fplmn') {
+		text = netStatePlmnList(d);
+	} else if (key === 'hplmnwact') {
+		text = netStatePlmnList(d, true);
+	} else if (NET_STATE_AREA[key]) {
+		const [area, statusKey] = NET_STATE_AREA[key];
+		const plmn = (d.mcc && d.mnc) ? d.mcc + '-' + d.mnc : null;
+		const lac = d.lac ? String(d.lac).replace(/^0x/i, '') : '';
+		const status = d[statusKey] !== undefined ? netStateStatusWord(key, d[statusKey]) : '';
+		text = (plmn ? area + ' ' + plmn + (lac ? '/' + lac : '') : area + ' —') +
+			(status ? ' · ' + status : '');
+	} else if (key === 'epsnsc') {
+		const parts = [];
+		if (d.ksi_asme !== undefined) parts.push('KSI ' + d.ksi_asme);
+		if (d.uplink_nas_count !== undefined || d.downlink_nas_count !== undefined) {
+			parts.push('UL/DL ' + (d.uplink_nas_count || 0) + '/' + (d.downlink_nas_count || 0));
+		}
+		if (d.nas_algorithms) parts.push('algo ' + d.nas_algorithms);
+		text = parts.join(' · ');
+	} else if (key === 'cbmi') {
+		text = (d.message_ids || []).map(v => v.toString(16).toUpperCase().padStart(4, '0')).join(', ');
+	} else if (key === 'cbmir') {
+		text = (d.ranges || []).map(r => r[0] + '–' + r[1]).join(', ');
+	} else if (key === 'smsstatus') {
+		text = entry.data || '';
+	}
+	return { text: text || '—', title: netStateFlattenTitle(dec) || (entry.data || ''), cls: '' };
+}
+
+function netStateRender(state) {
+	const badge = document.getElementById('netstate-badge');
+	if (!badge) return;
+	const svc = (state && state.service) || {};
+	const known = NET_STATE_SERVICE[svc.state];
+	badge.className = 'text-sm font-semibold ' +
+		(known ? known[0] : 'text-gray-400 dark:text-slate-500');
+	badge.textContent = known ? known[1] + t(known[2]) : '○ ' + t('Undefined');
+	const loc = state && state.network ? state.network.location : null;
+	const locEl = document.getElementById('netstate-location');
+	if (loc) {
+		let h = '<span class="font-mono">' + esc(loc.mcc + '-' + loc.mnc) + '</span>';
+		if (loc.country) h += ' · ' + esc(loc.country);
+		if (loc.operator) h += ' · ' + esc(loc.operator);
+		if (loc.roaming) h += ' · ' + esc(t(NET_STATE_ROAMING[loc.roaming] || loc.roaming));
+		if (loc.rejected) h += ' <span class="text-red-500">⛔ ' + esc(t('PLMN not allowed')) + '</span>';
+		locEl.innerHTML = h;
+	} else {
+		locEl.innerHTML = '<span class="text-gray-400">—</span>';
+	}
+	document.getElementById('netstate-area').textContent = loc ? (loc.area + ' ' + loc.lac) : '';
+	document.getElementById('netstate-read').textContent =
+		state && state.read_at ? new Date(state.read_at * 1000).toLocaleTimeString() : '';
+	const files = (state && state.files) || {};
+	let html = '';
+	for (const [key, name] of NET_STATE_FILES) {
+		const entry = files[key];
+		const s = netStateSummary(key, entry);
+		const src = entry && entry.present
+			? (NET_STATE_SOURCE[entry.source] || entry.source || '') : '';
+		html += '<div class="flex items-baseline gap-1" title="' + esc(s.title || '') + '">' +
+			'<span class="w-24 shrink-0 text-gray-500 dark:text-slate-400">' + esc(name) + '</span>' +
+			'<span class="flex-1 min-w-0 truncate ' + (s.cls || '') + '">' + esc(s.text) + '</span>' +
+			'<span class="text-gray-300 dark:text-slate-600">' + esc(src) + '</span>' +
+			'</div>';
+	}
+	document.getElementById('netstate-body').innerHTML = html ||
+		'<span class="text-gray-400">' + esc(t('No data')) + '</span>';
 }
 
 async function netSimRun(scenario) {
@@ -12509,6 +12689,7 @@ async function netSimRun(scenario) {
 			statusEl.className = 'text-xs text-red-500 mb-1';
 		}
 		pysimEventsRender();
+		if (res.net_state) netStateRender(res.net_state);
 	} catch (e) {
 		statusEl.textContent = t('Error') + ': ' + e.message;
 		statusEl.className = 'text-xs text-red-500 mb-1';
@@ -12848,7 +13029,7 @@ const LANG_RU = {
 	'No events configured.': 'Нет настроенных событий.',
 	'Fetched proactive commands:': 'Извлечённые проактивные команды:',
 	'Network simulation': 'Симуляция сети',
-	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN and 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN и 5GS location-файлы не затрагиваются.',
+	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN записывается только при постоянном отказе «PLMN not allowed» (TS 31.102 4.2.16), а 5GS location-файлы не затрагиваются.',
 	'Cold boot': 'Холодная загрузка',
 	'EPS attach': 'Подключение EPS',
 	'2G attach': 'Подключение 2G',
@@ -13126,6 +13307,20 @@ const LANG_RU = {
 	'No ADM key in the card preset — not verified': 'Ключа ADM в предустановке нет — не подтверждён',
 	'SCP80 preset complete': 'Предустановка SCP80 заполнена',
 	'SCP81 preset complete': 'Предустановка SCP81 заполнена',
+	'Network state': 'Сетевое состояние',
+	'Undefined': 'Не определено',
+	'PLMN not allowed': 'PLMN не разрешён',
+	'roaming not allowed': 'роуминг не разрешён',
+	'LA not allowed': 'LA не разрешён',
+	'updated': 'обновлён',
+	'not updated': 'не обновлён',
+	'not present': 'отсутствует',
+	'empty': 'пусто',
+	'No data': 'Нет данных',
+	'Home': 'Домашняя сеть',
+	'Home equivalent': 'Эквивалентная домашней',
+	'Guest (roaming)': 'Гостевая (роуминг)',
+	'Rejection: write FPLMN': 'Отказ: записать FPLMN',
 	'TERMINAL PROFILE': 'TERMINAL PROFILE',
 	'Preset (device model)': 'Пресет (модель устройства)',
 	'Profile (hex)': 'Профиль (hex)',

@@ -90,6 +90,7 @@ function setup() {
 	globalThis.pysimSetConnected = v => calls.connected.push(v);
 	globalThis.pysimResetCardData = refresh => calls.resets.push(refresh);
 	globalThis.pysimApplyAvailability = () => {};
+	globalThis.netStateRender = () => {};
 	globalThis.isViewVisible = () => true;
 	globalThis.pysimProactiveLogRender = () => { calls.proactive++; };
 	globalThis.cardsAutoSelectByIccid = iccid => { calls.autoIccid.push(iccid); return -1; };

@@ -39,6 +39,8 @@ class BuilderTests(unittest.TestCase):
         dummy = netsim.build_loci_dummy('52F002')
         self.assertEqual(dummy, 'FFFFFFFF52F002FFFEFF01')
         # PLMN kept, LAC FFFE, status "not updated"
+        rejected = netsim.build_loci_dummy('52F002', netsim.ST_PLMN_NOT_ALLOWED)
+        self.assertEqual(rejected, 'FFFFFFFF52F002FFFEFF02')
 
     def test_psloci_real_and_dummy(self):
         real = netsim.build_psloci('F9236619', 'FFFFFF', '52F002', '6CD7', 'CA', 0x00)
@@ -46,17 +48,53 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(real[-2:], '00')
         dummy = netsim.build_psloci_dummy('52F002')
         self.assertEqual(dummy, 'FFFFFFFFFFFFFF52F002FFFEFF01')
+        rejected = netsim.build_psloci_dummy('52F002', netsim.ST_PLMN_NOT_ALLOWED)
+        self.assertEqual(rejected, 'FFFFFFFFFFFFFF52F002FFFEFF02')
 
     def test_epsloci_real_and_dummy(self):
         real = netsim.build_epsloci('AB' * 12, '52F099', '8001', 0x00)
         self.assertEqual(len(real) // 2, 18)
         self.assertEqual(real[24:30], '52F099')   # TAI PLMN after the 12-byte GUTI
         self.assertEqual(real[-2:], '00')
-        dummy = netsim.build_epsloci_dummy('52F099')
-        self.assertEqual(len(dummy) // 2, 18)
-        self.assertTrue(dummy.startswith('0BF652F099'))
-        self.assertEqual(dummy[10:24], 'FF' * 7)  # identity wiped
-        self.assertTrue(dummy.endswith('52F099FFFF01'))
+        # dummy: the EPS-mobile-identity pair 0B F6 stays, the rest is wiped
+        dummy = netsim.build_epsloci_dummy()
+        self.assertEqual(dummy, '0BF6' + 'FF' * 16)
+        # permanent rejection: the status byte is the only written byte
+        rejected = netsim.build_epsloci_dummy(netsim.ST_PLMN_NOT_ALLOWED)
+        self.assertEqual(rejected, '0BF6' + 'FF' * 15 + '02')
+
+    def test_fplmn_insert_fills_empty_slots_and_shifts(self):
+        # empty list: the new PLMN goes into the first slot
+        self.assertEqual(netsim.insert_fplmn('FF' * 12, '00F110'),
+                         '00F110' + 'FF' * 9)
+        # a gap in any position is filled, never treated as a terminator
+        self.assertEqual(netsim.insert_fplmn('AABBCCFFFFFF112233445566', '00F110'),
+                         'AABBCC00F110112233445566')
+        # full list: the longest-held entry is dropped, new PLMN appended at n
+        self.assertEqual(netsim.insert_fplmn('AABBCCDDEEFF112233445566', '00F110'),
+                         'DDEEFF11223344556600F110')
+        self.assertEqual(netsim.insert_fplmn('', '00F110'), '00F110')
+        self.assertEqual(netsim.fplmn_entries('FF' * 9),
+                         ['FFFFFF', 'FFFFFF', 'FFFFFF'])
+        self.assertEqual(netsim.fplmn_entries(''), [])
+
+    def test_parse_imsi_matches_the_pysim_vector(self):
+        self.assertEqual(netsim.parse_imsi('082982608200002080'),
+                         '228062800000208')
+        self.assertIsNone(netsim.parse_imsi('08'))
+        self.assertIsNone(netsim.parse_imsi(''))
+
+    def test_roaming_denied_fplmn_guard_falls_back_to_the_imsi(self):
+        runner, lchan, srv = make_runner({'mcc': '228', 'mnc': '06'})
+        srv.net_state = {'files': {
+            'imsi': {'present': True, 'kind': 'transparent',
+                     'data': '082982608200002080'},
+        }}
+        out = runner.run('roaming_denied')
+        self.assertTrue(out['success'])
+        self.assertFalse(any(w[1] == '6F7B' for w in lchan.writes))
+        self.assertTrue(any('home PLMN' in s.get('note', '')
+                            for s in out['steps']))
 
     def test_epsnsc_record_layout_and_padding(self):
         rec = netsim.build_epsnsc(0x03, 'AB' * 32, 0x0E, 0x08, 0x02)
@@ -216,6 +254,7 @@ FILES = {
     '6F43': FakeFileInfo(size=2, data='27FF'),
     '6F45': FakeFileInfo(size=20),
     '6F50': FakeFileInfo(size=40),
+    '6F7B': FakeFileInfo(size=12, data='FF' * 12),
 }
 
 
@@ -256,6 +295,36 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('4F20', keys)   # Kc invalidate (07 form)
         kc = [w for w in lchan.writes if w[1] == '4F20'][0][2]
         self.assertEqual(kc, 'FFFFFFFFFFFFFFFF07')
+
+    def test_roaming_denied_writes_rejection_status_and_fplmn(self):
+        runner, lchan, srv = make_runner()
+        out = runner.run('roaming_denied')
+        self.assertTrue(out['success'])
+        self.assertEqual(srv.events[0], (3, '9B0101'))
+        loci = [w for w in lchan.writes if w[1] == '6F7E'][0][2]
+        self.assertEqual(loci, 'FFFFFFFF00F110FFFEFF02')
+        psloci = [w for w in lchan.writes if w[1] == '6F73'][0][2]
+        self.assertTrue(psloci.endswith('02'), psloci)
+        epsloci = [w for w in lchan.writes if w[1] == '6FE3'][0][2]
+        self.assertEqual(epsloci, '0BF6' + 'FF' * 15 + '02')
+        # the denied VPLMN 001-01 (00 F1 10) is appended to EF.FPLMN
+        fplmn = [w for w in lchan.writes if w[1] == '6F7B'][0][2]
+        self.assertEqual(fplmn, '00F110' + 'FF' * 9)
+        # C3a drops the key context (KSI 07 + wiped KASME)
+        epsnsc = [w for w in lchan.writes if w[1] == '6FE4'][0][2]
+        self.assertTrue(epsnsc.startswith('A0348001078120' + 'FF' * 32))
+
+    def test_roaming_denied_never_stores_the_home_plmn(self):
+        runner, lchan, srv = make_runner()
+        srv.net_state = {'files': {
+            'hplmnwact': {'present': True, 'kind': 'transparent',
+                          'data': '00F110' + '0000'},
+        }}
+        out = runner.run('roaming_denied')
+        self.assertTrue(out['success'])
+        self.assertFalse(any(w[1] == '6F7B' for w in lchan.writes))
+        self.assertTrue(any('home PLMN' in s.get('note', '')
+                            for s in out['steps']))
 
     def test_event_step_skipped_when_not_subscribed(self):
         runner, lchan, srv = make_runner(event_list=[])

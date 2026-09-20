@@ -70,6 +70,16 @@ test('card-dependent profiler buttons show the ICCID and need a readable one', (
     assert.match(html, /id="snapshot-new-btn"[\s\S]*?<span class="profiler-iccid-label" data-iccid-sep=": "><\/span><\/button>/);
 });
 
+test('network state monitor panel lives next to the network simulation', () => {
+    assert.match(html, /data-l10n="Network state"/);
+    assert.match(html, /id="netstate-badge"/);
+    assert.match(html, /id="netstate-refresh-btn" data-needs="card"/);
+    assert.match(html, /id="netstate-body"/);
+    assert.match(html, /id="netsim-write-fplmn"/);
+    // the monitor is rendered from the cached server state (no file polling)
+    assert.ok(html.includes("netStateFetch()"));
+});
+
 test('labelled containers use fieldsets with embedded legends', () => {
     const legendCls = '<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"';
     for (const label of ['STK menu', 'STATUS and Polling', 'TERMINAL PROFILE',

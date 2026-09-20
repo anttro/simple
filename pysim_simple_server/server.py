@@ -15,6 +15,7 @@ from pySim.transport import ApduTracer, ProactiveHandler
 from pySim.cards import UiccCardBase
 from pysim_simple_server import httpota
 from pysim_simple_server import netsim
+from pysim_simple_server import netstate
 from pysim_simple_server import scp81
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 
@@ -24,7 +25,7 @@ from osmocom.construct import GsmOrUcs2Adapter
 from osmocom.tlv import BER_TLV_IE
 
 
-VERSION = '2.6.2'
+VERSION = '2.7.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -489,6 +490,105 @@ def _mcc_mnc_random(data, exclude=None):
     e = random.choice(pool)
     return {k: e.get(k) for k in
             ('countryName', 'countryCode', 'mcc', 'mnc', 'brand', 'operator', 'status')}
+
+
+def _netstate_read(server, keys=None):
+    """Read the monitored network-state EFs (best effort per file).
+
+    The Network state panel caches them: the full set is read once at equip
+    (after a readable ICCID), on demand via /api/net-state-refresh, and only
+    the card-side files (EF.IMSI) after net-sim / Location-status operations.
+    """
+    app = getattr(server, 'app', None)
+    rs = getattr(app, 'rs', None) if app else None
+    if not app or not rs:
+        return {}
+    lchan = rs.lchan[0]
+    out = {}
+    for d in netstate.FILE_DEFS:
+        key = d['key']
+        if keys and key not in keys:
+            continue
+        entry = {'name': d['name'], 'fid': d['fid'], 'present': False,
+                 'kind': None, 'source': 'refresh', 'updated': time.time()}
+        for path in d['paths']:
+            cleanup = None
+            try:
+                _, cleanup = _select_path(lchan, path, app)
+                ft = _get_file_type(lchan, lchan.selected_file)
+                entry['path'] = path
+                if ft in ('linear_fixed', 'cyclic'):
+                    records = []
+                    n = lchan.selected_file_num_of_rec() or 1
+                    for i in range(1, n + 1):
+                        rv = lchan.read_record(i)
+                        data = rv[0] if isinstance(rv, tuple) else rv
+                        records.append({'num': i,
+                                        'data': (data or '').upper()})
+                    entry.update({'present': True, 'kind': 'record',
+                                  'records': records})
+                else:
+                    rv = lchan.read_binary()
+                    data = rv[0] if isinstance(rv, tuple) else rv
+                    entry.update({'present': True, 'kind': 'transparent',
+                                  'data': (data or '').upper()})
+                break
+            except Exception:
+                continue
+            finally:
+                if cleanup:
+                    try:
+                        cleanup()
+                    except Exception:
+                        pass
+        out[key] = entry
+    return out
+
+
+def _netstate_compute(server):
+    state = getattr(server, 'net_state', None)
+    if state is None:
+        return None
+    data = _mcc_mnc_load(getattr(server, 'mcc_mnc_path', None))
+    return netstate.compute_network(state, data)
+
+
+def _netstate_after_net_sim(server, scenario, result):
+    """Update the cached Network state after a scenario run: the bytes we
+    wrote are known without re-reading; the card may update EF.IMSI itself."""
+    state = getattr(server, 'net_state', None)
+    if state is None:
+        return
+    netstate.apply_steps(state, (result or {}).get('steps') or [])
+    service = netsim.SCENARIO_SERVICE.get(scenario)
+    if service and (result or {}).get('success'):
+        netstate.set_service(state, service, 'net-sim:' + scenario)
+    netstate.merge_read(state, _netstate_read(server, ['imsi']), source='read')
+    _netstate_compute(server)
+
+
+def _netstate_after_event(server, event_type, event_data):
+    """Location status changes the simulated service state; the card may also
+    switch EF.IMSI (multi-IMSI applets) after such an event."""
+    state = getattr(server, 'net_state', None)
+    if state is None:
+        return
+    try:
+        ev = int(event_type)
+    except (TypeError, ValueError):
+        ev = None
+    if ev == netsim.EVENT_LOCATION_STATUS and event_data:
+        status = None
+        if (len(event_data) >= 3 and event_data[0] == 0x9B
+                and event_data[1] == 0x01):
+            status = event_data[2]
+        service = {0x00: netstate.SERVICE_NORMAL,
+                   0x01: netstate.SERVICE_LIMITED,
+                   0x02: netstate.SERVICE_NONE}.get(status)
+        if service:
+            netstate.set_service(state, service, 'event:location-status')
+    netstate.merge_read(state, _netstate_read(server, ['imsi']), source='read')
+    _netstate_compute(server)
 
 
 def _parse_tree_output(output):
@@ -2350,6 +2450,7 @@ def _handle_card_disconnect():
         _server_ref.event_list = None
         _server_ref.sim_menu = None
         _server_ref.iccid = None
+        _server_ref.net_state = None
         _server_ref.equipping = False
         _server_ref.card_session = getattr(_server_ref, 'card_session', 0) + 1
     _reset_proactive_log()
@@ -2377,8 +2478,21 @@ def _apply_equipped_card(server):
     server.iccid = _read_iccid(server.app)
     if server.iccid:
         _tlog('equip: ICCID %s' % server.iccid)
+        # Network state monitor: read the network-related EFs right after the
+        # ICCID (still before the TERMINAL PROFILE opens a CAT session).  A
+        # card without a readable ICCID is considered unusable - give up.
+        try:
+            server.net_state = netstate.new_state()
+            netstate.merge_read(server.net_state, _netstate_read(server),
+                                source='init')
+            netstate.set_read_time(server.net_state)
+            _netstate_compute(server)
+        except Exception as e:
+            server.net_state = None
+            _tlog('equip: network state read failed: %s' % e)
     else:
-        _tlog('equip: ICCID not readable')
+        server.net_state = None
+        _tlog('equip: ICCID not readable - network state skipped')
     _poll_enable()
     sm, el = _send_terminal_profile(server.scc, server.terminal_profile)
     server.sim_menu = sm
@@ -3219,6 +3333,16 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp)
             self._log_resp({'available': resp['available'],
                             'results': len(resp.get('results', []))})
+        elif self.path == '/api/net-state':
+            self._log_req()
+            state = getattr(self.server, 'net_state', None)
+            if state is None:
+                self._send_json({'available': False, 'state': None})
+                self._log_resp({'available': False})
+                return
+            _netstate_compute(self.server)
+            self._send_json({'available': True, 'state': state})
+            self._log_resp({'available': True})
         elif self.path == '/api/status':
             self._log_req()
             app = self.server.app
@@ -3474,6 +3598,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 result = netsim.run_scenario(
                     sys.modules[__name__], app, scenario, body,
                     event_list=getattr(self.server, 'event_list', None) or [])
+                _netstate_after_net_sim(self.server, scenario, result)
+                result['net_state'] = getattr(self.server, 'net_state', None)
                 self._send_json(result)
                 self._log_resp({'scenario': scenario,
                                 'success': result.get('success'),
@@ -3486,6 +3612,30 @@ class PysimHandler(BaseHTTPRequestHandler):
                 _handle_card_disconnect()
                 self._send_json({'error': 'simulation failed: %s' % e}, 500)
                 self._log_resp({'error': str(e)})
+        elif self.path == '/api/net-state-refresh':
+            if not self.server.app or not getattr(self.server, 'scc', None):
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            keys = body.get('files') if isinstance(body, dict) else None
+            state = getattr(self.server, 'net_state', None)
+            if state is None:
+                state = netstate.new_state()
+                self.server.net_state = state
+            try:
+                files = _netstate_read(self.server, keys)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+                self._log_resp({'error': str(e)})
+                return
+            netstate.merge_read(state, files, source='refresh')
+            netstate.set_read_time(state)
+            _netstate_compute(self.server)
+            resp = {'available': True, 'state': state}
+            self._send_json(resp)
+            self._log_resp({'available': True, 'files': len(files or {})})
         elif self.path == '/api/rescue':
             scc = self.server.scc
             if not scc:
@@ -3878,9 +4028,17 @@ class PysimHandler(BaseHTTPRequestHandler):
             event_data = bytes.fromhex(event_data_hex) if event_data_hex else None
             try:
                 data, sw = _send_event_download(scc, event_type, event_data)
+                try:
+                    is_location = int(event_type) == netsim.EVENT_LOCATION_STATUS
+                except (TypeError, ValueError):
+                    is_location = False
+                if is_location:
+                    _netstate_after_event(self.server, event_type, event_data)
                 resp = {'sw': sw}
                 if data:
                     resp['data'] = data
+                if getattr(self.server, 'net_state', None) is not None:
+                    resp['net_state'] = self.server.net_state
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:

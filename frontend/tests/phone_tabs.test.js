@@ -28,7 +28,8 @@ const code = extractFunc(html, 'phoneSwitchSubtab') + '\n' +
 	'globalThis.pysimProactiveLogRender = () => { globalThis._log = (globalThis._log || 0) + 1; };\n' +
 	'globalThis.pysimPollStatusInit = () => { globalThis._poll = (globalThis._poll || 0) + 1; };\n' +
 	'globalThis.pysimPliRender = () => { globalThis._pli = (globalThis._pli || 0) + 1; };\n' +
-	'globalThis.tpRefresh = () => { globalThis._tp = (globalThis._tp || 0) + 1; };\n';
+	'globalThis.tpRefresh = () => { globalThis._tp = (globalThis._tp || 0) + 1; };\n' +
+	'globalThis.netStateFetch = () => { globalThis._netstate = (globalThis._netstate || 0) + 1; };\n';
 eval(code);
 
 function makeClassList() {

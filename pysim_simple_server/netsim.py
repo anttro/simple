@@ -24,15 +24,33 @@ import time
 # Candidate paths per logical file.  The first existing one is used, so a
 # USIM card is served from ADF.USIM and a GSM SIM from DF.GSM/DF.TELECOM.
 FILE_PATHS = {
+    'imsi': ['ADF.USIM/6F07', 'DF.GSM/6F07'],
+    'ehplmn': ['ADF.USIM/6FD9'],
+    'spdi': ['ADF.USIM/6FCD'],
+    'hplmnwact': ['ADF.USIM/6F62', 'DF.GSM/6F62'],
     'epsnsc': ['ADF.USIM/6FE4'],
     'loci': ['ADF.USIM/6F7E', 'DF.GSM/6F7E'],
     'psloci': ['ADF.USIM/6F73', 'DF.GSM/6F73'],
     'epsloci': ['ADF.USIM/6FE3'],
+    'fplmn': ['ADF.USIM/6F7B', 'DF.GSM/6F7B'],
     'kc': ['ADF.USIM/4F20', 'DF.GSM/6F08'],
     'kcgprs': ['ADF.USIM/4F52', 'DF.GSM/6F09'],
     'smsstatus': ['ADF.USIM/6F43', 'DF.TELECOM/6F43', 'DF.GSM/6F43'],
     'cbmi': ['ADF.USIM/6F45', 'DF.GSM/6F45'],
     'cbmir': ['ADF.USIM/6F50', 'DF.GSM/6F50'],
+}
+
+# Which simulated service state each scenario establishes (Network state
+# panel).  Scenarios not listed (churn, cb_reconfig, authenticate) do not
+# touch the network registration and leave the previous state.
+SCENARIO_SERVICE = {
+    'cold_boot': 'none',
+    'attach_eps': 'normal',
+    'attach_2g': 'normal',
+    'service_lost': 'none',
+    'limited_service': 'limited',
+    'roaming_denied': 'limited',
+    'sms_received': 'normal',
 }
 
 # File status codes (LOCI/PSLOCI/EPSLOCI update status).
@@ -89,6 +107,19 @@ def plmn_bcd(mcc, mnc):
 
 def _plmn_bytes(plmn_hex):
     return bytes.fromhex(_norm_hex(plmn_hex, 3))
+
+
+def parse_imsi(data_hex):
+    """EF.IMSI content -> IMSI digits, or None.  Byte 1 is the length; the
+    high nibble of byte 2 is the parity/identity nibble (TS 31.102 4.2.2)."""
+    h = _norm_hex(data_hex)
+    if len(h) < 4:
+        return None
+    body = h[2:]
+    swapped = ''.join(body[i + 1] + body[i]
+                      for i in range(0, len(body) - 1, 2))
+    digits = re.sub(r'F+$', '', swapped)
+    return digits[1:] or None
 
 
 # ---- EPS NAS Security Context (EF.EPSNSC, TS 31.102 4.2.92) ----
@@ -150,9 +181,10 @@ def build_loci(tmsi_hex, plmn_hex, lac_hex, status=ST_UPDATED, rfu=0xFF):
             + bytes([rfu & 0xFF, status & 0xFF])).hex().upper()
 
 
-def build_loci_dummy(plmn_hex):
-    """Service lost: TMSI FF, PLMN kept, LAC FFFE, status 01."""
-    return build_loci('FFFFFFFF', plmn_hex, 'FFFE', ST_NOT_UPDATED)
+def build_loci_dummy(plmn_hex, status=ST_NOT_UPDATED):
+    """Service lost: TMSI FF, PLMN kept, LAC FFFE, status 01 (010 = PLMN not
+    allowed on a permanent rejection; UICC_NAA.md C3/C3a)."""
+    return build_loci('FFFFFFFF', plmn_hex, 'FFFE', status)
 
 
 def build_psloci(ptmsi_hex, sig_hex, plmn_hex, lac_hex, rac_hex,
@@ -165,9 +197,8 @@ def build_psloci(ptmsi_hex, sig_hex, plmn_hex, lac_hex, rac_hex,
             + bytes([status & 0xFF])).hex().upper()
 
 
-def build_psloci_dummy(plmn_hex):
-    return build_psloci('FFFFFFFF', 'FFFFFF', plmn_hex, 'FFFE', 'FF',
-                        ST_NOT_UPDATED)
+def build_psloci_dummy(plmn_hex, status=ST_NOT_UPDATED):
+    return build_psloci('FFFFFFFF', 'FFFFFF', plmn_hex, 'FFFE', 'FF', status)
 
 
 def build_epsloci(guti_hex, plmn_hex, tac_hex, status=ST_UPDATED):
@@ -177,10 +208,39 @@ def build_epsloci(guti_hex, plmn_hex, tac_hex, status=ST_UPDATED):
             + bytes([status & 0xFF])).hex().upper()
 
 
-def build_epsloci_dummy(plmn_hex):
-    """GUTI header 0B F6 + PLMN, identity wiped; TAI PLMN + FFFF; status 01."""
-    return build_epsloci('0BF6' + plmn_hex + 'FF' * 7, plmn_hex, 'FFFF',
-                         ST_NOT_UPDATED)
+def build_epsloci_dummy(status=None):
+    """EPSLOCI dummy: the EPS-mobile-identity pair `0B F6` (content length +
+    GUTI type octet) is kept, the GUTI/TAI/status bytes are wiped
+    (UICC_NAA.md C3).  A rejection status (010 = roaming not allowed) is the
+    only byte written after the wipe (C3a)."""
+    out = '0BF6' + 'FF' * (15 if status is not None else 16)
+    if status is not None:
+        out += '%02X' % (status & 0xFF)
+    return out
+
+
+def fplmn_entries(data_hex):
+    """EF.FPLMN content as 3-byte PLMN entries; 'FFFFFF' marks an empty slot
+    (TS 31.102 4.2.16: valid in any position, never a terminator)."""
+    h = _norm_hex(data_hex)
+    return [h[i:i + 6] for i in range(0, len(h) - 5, 6)]
+
+
+def insert_fplmn(data_hex, plmn_hex):
+    """Store a denied PLMN per TS 31.102 4.2.16: fill the first empty slot,
+    otherwise shift the list left and append (the longest-held entry is
+    lost).  Returns the full updated EF content."""
+    plmn = _norm_hex(plmn_hex, 3)
+    entries = fplmn_entries(data_hex)
+    if not entries:
+        return plmn
+    try:
+        idx = entries.index('FFFFFF')
+    except ValueError:
+        entries = entries[1:] + [plmn]
+    else:
+        entries[idx] = plmn
+    return ''.join(entries)
 
 
 # ---- Ciphering keys and CB/SMS files ----
@@ -419,7 +479,7 @@ class NetSimRunner:
             data = _pad_ff(bytes.fromhex(data_hex), size).hex().upper()
         _out, sw = self.lchan.update_binary(data)
         return self._check(data, sw, action='update_binary', file=label or key,
-                           path=path)
+                           key=key, path=path)
 
     def write_record(self, key, data_hex, record=1, pad=True, label=None, optional=False):
         try:
@@ -435,11 +495,67 @@ class NetSimRunner:
             data = _pad_ff(bytes.fromhex(data_hex), size).hex().upper()
         _out, sw = self.lchan.update_record(record, data)
         return self._check(data, sw, action='update_record', file=label or key,
-                           path=path, record=record)
+                           key=key, path=path, record=record)
 
     def read_binary_current(self):
         data, sw = self.lchan.read_binary()
         return (data or ''), sw
+
+    # -- forbidden PLMNs (permanent #11 rejection, UICC_NAA.md C3a)
+
+    def home_plmns(self):
+        """3-byte HPLMN/EHPLMN entries from the cached Network-state monitor;
+        TS 23.122: the home network is never stored in EF.FPLMN."""
+        out = set()
+        files = ((getattr(self.srv, 'net_state', None) or {}).get('files') or {})
+
+        def flat(key):
+            f = files.get(key) or {}
+            if f.get('present') and f.get('kind') == 'transparent':
+                return _norm_hex(f.get('data'))
+            return None
+
+        hp = flat('hplmnwact')
+        if hp:
+            # HPLMNwAcT records are 5 bytes (PLMN + access technology); the
+            # first record is the HPLMN (TS 31.102 4.2.5).
+            out.add(hp[0:6])
+        ehp = flat('ehplmn')
+        if ehp:
+            out.update(fplmn_entries(ehp))
+        if not out:
+            # Fallback: the HPLMN is the IMSI's MCC/MNC.  The IMSI does not
+            # encode the MNC length, so both interpretations are guarded.
+            imsi = parse_imsi(flat('imsi'))
+            if imsi and len(imsi) >= 5 and imsi[:3].isdigit():
+                try:
+                    out.add(plmn_bcd(imsi[0:3], imsi[3:5]))
+                    if len(imsi) >= 6 and imsi[5].isdigit():
+                        out.add(plmn_bcd(imsi[0:3], imsi[3:6]))
+                except ValueError:
+                    pass
+        return {h for h in out if h and h != 'FFFFFF'}
+
+    def write_fplmn(self, plmn_hex, optional=True):
+        path = None
+        try:
+            path = self._open('fplmn')
+        except StepError as e:
+            if optional:
+                self._add('skip', file='fplmn', note=str(e))
+                return None
+            raise
+        plmn = _norm_hex(plmn_hex, 3)
+        if plmn in self.home_plmns():
+            self._add('skip', file='fplmn',
+                      note='home PLMN is never stored (TS 23.122)')
+            return None
+        size = self.lchan.selected_file_size()
+        data, sw = self.read_binary_current()
+        if sw != '9000' or not data:
+            data = 'FF' * (size or 12)
+        new_data = insert_fplmn(data, plmn)
+        return self.write_binary('fplmn', new_data, pad=False, label='fplmn')
 
     def read_record_current(self, record=1):
         data, sw = self.lchan.read_record(record)
@@ -499,11 +615,16 @@ class NetSimRunner:
             label='epsloci', optional=True)
 
     def write_dummy_locations(self, status=ST_NOT_UPDATED):
-        self.write_binary('loci', build_loci_dummy(self.plmn), label='loci',
-                          optional=True)
-        self.write_binary('psloci', build_psloci_dummy(self.plmn), label='psloci',
-                          optional=True)
-        self.write_binary('epsloci', build_epsloci_dummy(self.plmn),
+        """Service loss: LOCI/PSLOCI keep the PLMN with the dummy status 01;
+        EPSLOCI is wiped to `0B F6` + FF (UICC_NAA.md C3).  A rejection status
+        (010 = PLMN not allowed) is written to all three; EPSLOCI then carries
+        that status byte as the only byte after the wipe (C3a)."""
+        eps_status = None if status == ST_NOT_UPDATED else status
+        self.write_binary('loci', build_loci_dummy(self.plmn, status),
+                          label='loci', optional=True)
+        self.write_binary('psloci', build_psloci_dummy(self.plmn, status),
+                          label='psloci', optional=True)
+        self.write_binary('epsloci', build_epsloci_dummy(eps_status),
                           label='epsloci', optional=True)
 
     def invalidate_kc(self):
@@ -571,12 +692,18 @@ class NetSimRunner:
             self.write_dummy_locations()
 
     def sc_roaming_denied(self):
+        # Permanent rejection (NAS cause #11): the Location status event is
+        # indistinguishable from limited service (TS 102 223 8.27) - the
+        # difference is the 010 status bytes and the EF.FPLMN entry
+        # (UICC_NAA.md C3a).
         if self.p('send_event', True):
             self.send_location_status(self.status(LOC_STATUS_LIMITED))
         if self.p('invalidate_epsnsc', True):
-            self.invalidate_epsnsc(keep_key=bool(self.p('keep_kasme', True)))
+            self.invalidate_epsnsc(keep_key=False)
         if self.p('dummy_locations', True):
             self.write_dummy_locations(status=self.status(ST_PLMN_NOT_ALLOWED))
+        if self.p('write_fplmn', True):
+            self.write_fplmn(self.plmn)
 
     def sc_churn(self):
         count = int(self.p('churn_count', 3))
