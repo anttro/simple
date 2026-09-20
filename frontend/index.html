@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.13';
+const SIMPLE_VERSION = '2.7.14';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12634,13 +12634,15 @@ function efDataSummary(data) {
 	return '';
 }
 
+// Decoded field rows: the label column is sized to its content (grid
+// max-content) instead of a fixed width, so values start right after the
+// widest label and short labels do not push the data far to the right.
 function efRenderFieldsHtml(rows) {
 	if (!rows.length) return '<span class="text-gray-400">' + esc(t('No decodable fields')) + '</span>';
-	let html = '<div class="text-xs">';
+	let html = '<div class="text-xs" style="display:grid;grid-template-columns:max-content 1fr;column-gap:0.5rem;row-gap:0.125rem">';
 	for (const [k, v] of rows) {
-		html += '<div class="flex gap-2 mb-0.5">' +
-			'<span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
-			'<span class="font-mono break-all">' + esc(v) + '</span></div>';
+		html += '<span class="text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
+			'<span class="font-mono break-all">' + esc(v) + '</span>';
 	}
 	return html + '</div>';
 }

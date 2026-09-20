@@ -214,10 +214,23 @@ test('file manager decoded view renders fields, not JSON', () => {
 	assert.match(out, /228062800000208/);
 	assert.match(out, /pySim JSON \(server\)/);
 	assert.doesNotMatch(out, /\{"imsi"/);
+	// the label column is content-sized, not a fixed 10rem block
+	assert.match(out, /grid-template-columns:max-content 1fr/);
+	assert.doesNotMatch(out, /w-40/);
 	// no decoder -> raw fallback with a note
 	const raw = pysimFsDecodedHtml({ name: 'EF.NOPE', fid: 'abcd' }, { success: true, data: '0011' });
 	assert.match(raw, /No decoder for this file/);
 	assert.match(raw, /0011/);
+});
+
+test('efRenderFieldsHtml sizes the label column to its content', () => {
+	const out = efRenderFieldsHtml([['ICCID', '8988'], ['Very long label', 'x']]);
+	assert.match(out, /style="display:grid;grid-template-columns:max-content 1fr/);
+	assert.doesNotMatch(out, /w-40/);
+	assert.ok(out.includes('>ICCID</span>'));
+	assert.ok(out.includes('>8988</span>'));
+	assert.ok(out.includes('>Very long label</span>'));
+	assert.match(efRenderFieldsHtml([]), /No decodable fields/);
 });
 
 test('profilerRenderReport shows decoded field diffs and the raw-only note', () => {
