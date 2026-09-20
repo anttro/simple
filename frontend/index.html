@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.3';
+const SIMPLE_VERSION = '2.7.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7536,7 +7536,7 @@ const TP_BITS = [
   'Style normal', 'Style bold', 'Style italic', 'Style underlined',
   'Style strikethrough', 'Style text foreground colour', 'Style text background colour', 'RFU',
   'I-WLAN bearer support', 'Proactive UICC: PROVIDE LOCAL INFORMATION (WSID of the current I-WLAN connection)', 'TERMINAL APPLICATIONS', '"Steering of Roaming" REFRESH support',
-  'RFU', 'RFU', 'RFU', 'RFU',
+  'Proactive UICC: ACTIVATE', 'Proactive UICC: GEOGRAPHICAL LOCATION REQUEST', 'Proactive UICC: PROVIDE LOCAL INFORMATION (Broadcast Network Information)', '"Steering of Roaming for I-WLAN" REFRESH support',
   'Proactive UICC: Contactless State Changed', 'Support of CSG cell discovery', 'Confirmation parameters for OPEN CHANNEL in Terminal Server mode', 'Communication Control for IMS',
   'CAT over the modem interface', 'Support for Incoming IMS Data event', 'Support for IMS Registration event', 'Proactive UICC: Profile/Envelope/Command Container, ENCAPSULATED SESSION CONTROL',
   'IMS support', 'Support of PROVIDE LOCAL INFORMATION, H(e)NB IP address', 'Support of PROVIDE LOCAL INFORMATION, H(e)NB surrounding macrocells', 'Launch parameters for OPEN CHANNEL in Terminal Server mode',
@@ -7544,7 +7544,7 @@ const TP_BITS = [
   'DNS server address request for OPEN CHANNEL (packet data bearer)', 'Network Access Name reuse indication for CLOSE CHANNEL', 'Event: Poll Interval Negotiation', 'ProSe usage information reporting',
   'Proactive UICC: PROVIDE LOCAL INFORMATION (Supported Radio Access Technologies)', 'Event: WLAN Access status', 'WLAN bearer support', 'Proactive UICC: PROVIDE LOCAL INFORMATION (WLAN identifier of the current WLAN connection)',
   'URI support for SEND SHORT MESSAGE', 'IMS URI supported for SET UP CALL', 'Media Type "Voice" supported for SET UP CALL and Call Control by USIM', 'Media Type "Video" supported for SET UP CALL and Call Control by USIM',
-  'Proactive UICC: PROVIDE LOCAL INFORMATION (E-UTRAN Timing Advance Information)', 'REFRESH with "eUICC Profile State Change" mode', 'Extended Rejection Cause Code in Event: Network Rejection for E-UTRAN', 'Reserved for future use',
+  'Proactive UICC: PROVIDE LOCAL INFORMATION (E-UTRAN Timing Advance Information)', 'REFRESH with "eUICC Profile State Change" mode', 'Extended Rejection Cause Code in Event: Network Rejection for E-UTRAN', 'Deprecated, bit = 0',
   'Proactive UICC: GET INPUT (Variable Time out)', 'Data Connection Status Change Event support – PDP Connection', 'Data Connection Status Change Event support – PDN Connection', 'REFRESH with "Application Update" mode',
   'Proactive UICC: LSI COMMAND with "Proactive session request"', 'Proactive UICC: LSI COMMAND with "UICC Platform Reset"', 'RFU', 'RFU',
   'Data Connection Status Change Event support – PDU Connection', 'Event: Network Rejection for NG-RAN', 'Non-IP Data Delivery support', 'Support of PROVIDE LOCAL INFORMATION, Slice(s) information',
