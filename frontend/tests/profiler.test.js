@@ -776,9 +776,11 @@ test('pysimFsInfoHtml shows FID, type, size and the decoded FCI', () => {
 	// the short file identifier is merged into the file identifier row
 	assert.ok(out.includes('6F4F · Short file identifier: 22'), out);
 	assert.ok(!out.includes('<div>Short file identifier:'), out);
-	// the FCI sits in a bordered container whose legend is the symbolic name,
-	// below the metadata line
-	assert.ok(out.indexOf('FID: 6F4F') < out.indexOf('<fieldset'), out);
+	// the metadata line and the FCI rows share one bordered container whose
+	// legend is the symbolic name
+	assert.ok(out.indexOf('<fieldset') < out.indexOf('<legend'), out);
+	assert.ok(out.indexOf('<legend') < out.indexOf('FID: 6F4F'), out);
+	assert.ok(out.indexOf('FID: 6F4F') < out.indexOf('File descriptor'), out);
 	assert.ok(out.includes('<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">EF.SAMPLE</legend>'), out);
 	delete global.t;
 });

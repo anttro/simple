@@ -27,7 +27,8 @@ let code = 'var pysimFsDecodedMode = false;\n'
 	+ 'var pysimFsSelected = null;\n'
 	+ 'var pysimFsTreeRoot = null;\n';
 for (const fn of ['pysimFsSetMode', 'pysimFsPillsEnabled', 'pysimFsEdit',
-	'pysimFsCancel', 'pysimFsResetEdit', 'pysimFsFindNode', 'pysimFsHasDecoder']) {
+	'pysimFsCancel', 'pysimFsResetEdit', 'pysimFsFindNode', 'pysimFsHasDecoder',
+	'pysimFsSyncContentVisibility']) {
 	code += extractFunc(html, fn) + '\n';
 }
 eval(code);

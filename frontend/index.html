@@ -859,7 +859,7 @@
 				<div class="flex-1">
 					<div id="pysim-fs-detail" class="hidden">
 						<div id="pysim-fs-info" class="mb-1"></div>
-						<div id="pysim-fs-content" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800 min-h-20 overflow-y-auto"></div>
+						<div id="pysim-fs-content" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800 min-h-20 overflow-y-auto hidden"></div>
 						<div class="flex gap-2 mt-1 items-center">
 							<button type="button" data-needs="card" onclick="pysimFsSetMode('raw')" id="pysim-fs-read-raw-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed" data-mode="raw" data-l10n="Read raw">Read raw</button>
 							<button type="button" data-needs="card" data-needs-decoder onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.12';
+const SIMPLE_VERSION = '2.7.13';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7161,16 +7161,18 @@ function pysimFsInfoHtml(sel, name) {
 	if (num(sel.file_size) !== null) attrs.push(esc(t('Size')) + ': ' + esc(num(sel.file_size)));
 	if (num(sel.record_len) !== null) attrs.push(esc(t('Record length')) + ': ' + esc(num(sel.record_len)));
 	if (num(sel.num_of_rec) !== null) attrs.push(esc(t('Record count')) + ': ' + esc(num(sel.num_of_rec)));
-	let html = '';
-	if (attrs.length) html += '<div class="text-xs font-mono text-gray-500 dark:text-slate-400">' + attrs.join(' · ') + '</div>';
-	if (sel.fci_hex) {
-		html += '<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-2 mt-1">' +
-			(name ? '<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">' + esc(name) + '</legend>' : '') +
-			'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' +
-			profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) +
-			'</div></fieldset>';
+	const metaCls = 'text-xs font-mono text-gray-500 dark:text-slate-400';
+	if (!sel.fci_hex) {
+		return attrs.length ? '<div class="' + metaCls + '">' + attrs.join(' · ') + '</div>' : '';
 	}
-	return html;
+	// One bordered block per selected file: the metadata line and the decoded
+	// FCI together, with the symbolic name embedded in the border.
+	return '<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-2">' +
+		(name ? '<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">' + esc(name) + '</legend>' : '') +
+		(attrs.length ? '<div class="' + metaCls + ' mb-0.5">' + attrs.join(' · ') + '</div>' : '') +
+		'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' +
+		profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) +
+		'</div></fieldset>';
 }
 
 async function pysimFsClickFile(name) {
@@ -7187,6 +7189,7 @@ async function pysimFsClickFile(name) {
 	pysimFsSelected = name;
 	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel, name) : '';
 	document.getElementById('pysim-fs-content').innerHTML = '';
+	pysimFsSyncContentVisibility();
 	document.getElementById('pysim-fs-status').textContent = exists ? '' : '✗ File not found on card';
 	if (exists) {
 		document.getElementById('pysim-fs-detail').classList.remove('hidden');
@@ -7195,6 +7198,13 @@ async function pysimFsClickFile(name) {
 	}
 	pysimApplyAvailability();
 	pysimRefresh();
+}
+
+// The content pane only appears once a read or edit has something to show;
+// an empty container would just be an empty box.
+function pysimFsSyncContentVisibility() {
+	const out = document.getElementById('pysim-fs-content');
+	if (out) out.classList.toggle('hidden', !out.innerHTML.trim());
 }
 
 async function pysimFsRead() {
@@ -7233,6 +7243,8 @@ async function pysimFsRead() {
 	} catch (e) {
 		statusEl.textContent = 'Error: ' + e.message;
 		return false;
+	} finally {
+		pysimFsSyncContentVisibility();
 	}
 }
 
@@ -7317,6 +7329,7 @@ async function pysimFsEdit() {
 		});
 	});
 	pysimFsEditData = out.innerHTML;
+	pysimFsSyncContentVisibility();
 }
 
 function pysimFsCancel() {
@@ -7328,6 +7341,7 @@ function pysimFsCancel() {
 	const out = document.getElementById('pysim-fs-content');
 	if (pysimFsEditData) out.innerHTML = pysimFsEditData;
 	pysimFsEditData = null;
+	pysimFsSyncContentVisibility();
 }
 
 async function pysimFsSave() {
