@@ -972,6 +972,7 @@
 								<input id="netsim-mnc" value="01" maxlength="3" class="w-16 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
 							</div>
 							<button data-needs="server" onclick="netSimRandomOperator()" class="px-2 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Random roaming operator">Random roaming operator</button>
+							<button data-needs="card" onclick="netSimHomeOperator()" class="px-2 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Home network">Home network</button>
 						</div>
 						<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.">Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.</div>
 						<div id="netsim-op-results" class="text-xs font-mono max-h-32 overflow-auto"></div>
@@ -1413,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.17';
+const SIMPLE_VERSION = '2.7.18';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12814,7 +12815,9 @@ function netStateSummary(key, entry) {
 	} else if (key === 'ehplmn' || key === 'spdi' || key === 'fplmn') {
 		text = netStatePlmnList(d, false, 3);
 	} else if (key === 'hplmnwact') {
-		text = netStatePlmnList(d, true, 3);
+		// Compact row: the first network only, plus a count of the hidden
+		// entries (the tooltip carries the full decoded list with tech).
+		text = netStatePlmnList(d, false, 1);
 	} else if (NET_STATE_AREA[key]) {
 		const [area, statusKey] = NET_STATE_AREA[key];
 		const plmn = (d.mcc && d.mnc) ? d.mcc + '-' + d.mnc : null;
@@ -12978,6 +12981,29 @@ async function netSimRandomOperator() {
 			statusEl.textContent = (res.result.countryName || '') + ' — ' + (res.result.brand || res.result.operator || '') + ' (' + res.result.mcc + '/' + res.result.mnc + ')';
 			statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-1';
 		}
+	} catch (e) {
+		statusEl.textContent = t('Error') + ': ' + e.message;
+		statusEl.className = 'text-xs text-red-500 mb-1';
+	}
+}
+
+// The card's home network: EF.HPLMNwAcT first record, else the IMSI (the
+// server resolves it; see netstate.home_plmn).
+async function netSimHomeOperator() {
+	const statusEl = document.getElementById('netsim-status');
+	try {
+		const res = await pysimFetch('/api/net-state');
+		const home = res && res.available && res.state && res.state.network ? res.state.network.home : null;
+		if (!home) {
+			statusEl.textContent = t('Home PLMN not available (no HPLMNwAcT/IMSI)');
+			statusEl.className = 'text-xs text-yellow-600 mb-1';
+			return;
+		}
+		document.getElementById('netsim-mcc').value = home.mcc;
+		document.getElementById('netsim-mnc').value = home.mnc;
+		statusEl.textContent = t('Home network') + ': ' + home.mcc + '/' + home.mnc +
+			' (' + t(home.source === 'imsi' ? 'from IMSI' : 'from EF.HPLMNwAcT') + ')';
+		statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-1';
 	} catch (e) {
 		statusEl.textContent = t('Error') + ': ' + e.message;
 		statusEl.className = 'text-xs text-red-500 mb-1';
@@ -13281,6 +13307,10 @@ const LANG_RU = {
 	'No steps': 'Нет шагов',
 	'skip': 'пропуск',
 	'Operator list not loaded (server --mcc-mnc-list)': 'Список операторов не загружен (--mcc-mnc-list на сервере)',
+	'Home network': 'Домашняя сеть',
+	'from EF.HPLMNwAcT': 'из EF.HPLMNwAcT',
+	'from IMSI': 'из IMSI',
+	'Home PLMN not available (no HPLMNwAcT/IMSI)': 'Домашняя сеть недоступна (нет HPLMNwAcT/IMSI)',
 	'No commands logged yet.': 'Команды пока не регистрировались.',
 	'Send event notification to the card?': 'Отправить уведомление о событии на карту?',
 	'This event type is not yet supported.': 'Этот тип события пока не поддерживается.',

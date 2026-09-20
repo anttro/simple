@@ -157,5 +157,41 @@ class NetworkTests(unittest.TestCase):
             self.assertNotIn(scenario, netsim.SCENARIO_SERVICE)
 
 
+class HomePlmnTests(unittest.TestCase):
+    def test_home_plmn_prefers_the_hplmnwact_first_record(self):
+        st = state_with(
+            hplmnwact=file_entry('EF.HPLMNwAcT', '6F62',
+                                 '62F2104000' + '22F8608000'),
+            ehplmn=file_entry('EF.EHPLMN', '6FD9', '22F860'),
+            imsi=file_entry('EF.IMSI', '6F07', '082982608200002080'))
+        self.assertEqual(netstate.home_plmn(st['files']),
+                         {'mcc': '262', 'mnc': '01', 'plmn': '26201',
+                          'source': 'hplmnwact'})
+
+    def test_home_plmn_falls_back_to_the_imsi_with_a_2_digit_mnc(self):
+        st = state_with(imsi=file_entry('EF.IMSI', '6F07', '082982608200002080'))
+        self.assertEqual(netstate.home_plmn(st['files']),
+                         {'mcc': '228', 'mnc': '06', 'plmn': '22806',
+                          'source': 'imsi'})
+
+    def test_home_plmn_ignores_an_ff_first_record(self):
+        st = state_with(
+            hplmnwact=file_entry('EF.HPLMNwAcT', '6F62', 'FFFFFFFC00'),
+            imsi=file_entry('EF.IMSI', '6F07', '082982608200002080'))
+        self.assertEqual(netstate.home_plmn(st['files'])['source'], 'imsi')
+
+    def test_home_plmn_is_none_without_sources(self):
+        self.assertIsNone(netstate.home_plmn({}))
+        st = state_with(hplmnwact=file_entry('EF.HPLMNwAcT', '6F62', 'FF'))
+        self.assertIsNone(netstate.home_plmn(st['files']))
+
+    def test_compute_network_exposes_the_home_plmn(self):
+        st = state_with(imsi=file_entry('EF.IMSI', '6F07', '082982608200002080'))
+        net = netstate.compute_network(st, OP_LIST)
+        self.assertEqual(net['home'],
+                         {'mcc': '228', 'mnc': '06', 'plmn': '22806',
+                          'source': 'imsi'})
+
+
 if __name__ == '__main__':
     unittest.main()

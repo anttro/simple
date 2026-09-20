@@ -74,7 +74,7 @@ test('netStateSummary renders decoded file contents compactly', () => {
 	const fplmn = netStateSummary('fplmn', { present: true, kind: 'transparent', data: 'AA' });
 	assert.strictEqual(fplmn.text, '262-01, 246-81');
 	const hplmn = netStateSummary('hplmnwact', { present: true, kind: 'transparent', data: 'AA' });
-	assert.strictEqual(hplmn.text, '262-01 (LTE)');
+	assert.strictEqual(hplmn.text, '262-01');
 	const absent = netStateSummary('loci', { present: false });
 	assert.strictEqual(absent.text, '—');
 	assert.strictEqual(absent.title, 'not present');
@@ -110,7 +110,8 @@ test('netStateSummary abbreviates a long HPLMNwAcT list', () => {
 		] },
 	});
 	const s = netStateSummary('hplmnwact', { present: true, kind: 'transparent', data: 'AA' });
-	assert.strictEqual(s.text, '250-99 (LTE), 250-32 (LTE), 250-54 (LTE) … +2');
+	// first network only (no access tech in the row), plus the hidden count
+	assert.strictEqual(s.text, '250-99 … +4');
 });
 
 test('netStateRender paints the service badge, location and rows', () => {

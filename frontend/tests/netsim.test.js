@@ -6,7 +6,7 @@ const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 function extractFunc(src, name) {
-	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
+	const re = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
 	if (!m) throw new Error('function ' + name + ' not found');
 	let i = m.index + m[0].length - 1;
@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 let code = '';
-for (const f of ['netSimRandomHex', 'netSimDice', 'netSimVal', 'netSimChk', 'netSimParams', 'netSimStepText']) {
+for (const f of ['netSimRandomHex', 'netSimDice', 'netSimVal', 'netSimChk', 'netSimParams', 'netSimStepText', 'netSimHomeOperator']) {
 	code += extractFunc(html, f) + '\n';
 }
 code += 'function t(k){return k;}\n';
@@ -83,4 +83,45 @@ test('netSimStepText renders the step log lines', () => {
 	assert.match(
 		netSimStepText({ action: 'authenticate', parsed: { type: 'synchronisation_failure' }, sw: '9000', response: 'DC10AA' }),
 		/^AUTHENTICATE synchronisation_failure → SW 9000 DC10AA$/);
+});
+
+test('netSimHomeOperator fills the home PLMN and reports its source', async () => {
+	_fields = {
+		'netsim-mcc': { value: '' },
+		'netsim-mnc': { value: '' },
+		'netsim-status': { textContent: '', className: '' },
+	};
+	globalThis.pysimFetch = async () => ({
+		available: true,
+		state: { network: { home: { mcc: '250', mnc: '99', source: 'hplmnwact' } } },
+	});
+	await netSimHomeOperator();
+	assert.strictEqual(_fields['netsim-mcc'].value, '250');
+	assert.strictEqual(_fields['netsim-mnc'].value, '99');
+	assert.ok(_fields['netsim-status'].textContent.includes('250/99'));
+	assert.ok(_fields['netsim-status'].textContent.includes('from EF.HPLMNwAcT'));
+	assert.ok(_fields['netsim-status'].className.includes('text-gray-500'));
+});
+
+test('netSimHomeOperator reports the IMSI source and warns when unavailable', async () => {
+	_fields = {
+		'netsim-mcc': { value: '' },
+		'netsim-mnc': { value: '' },
+		'netsim-status': { textContent: '', className: '' },
+	};
+	globalThis.pysimFetch = async () => ({
+		available: true,
+		state: { network: { home: { mcc: '228', mnc: '06', source: 'imsi' } } },
+	});
+	await netSimHomeOperator();
+	assert.ok(_fields['netsim-status'].textContent.includes('from IMSI'));
+	// no home PLMN -> the fields stay and the status warns
+	_fields['netsim-mcc'].value = '001';
+	_fields['netsim-mnc'].value = '01';
+	globalThis.pysimFetch = async () => ({ available: true, state: { network: { home: null } } });
+	await netSimHomeOperator();
+	assert.strictEqual(_fields['netsim-mcc'].value, '001');
+	assert.strictEqual(_fields['netsim-mnc'].value, '01');
+	assert.ok(_fields['netsim-status'].textContent.includes('not available'));
+	assert.ok(_fields['netsim-status'].className.includes('text-yellow-600'));
 });

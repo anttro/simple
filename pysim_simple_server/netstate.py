@@ -213,6 +213,23 @@ def _home_sets(files):
     return home, eq
 
 
+def home_plmn(files):
+    """The simulator's "home network" PLMN: the first EF.HPLMNwAcT record
+    (the HPLMN per TS 31.102 4.2.5), falling back to the IMSI (the MNC is
+    taken as 2 digits — the IMSI does not encode its length)."""
+    f = _transparent(files, 'hplmnwact')
+    if f:
+        p = plmn_from_hex(_norm(f.get('data'))[0:6])
+        if p:
+            return {'mcc': p['mcc'], 'mnc': p['mnc'], 'plmn': p['plmn'],
+                    'source': 'hplmnwact'}
+    imsi = parse_imsi((_transparent(files, 'imsi') or {}).get('data'))
+    if imsi and len(imsi) >= 5 and imsi[:5].isdigit():
+        return {'mcc': imsi[:3], 'mnc': imsi[3:5], 'plmn': imsi[:5],
+                'source': 'imsi'}
+    return None
+
+
 def _rejected(files):
     """A permanent 'PLMN not allowed' rejection fingerprint: status 010 in a
     location file (UICC_NAA.md C3a) or a non-empty EF.FPLMN."""
@@ -284,6 +301,7 @@ def compute_network(state, mcc_mnc_data=None):
                     'source': loc.get('source')}
     network = {'service': state.get('service') or
                {'state': None, 'source': None, 'time': None},
-               'location': location}
+               'location': location,
+               'home': home_plmn(files)}
     state['network'] = network
     return network
