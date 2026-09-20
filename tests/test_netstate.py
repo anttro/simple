@@ -61,7 +61,8 @@ class NetworkTests(unittest.TestCase):
             loci=file_entry('EF.LOCI', '6F7E', 'FFFFFFFF62F2106CD7FF01'),
             psloci=file_entry('EF.PSLOCI', '6F73',
                               'FFFFFFFFFFFFFF62F2106CD7CA01'),
-            epsloci=file_entry('EF.EPSLOCI', '6FE3', '0BF6' + 'FF' * 16))
+            epsloci=file_entry('EF.EPSLOCI', '6FE3',
+                               '0BF6' + 'FF' * 13 + 'FFFE' + '01'))
         loc = netstate._current_location(st['files'])
         # wiped EPSLOCI -> RAI from PSLOCI
         self.assertEqual(loc['plmn'], '26201')

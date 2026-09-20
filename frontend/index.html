@@ -973,7 +973,7 @@
 							</div>
 							<button data-needs="server" onclick="netSimRandomOperator()" class="px-2 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Random roaming operator">Random roaming operator</button>
 						</div>
-						<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.">Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.</div>
+						<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.">Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don't use it.</div>
 						<div id="netsim-op-results" class="text-xs font-mono max-h-32 overflow-auto"></div>
 						<div class="flex flex-wrap items-end gap-2">
 							<div>
@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.1';
+const SIMPLE_VERSION = '2.7.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -13042,7 +13042,7 @@ const LANG_RU = {
 	'CB reconfig': 'Перенастройка CB',
 	'Parameters': 'Параметры',
 	'Operator search (country / brand / MCC-MNC)': 'Поиск оператора (страна / бренд / MCC-MNC)',
-	'Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (dummy files keep this PLMN). Churn, CB reconfig and AUTHENTICATE don\'t use it.': 'Задаёт PLMN, записываемый в LOCI/PSLOCI/EPSLOCI. Используется в сценариях «Подключение EPS», «Подключение 2G» и «Принято SMS» (реальные LAI/RAI/TAI; в SMS — только при включённой перезаписи location), а также «Холодная загрузка», «Потеря сервиса», «Ограниченный сервис» и «Роуминг запрещён» (фиктивные файлы сохраняют этот PLMN). «Серия переподключений», «Перенастройка CB» и AUTHENTICATE его не используют.',
+	'Sets the PLMN written to LOCI/PSLOCI/EPSLOCI. Used by EPS attach, 2G attach and SMS received (real LAI/RAI/TAI; SMS only when its location rewrite is enabled), and by Cold boot, Service lost, Limited service and Roaming denied (the dummy LOCI/PSLOCI keep this PLMN, the EPSLOCI dummy wipes the TAI PLMN). Churn, CB reconfig and AUTHENTICATE don\'t use it.': 'Задаёт PLMN, записываемый в LOCI/PSLOCI/EPSLOCI. Используется в сценариях «Подключение EPS», «Подключение 2G» и «Принято SMS» (реальные LAI/RAI/TAI; в SMS — только при включённой перезаписи location), а также «Холодная загрузка», «Потеря сервиса», «Ограниченный сервис» и «Роуминг запрещён» (фиктивные LOCI/PSLOCI сохраняют этот PLMN, фиктивный EPSLOCI стирает TAI PLMN). «Серия переподключений», «Перенастройка CB» и AUTHENTICATE его не используют.',
 	'Random roaming operator': 'Случайный роуминг-оператор',
 	'Advanced identity (empty = random)': 'Дополнительные идентификаторы (пусто = случайно)',
 	'Algorithm': 'Алгоритм',

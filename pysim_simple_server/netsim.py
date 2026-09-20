@@ -208,15 +208,18 @@ def build_epsloci(guti_hex, plmn_hex, tac_hex, status=ST_UPDATED):
             + bytes([status & 0xFF])).hex().upper()
 
 
-def build_epsloci_dummy(status=None):
+def build_epsloci_dummy(status=ST_NOT_UPDATED, keep_plmn=None):
     """EPSLOCI dummy: the EPS-mobile-identity pair `0B F6` (content length +
-    GUTI type octet) is kept, the GUTI/TAI/status bytes are wiped
-    (UICC_NAA.md C3).  A rejection status (010 = roaming not allowed) is the
-    only byte written after the wipe (C3a)."""
-    out = '0BF6' + 'FF' * (15 if status is not None else 16)
-    if status is not None:
-        out += '%02X' % (status & 0xFF)
-    return out
+    GUTI type octet) is kept and the 12-byte GUTI is fully wiped; the TAC is
+    `FF FE` and the last byte is the EPS update status (`01` = not updated on
+    service loss, `02` = roaming not allowed on a permanent rejection - C3a,
+    the spec model; the corpus never captured a 6FE3 rejection write).
+    `keep_plmn` selects the NMR style that preserves the last visited TAI PLMN
+    instead of wiping it - the guest style wipes GUTI *and* TAI PLMN
+    (UICC_NAA.md 6.3/C3)."""
+    plmn = _norm_hex(keep_plmn, 3) if keep_plmn else None
+    tail = 'FF' * 10 + plmn if plmn else 'FF' * 13
+    return '0BF6' + tail + 'FFFE' + '%02X' % (status & 0xFF)
 
 
 def fplmn_entries(data_hex):
@@ -614,17 +617,19 @@ class NetSimRunner:
             self.p('guti') or rand_hex(12), self.plmn, self.tac, status),
             label='epsloci', optional=True)
 
-    def write_dummy_locations(self, status=ST_NOT_UPDATED):
-        """Service loss: LOCI/PSLOCI keep the PLMN with the dummy status 01;
-        EPSLOCI is wiped to `0B F6` + FF (UICC_NAA.md C3).  A rejection status
-        (010 = PLMN not allowed) is written to all three; EPSLOCI then carries
-        that status byte as the only byte after the wipe (C3a)."""
-        eps_status = None if status == ST_NOT_UPDATED else status
+    def write_dummy_locations(self, status=ST_NOT_UPDATED, keep_plmn=None):
+        """Service loss: LOCI/PSLOCI keep the PLMN with the dummy status 01
+        and EPSLOCI is wiped to `0B F6` + FF*13 + `FF FE 01` (UICC_NAA.md C3).
+        A rejection status (010 = PLMN not allowed) is written to all three
+        (EPSLOCI status 02 = roaming not allowed; C3a spec model).
+        `keep_plmn` keeps the last visited TAI PLMN in the EPSLOCI dummy
+        (NMR style) instead of wiping it."""
         self.write_binary('loci', build_loci_dummy(self.plmn, status),
                           label='loci', optional=True)
         self.write_binary('psloci', build_psloci_dummy(self.plmn, status),
                           label='psloci', optional=True)
-        self.write_binary('epsloci', build_epsloci_dummy(eps_status),
+        self.write_binary('epsloci',
+                          build_epsloci_dummy(status, keep_plmn=keep_plmn),
                           label='epsloci', optional=True)
 
     def invalidate_kc(self):

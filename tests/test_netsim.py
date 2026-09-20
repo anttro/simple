@@ -56,12 +56,16 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(len(real) // 2, 18)
         self.assertEqual(real[24:30], '52F099')   # TAI PLMN after the 12-byte GUTI
         self.assertEqual(real[-2:], '00')
-        # dummy: the EPS-mobile-identity pair 0B F6 stays, the rest is wiped
+        # dummy: 0B F6 + wiped GUTI/TAI-PLMN + TAC FFFE + status 01 (guest)
         dummy = netsim.build_epsloci_dummy()
-        self.assertEqual(dummy, '0BF6' + 'FF' * 16)
-        # permanent rejection: the status byte is the only written byte
+        self.assertEqual(len(dummy) // 2, 18)
+        self.assertEqual(dummy, '0BF6' + 'FF' * 13 + 'FFFE' + '01')
+        # NMR style: the last visited TAI PLMN is preserved, TAC FFFE
+        nmr = netsim.build_epsloci_dummy(keep_plmn='52F099')
+        self.assertEqual(nmr, '0BF6' + 'FF' * 10 + '52F099' + 'FFFE' + '01')
+        # permanent rejection: only the status byte differs (C3a spec model)
         rejected = netsim.build_epsloci_dummy(netsim.ST_PLMN_NOT_ALLOWED)
-        self.assertEqual(rejected, '0BF6' + 'FF' * 15 + '02')
+        self.assertEqual(rejected, '0BF6' + 'FF' * 13 + 'FFFE' + '02')
 
     def test_fplmn_insert_fills_empty_slots_and_shifts(self):
         # empty list: the new PLMN goes into the first slot
@@ -295,6 +299,9 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('4F20', keys)   # Kc invalidate (07 form)
         kc = [w for w in lchan.writes if w[1] == '4F20'][0][2]
         self.assertEqual(kc, 'FFFFFFFFFFFFFFFF07')
+        # EPSLOCI dummy: 0B F6 + wiped GUTI/TAI-PLMN + TAC FFFE + status 01
+        epsloci = [w for w in lchan.writes if w[1] == '6FE3'][0][2]
+        self.assertEqual(epsloci, '0BF6' + 'FF' * 13 + 'FFFE' + '01')
 
     def test_roaming_denied_writes_rejection_status_and_fplmn(self):
         runner, lchan, srv = make_runner()
@@ -306,7 +313,7 @@ class RunnerTests(unittest.TestCase):
         psloci = [w for w in lchan.writes if w[1] == '6F73'][0][2]
         self.assertTrue(psloci.endswith('02'), psloci)
         epsloci = [w for w in lchan.writes if w[1] == '6FE3'][0][2]
-        self.assertEqual(epsloci, '0BF6' + 'FF' * 15 + '02')
+        self.assertEqual(epsloci, '0BF6' + 'FF' * 13 + 'FFFE' + '02')
         # the denied VPLMN 001-01 (00 F1 10) is appended to EF.FPLMN
         fplmn = [w for w in lchan.writes if w[1] == '6F7B'][0][2]
         self.assertEqual(fplmn, '00F110' + 'FF' * 9)
