@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.11';
+const SIMPLE_VERSION = '2.7.12';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7152,7 +7152,7 @@ async function pysimFsToggleDir(name) {
 
 let pysimFsSelected = null;
 
-function pysimFsInfoHtml(sel) {
+function pysimFsInfoHtml(sel, name) {
 	if (!sel) return '';
 	const num = v => (v === null || v === undefined) ? null : String(v);
 	const attrs = [];
@@ -7164,7 +7164,11 @@ function pysimFsInfoHtml(sel) {
 	let html = '';
 	if (attrs.length) html += '<div class="text-xs font-mono text-gray-500 dark:text-slate-400">' + attrs.join(' · ') + '</div>';
 	if (sel.fci_hex) {
-		html += '<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all mt-0.5">' + profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) + '</div>';
+		html += '<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-2 mt-1">' +
+			(name ? '<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">' + esc(name) + '</legend>' : '') +
+			'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' +
+			profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) +
+			'</div></fieldset>';
 	}
 	return html;
 }
@@ -7181,7 +7185,7 @@ async function pysimFsClickFile(name) {
 		pysimFsRenderTree();
 	}
 	pysimFsSelected = name;
-	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel) : '';
+	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel, name) : '';
 	document.getElementById('pysim-fs-content').innerHTML = '';
 	document.getElementById('pysim-fs-status').textContent = exists ? '' : '✗ File not found on card';
 	if (exists) {

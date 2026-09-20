@@ -762,7 +762,7 @@ test('fcpDiffHtml highlights differing FCI parameters', () => {
 test('pysimFsInfoHtml shows FID, type, size and the decoded FCI', () => {
 	global.t = s => s;
 	const hex = '621A82054221000F0583026F4F8A01058B036F06098002004B8801B0';
-	const out = pysimFsInfoHtml({ fid: '6f4f', file_type: 'linear_fixed', file_size: 75, record_len: 15, num_of_rec: 5, fci_hex: hex });
+	const out = pysimFsInfoHtml({ fid: '6f4f', file_type: 'linear_fixed', file_size: 75, record_len: 15, num_of_rec: 5, fci_hex: hex }, 'EF.SAMPLE');
 	assert.ok(out.includes('FID: 6F4F'), out);
 	assert.ok(out.includes('File type: linear_fixed'), out);
 	assert.ok(out.includes('Size: 75'), out);
@@ -776,6 +776,10 @@ test('pysimFsInfoHtml shows FID, type, size and the decoded FCI', () => {
 	// the short file identifier is merged into the file identifier row
 	assert.ok(out.includes('6F4F · Short file identifier: 22'), out);
 	assert.ok(!out.includes('<div>Short file identifier:'), out);
+	// the FCI sits in a bordered container whose legend is the symbolic name,
+	// below the metadata line
+	assert.ok(out.indexOf('FID: 6F4F') < out.indexOf('<fieldset'), out);
+	assert.ok(out.includes('<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">EF.SAMPLE</legend>'), out);
 	delete global.t;
 });
 
@@ -789,14 +793,30 @@ test('pysimFsInfoHtml keeps the FCI File size when the header has none', () => {
 	delete global.t;
 });
 
+test('pysimFsInfoHtml embeds the symbolic name in the FCI border', () => {
+	global.t = s => s;
+	const hex = '6212800200098202412183026F078A0105880110';
+	// no name -> bordered container without a legend
+	const plain = pysimFsInfoHtml({ fid: '6f07', file_type: 'transparent', file_size: 9, fci_hex: hex });
+	assert.ok(plain.includes('<fieldset'), plain);
+	assert.ok(!plain.includes('<legend'), plain);
+	// the legend text is escaped
+	const evil = pysimFsInfoHtml({ fid: '6f07', fci_hex: hex }, '<b>x</b>');
+	assert.ok(evil.includes('&lt;b&gt;x&lt;/b&gt;'), evil);
+	assert.ok(!evil.includes('<b>x</b>'), evil);
+	delete global.t;
+});
+
 test('pysimFsInfoHtml omits the FCI block without fci_hex and skips null fields', () => {
 	global.t = s => s;
-	const out = pysimFsInfoHtml({ fid: '6f07', file_type: 'transparent', file_size: null, record_len: null, num_of_rec: undefined, fci_hex: null });
+	const out = pysimFsInfoHtml({ fid: '6f07', file_type: 'transparent', file_size: null, record_len: null, num_of_rec: undefined, fci_hex: null }, 'EF.IMSI');
 	assert.ok(out.includes('FID: 6F07'), out);
 	assert.ok(!out.includes('Size:'), out);
 	assert.ok(!out.includes('Record length:'), out);
 	assert.ok(!out.includes('Record count:'), out);
 	assert.ok(!out.includes('Decoded FCI'), out);
+	assert.ok(!out.includes('<fieldset'), out);
+	assert.ok(!out.includes('<legend'), out);
 	assert.strictEqual(pysimFsInfoHtml(null), '');
 	delete global.t;
 });

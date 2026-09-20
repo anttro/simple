@@ -205,7 +205,7 @@ test('file manager shows FCI info and keeps the selection in state, not the DOM'
     const content = html.indexOf('id="pysim-fs-content"');
     assert.ok(detail !== -1 && info > detail && info < content, 'pysim-fs-info must sit above the content');
     assert.ok(html.includes('function pysimFsInfoHtml'));
-    assert.ok(html.includes("pysimFsInfoHtml(sel)"));
+    assert.ok(html.includes('pysimFsInfoHtml(sel, name)'));
     assert.ok(!html.includes('pysim-fs-filename'));
     assert.ok(html.includes('let pysimFsSelected = null;'));
     assert.ok(html.includes('pysimFsSelected = name;'));
