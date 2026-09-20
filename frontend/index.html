@@ -1413,7 +1413,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.10';
+const SIMPLE_VERSION = '2.7.11';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7164,7 +7164,7 @@ function pysimFsInfoHtml(sel) {
 	let html = '';
 	if (attrs.length) html += '<div class="text-xs font-mono text-gray-500 dark:text-slate-400">' + attrs.join(' · ') + '</div>';
 	if (sel.fci_hex) {
-		html += '<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all mt-0.5">' + profilerFciPreviewItems(sel.fci_hex) + '</div>';
+		html += '<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all mt-0.5">' + profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) + '</div>';
 	}
 	return html;
 }
@@ -11696,13 +11696,28 @@ function fcpDiffHtml(expectedHex, actualHex, labels) {
 	return html;
 }
 
-function profilerFciPreviewItems(hex) {
+// Decoded FCI rows.  The short file identifier belongs to the file
+// identifier, so it is merged into that row.  `opts.hideFileSize` drops the
+// File size DO where the caller already shows the size (file manager header).
+function profilerFciPreviewItems(hex, opts) {
 	const d = fcpDecode(hex);
 	if (!d.items.length && !d.error) return '';
-	let html = '';
+	opts = opts || {};
+	const rows = [];
 	for (const it of d.items) {
 		if (it.decoded === null) continue;
-		html += '<div>' + esc(it.name) + ': <span class="text-gray-800 dark:text-slate-200">' + esc(it.decoded || it.value) + '</span></div>';
+		if (opts.hideFileSize && it.key === '80') continue;
+		rows.push({ key: it.key, name: it.name, text: it.decoded || it.value });
+	}
+	const fi = rows.find(r => r.key === '83');
+	const sfi = rows.find(r => r.key === '88');
+	if (fi && sfi) {
+		fi.text += ' · ' + sfi.name + ': ' + sfi.text;
+		rows.splice(rows.indexOf(sfi), 1);
+	}
+	let html = '';
+	for (const r of rows) {
+		html += '<div>' + esc(r.name) + ': <span class="text-gray-800 dark:text-slate-200">' + esc(r.text) + '</span></div>';
 	}
 	if (d.error) {
 		html += '<div class="text-red-600">' + esc(t('Decode failed')) + ': ' + esc(d.error) + '</div>';

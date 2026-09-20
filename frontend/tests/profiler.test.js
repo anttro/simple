@@ -770,6 +770,21 @@ test('pysimFsInfoHtml shows FID, type, size and the decoded FCI', () => {
 	assert.ok(out.includes('Record count: 5'), out);
 	assert.ok(!out.includes('Decoded FCI'), out);
 	assert.ok(out.includes('File descriptor'), out);
+	// the header already shows the size -> the FCI File size row is dropped
+	assert.ok(!out.includes('File size:'), out);
+	assert.ok(!out.includes('75 bytes'), out);
+	// the short file identifier is merged into the file identifier row
+	assert.ok(out.includes('6F4F · Short file identifier: 22'), out);
+	assert.ok(!out.includes('<div>Short file identifier:'), out);
+	delete global.t;
+});
+
+test('pysimFsInfoHtml keeps the FCI File size when the header has none', () => {
+	global.t = s => s;
+	const hex = '621A82054221000F0583026F4F8A01058B036F06098002004B8801B0';
+	const out = pysimFsInfoHtml({ fid: '6f4f', file_type: 'linear_fixed', file_size: null, record_len: 15, num_of_rec: 5, fci_hex: hex });
+	assert.ok(!out.includes('Size:'), out);
+	assert.ok(out.includes('File size:'), out);
 	assert.ok(out.includes('75 bytes'), out);
 	delete global.t;
 });
@@ -788,7 +803,13 @@ test('pysimFsInfoHtml omits the FCI block without fci_hex and skips null fields'
 
 test('profilerFciPreviewItems renders decoded items and degrades gracefully', () => {
 	global.t = s => s;
-	assert.ok(profilerFciPreviewItems(FCP_TRANSPARENT).includes('File size: '));
+	const full = profilerFciPreviewItems(FCP_TRANSPARENT);
+	assert.ok(full.includes('File size: '));
+	assert.ok(full.includes('6F07 · Short file identifier: 2'));
+	assert.ok(!full.includes('<div>Short file identifier:'), 'SFI is merged, not a separate row');
+	const noSize = profilerFciPreviewItems(FCP_TRANSPARENT, { hideFileSize: true });
+	assert.ok(!noSize.includes('File size: '));
+	assert.ok(noSize.includes('6F07 · Short file identifier: 2'));
 	assert.ok(profilerFciPreviewItems('not hex').includes('Decode failed'));
 	assert.strictEqual(profilerFciPreviewItems(''), '');
 	delete global.t;
