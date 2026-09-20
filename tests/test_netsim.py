@@ -81,6 +81,20 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(netsim.fplmn_entries('FF' * 9),
                          ['FFFFFF', 'FFFFFF', 'FFFFFF'])
         self.assertEqual(netsim.fplmn_entries(''), [])
+        # an already listed PLMN is never stored twice
+        self.assertIsNone(netsim.insert_fplmn('00F110' + 'FF' * 9, '00F110'))
+        self.assertIsNone(netsim.insert_fplmn('AABBCC00F110112233445566', '00F110'))
+
+    def test_fplmn_remove_clears_every_occurrence(self):
+        # duplicates (the same VPLMN can be listed more than once) all go
+        self.assertEqual(netsim.remove_fplmn('00F110' + '00F110' + 'FF' * 6, '00F110'),
+                         'FF' * 12)
+        # gaps in other positions are preserved, the list is not compacted
+        self.assertEqual(netsim.remove_fplmn('AABBCC00F110112233445566', '00F110'),
+                         'AABBCCFFFFFF112233445566')
+        # not listed -> no write
+        self.assertIsNone(netsim.remove_fplmn('AABBCC' + 'FF' * 9, '00F110'))
+        self.assertIsNone(netsim.remove_fplmn('', '00F110'))
 
     def test_parse_imsi_matches_the_pysim_vector(self):
         self.assertEqual(netsim.parse_imsi('082982608200002080'),
@@ -263,7 +277,11 @@ FILES = {
 
 
 def make_runner(params=None, event_list=(3,), sleep=None):
-    lchan = FakeLchan(dict(FILES))
+    # Copy the file infos too: tests seed per-file data and must not leak it
+    # into the next runner (FILES holds shared FakeFileInfo objects).
+    files = {fid: FakeFileInfo(f.size, f.record_len, f.num, f.data)
+             for fid, f in FILES.items()}
+    lchan = FakeLchan(files)
     app = SimpleNamespace(rs=SimpleNamespace(lchan=[lchan]))
     srv = FakeSrv()
     runner = netsim.NetSimRunner(srv, app, params=params, event_list=event_list,
@@ -320,6 +338,37 @@ class RunnerTests(unittest.TestCase):
         # C3a drops the key context (KSI 07 + wiped KASME)
         epsnsc = [w for w in lchan.writes if w[1] == '6FE4'][0][2]
         self.assertTrue(epsnsc.startswith('A0348001078120' + 'FF' * 32))
+
+    def test_roaming_denied_skips_a_duplicate_fplmn_entry(self):
+        runner, lchan, srv = make_runner()
+        lchan.files['6F7B'].data = '00F110' + 'FF' * 9
+        out = runner.run('roaming_denied')
+        self.assertTrue(out['success'])
+        self.assertFalse(any(w[1] == '6F7B' for w in lchan.writes))
+        self.assertTrue(any('already listed' in s.get('note', '')
+                            for s in out['steps']))
+
+    def test_attach_clears_every_fplmn_occurrence_first(self):
+        runner, lchan, srv = make_runner()
+        # the same VPLMN listed twice (older runs appended it again)
+        lchan.files['6F7B'].data = '00F110' + '00F110' + 'FF' * 6
+        out = runner.run('attach_eps')
+        self.assertTrue(out['success'])
+        fplmn = [w for w in lchan.writes if w[1] == '6F7B']
+        self.assertEqual(len(fplmn), 1)
+        self.assertEqual(fplmn[0][2], 'FF' * 12)
+        # the clear happens before the successful location writes
+        idx_fplmn = next(i for i, w in enumerate(lchan.writes) if w[1] == '6F7B')
+        idx_loci = next(i for i, w in enumerate(lchan.writes) if w[1] == '6F7E')
+        self.assertLess(idx_fplmn, idx_loci)
+        for fid in ('6F7E', '6F73', '6FE3'):
+            self.assertIn(fid, [w[1] for w in lchan.writes])
+
+    def test_attach_without_a_listed_plmn_writes_no_fplmn(self):
+        runner, lchan, srv = make_runner()
+        out = runner.run('attach_eps')
+        self.assertTrue(out['success'])
+        self.assertFalse(any(w[1] == '6F7B' for w in lchan.writes))
 
     def test_roaming_denied_never_stores_the_home_plmn(self):
         runner, lchan, srv = make_runner()

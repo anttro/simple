@@ -232,9 +232,12 @@ def fplmn_entries(data_hex):
 def insert_fplmn(data_hex, plmn_hex):
     """Store a denied PLMN per TS 31.102 4.2.16: fill the first empty slot,
     otherwise shift the list left and append (the longest-held entry is
-    lost).  Returns the full updated EF content."""
+    lost).  Returns the full updated EF content, or None when the PLMN is
+    already listed (a duplicate entry is meaningless)."""
     plmn = _norm_hex(plmn_hex, 3)
     entries = fplmn_entries(data_hex)
+    if plmn in entries:
+        return None
     if not entries:
         return plmn
     try:
@@ -244,6 +247,17 @@ def insert_fplmn(data_hex, plmn_hex):
     else:
         entries[idx] = plmn
     return ''.join(entries)
+
+
+def remove_fplmn(data_hex, plmn_hex):
+    """Clear every occurrence of a PLMN from EF.FPLMN (a successful manual
+    selection removes the entry, TS 23.122).  Returns the full updated EF
+    content, or None when the PLMN is not listed."""
+    plmn = _norm_hex(plmn_hex, 3)
+    entries = fplmn_entries(data_hex)
+    if plmn not in entries:
+        return None
+    return ''.join('FFFFFF' if e == plmn else e for e in entries)
 
 
 # ---- Ciphering keys and CB/SMS files ----
@@ -558,6 +572,27 @@ class NetSimRunner:
         if sw != '9000' or not data:
             data = 'FF' * (size or 12)
         new_data = insert_fplmn(data, plmn)
+        if new_data is None:
+            self._add('skip', file='fplmn', note='PLMN already listed')
+            return None
+        return self.write_binary('fplmn', new_data, pad=False, label='fplmn')
+
+    def clear_fplmn(self, plmn_hex):
+        """A successful manual selection removes the PLMN from EF.FPLMN
+        (TS 23.122); every occurrence is cleared and nothing is written when
+        the PLMN is not listed."""
+        try:
+            self._open('fplmn')
+        except StepError as e:
+            self._add('skip', file='fplmn', note=str(e))
+            return None
+        data, sw = self.read_binary_current()
+        if sw != '9000' or not data:
+            self._add('skip', file='fplmn', note='read failed (SW %s)' % sw)
+            return None
+        new_data = remove_fplmn(data, plmn_hex)
+        if new_data is None:
+            return None
         return self.write_binary('fplmn', new_data, pad=False, label='fplmn')
 
     def read_record_current(self, record=1):
@@ -607,6 +642,9 @@ class NetSimRunner:
             label='epsnsc', optional=True)
 
     def write_real_locations(self, status=ST_UPDATED):
+        # A successful attach is a manual selection of this PLMN: it is
+        # removed from EF.FPLMN first (TS 23.122).
+        self.clear_fplmn(self.plmn)
         self.write_binary('loci', build_loci(
             self.p('tmsi') or rand_hex(4), self.plmn, self.lac, status),
             label='loci', optional=True)

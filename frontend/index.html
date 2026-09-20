@@ -942,7 +942,7 @@
 			<div class="flex flex-wrap items-start gap-4 mb-4">
 			<fieldset class="flex-1 border border-gray-200 dark:border-slate-700 rounded p-3" style="min-width:30rem">
 				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Network simulation">Network simulation</legend>
-				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.</div>
+				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is appended only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16, never duplicated), an attach to a listed PLMN clears its entry first (successful manual selection, TS 23.122), and the 5GS location files are never touched.">Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is appended only by the permanent &quot;PLMN not allowed&quot; rejection (TS 31.102 4.2.16, never duplicated), an attach to a listed PLMN clears its entry first (successful manual selection, TS 23.122), and the 5GS location files are never touched.</div>
 				<div class="flex flex-wrap gap-1.5 mb-2">
 					<button data-needs="card" onclick="netSimRun('cold_boot')" class="px-2.5 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Cold boot">Cold boot</button>
 					<button data-needs="card" onclick="netSimRun('attach_eps')" class="px-2.5 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="EPS attach">EPS attach</button>
@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.18';
+const SIMPLE_VERSION = '2.7.19';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -13268,7 +13268,7 @@ const LANG_RU = {
 	'No events configured.': 'Нет настроенных событий.',
 	'Fetched proactive commands:': 'Извлечённые проактивные команды:',
 	'Network simulation': 'Симуляция сети',
-	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is written only by the permanent "PLMN not allowed" rejection (TS 31.102 4.2.16), and the 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN записывается только при постоянном отказе «PLMN not allowed» (TS 31.102 4.2.16), а 5GS location-файлы не затрагиваются.',
+	'Replays the write patterns a real phone performs on network-condition changes (EPS attach, service loss, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration, AUTHENTICATE). Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; FPLMN is appended only by the permanent "PLMN not allowed" rejection (TS 31.102 4.2.16, never duplicated), an attach to a listed PLMN clears its entry first (successful manual selection, TS 23.122), and the 5GS location files are never touched.': 'Воспроизводит шаблоны записи реального телефона при смене сетевых условий (подключение EPS, потеря сервиса, запрет роуминга, откат на 2G, приём SMS, перенастройка cell broadcast, AUTHENTICATE). Отправляются только UPDATE BINARY/RECORD, ENVELOPE и AUTHENTICATE; FPLMN дописывается только сценарием постоянного отказа (TS 31.102 4.2.16, без дубликатов), а подключение к сети из списка сначала очищает её запись (успешный ручной выбор, TS 23.122); 5GS location-файлы не затрагиваются.',
 	'Cold boot': 'Холодная загрузка',
 	'EPS attach': 'Подключение EPS',
 	'2G attach': 'Подключение 2G',
