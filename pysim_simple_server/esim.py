@@ -509,13 +509,15 @@ def parse_switch_response(action, data_hex):
             'message': _error_text(result)}
 
 
-def switch_profile(send_apdu, run_chain, action, iccid=None, isdp_aid=None,
-                   refresh=True):
-    """Run an ES10c Enable/DisableProfile switch.
+def switch_profile(app, send_apdu, run_chain, action, iccid=None,
+                   isdp_aid=None, refresh=True):
+    """Run an ES10c Enable/DisableProfile switch on the ISD-R.
 
     ``send_apdu(apdu_hex) -> (data_hex, sw)`` performs one raw STORE DATA and
     ``run_chain(sw91)`` answers the proactive command(s) the card sends
-    alongside the switch (True when a REFRESH was answered).
+    alongside the switch (True when a REFRESH was answered).  The ISD-R is
+    selected first and the previous selection restored afterwards, like the
+    other ES10 functions.
 
     With the refresh flag set the ISD-R returns OK *before* the REFRESH
     (SGP.22 v2.6 §5.7.16/§5.7.17 step 6) and the switch completes upon the
@@ -523,18 +525,22 @@ def switch_profile(send_apdu, run_chain, action, iccid=None, isdp_aid=None,
     OK: the STORE DATA is never retried (the mid-switch card answers 6985 to
     the retry) and the caller re-initializes the card afterwards."""
     apdu = build_switch_apdu(action, iccid, isdp_aid, refresh)
-    data, sw = send_apdu(apdu)
-    if sw == '9000':
-        out = parse_switch_response(action, data)
-        out['refresh_seen'] = False
-        return out
-    if sw and sw.startswith('91'):
-        refresh_seen = False
-        try:
-            refresh_seen = bool(run_chain(sw))
-        except Exception as e:
-            sys.stderr.write('ESIM: REFRESH chain failed: %s\n' % e)
-        return {'ok': True, 'result': 'ok', 'message': 'ok',
-                'refresh_seen': refresh_seen}
-    return {'ok': False, 'result': 'undefinedError', 'sw': sw,
-            'message': 'SW %s' % sw}
+    _select_isdr(app)
+    try:
+        data, sw = send_apdu(apdu)
+        if sw == '9000':
+            out = parse_switch_response(action, data)
+            out['refresh_seen'] = False
+            return out
+        if sw and sw.startswith('91'):
+            refresh_seen = False
+            try:
+                refresh_seen = bool(run_chain(sw))
+            except Exception as e:
+                sys.stderr.write('ESIM: REFRESH chain failed: %s\n' % e)
+            return {'ok': True, 'result': 'ok', 'message': 'ok',
+                    'refresh_seen': refresh_seen}
+        return {'ok': False, 'result': 'undefinedError', 'sw': sw,
+                'message': 'SW %s' % sw}
+    finally:
+        _restore(app)

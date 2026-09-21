@@ -239,9 +239,11 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['result'], 'undefinedError')
 
     def test_switch_profile_parses_ok_response(self):
+        app, lchan = make_app()
         sent = []
         resp = EnableProfileResp(children=[EnableResult(decoded='ok')])
         out = esim.switch_profile(
+            app,
             lambda apdu: sent.append(apdu) or (resp.to_tlv().hex(), '9000'),
             lambda sw: self.fail('no chain expected'),
             'enable', iccid='8970119000004002667')
@@ -249,10 +251,15 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['result'], 'ok')
         self.assertFalse(out['refresh_seen'])
         self.assertEqual(len(sent), 1)
+        # the ISD-R was selected for the command and the selection restored
+        self.assertEqual(lchan.selected.name, 'ISD-R')
+        self.assertEqual(app.rs.resets, 1)
 
     def test_switch_profile_treats_91xx_as_ok_and_runs_the_chain(self):
+        app, lchan = make_app()
         chain = []
         out = esim.switch_profile(
+            app,
             lambda apdu: ('', '9111'),
             lambda sw: chain.append(sw) or True,
             'disable', iccid='8970119000004002667')
@@ -260,17 +267,22 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['result'], 'ok')
         self.assertTrue(out['refresh_seen'])
         self.assertEqual(chain, ['9111'])
+        self.assertEqual(lchan.selected.name, 'ISD-R')
+        self.assertEqual(app.rs.resets, 1)
 
     def test_switch_profile_chain_failure_keeps_the_accepted_switch(self):
+        app, _ = make_app()
+
         def boom(sw):
             raise RuntimeError('fetch failed')
-        out = esim.switch_profile(lambda apdu: ('', '910f'), boom,
+        out = esim.switch_profile(app, lambda apdu: ('', '910f'), boom,
                                   'disable', iccid='8970119000004002667')
         self.assertTrue(out['ok'])
         self.assertFalse(out['refresh_seen'])
 
     def test_switch_profile_reports_error_sw(self):
-        out = esim.switch_profile(lambda apdu: ('', '6985'),
+        app, _ = make_app()
+        out = esim.switch_profile(app, lambda apdu: ('', '6985'),
                                   lambda sw: self.fail('no chain expected'),
                                   'disable', iccid='8970119000004002667')
         self.assertFalse(out['ok'])

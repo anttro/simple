@@ -3861,7 +3861,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     _finish_pending_menu(self.server, self.server.scc)
                     cursor = _PROACTIVE_ENTRY_ID
                     resp = esim.switch_profile(
-                        self.server.scc._tp.send_apdu,
+                        app, self.server.scc._tp.send_apdu,
                         lambda sw: _esim_refresh_chain(self.server, sw),
                         action, iccid=body.get('iccid'),
                         isdp_aid=body.get('isdp_aid'),
