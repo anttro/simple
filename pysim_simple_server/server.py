@@ -17,6 +17,7 @@ from pysim_simple_server import httpota
 from pysim_simple_server import netsim
 from pysim_simple_server import netstate
 from pysim_simple_server import scp81
+from pysim_simple_server import esim
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 
 import gsm0338  # registers 'gsm03.38' codec
@@ -26,7 +27,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '2.7.21'
+VERSION = '2.8.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -192,12 +193,14 @@ ERROR_MSGS = {
         'no_card_state': 'No card state available',
         'reader_not_init': 'Reader not initialized',
         'not_found': 'Not found',
+        'not_an_euicc': 'The equipped card is not an eUICC',
     },
     'ru': {
         'app_not_init': 'Сервер не инициализирован',
         'no_card_state': 'Состояние карты недоступно',
         'reader_not_init': 'Считыватель не инициализирован',
         'not_found': 'Не найдено',
+        'not_an_euicc': 'Подключённая карта — не eUICC',
     },
 }
 
@@ -2550,6 +2553,42 @@ def _apply_equipped_card(server):
     _tlog('equip: terminal profile done')
 
 
+def _esim_reinit(server):
+    """Full card re-initialization after a profile switch.
+
+    A profile switch is logically an equip: the active application (and the
+    ICCID) changes, so every cached card view is flushed and re-read.  The
+    card is physically reset first (after REFRESH it restarts on the newly
+    active profile), then the standard equip path runs.
+    """
+    app = server.app
+    server.equipping = True
+    try:
+        try:
+            server.scc.reset_card()
+        except Exception as e:
+            sys.stderr.write('ESIM: card reset failed: %s\n' % e)
+        old_stdout, old_stderr = app.stdout, sys.stderr
+        app.stdout = StringIO()
+        sys.stderr = app.stdout
+        try:
+            app.onecmd_plus_hooks('equip')
+        finally:
+            app.stdout = old_stdout
+            sys.stderr = old_stderr
+        if server.app.card is None:
+            sys.stderr.write('ESIM: card gone during re-initialization\n')
+            return False
+        _apply_equipped_card(server)
+        sys.stderr.write('ESIM: re-initialized after profile switch\n')
+        return True
+    except Exception as e:
+        sys.stderr.write('ESIM: re-initialization failed: %s\n' % e)
+        return False
+    finally:
+        server.equipping = False
+
+
 _AUTO_EQUIP = True
 _AUTO_EQUIP_BUSY = False
 
@@ -3453,6 +3492,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 'auto_equip': bool(_AUTO_EQUIP),
                 'card': card.name if card else None,
                 'profile': str(rs.profile) if rs and rs.profile else None,
+                'eid': (rs.identity.get('EID') if rs and rs.identity else None)
+                       if connected else None,
+                'euicc': bool(esim.is_euicc(app)) if connected else False,
                 'iccid': getattr(self.server, 'iccid', None) if connected else None,
                 'app_ready': app is not None,
                 'adm_verified': rs.adm_verified if rs else False,
@@ -3668,6 +3710,119 @@ class PysimHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 resp = {'ok': False, 'error': str(e)}
                 sys.stderr.write('VERIFY ADM → ERROR: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/chip':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.chip_info(app)
+                self._send_json(resp)
+                self._log_resp({'eid': resp.get('eid'), 'errors': resp.get('errors')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM chip: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/profiles':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.profiles(app)
+                self._send_json(resp)
+                self._log_resp({'profiles': len(resp.get('profiles') or []),
+                                'error': resp.get('error')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM profiles: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/notifications':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.notifications(app)
+                self._send_json(resp)
+                self._log_resp({'notifications': len(resp.get('notifications') or []),
+                                'error': resp.get('error')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM notifications: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/profile':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            action = str(body.get('action') or '')
+            try:
+                with _CARD_LOCK:
+                    _finish_pending_menu(self.server, self.server.scc)
+                    cursor = _PROACTIVE_ENTRY_ID
+                    resp = esim.set_profile_state(
+                        app, action,
+                        iccid=body.get('iccid'), isdp_aid=body.get('isdp_aid'),
+                        refresh=body.get('refresh', True))
+                    # A REFRESH during the command means the card wants the
+                    # terminal to re-initialize; a lost STORE DATA response
+                    # (T=0 after REFRESH) is covered by the same re-init.
+                    resp['refresh_seen'] = any(
+                        e.get('type_hex') == '01' and e.get('id', 0) > cursor
+                        for e in _PROACTIVE_LOG)
+                    resp['reinitialized'] = False
+                    if resp['ok'] or resp['refresh_seen']:
+                        resp['reinitialized'] = _esim_reinit(self.server)
+                    resp['iccid'] = getattr(self.server, 'iccid', None)
+                    resp['card_session'] = getattr(self.server, 'card_session', None)
+                self._send_json(resp)
+                self._log_resp({k: resp.get(k) for k in
+                                ('ok', 'result', 'refresh_seen', 'reinitialized')})
+            except esim.EsimError as e:
+                resp = {'ok': False, 'error': e.code, 'message': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+            except Exception as e:
+                resp = {'ok': False, 'error': str(e)}
+                sys.stderr.write('ESIM profile switch: %s\n' % e)
                 self._send_json(resp, 500)
                 self._log_resp(resp)
         elif self.path == '/api/status-poll':

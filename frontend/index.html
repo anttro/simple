@@ -906,6 +906,7 @@
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-phone-sub="phone" onclick="phoneSwitchSubtab('phone')" data-l10n="Phone">Phone</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="tr" onclick="phoneSwitchSubtab('tr')" data-l10n="TR Config">TR Config</button>
+			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="esim" onclick="phoneSwitchSubtab('esim')" data-l10n="eSIM">eSIM</button>
 		</div>
 		<div id="phone-sub-phone">
 			<div class="flex flex-wrap items-start gap-4 mb-4">
@@ -1053,6 +1054,27 @@
 			</div>
 			<div id="pysim-pli-dict" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[60vh] overflow-auto">
 				<span class="text-gray-400" data-l10n="Loading...">Loading...</span>
+			</div>
+		</div>
+		<div id="phone-sub-esim" class="hidden">
+			<div id="esim-not-euicc" class="text-sm text-gray-500 dark:text-slate-400 hidden" data-l10n="The equipped card is not an eUICC">The equipped card is not an eUICC</div>
+			<div id="esim-body" class="space-y-4">
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Chip">Chip</legend>
+					<div class="flex items-center gap-2 mb-2">
+						<button id="esim-refresh-btn" data-needs="card" onclick="esimFetchAll()" class="px-2.5 py-1 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Refresh">Refresh</button>
+						<span id="esim-status" class="text-xs text-gray-500 dark:text-slate-400"></span>
+					</div>
+					<div id="esim-chip" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
+				</fieldset>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Profiles">Profiles</legend>
+					<div id="esim-profiles" class="text-xs"></div>
+				</fieldset>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Notifications">Notifications</legend>
+					<div id="esim-notifications" class="text-xs"></div>
+				</fieldset>
 			</div>
 		</div>
 	</div>
@@ -1414,7 +1436,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.21';
+const SIMPLE_VERSION = '2.8.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -1483,11 +1505,13 @@ function phoneSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !active);
 		btn.classList.toggle('dark:text-slate-300', !active);
 	});
-	['phone', 'tr'].forEach(s => {
+	['phone', 'tr', 'esim'].forEach(s => {
 		document.getElementById('phone-sub-' + s).classList.toggle('hidden', s !== name);
 	});
 	if (name === 'tr') {
 		pysimPliRender();
+	} else if (name === 'esim') {
+		esimFetchAll();
 	} else {
 		stkCheckMenu();
 		pysimEventsRender();
@@ -1496,7 +1520,221 @@ function phoneSwitchSubtab(name) {
 		pysimPollStatusInit();
 		tpRefresh();
 	}
-	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict' }[name] || 'stk-menu');
+	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', esim: 'esim' }[name] || 'stk-menu');
+}
+
+// ===== eSIM / LPA (local ES10a/b/c operations) =====
+let _esimBusy = false;
+let _esimChip = null;
+let _esimProfiles = [];
+let _esimNotifications = [];
+
+// Chip-info keys -> display labels (unknown keys fall back to a prettified name).
+const ESIM_CHIP_LABELS = {
+	eid: 'EID', svn: 'SVN', profile_version: 'Profile version',
+	euicc_firmware_ver: 'Firmware version', ext_card_resource: 'Card resource',
+	uicc_capability: 'UICC capability', ts102241_version: 'TS 102 241 version',
+	globalplatform_version: 'GlobalPlatform version', rsp_capability: 'RSP capability',
+	euicc_category: 'Category', pp_version: 'PP version',
+	ss_acreditation_number: 'SS accreditation number',
+	default_dp_address: 'Default SM-DP+ address', root_ds_address: 'Root DS address',
+	euicc_ci_pki_list_for_verification: 'CI PKI (verification)',
+	euicc_ci_pki_list_for_signing: 'CI PKI (signing)',
+	iot_specific_info: 'IoT specific info',
+};
+
+const ESIM_RESULT_KEYS = {
+	iccidOrAidNotFound: 'profile not found',
+	profileNotInDisabledState: 'profile is not disabled',
+	profileNotInEnabledState: 'profile is not enabled',
+	disallowedByPolicy: 'disallowed by policy',
+	wrongProfileReenabling: 'wrong profile re-enabling',
+	catBusy: 'card is busy with a CAT session',
+	undefinedError: 'undefined error',
+};
+
+function esimLabel(key) {
+	if (ESIM_CHIP_LABELS[key]) return ESIM_CHIP_LABELS[key];
+	return String(key).replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+}
+
+function esimGroupEid(eid) {
+	const s = String(eid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	return s.replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+// Chip-info value -> [label, value] rows; nested dicts recurse, arrays are
+// joined, empty values skipped.
+function esimFieldRows(obj, prefix) {
+	const rows = [];
+	if (obj === null || obj === undefined) return rows;
+	if (typeof obj !== 'object') {
+		rows.push([prefix ? esimLabel(prefix) : '', String(obj)]);
+		return rows;
+	}
+	for (const k of Object.keys(obj)) {
+		const v = obj[k];
+		if (v === null || v === undefined || v === '') continue;
+		const label = prefix ? prefix + ' / ' + k : k;
+		if (Array.isArray(v)) {
+			rows.push([esimLabel(label), v.map(x => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ')]);
+		} else if (typeof v === 'object') {
+			rows.push(...esimFieldRows(v, label));
+		} else {
+			rows.push([esimLabel(label), String(v)]);
+		}
+	}
+	return rows;
+}
+
+function esimResultText(res) {
+	if (!res) return '';
+	if (res.error && !res.result) return String(res.error);
+	return t(ESIM_RESULT_KEYS[res.result] || res.message || res.result || 'Error');
+}
+
+function esimStateLabel(state) {
+	if (state === 'enabled') return t('Enabled');
+	if (state === 'disabled') return t('Disabled');
+	return state || '?';
+}
+
+function esimOperationsText(ops) {
+	return (ops || []).map(o => t(o)).join(', ');
+}
+
+function esimProfileRows(p) {
+	const rows = [];
+	if (p.iccid) rows.push([t('ICCID'), p.iccid]);
+	if (p.isdp_aid) rows.push([t('ISD-P AID'), p.isdp_aid]);
+	if (p.provider) rows.push([t('Provider'), p.provider]);
+	if (p.name) rows.push([t('Profile name'), p.name]);
+	if (p.class) rows.push([t('Class'), p.class]);
+	if (p.owner) rows.push([t('Owner'), p.owner]);
+	if (p.icon_type) rows.push([t('Icon'), p.icon_type]);
+	return rows;
+}
+
+function esimRenderChip() {
+	const el = document.getElementById('esim-chip');
+	if (!el) return;
+	const c = _esimChip || {};
+	const rows = [];
+	if (c.eid) rows.push(['EID', esimGroupEid(c.eid)]);
+	rows.push(...esimFieldRows(c.info1 || {}, ''));
+	rows.push(...esimFieldRows(c.info2 || {}, ''));
+	rows.push(...esimFieldRows(c.addresses || {}, ''));
+	let html = '';
+	for (const [k, v] of rows) {
+		html += '<div class="flex gap-2 mb-0.5"><span class="w-56 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
+			'<span class="font-mono break-all">' + esc(v) + '</span></div>';
+	}
+	const errs = Object.keys(c.errors || {});
+	if (errs.length) {
+		html += '<div class="text-xs text-yellow-600 dark:text-yellow-500 mt-1">' + esc(t('Not available')) + ': ' + esc(errs.join(', ')) + '</div>';
+	}
+	el.innerHTML = html || '<span class="text-gray-400">' + esc(t('No data')) + '</span>';
+}
+
+function esimRenderProfiles() {
+	const el = document.getElementById('esim-profiles');
+	if (!el) return;
+	if (!_esimProfiles.length) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No profiles')) + '</span>';
+		return;
+	}
+	let html = '';
+	for (const p of _esimProfiles) {
+		const enabled = p.state === 'enabled';
+		const title = p.nickname || p.name || p.iccid || '?';
+		html += '<div class="mb-2 p-2 border border-gray-200 dark:border-slate-600 rounded">';
+		html += '<div class="flex items-center gap-2 mb-1">' +
+			'<span class="' + (enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400') + ' font-bold">' + (enabled ? '●' : '○') + '</span>' +
+			'<span class="font-medium">' + esc(title) + '</span>' +
+			'<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(esimStateLabel(p.state)) + '</span>' +
+			'<button data-needs="card" onclick="esimSetProfile(\'' + esc(p.iccid || '') + '\', \'' + esc(p.isdp_aid || '') + '\', \'' + (enabled ? 'disable' : 'enable') + '\')" ' +
+			'class="ml-auto px-2 py-0.5 text-xs rounded text-white disabled:opacity-40 disabled:cursor-not-allowed ' +
+			(enabled ? 'bg-gray-600 hover:bg-gray-700' : 'bg-emerald-600 hover:bg-emerald-700') + '">' +
+			esc(t(enabled ? 'Disable' : 'Enable')) + '</button></div>';
+		for (const [k, v] of esimProfileRows(p)) {
+			html += '<div class="flex gap-2"><span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
+				'<span class="font-mono break-all">' + esc(v) + '</span></div>';
+		}
+		html += '</div>';
+	}
+	el.innerHTML = html;
+}
+
+function esimRenderNotifications() {
+	const el = document.getElementById('esim-notifications');
+	if (!el) return;
+	if (!_esimNotifications.length) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No notifications')) + '</span>';
+		return;
+	}
+	let html = '';
+	for (const n of _esimNotifications) {
+		html += '<div class="mb-1"><span class="text-gray-500 dark:text-slate-400">#' + esc(String(n.seq_number)) + '</span> ' +
+			esc(esimOperationsText(n.operations)) +
+			(n.address ? ' · ' + esc(n.address) : '') +
+			(n.iccid ? ' · <span class="font-mono">' + esc(n.iccid) + '</span>' : '') + '</div>';
+	}
+	el.innerHTML = html;
+}
+
+async function esimFetchAll() {
+	const statusEl = document.getElementById('esim-status');
+	if (statusEl) statusEl.textContent = t('Loading...');
+	try {
+		const st = await pysimFetch('/api/status');
+		const euicc = !!(st && st.euicc);
+		document.getElementById('esim-not-euicc').classList.toggle('hidden', euicc);
+		document.getElementById('esim-body').classList.toggle('hidden', !euicc);
+		if (!euicc) {
+			if (statusEl) statusEl.textContent = '';
+			return;
+		}
+		const chip = await pysimFetch('/api/esim/chip');
+		const prof = await pysimFetch('/api/esim/profiles');
+		const notif = await pysimFetch('/api/esim/notifications');
+		_esimChip = chip && !chip.error ? chip : null;
+		_esimProfiles = (prof && prof.profiles) || [];
+		_esimNotifications = (notif && notif.notifications) || [];
+		esimRenderChip();
+		esimRenderProfiles();
+		esimRenderNotifications();
+		const err = (chip && chip.error) || (prof && prof.error) || (notif && notif.error);
+		if (statusEl) statusEl.textContent = err ? t('Error') + ': ' + err : '';
+	} catch (e) {
+		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
+	}
+}
+
+async function esimSetProfile(iccid, isdpAid, action) {
+	if (_esimBusy) return;
+	const statusEl = document.getElementById('esim-status');
+	const what = action === 'enable' ? t('Enable') : t('Disable');
+	if (!confirm(what + ' — ' + t('the card will be re-initialized. Continue?'))) return;
+	_esimBusy = true;
+	if (statusEl) statusEl.textContent = t('Switching profile — card re-initializing...');
+	try {
+		const body = { action: action, refresh: true };
+		if (iccid) body.iccid = iccid;
+		if (isdpAid) body.isdp_aid = isdpAid;
+		const res = await pysimFetch('/api/esim/profile', body);
+		if (res && res.ok) {
+			if (statusEl) statusEl.textContent = t('Profile switched') +
+				(res.reinitialized ? ' — ' + t('card re-initialized') : '') +
+				(res.refresh_seen ? ' (' + t('REFRESH received') + ')' : '');
+		} else if (statusEl) {
+			statusEl.textContent = t('Profile switch failed') + ': ' + esimResultText(res);
+		}
+		await esimFetchAll();
+	} catch (e) {
+		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
+	} finally {
+		_esimBusy = false;
+	}
 }
 
 // ===== HTTP OTA constructor =====
@@ -13327,6 +13565,58 @@ const LANG_RU = {
 	'from EF.HPLMNwAcT': 'из EF.HPLMNwAcT',
 	'from IMSI': 'из IMSI',
 	'Home PLMN not available (no HPLMNwAcT/IMSI)': 'Домашняя сеть недоступна (нет HPLMNwAcT/IMSI)',
+	'eSIM': 'eSIM',
+	'The equipped card is not an eUICC': 'Подключённая карта — не eUICC',
+	'Chip': 'Чип',
+	'Profiles': 'Профили',
+	'Notifications': 'Уведомления',
+	'Not available': 'Недоступно',
+	'No profiles': 'Нет профилей',
+	'No notifications': 'Нет уведомлений',
+	'Enabled': 'Включён',
+	'Disabled': 'Отключён',
+	'Enable': 'Включить',
+	'Disable': 'Отключить',
+	'ISD-P AID': 'ISD-P AID',
+	'Provider': 'Оператор',
+	'Profile name': 'Имя профиля',
+	'Class': 'Класс',
+	'Owner': 'Владелец',
+	'Icon': 'Значок',
+	'EID': 'EID',
+	'SVN': 'SVN',
+	'Profile version': 'Версия профиля',
+	'Firmware version': 'Версия прошивки',
+	'Card resource': 'Ресурс карты',
+	'UICC capability': 'Возможности UICC',
+	'TS 102 241 version': 'Версия TS 102 241',
+	'GlobalPlatform version': 'Версия GlobalPlatform',
+	'RSP capability': 'Возможности RSP',
+	'Category': 'Категория',
+	'PP version': 'Версия PP',
+	'SS accreditation number': 'Номер аккредитации SS',
+	'Default SM-DP+ address': 'Адрес SM-DP+ по умолчанию',
+	'Root DS address': 'Адрес корневого DS',
+	'CI PKI (verification)': 'CI PKI (проверка)',
+	'CI PKI (signing)': 'CI PKI (подпись)',
+	'IoT specific info': 'IoT-информация',
+	'install': 'установка',
+	'enable': 'включение',
+	'disable': 'отключение',
+	'delete': 'удаление',
+	'profile not found': 'профиль не найден',
+	'profile is not disabled': 'профиль не отключён',
+	'profile is not enabled': 'профиль не включён',
+	'disallowed by policy': 'запрещено политикой',
+	'wrong profile re-enabling': 'неверное повторное включение профиля',
+	'card is busy with a CAT session': 'карта занята CAT-сессией',
+	'undefined error': 'неопределённая ошибка',
+	'the card will be re-initialized. Continue?': 'карта будет переинициализирована. Продолжить?',
+	'Switching profile — card re-initializing...': 'Переключение профиля — карта переинициализируется...',
+	'Profile switched': 'Профиль переключён',
+	'card re-initialized': 'карта переинициализирована',
+	'REFRESH received': 'получен REFRESH',
+	'Profile switch failed': 'Не удалось переключить профиль',
 	'No commands logged yet.': 'Команды пока не регистрировались.',
 	'Send event notification to the card?': 'Отправить уведомление о событии на карту?',
 	'This event type is not yet supported.': 'Этот тип события пока не поддерживается.',
@@ -13691,6 +13981,11 @@ function refreshDynamicI18n() {
 			pysimProactiveLogRender();
 		}
 		if (isViewVisible('phone-sub-tr')) pysimPliRender();
+		if (isViewVisible('phone-sub-esim')) {
+			esimRenderChip();
+			esimRenderProfiles();
+			esimRenderNotifications();
+		}
 	}
 }
 

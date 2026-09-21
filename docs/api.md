@@ -31,6 +31,10 @@ a 2.x PWA).
 | `/api/write` | POST | Write raw hex data to a file |
 | `/api/apdu` | POST | Raw APDU send |
 | `/api/verify-adm` | POST | Verify the card's ADM PIN (from the matched card preset) |
+| `/api/esim/chip` | GET | eUICC chip details (EID, EUICCInfo1/2, configured addresses) |
+| `/api/esim/profiles` | GET | Installed eSIM profiles with their metadata |
+| `/api/esim/notifications` | GET | Pending eSIM notifications (read-only) |
+| `/api/esim/profile` | POST | Enable/disable an eSIM profile (card re-initialized after the switch) |
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
@@ -161,6 +165,37 @@ On a wrong key (`63Cx`, x attempts left):
 
 A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
 "blocked": true}` and cannot be recovered without the card's unblock key.
+
+### eSIM / LPA (local ES10 operations)
+
+These endpoints work only when the equipped card is an eUICC (SGP.22/32);
+otherwise they answer `400` with `{"error": "The equipped card is not an
+eUICC"}`.  They use pySim's ES10 static API — no lpac, no SM-DP+ contact, no
+profile downloads and no notification processing.  All run under the card
+lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
+
+- `GET /api/esim/chip` — `{"eid": "8904…", "info1": {…}, "info2": {…},
+  "addresses": {"default_dp_address": …, "root_ds_address": …},
+  "errors": {"<part>": "<reason>"}}` (a part the card does not support is
+  reported in `errors` instead of failing the whole request).
+- `GET /api/esim/profiles` — `{"profiles": [{"iccid": "8970…",
+  "isdp_aid": "A000…", "state": "enabled"|"disabled", "nickname": …,
+  "provider": …, "name": …, "class": "test"|"provisioning"|"operational",
+  "owner": "250-99", "icon_type": "png"|"jpg"}], "error": null}`.
+- `GET /api/esim/notifications` — `{"notifications": [{"seq_number": 3,
+  "operations": ["enable"], "address": "smdp.example.org",
+  "iccid": "8970…"}], "error": null}`.
+- `POST /api/esim/profile` — `{"action": "enable"|"disable", "iccid"?: …,
+  "isdp_aid"?: …, "refresh"?: true}` (one identifier required).  The card
+  usually answers with a REFRESH proactive command first (logged in
+  `/api/proactive-log`); after a successful switch — or whenever a REFRESH
+  was seen — the server re-initializes the card like an equip (reset,
+  re-read ICCID/network state, new `card_session`) and returns
+  `{"ok": true, "result": "ok", "refresh_seen": true, "reinitialized": true,
+  "iccid": …, "card_session": N}`.  Failures carry the ES10c result code
+  (`iccidOrAidNotFound`, `profileNotInDisabledState`,
+  `profileNotInEnabledState`, `disallowedByPolicy`, `wrongProfileReenabling`,
+  `catBusy`, `undefinedError`) and a short `message`.
 
 ### `POST /api/help`
 
