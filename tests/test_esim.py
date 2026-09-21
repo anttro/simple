@@ -161,6 +161,34 @@ class EsimTests(unittest.TestCase):
             'address': 'smdp.example.org', 'iccid': '8970119000004002667',
         }])
 
+    def test_notifications_parses_operations_from_the_card_tlv(self):
+        # The card's ProfileMgmtOperation TLV (padding octet + flags octet,
+        # SGP.22 5.7.9) nests the flags under 'pmo' when pySim parses it.
+        app, _ = make_app()
+        address = '6D6E6F2D30302E6573696D73657276696365732E636F6D'  # mno-00.esimservices.com
+        meta = _tlv(0xBF2F, _tlv(0x80, '00') + _tlv(0x81, '0140')
+                    + _tlv(0x0C, address) + _tlv(0x5A, '980711090000042066F7'))
+        resp = ListNotificationResp()
+        resp.from_tlv(bytes.fromhex(_tlv(0xBF28, _tlv(0xA0, meta))))
+        self.patch([resp])
+        out = esim.notifications(app)
+        self.assertIsNone(out['error'])
+        self.assertEqual(out['notifications'], [{
+            'seq_number': 0, 'operations': ['enable'],
+            'address': 'mno-00.esimservices.com',
+            'iccid': '8970119000004002667',
+        }])
+
+    def test_profile_operations_handles_both_shapes(self):
+        self.assertEqual(esim._profile_operations(
+            {'pmo': {'install': False, 'enable': True, 'disable': False,
+                     'delete': True}}), ['enable', 'delete'])
+        self.assertEqual(esim._profile_operations(
+            {'install': True, 'enable': False, 'disable': False, 'delete': False}),
+            ['install'])
+        self.assertEqual(esim._profile_operations(None), [])
+        self.assertEqual(esim._profile_operations('pmo'), [])
+
     def test_chip_info_collects_parts_and_errors(self):
         app, _ = make_app()
         self.patch_eid('89049032000000000000000000000001')

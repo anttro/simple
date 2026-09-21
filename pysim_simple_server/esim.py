@@ -436,6 +436,21 @@ def profiles(app):
     return {'profiles': out, 'error': None}
 
 
+# ProfileMgmtOperation flags in bit order (SGP.22 §5.7.9).  The TLV carries a
+# padding-bits octet followed by the flags octet, so a TLV parsed from the
+# card nests the flags under 'pmo' while an object built from decoded flags
+# carries them directly.
+PROFILE_MGMT_OPERATIONS = ('install', 'enable', 'disable', 'delete')
+
+
+def _profile_operations(op):
+    """ProfileMgmtOperation flags -> operation names ([] when unknown)."""
+    if not isinstance(op, dict):
+        return []
+    flags = op.get('pmo') if isinstance(op.get('pmo'), dict) else op
+    return [name for name in PROFILE_MGMT_OPERATIONS if flags.get(name)]
+
+
 def notifications(app):
     """ES10b ListNotification: read-only list of pending notifications."""
     resp = _transceive(app, ListNotificationReq(), ListNotificationResp)
@@ -446,11 +461,9 @@ def notifications(app):
     lst = flat.get('notification_metadata_list')
     out = []
     for n in _repeated(lst, 'notification_metadata'):
-        op = n.get('profile_mgmt_operation')
-        operations = sorted(k for k, v in op.items() if v) if isinstance(op, dict) else []
         out.append({
             'seq_number': n.get('seq_number'),
-            'operations': operations,
+            'operations': _profile_operations(n.get('profile_mgmt_operation')),
             'address': n.get('notification_address'),
             'iccid': n.get('iccid'),
         })

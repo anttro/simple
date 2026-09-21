@@ -232,7 +232,9 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
   card sent no icon.
 - `GET /api/esim/notifications` — `{"notifications": [{"seq_number": 3,
   "operations": ["enable"], "address": "smdp.example.org",
-  "iccid": "8970…"}], "error": null}`.
+  "iccid": "8970…"}], "error": null}`.  `operations` are the decoded
+  `ProfileMgmtOperation` flags (`install`, `enable`, `disable`, `delete`, in
+  that order) — one or more per notification.
 - `POST /api/esim/profile` — `{"action": "enable"|"disable", "iccid"?: …,
   "isdp_aid"?: …, "refresh"?: true}` (one identifier required).  With the
   refresh flag set the ISD-R returns OK *before* the REFRESH (SGP.22 v2.6
