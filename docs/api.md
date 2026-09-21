@@ -13,8 +13,8 @@ on the preflight), so the API is reachable from a separately-hosted PWA.
 | newer major | any | ⚠️ Server newer — update PWA |
 
 The server reports its version via `GET /api/version`. The PWA checks this on
-connect and compares the major version (a 1.x server is flagged as outdated by
-a 2.x PWA).
+connect and compares the major version (a 2.x server is flagged as outdated by
+a 3.x PWA).
 
 ## Endpoints
 
@@ -46,6 +46,8 @@ a 2.x PWA).
 | `/api/events` | GET | Event list from SET UP EVENT LIST |
 | `/api/event-send` | POST | Send ENVELOPE(Event Download) |
 | `/api/net-sim` | POST | Run a network-condition scenario (attach, service loss, roaming, churn, 2G, SMS, CB, AUTHENTICATE) |
+| `/api/net-state` | GET | Cached network-state monitor (service, location, per-file state) |
+| `/api/net-state-refresh` | POST | Re-read the monitored files (optional `files` list) and return the updated monitor state |
 | `/api/mcc-mnc` | GET | Search the optional MCC/MNC operator list (`?q=`; `?random=1&exclude=`) |
 | `/api/proactive-log` | GET | Last 50 proactive commands |
 | `/api/status-poll` | POST | Manual STATUS poll + FETCH if 91XX |
@@ -74,7 +76,7 @@ Returns server version for compatibility checking.
 
 **Example response:**
 ```json
-{"version": "2.1.2"}
+{"version": "3.0.1"}
 ```
 
 ### `GET /api/status`
@@ -82,8 +84,12 @@ Returns server version for compatibility checking.
 Card reader, card type, current selection, and card state. Reported fields:
 `reader`, `connected`, `card_present`, `card_session` (increments on every
 equip/disconnect), `proactive_seq`, `equipping`, `auto_equip`, `card`,
-`profile`, `iccid`, `app_ready`, `adm_verified`, `atr`, `cla_byte`,
-`sel_ctrl`, `current_selection`, `channels`.
+`profile`, `eid`, `euicc`, `iccid`, `app_ready`, `adm_verified`, `atr`,
+`cla_byte`, `sel_ctrl`, `current_selection`, `channels`.
+
+`eid` is the eUICC identifier read from the ISD-R at equip (`null` for a
+non-eUICC card) and `euicc` says whether the equipped card is an eUICC
+(SGP.22/32); both are used by the PWA's eSIM view.
 
 `iccid` is the E.118 digit string read from EF.ICCID (MF/2FE2) when the card is
 equipped, or `null` when it is not connected / the card does not let the
@@ -486,6 +492,24 @@ event byte values, or `[]` when none was received).
 
 Sends an `ENVELOPE(Event Download)` for a subscribed event.
 
+```json
+{"event_type": 4, "event_data": "01A0"}
+```
+
+`event_type` is required (the SET UP EVENT LIST event byte); `event_data` is
+optional hex for events that carry data. Returns the SW and any response data:
+
+```json
+{"sw": "9000", "data": "..."}
+```
+
+Channel status (event `0x0A`, TS 102 223 §8.56) carries the Channel status TLV
+`B8 02 <status> <info>`, where the status byte is the channel id (1–7) OR-ed
+with the state bits (0x00 link not established / 0x40 TCP LISTEN / 0x80 link
+established) and the info byte is `00` (no further info) or `05` (link
+dropped). The server also sends this event automatically when a BIP link drops
+outside a proactive command and the card subscribed to `0x0A`.
+
 ### `POST /api/net-sim`
 
 Runs one network-condition scenario from `projects/UICC_NAA.md` section 13
@@ -505,26 +529,64 @@ Scenarios: `cold_boot`, `attach_eps`, `attach_2g`, `service_lost`,
 `invalidate_epsnsc`, `keep_kasme`, `write_kc`, `sms_location`, `cb_clear`
 (empty identity values are randomized). The event step is skipped when the
 card did not subscribe to Location status; only UPDATE BINARY/RECORD,
-ENVELOPE and AUTHENTICATE are sent (never FPLMN/5GS location files). The
-response is `{success, error, steps:[{action, file, path, data, sw, ok}]}`.
+ENVELOPE and AUTHENTICATE are sent — EF.FPLMN is appended only by
+`roaming_denied` (shift-list semantics of TS 31.102 §4.2.16, duplicates
+skipped) and an attach to a listed PLMN clears its entry first (successful
+manual selection, TS 23.122), while the 5GS location files are never written.
+The response is `{success, error, steps:[{action, file, path, data, sw, ok}],
+net_state}` where `net_state` is the updated monitor state (see
+`GET /api/net-state`).
+
+### `GET /api/net-state`
+
+Returns the cached **network-state monitor** — the panel the PWA's Phone tab
+shows next to the simulation buttons. The state is created when a card is
+equipped (only when EF.ICCID was readable) and is updated in place from the
+bytes the network simulation wrote, so this endpoint performs no card I/O:
 
 ```json
-{"event_type": 4, "event_data": "01A0"}
+{"available": true, "state": {
+   "files": {"imsi": {"name": "EF.IMSI", "fid": "6F07",
+                      "path": "ADF.USIM/6F07", "present": true,
+                      "source": "init", "updated": 1758396000.0,
+                      "kind": "transparent", "data": "0829051032547698"},
+             "epsnsc": {"kind": "record",
+                        "records": [{"num": 1, "data": "..."}]}},
+   "service": {"state": "normal", "source": "service_lost",
+               "time": 1758396123.0},
+   "network": {"service": {"state": "normal"},
+               "location": {"plmn": "26201", "mcc": "262", "mnc": "01",
+                            "area": "6CD7", "lac": "6CD7",
+                            "country": "Germany", "operator": "Telekom",
+                            "roaming": "home", "rejected": false,
+                            "source": "write"},
+               "home": "26201"},
+   "read_at": 1758396000.0}}
 ```
 
-`event_type` is required (the SET UP EVENT LIST event byte); `event_data` is
-optional hex for events that carry data. Returns the SW and any response data:
+`available: false` with `state: null` means no monitor state exists yet (no
+card equipped or EF.ICCID not readable). `service.state` is the simulated
+service state (`normal` / `limited` / `none`, `null` until a scenario or a
+Location status event sets it); `network.location.roaming` is `home` /
+`equivalent` / `guest` against EF.HPLMNwAcT and EF.EHPLMN, and `rejected` is
+set when the location files or EF.FPLMN show a permanent rejection.
+Monitored file keys: `imsi`, `ehplmn`, `spdi`, `hplmnwact`, `loci`, `psloci`,
+`epsloci`, `epsnsc`, `cbmi`, `cbmir`, `smsstatus`, `fplmn`; each entry's
+`source` is `init` (equip read), `read`, `refresh` or `write` (patched from
+the simulator's own writes). The PWA decodes the entries client-side.
+
+### `POST /api/net-state-refresh`
+
+Re-reads the monitored files from the card, merges them into the cached state
+(`source: refresh`) and returns the same shape as `GET /api/net-state`. The
+optional body filters the read:
 
 ```json
-{"sw": "9000", "data": "..."}
+{"files": ["imsi", "loci", "epsnsc"]}
 ```
 
-Channel status (event `0x0A`, TS 102 223 §8.56) carries the Channel status TLV
-`B8 02 <status> <info>`, where the status byte is the channel id (1–7) OR-ed
-with the state bits (0x00 link not established / 0x40 TCP LISTEN / 0x80 link
-established) and the info byte is `00` (no further info) or `05` (link
-dropped). The server also sends this event automatically when a BIP link drops
-outside a proactive command and the card subscribed to `0x0A`.
+Without a body all monitored files are re-read. Answers `503` when the reader
+is not initialized.
 
 ### `GET /api/proactive-log`
 
