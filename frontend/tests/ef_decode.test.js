@@ -73,6 +73,28 @@ test('efAnnexA decodes GSM7 octets, UCS2 and packed variants', () => {
 	assert.strictEqual(efAnnexA(efBytes('FFFFFFFF')), '');
 });
 
+test('efPnnText uses the spare-bit count (TS 24.008 10.5.3.5a)', () => {
+	// Live card EF.PNN records: coding octet + packed GSM-7 text.  The spare
+	// bits in the coding octet give the exact character count, so the zero
+	// padding must not decode as a trailing '@' (record 2 was 'Miranda@').
+	const cases = [
+		['8441b6390c', 'Alfa'],
+		['87cdb43cec268701', 'Miranda'],
+		['83d7b41b', 'Win'],
+		['83cdb41c442db3cbeb771b', 'Mir Telekom'],
+		['82ab1b885a6697d7ef36', '+7 Telekom'],
+		['85c6b23b8d07', 'Fenix'],
+		['83cde514', 'MKS'],
+	];
+	for (const [hex, text] of cases) {
+		assert.strictEqual(efPnnText(efBytes(hex)), text, hex);
+	}
+	// UCS2 coding scheme (octet 3 bits 5-7 = 001)
+	assert.strictEqual(efPnnText(efBytes('91004d006900720061006e00640061')), 'Miranda');
+	// a final <CR> used as padding is removed (TS 23.038 6.1.2.1.1)
+	assert.strictEqual(gsm7Decode(efBytes('cdb43cec26871b'), 8), 'Miranda');
+});
+
 test('EF decoders match the pinned spec / pySim test vectors', () => {
 	assert.deepStrictEqual(efDecIccid(efBytes('988812010000400310f0')), { iccid: '8988211000000430010' });
 	assert.deepStrictEqual(efDecImsi(efBytes('082982608200002080')), { imsi: '228062800000208' });

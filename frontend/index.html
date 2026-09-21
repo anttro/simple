@@ -1414,7 +1414,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '2.7.20';
+const SIMPLE_VERSION = '2.7.21';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -3767,16 +3767,22 @@ function decodePrivileges(hex) {
 	return parts.join(', ') || 'None';
 }
 
-function gsm7Decode(octets) {
+// GSM 03.38 7-bit unpacking.  `septets` (optional) is the exact character
+// count — the Network Name coding carries the number of spare bits, so the
+// zero padding must not decode as a trailing '@'.  A final <CR> used as
+// padding (TS 23.038 6.1.2.1.1) is removed when the count is known.
+function gsm7Decode(octets, septets) {
 	const bits = [];
 	for (const b of octets) {
 		for (let j = 0; j < 8; j++) bits.push((b >> j) & 1);
 	}
+	const max = Math.floor(bits.length / 7);
+	const count = septets === undefined ? max : Math.min(septets, max);
 	let out = '';
 	let escape = false;
-	for (let i = 0; i + 7 <= bits.length; i += 7) {
+	for (let i = 0; i < count; i++) {
 		let septet = 0;
-		for (let j = 0; j < 7; j++) septet |= bits[i + j] << j;
+		for (let j = 0; j < 7; j++) septet |= bits[i * 7 + j] << j;
 		if (escape) {
 			const ext = Object.entries(GSM7_EXT_MAP).find(([,v]) => v === septet);
 			out += ext ? ext[0] : '?';
@@ -3787,6 +3793,7 @@ function gsm7Decode(octets) {
 			out += septet < GSM7_ALPHABET.length ? GSM7_ALPHABET[septet] : '?';
 		}
 	}
+	if (septets !== undefined && out.endsWith('\r')) out = out.slice(0, -1);
 	return out;
 }
 
@@ -12058,10 +12065,15 @@ function efPlmnAct(u16) {
 }
 
 // TS 23.038 Network Name (DCS byte + text) from EF_PNN.
+// TS 24.008 10.5.3.5a Network Name (the EF.PNN 43/45 TLV value): the first
+// byte is the coding octet — bit 8 ext, bits 5-7 coding scheme (000 GSM
+// 7-bit, 001 UCS2), bit 4 Add CI, bits 1-3 the number of spare bits in the
+// last octet (the value is the count, 1-7; 000 = no information).
 function efPnnText(value) {
 	if (value.length < 2) return '';
 	const dcs = value[0];
 	const coding = (dcs >> 4) & 0x07;
+	const spare = dcs & 0x07;
 	let data = efRstripFf(value.subarray(1));
 	if (coding === 1) {
 		for (let i = 0; i + 1 < data.length; i += 2) {
@@ -12072,7 +12084,11 @@ function efPnnText(value) {
 	if (coding === 0) {
 		let allLow = data.length > 0;
 		for (let i = 0; i < data.length; i++) if (data[i] >= 0x80) { allLow = false; break; }
-		return allLow ? efGsm7Octets(data) : gsm7Decode(data);
+		if (allLow) return efGsm7Octets(data);
+		const nbits = data.length * 8;
+		const septets = spare > 0 ? Math.floor((nbits - spare) / 7)
+			: Math.floor(nbits / 7);
+		return gsm7Decode(data, septets);
 	}
 	return '';
 }
