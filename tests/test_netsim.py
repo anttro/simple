@@ -191,6 +191,17 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(sync['objects'], ['CC' * 16])
         self.assertIsNone(netsim.parse_auth_response('9000'))
 
+    def test_authenticate_2g_apdu_and_response(self):
+        # SIM cards use the 2G AUTHENTICATE: P1/P2 00, RAND only
+        self.assertEqual(netsim.build_auth_apdu_gsm('11' * 16),
+                         'A088000010' + '11' * 16)
+        parsed = netsim.parse_auth_response('AABBCCDD' + '1122334455667788',
+                                            gsm=True)
+        self.assertEqual(parsed, {'type': 'gsm', 'sres': 'AABBCCDD',
+                                  'kc': '1122334455667788'})
+        # a truncated 2G response is not parsed
+        self.assertIsNone(netsim.parse_auth_response('AABBCCDD', gsm=True))
+
 
 class FakeFileInfo:
     def __init__(self, size=None, record_len=None, num=1, data=''):
@@ -429,6 +440,23 @@ class RunnerTests(unittest.TestCase):
         step = [s for s in out['steps'] if s['action'] == 'authenticate'][0]
         self.assertEqual(step['sw'], '9000')
         self.assertEqual(step['parsed']['type'], 'success')
+
+    def test_authenticate_uses_the_2g_command_for_a_sim_cla(self):
+        runner, lchan, srv = make_runner()
+        scc = srv._server_ref.scc
+        scc.cla_byte = 'a0'          # a SIM card session
+        sent = []
+        def _send(apdu):
+            sent.append(apdu)
+            return 'AABBCCDD' + '11' * 8, '9000'
+        scc._tp.send_apdu = _send
+        out = runner.run('authenticate')
+        self.assertTrue(out['success'])
+        self.assertTrue(sent[0].startswith('A088000010'), sent[0])
+        step = [s for s in out['steps'] if s['action'] == 'authenticate'][0]
+        self.assertEqual(step['sw'], '9000')
+        self.assertEqual(step['parsed'],
+                         {'type': 'gsm', 'sres': 'AABBCCDD', 'kc': '11' * 8})
 
     def test_unknown_scenario_raises(self):
         runner, _lchan, _srv = make_runner()

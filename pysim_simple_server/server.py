@@ -26,7 +26,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '2.7.19'
+VERSION = '2.7.20'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2698,6 +2698,15 @@ def _verify_adm(scc, app, adm_hex):
     remaining attempts: every failed VERIFY consumes one, and a blocked ADM
     cannot be recovered from here (it needs the unblock key).
     """
+    # Use the card's own logical channel, exactly like pySim-shell's
+    # verify_adm.  server.scc can still be the startup placeholder (SIM CLA)
+    # when no equip has happened yet, and a UICC then answers 6E00.
+    rs = getattr(app, 'rs', None)
+    lchan = rs.lchan[0] if rs is not None and getattr(rs, 'lchan', None) else None
+    card_scc = (getattr(lchan, 'scc', None)
+                or getattr(getattr(app, 'card', None), '_scc', None))
+    if card_scc is not None:
+        scc = card_scc
     chv = getattr(getattr(app, 'card', None), '_adm_chv_num', 0x0A)
     fc = rpad(str(adm_hex).lower(), 16)
     _data, sw = scc.send_apdu(scc.cla_byte + '2000' + ('%02X' % chv) + '08' + fc)

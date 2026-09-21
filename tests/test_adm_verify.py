@@ -77,6 +77,23 @@ class AdmVerifyTests(unittest.TestCase):
         self.assertEqual(out, {'adm': '<redacted>', 'psk_hex': '<redacted>', 'other': 'x'})
         self.assertEqual(server._redact_psk_fields({'adm': ''}), {'adm': ''})
 
+    def test_verify_adm_uses_the_cards_own_channel(self):
+        # server.scc can be the startup placeholder left at the SIM CLA ('a0')
+        # while the card is a UICC: the VERIFY must go out through the card's
+        # own channel (CLA 00), exactly like pySim-shell's verify_adm.
+        stale = FakeScc('6E00')
+        stale.cla_byte = 'a0'
+        card_scc = FakeScc('9000')
+        card_scc.cla_byte = '00'
+        app = SimpleNamespace(
+            card=SimpleNamespace(_adm_chv_num=0x0A, _scc=card_scc),
+            rs=SimpleNamespace(adm_verified=False,
+                               lchan=[SimpleNamespace(scc=card_scc)]))
+        res = server._verify_adm(stale, app, '0011')
+        self.assertEqual(res, {'ok': True, 'sw': '9000'})
+        self.assertEqual(card_scc.apdus, ['0020000A08' + '0011' + 'f' * 12])
+        self.assertEqual(stale.apdus, [])
+
 
 if __name__ == '__main__':
     unittest.main()

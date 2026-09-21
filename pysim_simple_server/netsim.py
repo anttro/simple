@@ -336,15 +336,30 @@ def build_auth_apdu(rand_hex, autn_hex, cla='00'):
     rand = bytes.fromhex(_norm_hex(rand_hex, 16))
     autn = bytes.fromhex(_norm_hex(autn_hex, 16))
     body = bytes([len(rand)]) + rand + bytes([len(autn)]) + autn
-    return '%s880081%02X%s' % (cla, len(body), body.hex().upper())
+    return '%s880081%02X%s' % (cla.upper(), len(body), body.hex().upper())
 
 
-def parse_auth_response(data_hex):
-    """Parse the AUTHENTICATE response: DB (success) or DC (sync failure)."""
+def build_auth_apdu_gsm(rand_hex, cla='a0'):
+    """2G AUTHENTICATE (GSM 11.11 8.8): P1/P2 00, Lc 0x10, RAND only.
+
+    The response is SRES (4 B) followed by Kc (8 B).
+    """
+    rand = bytes.fromhex(_norm_hex(rand_hex, 16))
+    return '%s88000010%s' % (cla.upper(), rand.hex().upper())
+
+
+def parse_auth_response(data_hex, gsm=False):
+    """Parse the AUTHENTICATE response: DB (success) or DC (sync failure) for
+    3G/EPS/5G, SRES||Kc for the 2G SIM command."""
     try:
         data = bytes.fromhex(_norm_hex(data_hex or ''))
     except ValueError:
         return None
+    if gsm:
+        if len(data) < 12:
+            return None
+        return {'type': 'gsm', 'sres': data[0:4].hex().upper(),
+                'kc': data[4:12].hex().upper()}
     if not data or data[0] not in (0xDB, 0xDC):
         return None
     out = {'type': 'success' if data[0] == 0xDB else 'synchronisation_failure'}
@@ -815,11 +830,17 @@ class NetSimRunner:
         autn = self.p('autn') or rand_hex(16)
         if not self.scc:
             raise StepError('card session not available')
-        apdu = build_auth_apdu(rand, autn)
+        # The command follows the card's class: a UICC gets the 3G/EPS/5G
+        # AUTHENTICATE (P2 81, RAND + AUTN), a SIM the 2G one (P1/P2 00,
+        # RAND only, SRES + Kc in the response).
+        cla = (getattr(self.scc, 'cla_byte', None) or '00').upper()
+        gsm = cla == 'A0'
+        apdu = (build_auth_apdu_gsm(rand, cla) if gsm
+                else build_auth_apdu(rand, autn, cla))
         data, sw = self.scc._tp.send_apdu(apdu)
         if sw.startswith('61'):
-            data, sw = self.scc._tp.send_apdu('00C00000' + sw[2:4])
-        parsed = parse_auth_response(data)
+            data, sw = self.scc._tp.send_apdu(cla + 'C00000' + sw[2:4])
+        parsed = parse_auth_response(data, gsm=gsm)
         self._add('authenticate', data=apdu, response=(data or '').upper(),
                   parsed=parsed, sw=sw, ok=True)
 

@@ -138,6 +138,11 @@ def main():
                 sys.stderr.write('INIT: no card in the reader — server ready; insert a card or press Equip\n')
         _tlog('card_init: %.0fms' % ((time.time() - t_phase) * 1000))
         if card is not None:
+            # Fast init builds the card on its own SimCardCommands instance;
+            # adopt it so server.scc carries the card's cla_byte/sel_ctrl (the
+            # placeholder created above is a different object left at the SIM
+            # defaults, which made VERIFY go out with CLA A0 on a UICC).
+            scc = card._scc
             scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
     except Exception:
         print("Warning: reader/card initialization failed:", file=sys.stderr)
