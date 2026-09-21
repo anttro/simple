@@ -27,7 +27,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '2.8.1'
+VERSION = '3.0.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -3516,6 +3516,74 @@ class PysimHandler(BaseHTTPRequestHandler):
             }
             self._send_json(data)
             self._log_resp(data)
+        elif self.path == '/api/esim/chip':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.chip_info(app)
+                self._send_json(resp)
+                self._log_resp({'eid': resp.get('eid'), 'errors': resp.get('errors')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM chip: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/profiles':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.profiles(app)
+                self._send_json(resp)
+                self._log_resp({'profiles': len(resp.get('profiles') or []),
+                                'error': resp.get('error')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM profiles: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+        elif self.path == '/api/esim/notifications':
+            app = self.server.app
+            if not app or not self.server.scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            self._log_req()
+            if not esim.is_euicc(app):
+                resp = {'error': _err('not_an_euicc', lang)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                with _CARD_LOCK:
+                    resp = esim.notifications(app)
+                self._send_json(resp)
+                self._log_resp({'notifications': len(resp.get('notifications') or []),
+                                'error': resp.get('error')})
+            except Exception as e:
+                resp = {'error': str(e)}
+                sys.stderr.write('ESIM notifications: %s\n' % e)
+                self._send_json(resp, 500)
+                self._log_resp(resp)
         elif self.path == '/api/commands':
             self._log_req()
             app = self.server.app
@@ -3710,74 +3778,6 @@ class PysimHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 resp = {'ok': False, 'error': str(e)}
                 sys.stderr.write('VERIFY ADM → ERROR: %s\n' % e)
-                self._send_json(resp, 500)
-                self._log_resp(resp)
-        elif self.path == '/api/esim/chip':
-            app = self.server.app
-            if not app or not self.server.scc:
-                self._send_json({'error': _err('reader_not_init', lang)}, 503)
-                self._log_resp({'error': _err('reader_not_init', lang)})
-                return
-            self._log_req()
-            if not esim.is_euicc(app):
-                resp = {'error': _err('not_an_euicc', lang)}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-            try:
-                with _CARD_LOCK:
-                    resp = esim.chip_info(app)
-                self._send_json(resp)
-                self._log_resp({'eid': resp.get('eid'), 'errors': resp.get('errors')})
-            except Exception as e:
-                resp = {'error': str(e)}
-                sys.stderr.write('ESIM chip: %s\n' % e)
-                self._send_json(resp, 500)
-                self._log_resp(resp)
-        elif self.path == '/api/esim/profiles':
-            app = self.server.app
-            if not app or not self.server.scc:
-                self._send_json({'error': _err('reader_not_init', lang)}, 503)
-                self._log_resp({'error': _err('reader_not_init', lang)})
-                return
-            self._log_req()
-            if not esim.is_euicc(app):
-                resp = {'error': _err('not_an_euicc', lang)}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-            try:
-                with _CARD_LOCK:
-                    resp = esim.profiles(app)
-                self._send_json(resp)
-                self._log_resp({'profiles': len(resp.get('profiles') or []),
-                                'error': resp.get('error')})
-            except Exception as e:
-                resp = {'error': str(e)}
-                sys.stderr.write('ESIM profiles: %s\n' % e)
-                self._send_json(resp, 500)
-                self._log_resp(resp)
-        elif self.path == '/api/esim/notifications':
-            app = self.server.app
-            if not app or not self.server.scc:
-                self._send_json({'error': _err('reader_not_init', lang)}, 503)
-                self._log_resp({'error': _err('reader_not_init', lang)})
-                return
-            self._log_req()
-            if not esim.is_euicc(app):
-                resp = {'error': _err('not_an_euicc', lang)}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-            try:
-                with _CARD_LOCK:
-                    resp = esim.notifications(app)
-                self._send_json(resp)
-                self._log_resp({'notifications': len(resp.get('notifications') or []),
-                                'error': resp.get('error')})
-            except Exception as e:
-                resp = {'error': str(e)}
-                sys.stderr.write('ESIM notifications: %s\n' % e)
                 self._send_json(resp, 500)
                 self._log_resp(resp)
         elif self.path == '/api/esim/profile':

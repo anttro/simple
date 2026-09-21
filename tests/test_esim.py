@@ -6,6 +6,7 @@ monkeypatched with canned responses, so the mapping to the JSON API and the
 ISD-R selection/restore logic are tested without hardware.
 """
 
+import inspect
 import unittest
 from types import SimpleNamespace
 
@@ -190,6 +191,19 @@ class EsimTests(unittest.TestCase):
         app, _ = make_app(isdr=False)
         with self.assertRaises(esim.EsimError):
             esim.chip_info(app)
+
+
+class EsimRoutingTests(unittest.TestCase):
+    def test_esim_routes_are_in_the_right_http_handlers(self):
+        from pysim_simple_server import server
+        get_src = inspect.getsource(server.PysimHandler._do_GET)
+        post_src = inspect.getsource(server.PysimHandler._do_POST)
+        for route in ('/api/esim/chip', '/api/esim/profiles',
+                      '/api/esim/notifications'):
+            self.assertIn("self.path == '%s'" % route, get_src, route)
+            self.assertNotIn("self.path == '%s'" % route, post_src, route)
+        self.assertIn("self.path == '/api/esim/profile'", post_src)
+        self.assertNotIn("self.path == '/api/esim/profile'", get_src)
 
 
 if __name__ == '__main__':
