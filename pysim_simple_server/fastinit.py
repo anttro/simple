@@ -80,6 +80,18 @@ def pick_profile_no_reset(scc):
         scc.reset_card = original_reset
 
 
+def _restore_mf_after_probe(scc):
+    """Probing can leave an ADF (e.g. ISD-R on an eUICC) selected.  The
+    RuntimeState construction selects MF by FID, which some cards refuse from
+    within an ADF (6A82), so restore it here: the cheap select keeps the
+    reset-free path for normal cards, the physical reset covers the rest."""
+    try:
+        scc.select_file('3f00')
+    except SwMatchError:
+        sys.stderr.write('FAST-INIT: MF restore after probing failed; physical reset\n')
+        scc.reset_card()
+
+
 def init_card_fast(sl, skip_card_init=False, wait=True):
     """Replacement for pySim.app.init_card() that avoids redundant resets.
 
@@ -112,6 +124,11 @@ def _init_card_once(sl, skip_card_init, wait):
     if profile is None:
         return None, card
 
+    # A successful probe may leave an ADF selected (e.g. ISD-R on an eUICC);
+    # RuntimeState selects MF by FID and would fail on cards that refuse that
+    # from within an ADF.
+    _restore_mf_after_probe(scc)
+
     if generic_card and isinstance(profile, CardProfileUICC):
         card._adm_chv_num = 0x0A
 
@@ -137,7 +154,9 @@ def _init_card_once(sl, skip_card_init, wait):
         except SwMatchError:
             pass
         finally:
-            rs.soft_reset()
+            # rs.reset() tries the reset-free soft reset first and escalates
+            # to a physical reset when MF cannot be selected from the ADF.
+            rs.reset()
 
     return rs, card
 

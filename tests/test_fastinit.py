@@ -24,17 +24,21 @@ from pysim_simple_server.fastinit import (
 
 
 class FakeScc:
-    def __init__(self):
+    def __init__(self, mf_select_error=False):
         self.sel_ctrl = '0004'
         self.cla_byte = '00'
         self.resets = 0
         self.selected = []
+        self.mf_select_error = mf_select_error
 
     def reset_card(self):
         self.resets += 1
 
     def select_file(self, fid):
         self.selected.append(fid)
+        if fid == '3f00' and self.mf_select_error:
+            # eUICC with the ISD-R ADF selected: MF is not selectable by FID
+            raise SwMatchError('6a82', '9000')
         return ('', '9000')
 
     def select_adf(self, aid):
@@ -53,6 +57,19 @@ class TestPickProfileNoReset(unittest.TestCase):
         scc = FakeScc()
         pick_profile_no_reset(scc)
         scc.reset_card()
+        self.assertEqual(scc.resets, 1)
+
+
+class TestRestoreMfAfterProbe(unittest.TestCase):
+    def test_normal_card_keeps_the_reset_free_path(self):
+        scc = FakeScc()
+        fastinit._restore_mf_after_probe(scc)
+        self.assertEqual(scc.resets, 0)
+        self.assertEqual(scc.selected[-1], '3f00')
+
+    def test_adf_selected_card_falls_back_to_a_physical_reset(self):
+        scc = FakeScc(mf_select_error=True)
+        fastinit._restore_mf_after_probe(scc)
         self.assertEqual(scc.resets, 1)
 
 
