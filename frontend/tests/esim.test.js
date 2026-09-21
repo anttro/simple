@@ -24,7 +24,7 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['esimLabel', 'esimGroupEid', 'esimFieldRows', 'esimResultText',
 	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimIconDataUrl',
-	'esimChipSectionRows', 'esimChipBox', 'esimSwitchStatus']) {
+	'esimChipSectionRows', 'esimChipValueWide', 'esimChipBox', 'esimSwitchStatus']) {
 	code += extractFunc(html, fn) + '\n';
 }
 for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
@@ -177,6 +177,40 @@ test('the chip boxes prefer wrapping at spaces over breaking words', () => {
 	assert.doesNotMatch(box, /break-all/);
 	const render = extractFunc(html, 'esimRenderProfiles');
 	assert.doesNotMatch(render, /break-all/);
+});
+
+test('esimChipValueWide keeps short scalars in one column', () => {
+	assert.strictEqual(esimChipValueWide('Profile version', '2.3.1'), false);
+	assert.strictEqual(
+		esimChipValueWide('Card resource / Free non-volatile memory', '439084'), false);
+	assert.strictEqual(esimChipValueWide('SS accreditation number', 'ED-ZI-UP-0826'), false);
+	assert.strictEqual(
+		esimChipValueWide('RSP capability', 'additionalProfile, testProfileSupport'), true);
+	assert.strictEqual(
+		esimChipValueWide('CI PKI (verification) / Subject key identifier',
+			'81370F5125D0B1D408D4C3B232E6D25E795BEBFB'), true);
+});
+
+test('esimChipBox lays short fields out in two columns', () => {
+	const box = esimChipBox('EUICCInfo2', [
+		['Profile version', '2.3.1'], ['SVN', '2.2.2'],
+		['UICC capability', 'usimSupport, isimSupport'],
+	], true);
+	assert.match(box, /sm:grid-cols-2/);
+	const cells = box.match(/<div class="flex gap-2[^"]*"/g);
+	assert.deepStrictEqual(cells, [
+		'<div class="flex gap-2 min-w-0"',
+		'<div class="flex gap-2 min-w-0"',
+		'<div class="flex gap-2 min-w-0 sm:col-span-2"',
+	]);
+	const one = esimChipBox('EUICCInfo1', [['SVN', '2.2.2']]);
+	assert.doesNotMatch(one, /sm:grid-cols-2/);
+	assert.match(one, /flex gap-2 mb-0\.5/);
+});
+
+test('the chip view renders EUICCInfo2 in two columns', () => {
+	const fn = extractFunc(html, 'esimRenderChip');
+	assert.match(fn, /esimChipBox\('EUICCInfo2', esimChipSectionRows\(c\.info2\), true\)/);
 });
 
 test('the chip view groups the sections into a grid', () => {
