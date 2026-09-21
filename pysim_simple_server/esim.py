@@ -13,6 +13,7 @@ restored afterwards.  The caller holds ``_CARD_LOCK``.
 """
 
 import re
+import sys
 
 from osmocom.tlv import BER_TLV_IE, bertlv_parse_one_rawtag, flatten_dict_lists
 from pySim.euicc import (
@@ -65,11 +66,15 @@ def _select_isdr(app):
 
 
 def _restore(app):
-    """Return to MF so later server operations start from a known selection."""
+    """Return to MF so later server operations start from a known selection.
+
+    Best effort: a card whose active profile is disabled has no filesystem to
+    select, so the restore can legitimately fail - the selection metadata is
+    then guarded by the status endpoint instead of crashing it."""
     try:
         app.rs.soft_reset()
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write('ESIM: selection restore failed: %s\n' % e)
 
 
 def _run(app, fn):
@@ -449,8 +454,8 @@ def notifications(app):
     return {'notifications': out, 'error': None}
 
 
-def set_profile_state(app, action, iccid=None, isdp_aid=None, refresh=True):
-    """ES10c Enable/DisableProfile for one profile (by ICCID or ISD-P AID)."""
+def build_switch_apdu(action, iccid=None, isdp_aid=None, refresh=True):
+    """STORE DATA APDU hex for ES10c Enable/DisableProfile (no sending)."""
     if action not in ('enable', 'disable'):
         raise EsimError('bad_action')
     ident = []
@@ -469,14 +474,51 @@ def set_profile_state(app, action, iccid=None, isdp_aid=None, refresh=True):
     else:
         raise EsimError('missing_profile')
     flag = RefreshFlag(decoded=1 if refresh else 0)
-    if action == 'enable':
-        cmd = EnableProfileReq(children=[ProfileIdentifier(children=ident), flag])
-        resp_cls, key = EnableProfileResp, 'enable_result'
-    else:
-        cmd = DisableProfileReq(children=[ProfileIdentifier(children=ident), flag])
-        resp_cls, key = DisableProfileResp, 'disable_result'
-    flat = _flatten(_transceive(app, cmd, resp_cls))
-    result = flat.get(key)
-    ok = result == 'ok'
-    return {'ok': ok, 'result': result if isinstance(result, str) else 'undefinedError',
+    req_cls = EnableProfileReq if action == 'enable' else DisableProfileReq
+    tx_do = req_cls(children=[ProfileIdentifier(children=ident), flag]).to_tlv()
+    return '80E29100%02x%s00' % (len(tx_do), tx_do.hex().upper())
+
+
+def parse_switch_response(action, data_hex):
+    """STORE DATA response TLV -> {'ok', 'result', 'message'}."""
+    resp_cls = EnableProfileResp if action == 'enable' else DisableProfileResp
+    key = 'enable_result' if action == 'enable' else 'disable_result'
+    result = None
+    if data_hex:
+        resp = resp_cls()
+        resp.from_tlv(bytes.fromhex(data_hex))
+        result = _flatten(resp).get(key)
+    return {'ok': result == 'ok',
+            'result': result if isinstance(result, str) else 'undefinedError',
             'message': _error_text(result)}
+
+
+def switch_profile(send_apdu, run_chain, action, iccid=None, isdp_aid=None,
+                   refresh=True):
+    """Run an ES10c Enable/DisableProfile switch.
+
+    ``send_apdu(apdu_hex) -> (data_hex, sw)`` performs one raw STORE DATA and
+    ``run_chain(sw91)`` answers the proactive command(s) the card sends
+    alongside the switch (True when a REFRESH was answered).
+
+    With the refresh flag set the ISD-R returns OK *before* the REFRESH
+    (SGP.22 v2.6 §5.7.16/§5.7.17 step 6) and the switch completes upon the
+    TERMINAL RESPONSE or the following RESET (step 8).  A 91XX status is that
+    OK: the STORE DATA is never retried (the mid-switch card answers 6985 to
+    the retry) and the caller re-initializes the card afterwards."""
+    apdu = build_switch_apdu(action, iccid, isdp_aid, refresh)
+    data, sw = send_apdu(apdu)
+    if sw == '9000':
+        out = parse_switch_response(action, data)
+        out['refresh_seen'] = False
+        return out
+    if sw and sw.startswith('91'):
+        refresh_seen = False
+        try:
+            refresh_seen = bool(run_chain(sw))
+        except Exception as e:
+            sys.stderr.write('ESIM: REFRESH chain failed: %s\n' % e)
+        return {'ok': True, 'result': 'ok', 'message': 'ok',
+                'refresh_seen': refresh_seen}
+    return {'ok': False, 'result': 'undefinedError', 'sw': sw,
+            'message': 'SW %s' % sw}

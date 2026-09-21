@@ -255,18 +255,32 @@ def _parse_help_text(text):
 
 
 def _get_file_type(lchan, cur_file):
-    if cur_file and cur_file.name:
-        if cur_file.name.startswith('EF.'):
-            if lchan and lchan.selected_file_fcp:
-                ft = lchan.selected_file_type()
-                if ft != 'df':
-                    return lchan.selected_file_structure()
-            return 'transparent'
-        if cur_file.name.startswith('DF.') or cur_file.name.startswith('ADF.') or cur_file.name == 'MF':
-            return 'df'
-    if lchan and lchan.selected_file_fcp:
-        return lchan.selected_file_structure()
+    try:
+        if cur_file and cur_file.name:
+            if cur_file.name.startswith('EF.'):
+                if lchan and lchan.selected_file_fcp:
+                    ft = lchan.selected_file_type()
+                    if ft != 'df':
+                        return lchan.selected_file_structure()
+                return 'transparent'
+            if cur_file.name.startswith('DF.') or cur_file.name.startswith('ADF.') or cur_file.name == 'MF':
+                return 'df'
+        if lchan and lchan.selected_file_fcp:
+            return lchan.selected_file_structure()
+    except Exception:
+        # No usable FCP (an ADF, or a failed select while the card has no
+        # active profile) - report no file type instead of crashing.
+        return None
     return None
+
+
+def _fcp_value(lchan, name):
+    """One FCP-derived selection value, or None when the card delivered no
+    usable FCP (an ADF, or a failed select) - never raises."""
+    try:
+        return getattr(lchan, name)()
+    except Exception:
+        return None
 
 
 def _fid4(sel):
@@ -2589,6 +2603,52 @@ def _esim_reinit(server):
         server.equipping = False
 
 
+def _esim_refresh_chain(server, sw91):
+    """Answer the proactive command(s) that accompany a profile switch.
+
+    With the refresh flag set the card sends REFRESH (SGP.22 §5.7.16 step 7);
+    it is answered and the chain stops - the card reset that follows performs
+    the switch.  No STATUS poll is sent: the card is mid-switch and refuses
+    further commands (6985) until the reset."""
+    seen = {'refresh': False}
+
+    def on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst):
+        if cmd_type == 0x01:
+            seen['refresh'] = True
+            return 'exit'
+        return None
+
+    _handle_proactive_chain(server.scc, sw91, on_fetch=on_fetch,
+                            status_poll=False)
+    return seen['refresh']
+
+
+def _norm_iccid(value):
+    """ICCID comparison form: hex digits without the trailing F pad."""
+    s = re.sub(r'[^0-9a-fA-F]', '', str(value or '')).upper()
+    return s[:-1] if s.endswith('F') else s
+
+
+def _esim_verify_switch(app, action, iccid=None, isdp_aid=None):
+    """Re-read the profile list and check the requested state took effect."""
+    expected = 'enabled' if action == 'enable' else 'disabled'
+    try:
+        profs = esim.profiles(app).get('profiles') or []
+    except Exception as e:
+        sys.stderr.write('ESIM: state verification failed: %s\n' % e)
+        return {'verified': None, 'state_after': None}
+    want_iccid = _norm_iccid(iccid) if iccid else None
+    want_aid = re.sub(r'[^0-9a-fA-F]', '', str(isdp_aid or '')).upper() or None
+    state_after = None
+    for p in profs:
+        if (want_iccid and _norm_iccid(p.get('iccid')) == want_iccid) or \
+           (want_aid and re.sub(r'[^0-9a-fA-F]', '',
+                                str(p.get('isdp_aid') or '')).upper() == want_aid):
+            state_after = p.get('state')
+            break
+    return {'verified': state_after == expected, 'state_after': state_after}
+
+
 _AUTO_EQUIP = True
 _AUTO_EQUIP_BUSY = False
 
@@ -3112,18 +3172,20 @@ def _parse_setup_menu_items(raw):
     return items
 
 
-def _handle_proactive_chain(scc, sw91, on_fetch=None):
+def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
     """Run a FETCH/TERMINAL RESPONSE chain; marks the card as busy so that
-    terminal-initiated ENVELOPEs (Data available, Channel status, timers) wait."""
+    terminal-initiated ENVELOPEs (Data available, Channel status, timers) wait.
+    ``status_poll=False`` skips the trailing STATUS (used by the profile
+    switch, where the card is mid-switch and must not be queried further)."""
     global _PROACTIVE_BUSY
     _PROACTIVE_BUSY = True
     try:
-        return _run_proactive_chain(scc, sw91, on_fetch)
+        return _run_proactive_chain(scc, sw91, on_fetch, status_poll)
     finally:
         _PROACTIVE_BUSY = False
 
 
-def _run_proactive_chain(scc, sw91, on_fetch=None):
+def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
     sys.stderr.write('91XX chain: sw=%s\n' % sw91)
     sw = sw91
     paused = False
@@ -3155,7 +3217,7 @@ def _run_proactive_chain(scc, sw91, on_fetch=None):
             sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
             _record_tr(entry, tr_tlv, tr_rv[1])
             sw = tr_rv[1]
-            if sw == '9000':
+            if sw == '9000' and status_poll:
                 sys.stderr.write('STATUS poll (chain ended)\n')
                 st_data, st_sw = _send_status(scc)
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
@@ -3508,9 +3570,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'type': cur_file.__class__.__name__ if cur_file else None,
                     'path': str(lchan.get_cwd()) if lchan else None,
                     'file_type': _get_file_type(lchan, cur_file),
-                    'file_size': lchan.selected_file_size() if lchan else None,
-                    'record_len': lchan.selected_file_record_len() if lchan else None,
-                    'num_of_rec': lchan.selected_file_num_of_rec() if lchan else None,
+                    'file_size': _fcp_value(lchan, 'selected_file_size'),
+                    'record_len': _fcp_value(lchan, 'selected_file_record_len'),
+                    'num_of_rec': _fcp_value(lchan, 'selected_file_num_of_rec'),
                 } if cur_file else None,
                 'channels': [str(i) for i, ch in rs.lchan.items() if ch] if rs else [],
             }
@@ -3798,24 +3860,33 @@ class PysimHandler(BaseHTTPRequestHandler):
                 with _CARD_LOCK:
                     _finish_pending_menu(self.server, self.server.scc)
                     cursor = _PROACTIVE_ENTRY_ID
-                    resp = esim.set_profile_state(
-                        app, action,
-                        iccid=body.get('iccid'), isdp_aid=body.get('isdp_aid'),
+                    resp = esim.switch_profile(
+                        self.server.scc._tp.send_apdu,
+                        lambda sw: _esim_refresh_chain(self.server, sw),
+                        action, iccid=body.get('iccid'),
+                        isdp_aid=body.get('isdp_aid'),
                         refresh=body.get('refresh', True))
                     # A REFRESH during the command means the card wants the
-                    # terminal to re-initialize; a lost STORE DATA response
-                    # (T=0 after REFRESH) is covered by the same re-init.
-                    resp['refresh_seen'] = any(
+                    # terminal to re-initialize; the switch itself completes on
+                    # the TERMINAL RESPONSE or the reset (SGP.22 5.7.16 step 8).
+                    resp['refresh_seen'] = resp.get('refresh_seen') or any(
                         e.get('type_hex') == '01' and e.get('id', 0) > cursor
                         for e in _PROACTIVE_LOG)
                     resp['reinitialized'] = False
+                    resp['verified'] = None
+                    resp['state_after'] = None
                     if resp['ok'] or resp['refresh_seen']:
                         resp['reinitialized'] = _esim_reinit(self.server)
+                        if resp['reinitialized']:
+                            resp.update(_esim_verify_switch(
+                                app, action, iccid=body.get('iccid'),
+                                isdp_aid=body.get('isdp_aid')))
                     resp['iccid'] = getattr(self.server, 'iccid', None)
                     resp['card_session'] = getattr(self.server, 'card_session', None)
                 self._send_json(resp)
                 self._log_resp({k: resp.get(k) for k in
-                                ('ok', 'result', 'refresh_seen', 'reinitialized')})
+                                ('ok', 'result', 'refresh_seen', 'reinitialized',
+                                 'verified', 'state_after')})
             except esim.EsimError as e:
                 resp = {'ok': False, 'error': e.code, 'message': str(e)}
                 self._send_json(resp, 400)
@@ -4005,9 +4076,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'name': cur.name if cur else None,
                     'fid': cur.fid.upper() if cur and cur.fid else None,
                     'file_type': _get_file_type(lchan, cur),
-                    'file_size': lchan.selected_file_size() if lchan else None,
-                    'record_len': lchan.selected_file_record_len() if lchan else None,
-                    'num_of_rec': lchan.selected_file_num_of_rec() if lchan else None,
+                    'file_size': _fcp_value(lchan, 'selected_file_size'),
+                    'record_len': _fcp_value(lchan, 'selected_file_record_len'),
+                    'num_of_rec': _fcp_value(lchan, 'selected_file_num_of_rec'),
                     'fci_hex': (lchan.selected_file_fcp_hex or '').upper() if lchan and lchan.selected_file_fcp_hex else None,
                     'apdu_times': apdu_times,
                     'exists': True,

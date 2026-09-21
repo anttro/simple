@@ -230,16 +230,29 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
   "operations": ["enable"], "address": "smdp.example.org",
   "iccid": "8970…"}], "error": null}`.
 - `POST /api/esim/profile` — `{"action": "enable"|"disable", "iccid"?: …,
-  "isdp_aid"?: …, "refresh"?: true}` (one identifier required).  The card
-  usually answers with a REFRESH proactive command first (logged in
-  `/api/proactive-log`); after a successful switch — or whenever a REFRESH
-  was seen — the server re-initializes the card like an equip (reset,
-  re-read ICCID/network state, new `card_session`) and returns
-  `{"ok": true, "result": "ok", "refresh_seen": true, "reinitialized": true,
-  "iccid": …, "card_session": N}`.  Failures carry the ES10c result code
-  (`iccidOrAidNotFound`, `profileNotInDisabledState`,
+  "isdp_aid"?: …, "refresh"?: true}` (one identifier required).  With the
+  refresh flag set the ISD-R returns OK *before* the REFRESH (SGP.22 v2.6
+  §5.7.16/§5.7.17 step 6) and the switch completes upon the TERMINAL RESPONSE
+  or the following RESET (step 8): a `91xx` answer is that OK, so the server
+  answers the REFRESH proactive command (logged in `/api/proactive-log`),
+  **never retries the STORE DATA** (the mid-switch card answers `6985`) and
+  re-initializes the card like an equip (physical reset, re-read
+  ICCID/network state, new `card_session`).  It then re-reads the profile
+  list and reports the verified result:
+
+  ```json
+  {"ok": true, "result": "ok", "refresh_seen": true, "reinitialized": true,
+   "verified": true, "state_after": "disabled", "iccid": "8970…",
+   "card_session": 7}
+  ```
+
+  `verified` is `false` when the target profile is not in the requested state
+  after the re-init (`null` when the state could not be read).  Failures carry
+  the ES10c result code (`iccidOrAidNotFound`, `profileNotInDisabledState`,
   `profileNotInEnabledState`, `disallowedByPolicy`, `wrongProfileReenabling`,
-  `catBusy`, `undefinedError`) and a short `message`.
+  `catBusy`, `undefinedError`) and a short `message`; an unexpected status
+  word is returned as `{"ok": false, "result": "undefinedError", "sw": "6985",
+  "message": "SW 6985"}`.
 
 ### `POST /api/help`
 

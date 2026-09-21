@@ -171,32 +171,73 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['rat'], [{'ppr_ids': ['ppr1', 'ppr2'],
                                        'allowed_operators': [], 'ppr_flags': []}])
 
-    def test_set_profile_state_enable_uses_iccid_and_refresh(self):
-        app, _ = make_app()
-        self.patch([EnableProfileResp(children=[EnableResult(decoded='ok')])])
-        out = esim.set_profile_state(app, 'enable', iccid='8970119000004002667')
-        self.assertTrue(out['ok'])
-        self.assertEqual(out['result'], 'ok')
-        tlv = self.calls[0].to_tlv().hex().upper()
-        self.assertIn('5A0A980711090000042066F7', tlv)   # ProfileIdentifier/ICCID
-        self.assertTrue(tlv.endswith('810101'))          # RefreshFlag = 1
+    def test_build_switch_apdu_encodes_iccid_and_refresh(self):
+        apdu = esim.build_switch_apdu('enable', iccid='8970119000004002667')
+        self.assertTrue(apdu.startswith('80E29100'))
+        self.assertTrue(apdu.endswith('00'))
+        self.assertIn('5A0A980711090000042066F7', apdu)   # ProfileIdentifier/ICCID
+        self.assertIn('810101', apdu)                      # RefreshFlag = 1
+        apdu = esim.build_switch_apdu(
+            'disable', isdp_aid='A0000005591010FFFFFFFF8900000100', refresh=False)
+        self.assertIn('4F10A0000005591010FFFFFFFF8900000100', apdu)
+        self.assertIn('810100', apdu)                      # RefreshFlag = 0
 
-    def test_set_profile_state_maps_cat_busy(self):
-        app, _ = make_app()
-        self.patch([DisableProfileResp(children=[DisableResult(decoded='catBusy')])])
-        out = esim.set_profile_state(app, 'disable', iccid='8970119000004002667')
+    def test_build_switch_apdu_validation(self):
+        with self.assertRaises(esim.EsimError):
+            esim.build_switch_apdu('delete', iccid='8970119000004002667')
+        with self.assertRaises(esim.EsimError):
+            esim.build_switch_apdu('enable')
+        with self.assertRaises(esim.EsimError):
+            esim.build_switch_apdu('enable', iccid='abc')
+
+    def test_parse_switch_response_maps_result_codes(self):
+        resp = DisableProfileResp(children=[DisableResult(decoded='catBusy')])
+        out = esim.parse_switch_response('disable', resp.to_tlv().hex())
         self.assertFalse(out['ok'])
         self.assertEqual(out['result'], 'catBusy')
         self.assertIn('busy', out['message'])
+        out = esim.parse_switch_response('disable', '')
+        self.assertFalse(out['ok'])
+        self.assertEqual(out['result'], 'undefinedError')
 
-    def test_set_profile_state_validation(self):
-        app, _ = make_app()
-        with self.assertRaises(esim.EsimError):
-            esim.set_profile_state(app, 'delete', iccid='8970119000004002667')
-        with self.assertRaises(esim.EsimError):
-            esim.set_profile_state(app, 'enable')
-        with self.assertRaises(esim.EsimError):
-            esim.set_profile_state(app, 'enable', iccid='abc')
+    def test_switch_profile_parses_ok_response(self):
+        sent = []
+        resp = EnableProfileResp(children=[EnableResult(decoded='ok')])
+        out = esim.switch_profile(
+            lambda apdu: sent.append(apdu) or (resp.to_tlv().hex(), '9000'),
+            lambda sw: self.fail('no chain expected'),
+            'enable', iccid='8970119000004002667')
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['result'], 'ok')
+        self.assertFalse(out['refresh_seen'])
+        self.assertEqual(len(sent), 1)
+
+    def test_switch_profile_treats_91xx_as_ok_and_runs_the_chain(self):
+        chain = []
+        out = esim.switch_profile(
+            lambda apdu: ('', '9111'),
+            lambda sw: chain.append(sw) or True,
+            'disable', iccid='8970119000004002667')
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['result'], 'ok')
+        self.assertTrue(out['refresh_seen'])
+        self.assertEqual(chain, ['9111'])
+
+    def test_switch_profile_chain_failure_keeps_the_accepted_switch(self):
+        def boom(sw):
+            raise RuntimeError('fetch failed')
+        out = esim.switch_profile(lambda apdu: ('', '910f'), boom,
+                                  'disable', iccid='8970119000004002667')
+        self.assertTrue(out['ok'])
+        self.assertFalse(out['refresh_seen'])
+
+    def test_switch_profile_reports_error_sw(self):
+        out = esim.switch_profile(lambda apdu: ('', '6985'),
+                                  lambda sw: self.fail('no chain expected'),
+                                  'disable', iccid='8970119000004002667')
+        self.assertFalse(out['ok'])
+        self.assertEqual(out['sw'], '6985')
+        self.assertEqual(out['result'], 'undefinedError')
 
     def test_select_isdr_requires_an_euicc(self):
         app, _ = make_app(isdr=False)
@@ -294,6 +335,67 @@ class EsimInfoDecodeTests(unittest.TestCase):
             0x81, '74657374726F6F74736D64732E67736D612E636F6D')))
         self.assertIsNone(out['default_dp_address'])
         self.assertEqual(out['root_ds_address'], 'testrootsmds.gsma.com')
+
+
+class SelectionMetadataTests(unittest.TestCase):
+    """Status/select FCP metadata must never crash when the card has no usable
+    FCP (an ADF selected, or a failed select while the active profile is
+    disabled)."""
+
+    class FakeLchan:
+        def __init__(self, fcp):
+            self.selected_file_fcp = fcp
+
+        def selected_file_size(self):
+            return self.selected_file_fcp.get('file_size')
+
+        def selected_file_record_len(self):
+            return self.selected_file_fcp['file_descriptor'].get('record_len')
+
+        def selected_file_num_of_rec(self):
+            return self.selected_file_fcp['file_descriptor'].get('num_of_rec')
+
+        def selected_file_structure(self):
+            return self.selected_file_fcp['file_descriptor']['file_descriptor_byte']['structure']
+
+        def selected_file_type(self):
+            return self.selected_file_fcp['file_descriptor']['file_descriptor_byte'].get('file_type', 'ef')
+
+    def test_missing_fcp_yields_none(self):
+        from pysim_simple_server import server
+        lchan = self.FakeLchan(None)
+        self.assertIsNone(server._fcp_value(lchan, 'selected_file_size'))
+        self.assertIsNone(server._fcp_value(lchan, 'selected_file_record_len'))
+        self.assertIsNone(server._fcp_value(lchan, 'selected_file_num_of_rec'))
+        # an EF without FCP falls back to 'transparent' (the historical default)
+        self.assertEqual(server._get_file_type(lchan, SimpleNamespace(name='EF.ICCID')),
+                         'transparent')
+
+    def test_adf_fcp_without_file_descriptor_yields_none(self):
+        from pysim_simple_server import server
+        lchan = self.FakeLchan({'file_size': None})
+        self.assertIsNone(server._fcp_value(lchan, 'selected_file_record_len'))
+        self.assertIsNone(server._fcp_value(lchan, 'selected_file_num_of_rec'))
+        self.assertIsNone(server._get_file_type(lchan, SimpleNamespace(name='EF.ICCID')))
+
+    def test_usable_fcp_reports_values(self):
+        from pysim_simple_server import server
+        fcp = {'file_size': 10,
+               'file_descriptor': {'record_len': 5, 'num_of_rec': 2,
+                                   'file_descriptor_byte': {'structure': 'linear_fixed',
+                                                            'file_type': 'ef'}}}
+        lchan = self.FakeLchan(fcp)
+        self.assertEqual(server._fcp_value(lchan, 'selected_file_size'), 10)
+        self.assertEqual(server._fcp_value(lchan, 'selected_file_record_len'), 5)
+        self.assertEqual(server._get_file_type(lchan, SimpleNamespace(name='EF.ADN')),
+                         'linear_fixed')
+
+    def test_norm_iccid_drops_the_f_pad(self):
+        from pysim_simple_server import server
+        self.assertEqual(server._norm_iccid('8970119000004002667'),
+                         '8970119000004002667')
+        self.assertEqual(server._norm_iccid('98 90 71 11 90 00 00 40 02 66 7F'),
+                         '989071119000004002667')
 
 
 class EsimRoutingTests(unittest.TestCase):

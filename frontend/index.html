@@ -1612,6 +1612,20 @@ function esimResultText(res) {
 	return t(ESIM_RESULT_KEYS[res.result] || res.message || res.result || 'Error');
 }
 
+// Status text after an Enable/Disable switch: the card result, the re-init and
+// the verified resulting profile state.
+function esimSwitchStatus(res) {
+	if (!res || !res.ok) return t('Profile switch failed') + ': ' + esimResultText(res);
+	let msg = t('Profile switched');
+	if (res.reinitialized) msg += ' — ' + t('card re-initialized');
+	if (res.refresh_seen) msg += ' (' + t('REFRESH received') + ')';
+	if (res.verified === false) {
+		msg += ' — ' + t('not confirmed');
+		if (res.state_after) msg += ' (' + esimStateLabel(res.state_after) + ')';
+	}
+	return msg;
+}
+
 function esimStateLabel(state) {
 	if (state === 'enabled') return t('Enabled');
 	if (state === 'disabled') return t('Disabled');
@@ -1757,13 +1771,7 @@ async function esimSetProfile(iccid, isdpAid, action) {
 		if (iccid) body.iccid = iccid;
 		if (isdpAid) body.isdp_aid = isdpAid;
 		const res = await pysimFetch('/api/esim/profile', body);
-		if (res && res.ok) {
-			if (statusEl) statusEl.textContent = t('Profile switched') +
-				(res.reinitialized ? ' — ' + t('card re-initialized') : '') +
-				(res.refresh_seen ? ' (' + t('REFRESH received') + ')' : '');
-		} else if (statusEl) {
-			statusEl.textContent = t('Profile switch failed') + ': ' + esimResultText(res);
-		}
+		if (statusEl) statusEl.textContent = esimSwitchStatus(res);
 		await esimFetchAll();
 	} catch (e) {
 		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
@@ -13687,6 +13695,7 @@ const LANG_RU = {
 	'Profile switched': 'Профиль переключён',
 	'card re-initialized': 'карта переинициализирована',
 	'REFRESH received': 'получен REFRESH',
+	'not confirmed': 'не подтверждено',
 	'Profile switch failed': 'Не удалось переключить профиль',
 	'No commands logged yet.': 'Команды пока не регистрировались.',
 	'Send event notification to the card?': 'Отправить уведомление о событии на карту?',

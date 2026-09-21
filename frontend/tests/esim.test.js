@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['esimLabel', 'esimGroupEid', 'esimFieldRows', 'esimResultText',
-	'esimStateLabel', 'esimOperationsText', 'esimProfileRows']) {
+	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimSwitchStatus']) {
 	code += extractFunc(html, fn) + '\n';
 }
 for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
@@ -96,6 +96,20 @@ test('esimResultText localizes result codes and passes errors through', () => {
 	assert.strictEqual(esimResultText({ result: 'ok' }), 'ok');
 	assert.strictEqual(esimResultText({ error: 'no card' }), 'no card');
 	assert.strictEqual(esimResultText(null), '');
+});
+
+test('esimSwitchStatus reports the switch, re-init, REFRESH and verification', () => {
+	assert.strictEqual(esimSwitchStatus({ ok: true }), 'Profile switched');
+	assert.strictEqual(
+		esimSwitchStatus({ ok: true, reinitialized: true, refresh_seen: true }),
+		'Profile switched — card re-initialized (REFRESH received)');
+	assert.strictEqual(
+		esimSwitchStatus({ ok: true, reinitialized: true, verified: false, state_after: 'disabled' }),
+		'Profile switched — card re-initialized — not confirmed (Disabled)');
+	assert.strictEqual(esimSwitchStatus({ ok: false, result: 'catBusy' }),
+		'Profile switch failed: card is busy with a CAT session');
+	assert.strictEqual(esimSwitchStatus({ ok: false, error: 'SW 6985' }),
+		'Profile switch failed: SW 6985');
 });
 
 test('esimStateLabel and esimOperationsText map the profile metadata', () => {
