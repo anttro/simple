@@ -33,9 +33,11 @@ class FakeLchan:
     def __init__(self):
         self.scc = SimpleNamespace(name='lchan-scc')
         self.selected = None
+        self.cmd_app = None
 
-    def select_file(self, app):
+    def select_file(self, app, cmd_app=None):
         self.selected = app
+        self.cmd_app = cmd_app
 
 
 def make_app(profile='Consumer eUICC (SGP.22)', isdr=True):
@@ -46,13 +48,16 @@ def make_app(profile='Consumer eUICC (SGP.22)', isdr=True):
     rs = SimpleNamespace(profile=profile,
                          mf=SimpleNamespace(applications=apps),
                          lchan=[lchan],
-                         resets=0)
+                         resets=0,
+                         soft_reset_cmd_app=None)
 
-    def soft_reset():
+    def soft_reset(cmd_app=None):
         rs.resets += 1
+        rs.soft_reset_cmd_app = cmd_app
 
     rs.soft_reset = soft_reset
-    return SimpleNamespace(rs=rs), lchan
+    app = SimpleNamespace(rs=rs)
+    return app, lchan
 
 
 def profile_info(iccid, aid, state=None, nickname=None, cls=None, owner=None,
@@ -128,9 +133,12 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['profiles'][1]['state'], 'disabled')
         self.assertIsNone(out['profiles'][1]['icon'])
         self.assertIsNone(out['profiles'][1]['icon_size'])
-        # ISD-R was selected and the previous selection restored
+        # ISD-R was selected (with the shell app, so pySim's command-set
+        # bookkeeping follows) and the previous selection restored the same way
         self.assertEqual(lchan.selected.name, 'ISD-R')
+        self.assertIs(lchan.cmd_app, app)
         self.assertEqual(app.rs.resets, 1)
+        self.assertIs(app.rs.soft_reset_cmd_app, app)
         # the request asks for every ProfileInfo tag
         self.assertIn('9F70', self.calls[0].to_tlv().hex().upper())
 
@@ -251,9 +259,12 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(out['result'], 'ok')
         self.assertFalse(out['refresh_seen'])
         self.assertEqual(len(sent), 1)
-        # the ISD-R was selected for the command and the selection restored
+        # the ISD-R was selected for the command (with the shell app) and the
+        # selection restored the same way
         self.assertEqual(lchan.selected.name, 'ISD-R')
+        self.assertIs(lchan.cmd_app, app)
         self.assertEqual(app.rs.resets, 1)
+        self.assertIs(app.rs.soft_reset_cmd_app, app)
 
     def test_switch_profile_treats_91xx_as_ok_and_runs_the_chain(self):
         app, lchan = make_app()
@@ -268,7 +279,9 @@ class EsimTests(unittest.TestCase):
         self.assertTrue(out['refresh_seen'])
         self.assertEqual(chain, ['9111'])
         self.assertEqual(lchan.selected.name, 'ISD-R')
+        self.assertIs(lchan.cmd_app, app)
         self.assertEqual(app.rs.resets, 1)
+        self.assertIs(app.rs.soft_reset_cmd_app, app)
 
     def test_switch_profile_chain_failure_keeps_the_accepted_switch(self):
         app, _ = make_app()

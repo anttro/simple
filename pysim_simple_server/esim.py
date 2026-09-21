@@ -54,14 +54,20 @@ def is_euicc(app):
 
 
 def _select_isdr(app):
-    """Select ISD-R on logical channel 0; returns the lchan's scc."""
+    """Select ISD-R on logical channel 0; returns the lchan's scc.
+
+    The shell app is passed as cmd_app so pySim keeps its command-set
+    bookkeeping in sync with the selection: ``equip()`` only unregisters the
+    sets of the file selected at that moment, so a selection made without
+    cmd_app leaves the old file's sets registered and the next equip dies
+    re-registering them (cmd2: 'Attribute already exists')."""
     rs = getattr(app, 'rs', None)
     apps = getattr(getattr(rs, 'mf', None), 'applications', None) or {}
     isd_r = apps.get(AID_ISD_R.lower())
     if isd_r is None:
         raise EsimError('not_an_euicc')
     lchan = rs.lchan[0]
-    lchan.select_file(isd_r)
+    lchan.select_file(isd_r, app)
     return lchan.scc
 
 
@@ -70,9 +76,10 @@ def _restore(app):
 
     Best effort: a card whose active profile is disabled has no filesystem to
     select, so the restore can legitimately fail - the selection metadata is
-    then guarded by the status endpoint instead of crashing it."""
+    then guarded by the status endpoint instead of crashing it.  The shell app
+    is passed as cmd_app so the command-set bookkeeping follows the selection."""
     try:
-        app.rs.soft_reset()
+        app.rs.soft_reset(app)
     except Exception as e:
         sys.stderr.write('ESIM: selection restore failed: %s\n' % e)
 

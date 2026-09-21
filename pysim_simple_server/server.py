@@ -19,6 +19,7 @@ from pysim_simple_server import netstate
 from pysim_simple_server import scp81
 from pysim_simple_server import esim
 from smartcard.CardMonitoring import CardMonitor, CardObserver
+from cmd2.exceptions import CommandSetRegistrationError
 
 import gsm0338  # registers 'gsm03.38' codec
 from construct import GreedyBytes
@@ -2594,6 +2595,19 @@ def _esim_reinit(server):
             sys.stderr.write('ESIM: card gone during re-initialization\n')
             return False
         _apply_equipped_card(server)
+        # The equip must leave the shell's command-set registration consistent
+        # (pySim unregisters only the file selected at equip time).  A broken
+        # registration only shows up on the next select made with the app, so
+        # probe it here: a card-level select failure (no active profile) is
+        # acceptable, a registration error is not.
+        try:
+            server.app.rs.lchan[0].select('MF', server.app)
+        except CommandSetRegistrationError as e:
+            sys.stderr.write('ESIM: shell command registration broken after '
+                             're-initialization: %s\n' % e)
+            return False
+        except Exception as e:
+            sys.stderr.write('ESIM: post-equip MF select failed: %s\n' % e)
         sys.stderr.write('ESIM: re-initialized after profile switch\n')
         return True
     except Exception as e:
