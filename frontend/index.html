@@ -1665,41 +1665,57 @@ function esimIconDataUrl(p) {
 	return 'data:' + mime + ';base64,' + btoa(bin);
 }
 
+// One chip-info section -> rows (the RAT is a list of rules).
+function esimChipSectionRows(data) {
+	if (!data) return [];
+	if (Array.isArray(data)) {
+		const rows = [];
+		data.forEach((item, i) => {
+			rows.push(...esimFieldRows(item, t('Rule') + ' ' + (i + 1)));
+		});
+		return rows;
+	}
+	return esimFieldRows(data, '');
+}
+
+// One bordered chip-info box; no rows -> no box.
+function esimChipBox(title, rows) {
+	if (!rows || !rows.length) return '';
+	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded p-2 min-w-0">';
+	html += '<div class="mb-1 text-xs font-semibold text-gray-600 dark:text-slate-300">' + esc(title) + '</div>';
+	for (const [k, v] of rows) {
+		html += '<div class="flex gap-2 mb-0.5">';
+		if (k) html += '<span class="w-36 shrink-0 text-right text-gray-500 dark:text-slate-400 break-words">' + esc(k) + '</span>';
+		html += '<span class="font-mono break-words min-w-0">' + esc(v) + '</span></div>';
+	}
+	return html + '</div>';
+}
+
 function esimRenderChip() {
 	const el = document.getElementById('esim-chip');
 	if (!el) return;
 	const c = _esimChip || {};
-	const rows = [];
-	if (c.eid) rows.push(['EID', esimGroupEid(c.eid)]);
-	const sections = [
-		['EUICCInfo1', c.info1], ['EUICCInfo2', c.info2],
-		['Addresses', c.addresses], ['Rules authorisation table', c.rat],
-	];
-	for (const [name, data] of sections) {
-		if (!data || (Array.isArray(data) && !data.length)) continue;
-		rows.push(['§ ' + t(name), '']);
-		if (Array.isArray(data)) {
-			data.forEach((item, i) => {
-				rows.push(...esimFieldRows(item, t('Rule') + ' ' + (i + 1)));
-			});
-		} else {
-			rows.push(...esimFieldRows(data, ''));
-		}
+	const left = [
+		c.eid ? esimChipBox('EID', [['', esimGroupEid(c.eid)]]) : '',
+		esimChipBox('EUICCInfo1', esimChipSectionRows(c.info1)),
+		esimChipBox(t('Addresses'), esimChipSectionRows(c.addresses)),
+		esimChipBox(t('Rules authorisation table'), esimChipSectionRows(c.rat)),
+	].filter(Boolean);
+	const right = esimChipBox('EUICCInfo2', esimChipSectionRows(c.info2));
+	if (!left.length && !right) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No data')) + '</span>';
+		return;
 	}
-	let html = '';
-	for (const [k, v] of rows) {
-		if (k.startsWith('§ ')) {
-			html += '<div class="mt-2 mb-0.5 font-semibold text-gray-600 dark:text-slate-300">' + esc(k.slice(2)) + '</div>';
-			continue;
-		}
-		html += '<div class="flex gap-2 mb-0.5"><span class="w-56 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
-			'<span class="font-mono break-all">' + esc(v) + '</span></div>';
-	}
+	let html = '<div class="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">';
+	html += '<div class="' + (right ? 'lg:col-span-1' : 'lg:col-span-3') + ' space-y-3 min-w-0">' +
+		left.join('') + '</div>';
+	if (right) html += '<div class="lg:col-span-2 min-w-0">' + right + '</div>';
+	html += '</div>';
 	const errs = Object.keys(c.errors || {});
 	if (errs.length) {
 		html += '<div class="text-xs text-yellow-600 dark:text-yellow-500 mt-1">' + esc(t('Not available')) + ': ' + esc(errs.join(', ')) + '</div>';
 	}
-	el.innerHTML = html || '<span class="text-gray-400">' + esc(t('No data')) + '</span>';
+	el.innerHTML = html;
 }
 
 function esimRenderProfiles() {
@@ -1724,8 +1740,8 @@ function esimRenderProfiles() {
 			esc(t(enabled ? 'Disable' : 'Enable')) + '</button></div>';
 		let rowsHtml = '';
 		for (const [k, v] of esimProfileRows(p)) {
-			rowsHtml += '<div class="flex gap-2"><span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
-				'<span class="font-mono break-all">' + esc(v) + '</span></div>';
+			rowsHtml += '<div class="flex gap-2"><span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-words">' + esc(k) + '</span>' +
+				'<span class="font-mono break-words min-w-0">' + esc(v) + '</span></div>';
 		}
 		const iconUrl = esimIconDataUrl(p);
 		html += '<div class="flex gap-3 items-start">';

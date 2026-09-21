@@ -24,7 +24,7 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['esimLabel', 'esimGroupEid', 'esimFieldRows', 'esimResultText',
 	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimIconDataUrl',
-	'esimSwitchStatus']) {
+	'esimChipSectionRows', 'esimChipBox', 'esimSwitchStatus']) {
 	code += extractFunc(html, fn) + '\n';
 }
 for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
@@ -32,6 +32,7 @@ for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
 		.replace('const ', 'var ') + '\n';
 }
 code += 'function t(s){return s;}\n';
+code += 'function esc(s){return String(s);}\n';
 eval(code);
 
 test('esimGroupEid groups the hex digits in fours', () => {
@@ -151,6 +152,39 @@ test('the profile card renders the icon image next to the rows', () => {
 	const fn = extractFunc(html, 'esimRenderProfiles');
 	assert.match(fn, /esimIconDataUrl\(p\)/);
 	assert.match(fn, /<img src=/);
+});
+
+test('esimChipSectionRows builds rows for objects and RAT rule lists', () => {
+	assert.deepStrictEqual(esimChipSectionRows({ svn: '2.2.2' }), [['SVN', '2.2.2']]);
+	assert.deepStrictEqual(esimChipSectionRows(null), []);
+	assert.deepStrictEqual(esimChipSectionRows([{ ppr_ids: ['ppr1'] }]),
+		[['Rule 1 / PPR IDs', 'ppr1']]);
+});
+
+test('esimChipBox renders a titled box and skips empty sections', () => {
+	assert.strictEqual(esimChipBox('EUICCInfo1', []), '');
+	assert.strictEqual(esimChipBox('EUICCInfo1', null), '');
+	const box = esimChipBox('EUICCInfo1', [['SVN', '2.2.2'], ['', 'raw-value']]);
+	assert.match(box, /EUICCInfo1/);
+	assert.match(box, /SVN/);
+	assert.match(box, /2\.2\.2/);
+	assert.match(box, /raw-value/);
+});
+
+test('the chip boxes prefer wrapping at spaces over breaking words', () => {
+	const box = esimChipBox('EUICCInfo1', [['SVN', '2.2.2']]);
+	assert.match(box, /break-words/);
+	assert.doesNotMatch(box, /break-all/);
+	const render = extractFunc(html, 'esimRenderProfiles');
+	assert.doesNotMatch(render, /break-all/);
+});
+
+test('the chip view groups the sections into a grid', () => {
+	const fn = extractFunc(html, 'esimRenderChip');
+	assert.match(fn, /lg:grid-cols-3/);
+	assert.match(fn, /lg:col-span-2/);
+	assert.match(fn, /esimChipBox\('EUICCInfo2'/);
+	assert.match(fn, /esimChipSectionRows/);
 });
 
 test('the eSIM pill is wired into the Phone simulator tab', () => {
