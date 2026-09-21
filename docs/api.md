@@ -225,7 +225,11 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
 - `GET /api/esim/profiles` — `{"profiles": [{"iccid": "8970…",
   "isdp_aid": "A000…", "state": "enabled"|"disabled", "nickname": …,
   "provider": …, "name": …, "class": "test"|"provisioning"|"operational",
-  "owner": "250-99", "icon_type": "png"|"jpg"}], "error": null}`.
+  "owner": "250-99", "icon_type": "png"|"jpg", "icon": "89504E47…",
+  "icon_size": 1234}], "error": null}`.  `icon` is the SGP.22 icon data
+  (tag `0x94`) as hex and `icon_size` its byte count, so a client can show
+  the profile image (`data:image/<type>;base64,…`); both are `null` when the
+  card sent no icon.
 - `GET /api/esim/notifications` — `{"notifications": [{"seq_number": 3,
   "operations": ["enable"], "address": "smdp.example.org",
   "iccid": "8970…"}], "error": null}`.

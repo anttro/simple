@@ -419,6 +419,7 @@ def profiles(app):
     out = []
     for p in _repeated(seq, 'profile_info'):
         owner = p.get('profile_owner')
+        icon = p.get('icon')
         out.append({
             'iccid': p.get('iccid'),
             'isdp_aid': p.get('isdp_aid'),
@@ -428,6 +429,8 @@ def profiles(app):
             'name': p.get('profile_name'),
             'class': p.get('profile_class'),
             'icon_type': p.get('icon_type'),
+            'icon': icon,
+            'icon_size': len(icon) // 2 if icon else None,
             'owner': owner.get('profile_owner_plmn') if isinstance(owner, dict) else None,
         })
     return {'profiles': out, 'error': None}

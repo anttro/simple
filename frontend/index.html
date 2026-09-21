@@ -1644,8 +1644,25 @@ function esimProfileRows(p) {
 	if (p.name) rows.push([t('Profile name'), p.name]);
 	if (p.class) rows.push([t('Class'), p.class]);
 	if (p.owner) rows.push([t('Owner'), p.owner]);
-	if (p.icon_type) rows.push([t('Icon'), p.icon_type]);
+	if (p.icon_type) {
+		let icon = p.icon_type;
+		if (p.icon_size) icon += ' · ' + p.icon_size + ' B';
+		rows.push([t('Icon'), icon]);
+	}
 	return rows;
+}
+
+// Profile icon -> data URL at its natural size ('' when the card sent no
+// image). The icon type is the SGP.22 iconType: png or jpg.
+function esimIconDataUrl(p) {
+	if (!p || !p.icon || !p.icon_type) return '';
+	const hex = String(p.icon).replace(/[^0-9a-fA-F]/g, '');
+	let bin = '';
+	for (let i = 0; i + 1 < hex.length; i += 2) {
+		bin += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+	}
+	const mime = p.icon_type === 'jpg' ? 'image/jpeg' : 'image/' + p.icon_type;
+	return 'data:' + mime + ';base64,' + btoa(bin);
 }
 
 function esimRenderChip() {
@@ -1705,10 +1722,17 @@ function esimRenderProfiles() {
 			'class="ml-auto px-2 py-0.5 text-xs rounded text-white disabled:opacity-40 disabled:cursor-not-allowed ' +
 			(enabled ? 'bg-gray-600 hover:bg-gray-700' : 'bg-emerald-600 hover:bg-emerald-700') + '">' +
 			esc(t(enabled ? 'Disable' : 'Enable')) + '</button></div>';
+		let rowsHtml = '';
 		for (const [k, v] of esimProfileRows(p)) {
-			html += '<div class="flex gap-2"><span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
+			rowsHtml += '<div class="flex gap-2"><span class="w-40 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
 				'<span class="font-mono break-all">' + esc(v) + '</span></div>';
 		}
+		const iconUrl = esimIconDataUrl(p);
+		html += '<div class="flex gap-3 items-start">';
+		if (iconUrl) {
+			html += '<img src="' + esc(iconUrl) + '" alt="" class="shrink-0">';
+		}
+		html += '<div class="min-w-0 flex-1">' + rowsHtml + '</div></div>';
 		html += '</div>';
 	}
 	el.innerHTML = html;

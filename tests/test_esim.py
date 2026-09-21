@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from pySim.euicc import (
     AID_ISD_R, CardApplicationISDR, DisableProfileResp, DisableResult,
-    EnableProfileResp, EnableResult,
+    EnableProfileResp, EnableResult, Icon, IconType,
     Iccid, IsdpAid, ListNotificationResp, NotificationAddress,
     NotificationMetadata, NotificationMetadataList, ProfileClass, ProfileInfo,
     ProfileInfoListResp, ProfileInfoSeq, ProfileMgmtOperation, ProfileNickname,
@@ -55,7 +55,8 @@ def make_app(profile='Consumer eUICC (SGP.22)', isdr=True):
     return SimpleNamespace(rs=rs), lchan
 
 
-def profile_info(iccid, aid, state=None, nickname=None, cls=None, owner=None):
+def profile_info(iccid, aid, state=None, nickname=None, cls=None, owner=None,
+                 icon=None):
     children = [Iccid(decoded=iccid), IsdpAid(decoded=bytes.fromhex(aid))]
     if state:
         children.append(ProfileState(decoded=state))
@@ -65,6 +66,10 @@ def profile_info(iccid, aid, state=None, nickname=None, cls=None, owner=None):
         children.append(ProfileClass(decoded=cls))
     if owner:
         children.append(ProfileOwner(children=[ProfileOwnerPLMN(decoded=owner)]))
+    if icon:
+        icon_type, icon_data = icon
+        children.append(IconType(decoded=icon_type))
+        children.append(Icon(decoded=bytes.fromhex(icon_data)))
     return ProfileInfo(children=children)
 
 
@@ -102,7 +107,7 @@ class EsimTests(unittest.TestCase):
         resp = ProfileInfoListResp(children=[ProfileInfoSeq(children=[
             profile_info('8970119000004002667', 'A0000005591010FFFFFFFF8900000100',
                          state='enabled', nickname='Work', cls='operational',
-                         owner='250-99'),
+                         owner='250-99', icon=('png', '89504E470D0A1A0A')),
             profile_info('8970119000004002668', 'A0000005591010FFFFFFFF8900000200',
                          state='disabled', cls='test'),
         ])])
@@ -117,7 +122,12 @@ class EsimTests(unittest.TestCase):
         self.assertEqual(first['nickname'], 'Work')
         self.assertEqual(first['class'], 'operational')
         self.assertEqual(first['owner'], '250-99')
+        self.assertEqual(first['icon_type'], 'png')
+        self.assertEqual(first['icon'], '89504E470D0A1A0A')
+        self.assertEqual(first['icon_size'], 8)
         self.assertEqual(out['profiles'][1]['state'], 'disabled')
+        self.assertIsNone(out['profiles'][1]['icon'])
+        self.assertIsNone(out['profiles'][1]['icon_size'])
         # ISD-R was selected and the previous selection restored
         self.assertEqual(lchan.selected.name, 'ISD-R')
         self.assertEqual(app.rs.resets, 1)

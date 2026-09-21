@@ -23,7 +23,8 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['esimLabel', 'esimGroupEid', 'esimFieldRows', 'esimResultText',
-	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimSwitchStatus']) {
+	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimIconDataUrl',
+	'esimSwitchStatus']) {
 	code += extractFunc(html, fn) + '\n';
 }
 for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
@@ -124,11 +125,32 @@ test('esimProfileRows renders the metadata in a stable order', () => {
 	const rows = esimProfileRows({
 		iccid: '8970119000004002667', isdp_aid: 'A0000005591010FFFFFFFF8900000100',
 		provider: 'Miranda', name: 'Miranda LTE', class: 'operational',
-		owner: '250-99', icon_type: 'png',
+		owner: '250-99', icon_type: 'png', icon_size: 1234,
 	});
 	assert.deepStrictEqual(rows.map(r => r[0]),
 		['ICCID', 'ISD-P AID', 'Provider', 'Profile name', 'Class', 'Owner', 'Icon']);
 	assert.strictEqual(rows[0][1], '8970119000004002667');
+	assert.strictEqual(rows[rows.length - 1][1], 'png · 1234 B');
+});
+
+test('esimProfileRows shows the bare icon type when the card sent no image', () => {
+	assert.deepStrictEqual(esimProfileRows({ icon_type: 'jpg' }), [['Icon', 'jpg']]);
+});
+
+test('esimIconDataUrl builds a data URL for png and jpg icons', () => {
+	assert.strictEqual(esimIconDataUrl({ icon_type: 'png', icon: '89504E47' }),
+		'data:image/png;base64,iVBORw==');
+	assert.strictEqual(esimIconDataUrl({ icon_type: 'jpg', icon: 'FFD8' }),
+		'data:image/jpeg;base64,/9g=');
+	assert.strictEqual(esimIconDataUrl({ icon_type: 'png' }), '');
+	assert.strictEqual(esimIconDataUrl({ icon: '89504E47' }), '');
+	assert.strictEqual(esimIconDataUrl(null), '');
+});
+
+test('the profile card renders the icon image next to the rows', () => {
+	const fn = extractFunc(html, 'esimRenderProfiles');
+	assert.match(fn, /esimIconDataUrl\(p\)/);
+	assert.match(fn, /<img src=/);
 });
 
 test('the eSIM pill is wired into the Phone simulator tab', () => {
