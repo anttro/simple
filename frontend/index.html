@@ -1732,6 +1732,14 @@ function esimRenderChip() {
 	el.innerHTML = html;
 }
 
+// Profile card title: the provider first (when known), then the nickname or
+// the profile name; falls back to the ICCID.
+function esimProfileTitle(p) {
+	const label = p.nickname || p.name;
+	const title = [p.provider, label].filter(Boolean).join(' ');
+	return title || p.iccid || '?';
+}
+
 function esimRenderProfiles() {
 	const el = document.getElementById('esim-profiles');
 	if (!el) return;
@@ -1742,7 +1750,7 @@ function esimRenderProfiles() {
 	let html = '';
 	for (const p of _esimProfiles) {
 		const enabled = p.state === 'enabled';
-		const title = p.nickname || p.name || p.iccid || '?';
+		const title = esimProfileTitle(p);
 		html += '<div class="mb-2 p-2 border border-gray-200 dark:border-slate-600 rounded">';
 		html += '<div class="flex items-center gap-2 mb-1">' +
 			'<span class="' + (enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400') + ' font-bold">' + (enabled ? '●' : '○') + '</span>' +

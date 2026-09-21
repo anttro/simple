@@ -24,7 +24,8 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['esimLabel', 'esimGroupEid', 'esimFieldRows', 'esimResultText',
 	'esimStateLabel', 'esimOperationsText', 'esimProfileRows', 'esimIconDataUrl',
-	'esimChipSectionRows', 'esimChipValueWide', 'esimChipBox', 'esimSwitchStatus']) {
+	'esimChipSectionRows', 'esimChipValueWide', 'esimChipBox', 'esimSwitchStatus',
+	'esimProfileTitle']) {
 	code += extractFunc(html, fn) + '\n';
 }
 for (const c of ['ESIM_CHIP_LABELS', 'ESIM_RESULT_KEYS']) {
@@ -146,6 +147,17 @@ test('esimIconDataUrl builds a data URL for png and jpg icons', () => {
 	assert.strictEqual(esimIconDataUrl({ icon_type: 'png' }), '');
 	assert.strictEqual(esimIconDataUrl({ icon: '89504E47' }), '');
 	assert.strictEqual(esimIconDataUrl(null), '');
+});
+
+test('esimProfileTitle puts the provider in front of the profile label', () => {
+	assert.strictEqual(esimProfileTitle({ provider: 'Alfa', name: '0002' }), 'Alfa 0002');
+	assert.strictEqual(esimProfileTitle({ provider: 'Alfa', nickname: 'Work', name: '0002' }),
+		'Alfa Work');
+	assert.strictEqual(esimProfileTitle({ name: '0002' }), '0002');
+	assert.strictEqual(esimProfileTitle({ provider: 'Alfa' }), 'Alfa');
+	assert.strictEqual(esimProfileTitle({ iccid: '8970119000004002667' }),
+		'8970119000004002667');
+	assert.strictEqual(esimProfileTitle({}), '?');
 });
 
 test('the profile card renders the icon image next to the rows', () => {
