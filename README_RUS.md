@@ -645,7 +645,7 @@ PWA проверяет версию сервера при подключении
 | `setup.sh` / `setup.bat` | Создаёт `.venv/`, ставит pysim и сервер. Запускать один раз после клонирования. |
 | `start.sh` / `start.bat` | Запускает сервер из venv (раздаёт PWA + API на `:8080`). |
 
-`start.sh` автоопределяет ридер (PC/SC при работающем `pcscd`, иначе `/dev/ttyUSB0`); `start.bat` всегда использует `-p 0`. Без ридера сервер всё равно стартует («Reader: none») — карту можно инициализировать позже кнопкой **Equip**.
+`start.sh` автоопределяет ридер (PC/SC при работающем `pcscd`, иначе `/dev/ttyUSB0`); `start.bat` всегда использует `-p 0`. Дополнительные аргументы передаются серверу, например `./start.sh --gsmtap` или `start.bat --gsmtap 10.0.0.5:4729`. Без ридера сервер всё равно стартует («Reader: none») — карту можно инициализировать позже кнопкой **Equip**.
 
 ### Ручная установка
 
@@ -668,6 +668,7 @@ pysim-simple-server --http-port 8080
 | `-d` / `--device` | Путь к serial-устройству |
 | `--no-card-init` | Пропустить инициализацию карты (сохранить CAT-сессию) |
 | `--apdu-trace` | Лог APDU-трафика в stderr |
+| `--gsmtap [HOST[:PORT]]` | Поток всех APDU (и ATR карты при equip) в виде GSMTAP-SIM UDP-пакетов для Wireshark / SIMtrace Analyser (`--capture gsmtap`); цель по умолчанию `127.0.0.1:4729`. Совместимо с `--apdu-trace` |
 | `--log-requests` | Лог запросов/ответов в stderr |
 | `--sms-oa` / `--sms-sm-sc` | Адрес отправителя SMS-DELIVER / SM-SC для PoR-in-submit |
 | `--terminal-profile` | Hex TERMINAL PROFILE (по умолчанию — 33-байтовый профиль реального телефона с BIP-событиями/командами; без него живая карта не запускает HTTP OTA) |

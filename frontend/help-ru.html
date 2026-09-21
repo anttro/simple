@@ -546,7 +546,7 @@ start.bat           # запускает сервер (PWA + API)</pre>
 		<li><strong>Резерв сервера</strong> — при запуске без аргументов ридера сервер сам опрашивает PC/SC-ридер при старте (3 попытки с интервалом 2&nbsp;с)</li>
 		<li><strong>Serial-ридеры</strong> — запустите сервер вручную с <code class="font-mono text-sm">-d /dev/ttyUSB0</code> (Linux)</li>
 	</ul>
-	<p class="text-sm mb-3">Если карта отсутствует, вкладка &laquo;Картридер&raquo; показывает &laquo;Карта не обнаружена. Вставьте карту и нажмите Подключить карту&raquo;. Вставьте карту — сервер инициализирует её автоматически (auto-equip включён по умолчанию) — либо нажмите <strong>Equip card</strong>. Сам сервер запускается и с пустым картридером: отсутствие карты — нормальное состояние, а не ошибка.</p>
+	<p class="text-sm mb-3">Если карта отсутствует, вкладка &laquo;Картридер&raquo; показывает &laquo;Карта не обнаружена. Вставьте карту и нажмите Подключить карту&raquo;. Вставьте карту — сервер инициализирует её автоматически (auto-equip включён по умолчанию) — либо нажмите <strong>Equip card</strong>. Сам сервер запускается и с пустым картридером: отсутствие карты — нормальное состояние, а не ошибка. Дополнительные аргументы <code class="font-mono text-sm">start.sh</code>/<code class="font-mono text-sm">start.bat</code> передаются серверу (например, <code class="font-mono text-sm">./start.sh --gsmtap</code> — поток APDU в виде GSMTAP-SIM пакетов для Wireshark / SIMtrace Analyser).</p>
 
 	<h3 id="manual-install" class="text-lg font-medium mb-2">9.6 Ручная установка</h3>
 	<pre class="font-mono text-xs bg-gray-100 dark:bg-slate-800 rounded p-3 mb-3"># Создать и активировать venv

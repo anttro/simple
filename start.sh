@@ -27,7 +27,7 @@ elif command -v pysim-simple-server &> /dev/null; then
     SERVER="pysim-simple-server"
 elif [ -f "$SCRIPT_DIR/pysim_simple_server/__main__.py" ]; then
     echo "Starting pysim-simple-server from source on http://127.0.0.1:8080"
-    cd "$SCRIPT_DIR" && python3 -m pysim_simple_server --http-port 8080 $READER_ARGS
+    cd "$SCRIPT_DIR" && python3 -m pysim_simple_server --http-port 8080 $READER_ARGS "$@"
     exit $?
 else
     echo "Error: pysim-simple-server not installed."
@@ -38,4 +38,5 @@ fi
 
 echo "Starting pysim-simple-server on http://127.0.0.1:8080"
 echo "Press Ctrl+C to stop."
-$SERVER --http-port 8080 $READER_ARGS
+echo "Extra arguments are passed to the server (e.g. ./start.sh --gsmtap)."
+$SERVER --http-port 8080 $READER_ARGS "$@"

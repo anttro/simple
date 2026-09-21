@@ -546,7 +546,7 @@ start.bat           # starts the server (serves PWA + API)</pre>
 		<li><strong>Server fallback</strong> — started without reader arguments, the server itself probes for a PC/SC reader at startup (3 attempts, 2&nbsp;s apart)</li>
 		<li><strong>Serial readers</strong> — start the server manually with <code class="font-mono text-sm">-d /dev/ttyUSB0</code> (Linux)</li>
 	</ul>
-	<p class="text-sm mb-3">If no card is present, the Card reader tab shows &ldquo;No card detected&rdquo;. Insert the card — the server auto-equips it (auto-equip is on by default) — or click <strong>Equip card</strong>. The server itself starts fine with an empty reader; the absence of a card is a normal state, not an error.</p>
+	<p class="text-sm mb-3">If no card is present, the Card reader tab shows &ldquo;No card detected&rdquo;. Insert the card — the server auto-equips it (auto-equip is on by default) — or click <strong>Equip card</strong>. The server itself starts fine with an empty reader; the absence of a card is a normal state, not an error. Extra arguments given to <code class="font-mono text-sm">start.sh</code>/<code class="font-mono text-sm">start.bat</code> are passed through to the server (e.g. <code class="font-mono text-sm">./start.sh --gsmtap</code> to stream APDUs as GSMTAP-SIM packets for Wireshark / SIMtrace Analyser).</p>
 
 	<h3 id="manual-install" class="text-lg font-medium mb-2">9.6 Manual installation</h3>
 	<pre class="font-mono text-xs bg-gray-100 dark:bg-slate-800 rounded p-3 mb-3"># Create and activate a venv

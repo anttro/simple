@@ -662,7 +662,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 | `setup.sh` / `setup.bat` | Creates `.venv/`, installs pysim and the server. Run once after cloning. |
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
 
-`start.sh` auto-detects the reader (PC/SC if `pcscd` is running, else `/dev/ttyUSB0`); `start.bat` always uses `-p 0` (PC/SC is built into Windows). If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
+`start.sh` auto-detects the reader (PC/SC if `pcscd` is running, else `/dev/ttyUSB0`); `start.bat` always uses `-p 0` (PC/SC is built into Windows). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
 
 ### Manual installation
 
@@ -685,6 +685,7 @@ pysim-simple-server --http-port 8080
 | `-d` / `--device` | Serial device path |
 | `--no-card-init` | Skip card init to preserve the CAT session (no file manager) |
 | `--apdu-trace` | Log APDU-level traces to stderr |
+| `--gsmtap [HOST[:PORT]]` | Stream every APDU (and the card ATR at equip) as GSMTAP-SIM UDP packets for Wireshark / SIMtrace Analyser (`--capture gsmtap`); default target `127.0.0.1:4729`. Combines with `--apdu-trace` |
 | `--log-requests` | Log request/response payloads to stderr |
 | `--sms-oa` / `--sms-sm-sc` | SMS-DELIVER originating address / SM-SC for PoR-in-submit |
 | `--terminal-profile` | TERMINAL PROFILE payload hex (default: 33-byte real-handset profile that advertises BIP events/commands; the live card ignores HTTP OTA without it) |

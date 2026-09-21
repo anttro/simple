@@ -13,7 +13,8 @@ from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
 from . import fastinit
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter
+from . import gsmtap
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _send_gsmtap_atr, _LineFilter
 
 
 _server_start = 0
@@ -70,6 +71,10 @@ def main():
                         help='Auto-send a timeout TERMINAL RESPONSE if a paused STK command is not answered (default: 60, 0 disables)')
     parser.add_argument('--no-auto-equip', action='store_true', default=False,
                         help='Do not automatically initialize a card right after it is inserted (default: auto-equip on)')
+    parser.add_argument('--gsmtap', nargs='?', const=gsmtap.DEFAULT_TARGET, default=None,
+                        metavar='HOST[:PORT]',
+                        help='Stream every APDU (and the card ATR) as GSMTAP-SIM UDP packets for '
+                             'Wireshark / SIMtrace Analyser (default target: %s)' % gsmtap.DEFAULT_TARGET)
 
     opts = parser.parse_args()
     opts.skip_card_init = opts.no_card_init
@@ -79,6 +84,25 @@ def main():
     if opts.menu_timeout is not None:
         _set_menu_timeout(opts.menu_timeout)
     set_auto_equip(not opts.no_auto_equip and not opts.skip_card_init)
+    # APDU tracers: --apdu-trace (stderr) and --gsmtap (GSMTAP-SIM UDP) can be
+    # combined; the fan-out keeps pySim's single-tracer interface.
+    gsmtap_sender = None
+    tracers = []
+    if opts.apdu_trace:
+        tracers.append(_LoggingApduTracer())
+    if opts.gsmtap is not None:
+        try:
+            gsmtap_host, gsmtap_port = gsmtap.parse_target(opts.gsmtap)
+            gsmtap_sender = gsmtap.GsmtapSender(gsmtap_host, gsmtap_port)
+            tracers.append(gsmtap.GsmtapApduTracer(gsmtap_sender))
+            sys.stderr.write('GSMTAP: streaming APDUs to %s\n' % gsmtap_sender.target)
+        except (ValueError, OSError) as e:
+            sys.stderr.write('GSMTAP: disabled (%s)\n' % e)
+    tracer = None
+    if len(tracers) == 1:
+        tracer = tracers[0]
+    elif tracers:
+        tracer = gsmtap.FanoutApduTracer(tracers)
     sl = None
     scc = None
     card = None
@@ -104,8 +128,8 @@ def main():
 
     try:
         kwargs = {}
-        if opts.apdu_trace:
-            kwargs['apdu_tracer'] = _LoggingApduTracer()
+        if tracer is not None:
+            kwargs['apdu_tracer'] = tracer
         t_phase = time.time()
         sl = mod.init_reader(opts, **kwargs)
         _tlog('init_reader: %.0fms' % ((time.time() - t_phase) * 1000))
@@ -203,17 +227,17 @@ def main():
             _tlog('terminal_profile_drain: %.0fms' % ((time.time() - t_phase) * 1000))
         except Exception:
             traceback.print_exc(file=sys.stderr)
-    if app is not None and opts.apdu_trace:
-        # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
-        # and drops the root level to INFO. Re-route pysim's own APDU trace logging
-        # directly to fd 1 so it survives the app.stdout/StringIO redirection in the
-        # HTTP handlers and the INFO level suppression.
-        PySimLogger.setup(print_callback=_log_stdout)
-        PySimLogger.set_level(logging.DEBUG)
+    if app is not None and tracer is not None:
+        if opts.apdu_trace:
+            # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
+            # and drops the root level to INFO. Re-route pysim's own APDU trace logging
+            # directly to fd 1 so it survives the app.stdout/StringIO redirection in the
+            # HTTP handlers and the INFO level suppression.
+            PySimLogger.setup(print_callback=_log_stdout)
+            PySimLogger.set_level(logging.DEBUG)
         # PysimApp.__init__ and every `equip` wipe the transport apdu_tracer
-        # (_onchange_apdu_trace sets it to None). Re-attach our tracer and make
-        # sure it stays attached across equip/re-equip.
-        tracer = _LoggingApduTracer()
+        # (_onchange_apdu_trace sets it to None). Re-attach our tracer(s) and make
+        # sure they stay attached across equip/re-equip.
         def _reattach_tracer():
             if app.card:
                 app.card._scc._tp.apdu_tracer = tracer
@@ -243,6 +267,10 @@ def main():
     server.card_present = card is not None
     server.card_session = 1 if card is not None else 0
     server.iccid = iccid
+    server.gsmtap = gsmtap_sender
+    # Stream the ATR so a GSMTAP receiver (SIMtrace Analyser, Wireshark) has
+    # the session context before the first APDU of this session.
+    _send_gsmtap_atr(server)
     # Network state monitor: install the state read during the startup init
     # (right after the ICCID, before the TERMINAL PROFILE).  No readable
     # ICCID means the card is considered unusable - give up.
