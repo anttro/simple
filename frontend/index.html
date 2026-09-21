@@ -1533,13 +1533,25 @@ let _esimNotifications = [];
 const ESIM_CHIP_LABELS = {
 	eid: 'EID', svn: 'SVN', profile_version: 'Profile version',
 	euicc_firmware_ver: 'Firmware version', ext_card_resource: 'Card resource',
+	installed_application: 'Installed applications',
+	free_non_volatile_memory: 'Free non-volatile memory',
+	free_volatile_memory: 'Free volatile memory',
 	uicc_capability: 'UICC capability', ts102241_version: 'TS 102 241 version',
 	globalplatform_version: 'GlobalPlatform version', rsp_capability: 'RSP capability',
-	euicc_category: 'Category', pp_version: 'PP version',
-	ss_acreditation_number: 'SS accreditation number',
+	euicc_category: 'Category', forbidden_profile_policy_rules: 'Forbidden PPRs',
+	pp_version: 'PP version', ss_acreditation_number: 'SS accreditation number',
+	certification_data_object: 'Certification data',
+	platform_label: 'Platform label', discovery_base_url: 'Discovery base URL',
+	tre_properties: 'TRE properties', tre_product_reference: 'TRE product reference',
+	additional_euicc_profile_package_versions: 'Additional profile package versions',
+	raw_tlvs: 'Raw TLVs',
 	default_dp_address: 'Default SM-DP+ address', root_ds_address: 'Root DS address',
 	euicc_ci_pki_list_for_verification: 'CI PKI (verification)',
 	euicc_ci_pki_list_for_signing: 'CI PKI (signing)',
+	subject_key_identifier: 'Subject key identifier',
+	rat: 'Rules authorisation table', ppr_ids: 'PPR IDs',
+	allowed_operators: 'Allowed operators', ppr_flags: 'PPR flags',
+	plmn: 'PLMN', gid1: 'GID1', gid2: 'GID2',
 	iot_specific_info: 'IoT specific info',
 };
 
@@ -1563,25 +1575,32 @@ function esimGroupEid(eid) {
 	return s.replace(/(.{4})(?=.)/g, '$1 ');
 }
 
-// Chip-info value -> [label, value] rows; nested dicts recurse, arrays are
-// joined, empty values skipped.
+// Chip-info value -> [label, value] rows; nested dicts recurse, arrays of
+// scalars are joined, arrays of objects recurse with an index label, empty
+// values skipped. Labels are mapped and translated per path component.
 function esimFieldRows(obj, prefix) {
 	const rows = [];
 	if (obj === null || obj === undefined) return rows;
 	if (typeof obj !== 'object') {
-		rows.push([prefix ? esimLabel(prefix) : '', String(obj)]);
+		rows.push([prefix || '', String(obj)]);
 		return rows;
 	}
 	for (const k of Object.keys(obj)) {
 		const v = obj[k];
 		if (v === null || v === undefined || v === '') continue;
-		const label = prefix ? prefix + ' / ' + k : k;
+		const label = prefix ? prefix + ' / ' + t(esimLabel(k)) : t(esimLabel(k));
 		if (Array.isArray(v)) {
-			rows.push([esimLabel(label), v.map(x => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ')]);
+			if (v.length && typeof v[0] === 'object') {
+				v.forEach((item, i) => {
+					rows.push(...esimFieldRows(item, label + ' ' + (i + 1)));
+				});
+			} else {
+				rows.push([label, v.map(x => String(x)).join(', ')]);
+			}
 		} else if (typeof v === 'object') {
 			rows.push(...esimFieldRows(v, label));
 		} else {
-			rows.push([esimLabel(label), String(v)]);
+			rows.push([label, String(v)]);
 		}
 	}
 	return rows;
@@ -1621,11 +1640,27 @@ function esimRenderChip() {
 	const c = _esimChip || {};
 	const rows = [];
 	if (c.eid) rows.push(['EID', esimGroupEid(c.eid)]);
-	rows.push(...esimFieldRows(c.info1 || {}, ''));
-	rows.push(...esimFieldRows(c.info2 || {}, ''));
-	rows.push(...esimFieldRows(c.addresses || {}, ''));
+	const sections = [
+		['EUICCInfo1', c.info1], ['EUICCInfo2', c.info2],
+		['Addresses', c.addresses], ['Rules authorisation table', c.rat],
+	];
+	for (const [name, data] of sections) {
+		if (!data || (Array.isArray(data) && !data.length)) continue;
+		rows.push(['§ ' + t(name), '']);
+		if (Array.isArray(data)) {
+			data.forEach((item, i) => {
+				rows.push(...esimFieldRows(item, t('Rule') + ' ' + (i + 1)));
+			});
+		} else {
+			rows.push(...esimFieldRows(data, ''));
+		}
+	}
 	let html = '';
 	for (const [k, v] of rows) {
+		if (k.startsWith('§ ')) {
+			html += '<div class="mt-2 mb-0.5 font-semibold text-gray-600 dark:text-slate-300">' + esc(k.slice(2)) + '</div>';
+			continue;
+		}
 		html += '<div class="flex gap-2 mb-0.5"><span class="w-56 shrink-0 text-right text-gray-500 dark:text-slate-400 break-all">' + esc(k) + '</span>' +
 			'<span class="font-mono break-all">' + esc(v) + '</span></div>';
 	}
@@ -13573,6 +13608,42 @@ const LANG_RU = {
 	'Not available': 'Недоступно',
 	'No profiles': 'Нет профилей',
 	'No notifications': 'Нет уведомлений',
+	'EID': 'EID',
+	'SVN': 'SVN',
+	'Profile version': 'Версия профиля',
+	'Firmware version': 'Версия прошивки',
+	'Card resource': 'Ресурсы карты',
+	'Installed applications': 'Установленных приложений',
+	'Free non-volatile memory': 'Свободная энергонезависимая память',
+	'Free volatile memory': 'Свободная энергозависимая память',
+	'UICC capability': 'Возможности UICC',
+	'TS 102 241 version': 'Версия TS 102 241',
+	'GlobalPlatform version': 'Версия GlobalPlatform',
+	'RSP capability': 'Возможности RSP',
+	'Category': 'Категория',
+	'Forbidden PPRs': 'Запрещённые PPR',
+	'PP version': 'Версия PP',
+	'SS accreditation number': 'Номер аккредитации SS',
+	'Certification data': 'Данные сертификации',
+	'Platform label': 'Метка платформы',
+	'Discovery base URL': 'Базовый URL Discovery',
+	'TRE properties': 'Свойства TRE',
+	'TRE product reference': 'Ссылка на продукт TRE',
+	'Additional profile package versions': 'Доп. версии пакетов профилей',
+	'Raw TLVs': 'Сырые TLV',
+	'CI PKI (verification)': 'CI PKI (проверка)',
+	'CI PKI (signing)': 'CI PKI (подпись)',
+	'Subject key identifier': 'Идентификатор ключа субъекта',
+	'Rules authorisation table': 'Таблица авторизации правил (RAT)',
+	'Rule': 'Правило',
+	'PPR IDs': 'Идентификаторы PPR',
+	'Allowed operators': 'Разрешённые операторы',
+	'PPR flags': 'Флаги PPR',
+	'PLMN': 'PLMN',
+	'Addresses': 'Адреса',
+	'Default SM-DP+ address': 'Адрес SM-DP+ по умолчанию',
+	'Root DS address': 'Адрес корневого DS',
+	'IoT specific info': 'IoT-специфичная информация',
 	'Enabled': 'Включён',
 	'Disabled': 'Отключён',
 	'Enable': 'Включить',

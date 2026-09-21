@@ -180,10 +180,48 @@ eUICC"}`.  They use pySim's ES10 static API — no lpac, no SM-DP+ contact, no
 profile downloads and no notification processing.  All run under the card
 lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
 
-- `GET /api/esim/chip` — `{"eid": "8904…", "info1": {…}, "info2": {…},
+- `GET /api/esim/chip` — `{"eid": "8908…", "info1": {…}, "info2": {…},
   "addresses": {"default_dp_address": …, "root_ds_address": …},
-  "errors": {"<part>": "<reason>"}}` (a part the card does not support is
-  reported in `errors` instead of failing the whole request).
+  "rat": [{…}], "errors": {"<part>": "<reason>"}}` (a part the card does not
+  support is reported in `errors` instead of failing the whole request).
+  The EUICCInfo TLVs are requested raw and decoded per SGP.22 v2.6 §5.7.8
+  (pySim's classes are incomplete), `rat` comes from the ES10b GetRat command
+  (§5.7.13) and undecoded TLVs are preserved in a `raw_tlvs` map:
+
+  ```json
+  {"eid": "89086030202200000026000024920451",
+   "info1": {"svn": "2.2.2",
+             "euicc_ci_pki_list_for_verification": ["8137…FB"],
+             "euicc_ci_pki_list_for_signing": ["8137…FB"]},
+   "info2": {"profile_version": "2.3.1", "svn": "2.2.2",
+             "euicc_firmware_ver": "4.2.0",
+             "ext_card_resource": {"installed_application": 0,
+                                   "free_non_volatile_memory": 439084,
+                                   "free_volatile_memory": 9798},
+             "uicc_capability": ["usimSupport", "isimSupport", "…"],
+             "ts102241_version": "9.2.0",
+             "globalplatform_version": "2.3.0",
+             "rsp_capability": ["additionalProfile", "testProfileSupport"],
+             "euicc_category": "other",
+             "forbidden_profile_policy_rules": ["ppr1"],
+             "pp_version": "1.0.0",
+             "ss_acreditation_number": "ED-ZI-UP-0826"},
+   "addresses": {"default_dp_address": null,
+                 "root_ds_address": "testrootsmds.gsma.com"},
+   "rat": [{"ppr_ids": ["ppr1", "ppr2"],
+            "allowed_operators": [{"plmn": "EEEEEE", "gid1": null, "gid2": null}],
+            "ppr_flags": ["consentRequired"]}],
+   "errors": {}}
+  ```
+
+  `uicc_capability`, `rsp_capability`, `forbidden_profile_policy_rules` and
+  `ppr_flags` are ASN.1 BIT STRINGs decoded to the names of the set bits (the
+  first content octet is the unused-bit count, bits are MSB-first);
+  `euicc_category` accepts both the implicit (`0x8B`) and explicit (`0xAB`)
+  tag encodings; `pp_version` (`0x04`) and `ss_acreditation_number` (`0x0C`)
+  are the bare, untagged SGP.22 types; `tre_properties`,
+  `tre_product_reference`, `additional_euicc_profile_package_versions` and
+  `certification_data_object` are decoded when a card sends them.
 - `GET /api/esim/profiles` — `{"profiles": [{"iccid": "8970…",
   "isdp_aid": "A000…", "state": "enabled"|"disabled", "nickname": …,
   "provider": …, "name": …, "class": "test"|"provisioning"|"operational",

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from pySim.euicc import (
     AID_ISD_R, CardApplicationISDR, DisableProfileResp, DisableResult,
-    EnableProfileResp, EnableResult, EuiccConfiguredAddresses, EuiccInfo1,
+    EnableProfileResp, EnableResult,
     Iccid, IsdpAid, ListNotificationResp, NotificationAddress,
     NotificationMetadata, NotificationMetadataList, ProfileClass, ProfileInfo,
     ProfileInfoListResp, ProfileInfoSeq, ProfileMgmtOperation, ProfileNickname,
@@ -21,6 +21,12 @@ from pySim.euicc import (
 from pySim.utils import h2b
 
 from pysim_simple_server import esim
+
+
+def _tlv(tag, value):
+    """Encode one BER-TLV with a single-byte length (test fixtures only)."""
+    tag_hex = '%02X' % tag if tag <= 0xFF else '%04X' % tag
+    return '%s%02X%s' % (tag_hex, len(value) // 2, value)
 
 
 class FakeLchan:
@@ -148,17 +154,22 @@ class EsimTests(unittest.TestCase):
     def test_chip_info_collects_parts_and_errors(self):
         app, _ = make_app()
         self.patch_eid('89049032000000000000000000000001')
-        info1 = EuiccInfo1()
-        info1.from_tlv(h2b('BF20058203010203'))
-        addresses = EuiccConfiguredAddresses()
-        addresses.from_tlv(h2b('BF3C13800E736D64702E6578616D706C652E6F72678100'))
-        self.patch([info1, RuntimeError('no info2'), addresses])
+        info1 = _tlv(0xBF20, _tlv(0x82, '010203'))
+        addresses = _tlv(0xBF3C, _tlv(0x80, '736D64702E6578616D706C652E6F7267')
+                         + _tlv(0x81, ''))
+        rat = _tlv(0xBF43, _tlv(0xA0, _tlv(0x30, _tlv(0x80, '0460'))))
+        self.patch([info1, RuntimeError('no info2'), addresses, rat])
         out = esim.chip_info(app)
         self.assertEqual(out['eid'], '89049032000000000000000000000001')
-        self.assertEqual(out['info1'], {'svn': '1.2.3'})
+        self.assertEqual(out['info1'], {
+            'svn': '1.2.3', 'euicc_ci_pki_list_for_verification': [],
+            'euicc_ci_pki_list_for_signing': []})
         self.assertIsNone(out['info2'])
         self.assertIn('info2', out['errors'])
-        self.assertEqual(out['addresses'].get('default_dp_address'), 'smdp.example.o')
+        self.assertEqual(out['addresses'], {'default_dp_address': 'smdp.example.org',
+                                            'root_ds_address': ''})
+        self.assertEqual(out['rat'], [{'ppr_ids': ['ppr1', 'ppr2'],
+                                       'allowed_operators': [], 'ppr_flags': []}])
 
     def test_set_profile_state_enable_uses_iccid_and_refresh(self):
         app, _ = make_app()
@@ -191,6 +202,98 @@ class EsimTests(unittest.TestCase):
         app, _ = make_app(isdr=False)
         with self.assertRaises(esim.EsimError):
             esim.chip_info(app)
+
+
+SKI = '81370F5125D0B1D408D4C3B232E6D25E795BEBFB'
+
+
+class EsimInfoDecodeTests(unittest.TestCase):
+    """EUICCInfo1/2 and RAT decoders against a real consumer eUICC's values."""
+
+    def test_bit_string_decodes_unused_bits_msb_first(self):
+        self.assertEqual(
+            esim._decode_bit_string(bytes.fromhex('077F3E1F80'),
+                                    esim.UICC_CAPABILITY_BITS),
+            ['usimSupport', 'isimSupport', 'csimSupport', 'akaMilenage',
+             'akaCave', 'akaTuak128', 'akaTuak256', 'gbaAuthenUsim',
+             'gbaAuthenISim', 'mbmsAuthenUsim', 'eapClient', 'javacard',
+             'berTlvFileSupport', 'dfLinkSupport', 'catTp', 'getIdentity',
+             'profile-a-x25519', 'profile-b-p256'])
+        self.assertEqual(
+            esim._decode_bit_string(bytes.fromhex('0490'),
+                                    esim.RSP_CAPABILITY_BITS),
+            ['additionalProfile', 'testProfileSupport'])
+        self.assertEqual(
+            esim._decode_bit_string(bytes.fromhex('0640'), esim.PPR_ID_BITS),
+            ['ppr1'])
+        self.assertEqual(esim._decode_bit_string(b'', esim.PPR_ID_BITS), [])
+
+    def test_info2_decodes_every_field(self):
+        ski = _tlv(0x04, SKI)
+        raw = _tlv(0xBF22, ''.join((
+            _tlv(0x81, '020301'), _tlv(0x82, '020202'), _tlv(0x83, '040200'),
+            _tlv(0x84, '81010082040006B32C83022646'),
+            _tlv(0x85, '077F3E1F80'), _tlv(0x86, '090200'),
+            _tlv(0x87, '020300'), _tlv(0x88, '0490'),
+            _tlv(0xA9, ski), _tlv(0xAA, ski), _tlv(0x8B, '00'),
+            _tlv(0x99, '0640'), _tlv(0x04, '010000'),
+            _tlv(0x0C, '45442D5A492D55502D30383236'),
+        )))
+        out = esim._decode_info2(raw)
+        self.assertEqual(out['profile_version'], '2.3.1')
+        self.assertEqual(out['svn'], '2.2.2')
+        self.assertEqual(out['euicc_firmware_ver'], '4.2.0')
+        self.assertEqual(out['ext_card_resource'], {
+            'installed_application': 0, 'free_non_volatile_memory': 439084,
+            'free_volatile_memory': 9798})
+        self.assertEqual(out['uicc_capability'][:3],
+                         ['usimSupport', 'isimSupport', 'csimSupport'])
+        self.assertEqual(out['ts102241_version'], '9.2.0')
+        self.assertEqual(out['globalplatform_version'], '2.3.0')
+        self.assertEqual(out['rsp_capability'],
+                         ['additionalProfile', 'testProfileSupport'])
+        self.assertEqual(out['euicc_ci_pki_list_for_verification'], [SKI])
+        self.assertEqual(out['euicc_ci_pki_list_for_signing'], [SKI])
+        self.assertEqual(out['euicc_category'], 'other')
+        self.assertEqual(out['forbidden_profile_policy_rules'], ['ppr1'])
+        self.assertEqual(out['pp_version'], '1.0.0')
+        self.assertEqual(out['ss_acreditation_number'], 'ED-ZI-UP-0826')
+        self.assertNotIn('raw_tlvs', out)
+
+    def test_info2_accepts_both_category_tags_and_keeps_unknown_tlvs(self):
+        out = esim._decode_info2(_tlv(0xBF22, _tlv(0xAB, '02') + _tlv(0xE0, 'AABB')))
+        self.assertEqual(out['euicc_category'], 'mediumEuicc')
+        self.assertEqual(out['raw_tlvs'], {'E0': 'AABB'})
+
+    def test_info2_decodes_certification_data_object(self):
+        out = esim._decode_info2(_tlv(0xBF22, _tlv(0xAC, _tlv(0x80, '504C')
+                                      + _tlv(0x81, '68747470733A2F2F642E6578616D706C65'))))
+        self.assertEqual(out['certification_data_object'],
+                         {'platform_label': 'PL',
+                          'discovery_base_url': 'https://d.example'})
+
+    def test_info1_decodes_svn_and_ski_lists(self):
+        out = esim._decode_info1(_tlv(0xBF20, _tlv(0x82, '020202')
+                                      + _tlv(0xA9, _tlv(0x04, SKI))))
+        self.assertEqual(out, {'svn': '2.2.2',
+                               'euicc_ci_pki_list_for_verification': [SKI],
+                               'euicc_ci_pki_list_for_signing': []})
+
+    def test_rat_decodes_rules(self):
+        raw = _tlv(0xBF43, _tlv(0xA0, _tlv(0x30,
+            _tlv(0x80, '0460')
+            + _tlv(0xA1, _tlv(0x30, _tlv(0x80, 'EEEEEE')))
+            + _tlv(0x82, '0180'))))
+        self.assertEqual(esim._decode_rat(raw), [{
+            'ppr_ids': ['ppr1', 'ppr2'],
+            'allowed_operators': [{'plmn': 'EEEEEE', 'gid1': None, 'gid2': None}],
+            'ppr_flags': ['consentRequired']}])
+
+    def test_addresses_decode(self):
+        out = esim._decode_addresses(_tlv(0xBF3C, _tlv(
+            0x81, '74657374726F6F74736D64732E67736D612E636F6D')))
+        self.assertIsNone(out['default_dp_address'])
+        self.assertEqual(out['root_ds_address'], 'testrootsmds.gsma.com')
 
 
 class EsimRoutingTests(unittest.TestCase):

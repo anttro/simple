@@ -1,4 +1,4 @@
-const CACHE = 'simple-v228';
+const CACHE = 'simple-v229';
 const URLS = [
   'index.html',
   'help.html',

@@ -14,7 +14,7 @@ restored afterwards.  The caller holds ``_CARD_LOCK``.
 
 import re
 
-from osmocom.tlv import flatten_dict_lists
+from osmocom.tlv import BER_TLV_IE, bertlv_parse_one_rawtag, flatten_dict_lists
 from pySim.euicc import (
     AID_ISD_R, CardApplicationISDR, DisableProfileReq, DisableProfileResp,
     EnableProfileReq, EnableProfileResp, EuiccConfiguredAddresses, EuiccInfo1,
@@ -128,20 +128,256 @@ def _error_text(result):
     return RESULT_MESSAGES.get(result, result)
 
 
+# ---- SGP.22 EUICCInfo decoding -------------------------------------------
+#
+# pySim's EuiccInfo1/2 classes are incomplete (the capability fields are raw
+# GreedyBytes, several SGP.22 TLVs are missing from the class), so the chip
+# endpoint requests the raw TLVs and decodes them here, per SGP.22 v2.6
+# §5.7.8/§5.7.13 and cross-checked against lpac's euicc/es10c_ex.c.  Unknown
+# TLVs are preserved in `raw_tlvs`, never dropped.
+
+UICC_CAPABILITY_BITS = [
+    'contactlessSupport', 'usimSupport', 'isimSupport', 'csimSupport',
+    'akaMilenage', 'akaCave', 'akaTuak128', 'akaTuak256', 'rfu1', 'rfu2',
+    'gbaAuthenUsim', 'gbaAuthenISim', 'mbmsAuthenUsim', 'eapClient',
+    'javacard', 'multos', 'multipleUsimSupport', 'multipleIsimSupport',
+    'multipleCsimSupport', 'berTlvFileSupport', 'dfLinkSupport', 'catTp',
+    'getIdentity', 'profile-a-x25519', 'profile-b-p256', 'suciCalculatorApi',
+]
+RSP_CAPABILITY_BITS = [
+    'additionalProfile', 'crlSupport', 'rpmSupport', 'testProfileSupport',
+    'deviceInfoExtensibilitySupport', 'serviceSpecificDataSupport',
+]
+PPR_ID_BITS = ['pprUpdateControl', 'ppr1', 'ppr2', 'ppr3']
+PPR_FLAG_BITS = ['consentRequired']
+TRE_PROPERTY_BITS = ['isDiscrete', 'isIntegrated', 'usesRemoteMemory']
+EUICC_CATEGORIES = {0: 'other', 1: 'basicEuicc', 2: 'mediumEuicc',
+                    3: 'contactlessEuicc'}
+
+
+class _GetRatRequest(BER_TLV_IE, tag=0xbf43):
+    """ES10b GetRat request (no input data, SGP.22 §5.7.13)."""
+
+
+def _tlvs(data):
+    """Walk a BER-TLV buffer -> [(tag, value)]; multi-byte tags kept raw."""
+    out = []
+    rest = bytes(data or b'')
+    while rest:
+        tag, _length, value, rest = bertlv_parse_one_rawtag(rest)
+        out.append((tag, value))
+    return out
+
+
+def _tlv_value(data, tag):
+    """Value bytes of the first `tag` TLV in `data` (b'' when absent)."""
+    for t, value in _tlvs(data):
+        if t == tag:
+            return value
+    return b''
+
+
+def _decode_version(data):
+    """VersionType: major/minor/revision bytes -> 'M.m.r'."""
+    if len(data) != 3:
+        return None
+    return '%d.%d.%d' % (data[0], data[1], data[2])
+
+
+def _decode_bit_string(data, names):
+    """ASN.1 BIT STRING content -> list of set bit names.
+
+    The first octet is the number of unused bits in the final octet; bits are
+    numbered MSB-first within each octet (SGP.22 v2.6 §5.7.8)."""
+    if not data:
+        return []
+    unused = data[0]
+    body = data[1:]
+    out = []
+    for j, byte in enumerate(body):
+        b = byte
+        if j == len(body) - 1 and unused:
+            b &= ~(0xFF >> (8 - unused)) & 0xFF
+        for i in range(8):
+            idx = j * 8 + i
+            if idx >= len(names):
+                break
+            if b & 0x80:
+                out.append(names[idx])
+            b = (b << 1) & 0xFF
+    return out
+
+
+def _decode_ski_list(data):
+    """SEQUENCE OF SubjectKeyIdentifier -> hex strings."""
+    return [value.hex().upper() for _tag, value in _tlvs(data)]
+
+
+def _decode_ext_card_resource(data):
+    """ETSI TS 102 226 Extended Card Resource Information (inner 81/82/83)."""
+    out = {}
+    raw = {}
+    for tag, value in _tlvs(data):
+        if tag == 0x81:
+            out['installed_application'] = int.from_bytes(value, 'big')
+        elif tag == 0x82:
+            out['free_non_volatile_memory'] = int.from_bytes(value, 'big')
+        elif tag == 0x83:
+            out['free_volatile_memory'] = int.from_bytes(value, 'big')
+        else:
+            raw['%02X' % tag] = value.hex().upper()
+    if raw:
+        out['raw_tlvs'] = raw
+    return out
+
+
+def _decode_certification_data_object(data):
+    """CertificationDataObject (SGP.22 v2.6 §5.7.8): platform label + DLOA URL."""
+    out = {}
+    raw = {}
+    for tag, value in _tlvs(data):
+        if tag == 0x80:
+            out['platform_label'] = value.decode('utf-8', 'replace')
+        elif tag == 0x81:
+            out['discovery_base_url'] = value.decode('utf-8', 'replace')
+        else:
+            raw['%02X' % tag] = value.hex().upper()
+    if raw:
+        out['raw_tlvs'] = raw
+    return out
+
+
+def _decode_info1(raw_hex):
+    """EUICCInfo1 (BF20): SVN and the CI PKI lists."""
+    out = {'svn': None, 'euicc_ci_pki_list_for_verification': [],
+           'euicc_ci_pki_list_for_signing': []}
+    raw = {}
+    for tag, value in _tlvs(_tlv_value(bytes.fromhex(raw_hex or ''), 0xBF20)):
+        if tag == 0x82:
+            out['svn'] = _decode_version(value)
+        elif tag == 0xA9:
+            out['euicc_ci_pki_list_for_verification'] = _decode_ski_list(value)
+        elif tag == 0xAA:
+            out['euicc_ci_pki_list_for_signing'] = _decode_ski_list(value)
+        else:
+            raw['%02X' % tag] = value.hex().upper()
+    if raw:
+        out['raw_tlvs'] = raw
+    return out
+
+
+def _decode_info2(raw_hex):
+    """EUICCInfo2 (BF22) with every SGP.22 v2.6 field decoded."""
+    out = {}
+    raw = {}
+    for tag, value in _tlvs(_tlv_value(bytes.fromhex(raw_hex or ''), 0xBF22)):
+        if tag == 0x81:
+            out['profile_version'] = _decode_version(value)
+        elif tag == 0x82:
+            out['svn'] = _decode_version(value)
+        elif tag == 0x83:
+            out['euicc_firmware_ver'] = _decode_version(value)
+        elif tag == 0x84:
+            out['ext_card_resource'] = _decode_ext_card_resource(value)
+        elif tag == 0x85:
+            out['uicc_capability'] = _decode_bit_string(value, UICC_CAPABILITY_BITS)
+        elif tag == 0x86:
+            out['ts102241_version'] = _decode_version(value)
+        elif tag == 0x87:
+            out['globalplatform_version'] = _decode_version(value)
+        elif tag == 0x88:
+            out['rsp_capability'] = _decode_bit_string(value, RSP_CAPABILITY_BITS)
+        elif tag == 0xA9:
+            out['euicc_ci_pki_list_for_verification'] = _decode_ski_list(value)
+        elif tag == 0xAA:
+            out['euicc_ci_pki_list_for_signing'] = _decode_ski_list(value)
+        elif tag in (0x8B, 0xAB):   # implicit and explicit category encodings
+            out['euicc_category'] = EUICC_CATEGORIES.get(
+                int.from_bytes(value, 'big') if value else 0, 'other')
+        elif tag == 0x99:
+            out['forbidden_profile_policy_rules'] = _decode_bit_string(value, PPR_ID_BITS)
+        elif tag == 0x04:           # ppVersion has no context tag
+            out['pp_version'] = _decode_version(value)
+        elif tag == 0x0C:           # sasAcreditationNumber is a bare UTF8String
+            out['ss_acreditation_number'] = value.decode('utf-8', 'replace')
+        elif tag == 0xAC:
+            out['certification_data_object'] = _decode_certification_data_object(value)
+        elif tag == 0xAD:
+            out['tre_properties'] = _decode_bit_string(value, TRE_PROPERTY_BITS)
+        elif tag == 0xAE:
+            out['tre_product_reference'] = value.decode('utf-8', 'replace')
+        elif tag == 0xAF:
+            out['additional_euicc_profile_package_versions'] = [
+                _decode_version(v) for _t, v in _tlvs(value)]
+        else:
+            raw['%02X' % tag] = value.hex().upper()
+    if raw:
+        out['raw_tlvs'] = raw
+    return out
+
+
+def _decode_addresses(raw_hex):
+    """ES10a GetEuiccConfiguredAddresses (BF3C)."""
+    out = {'default_dp_address': None, 'root_ds_address': None}
+    raw = {}
+    for tag, value in _tlvs(_tlv_value(bytes.fromhex(raw_hex or ''), 0xBF3C)):
+        if tag == 0x80:
+            out['default_dp_address'] = value.decode('utf-8', 'replace')
+        elif tag == 0x81:
+            out['root_ds_address'] = value.decode('utf-8', 'replace')
+        else:
+            raw['%02X' % tag] = value.hex().upper()
+    if raw:
+        out['raw_tlvs'] = raw
+    return out
+
+
+def _decode_rat(raw_hex):
+    """ES10b GetRat (BF43): the Rules Authorisation Table (SGP.22 §5.7.13)."""
+    out = []
+    table = _tlv_value(_tlv_value(bytes.fromhex(raw_hex or ''), 0xBF43), 0xA0)
+    for _tag, rule in _tlvs(table):
+        entry = {'ppr_ids': [], 'allowed_operators': [], 'ppr_flags': []}
+        for tag, value in _tlvs(rule):
+            if tag == 0x80:
+                entry['ppr_ids'] = _decode_bit_string(value, PPR_ID_BITS)
+            elif tag == 0xA1:
+                operators = []
+                for _t, op in _tlvs(value):
+                    ident = {'plmn': None, 'gid1': None, 'gid2': None}
+                    for t2, v2 in _tlvs(op):
+                        if t2 == 0x80:
+                            ident['plmn'] = v2.hex().upper()
+                        elif t2 == 0x81:
+                            ident['gid1'] = v2.hex().upper()
+                        elif t2 == 0x82:
+                            ident['gid2'] = v2.hex().upper()
+                    operators.append(ident)
+                entry['allowed_operators'] = operators
+            elif tag == 0x82:
+                entry['ppr_flags'] = _decode_bit_string(value, PPR_FLAG_BITS)
+        out.append(entry)
+    return out
+
+
+def _raw_request(scc, cmd_cls):
+    """Raw response hex of a request TLV (no pySim response decoding)."""
+    return CardApplicationISDR.store_data_tlv(scc, cmd_cls(), None)
+
+
 def chip_info(app):
-    """EID (ES10b GetEuiccData), EUICCInfo1/2 and the configured addresses."""
+    """EID (ES10c GetEuiccData), EUICCInfo1/2, configured addresses and RAT."""
     out = {'eid': None, 'info1': None, 'info2': None, 'addresses': None,
-           'errors': {}}
+           'rat': None, 'errors': {}}
     scc = _select_isdr(app)
     try:
         parts = (
             ('eid', lambda: CardApplicationISDR.get_eid(scc)),
-            ('info1', lambda: _flatten(CardApplicationISDR.store_data_tlv(
-                scc, EuiccInfo1(), EuiccInfo1))),
-            ('info2', lambda: _flatten(CardApplicationISDR.store_data_tlv(
-                scc, EuiccInfo2(), EuiccInfo2))),
-            ('addresses', lambda: _flatten(CardApplicationISDR.store_data_tlv(
-                scc, EuiccConfiguredAddresses(), EuiccConfiguredAddresses))),
+            ('info1', lambda: _decode_info1(_raw_request(scc, EuiccInfo1))),
+            ('info2', lambda: _decode_info2(_raw_request(scc, EuiccInfo2))),
+            ('addresses', lambda: _decode_addresses(
+                _raw_request(scc, EuiccConfiguredAddresses))),
+            ('rat', lambda: _decode_rat(_raw_request(scc, _GetRatRequest))),
         )
         for key, fn in parts:
             try:

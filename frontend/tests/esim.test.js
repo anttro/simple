@@ -42,6 +42,9 @@ test('esimGroupEid groups the hex digits in fours', () => {
 test('esimLabel maps known chip keys and prettifies the rest', () => {
 	assert.strictEqual(esimLabel('svn'), 'SVN');
 	assert.strictEqual(esimLabel('default_dp_address'), 'Default SM-DP+ address');
+	assert.strictEqual(esimLabel('installed_application'), 'Installed applications');
+	assert.strictEqual(esimLabel('forbidden_profile_policy_rules'), 'Forbidden PPRs');
+	assert.strictEqual(esimLabel('allowed_operators'), 'Allowed operators');
 	assert.strictEqual(esimLabel('some_unknown_key'), 'Some unknown key');
 });
 
@@ -52,9 +55,39 @@ test('esimFieldRows flattens nested values and skips empties', () => {
 	});
 	assert.deepStrictEqual(rows, [
 		['SVN', '1.2.3'],
-		['Nested / profile version', '2.2'],
+		['Nested / Profile version', '2.2'],
 		['List', 'a, b'],
 		['Zero', '0'],
+	]);
+});
+
+test('esimFieldRows labels nested keys per path component', () => {
+	const rows = esimFieldRows({
+		euicc_ci_pki_list_for_verification: { subject_key_identifier: '8137AB' },
+		ext_card_resource: {
+			installed_application: 0,
+			free_non_volatile_memory: 439084,
+		},
+	}, '');
+	assert.deepStrictEqual(rows, [
+		['CI PKI (verification) / Subject key identifier', '8137AB'],
+		['Card resource / Installed applications', '0'],
+		['Card resource / Free non-volatile memory', '439084'],
+	]);
+});
+
+test('esimFieldRows recurses into arrays of objects with index labels', () => {
+	const rows = esimFieldRows({
+		rat: [{
+			ppr_ids: ['ppr1', 'ppr2'],
+			allowed_operators: [{ plmn: 'EEEEEE', gid1: null, gid2: null }],
+			ppr_flags: ['consentRequired'],
+		}],
+	}, '');
+	assert.deepStrictEqual(rows, [
+		['Rules authorisation table 1 / PPR IDs', 'ppr1, ppr2'],
+		['Rules authorisation table 1 / Allowed operators 1 / PLMN', 'EEEEEE'],
+		['Rules authorisation table 1 / PPR flags', 'consentRequired'],
 	]);
 });
 
