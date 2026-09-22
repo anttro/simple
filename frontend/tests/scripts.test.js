@@ -31,11 +31,20 @@ eval(extractFunc(html, 'scp81LogLine'));
 eval(extractFunc(html, 'scp81LogEntryHtml'));
 eval(extractFunc(html, 'scp81GroupResults'));
 eval(extractFunc(html, 'scp81ScriptStateText'));
+eval(extractFunc(html, 'scriptKindLabel'));
 global.esc = (s) => String(s == null ? '' : s)
 	.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-test('explore template is the reference administration sequence', () => {
-	const m = /const SCP81_EXPLORE_APDUS = \[(.*?)\];/s.exec(html);
+test('scriptKindLabel maps the stored kinds to the template labels', () => {
+	assert.strictEqual(scriptKindLabel('explore'), 'Explore ISD');
+	assert.strictEqual(scriptKindLabel('Explore'), 'Explore ISD');
+	assert.strictEqual(scriptKindLabel('delete'), 'Delete AID');
+	assert.strictEqual(scriptKindLabel('install'), 'Install from .cap');
+	assert.strictEqual(scriptKindLabel('empty'), 'Empty');
+	assert.strictEqual(scriptKindLabel(undefined), 'Empty');
+});
+
+test('explore template is the reference administration sequence', () => {	const m = /const SCP81_EXPLORE_APDUS = \[(.*?)\];/s.exec(html);
 	assert.ok(m, 'SCP81_EXPLORE_APDUS not found');
 	const apdus = [...m[1].matchAll(/'([0-9A-F]+)'/g)].map(x => x[1]);
 	assert.deepStrictEqual(apdus, ['80CAFF2100', '80F28002024F0000', '80CA008500',

@@ -1180,9 +1180,9 @@
 						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="New script from">New script from</label>
 						<select id="scripts-template" onchange="scriptsTemplateChanged()" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
 							<option value="empty" data-l10n="Empty">Empty</option>
-							<option value="explore" data-l10n="Explore">Explore</option>
+							<option value="explore" data-l10n="Explore ISD">Explore ISD</option>
 							<option value="install" data-l10n="Install from .cap">Install from .cap</option>
-							<option value="delete" data-l10n="Delete">Delete</option>
+							<option value="delete" data-l10n="Delete AID">Delete AID</option>
 						</select>
 					</div>
 					<button id="scripts-new-btn" onclick="scriptsNew()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New">New</button>
@@ -1436,7 +1436,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.1.2';
+const SIMPLE_VERSION = '3.1.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9472,7 +9472,7 @@ function scriptsNew() {
 	const tpl = document.getElementById('scripts-template').value;
 	scriptsMsg('');
 	if (tpl === 'empty') { scriptsEdit(null, 'empty', '', []); return; }
-	if (tpl === 'explore') { scriptsEdit(null, 'explore', 'Explore', SCP81_EXPLORE_APDUS.slice()); return; }
+	if (tpl === 'explore') { scriptsEdit(null, 'explore', 'Explore ISD', SCP81_EXPLORE_APDUS.slice()); return; }
 	// Install/delete: fill the parameter form above, then press Generate.
 	scriptsTemplateChanged();
 }
@@ -9547,6 +9547,16 @@ function scriptsDelete(id) {
 	scriptsPersist();
 }
 
+// Script template kind -> display label.  The stored kind stays
+// 'explore'/'delete'/'install'/'empty' (existing localStorage scripts).
+function scriptKindLabel(kind) {
+	const k = String(kind || '').toLowerCase();
+	if (k === 'explore') return t('Explore ISD');
+	if (k === 'delete') return t('Delete AID');
+	if (k === 'install') return t('Install from .cap');
+	return t('Empty');
+}
+
 function scriptsRender() {
 	const tbody = document.getElementById('scripts-tbody');
 	if (!tbody) return;
@@ -9558,7 +9568,7 @@ function scriptsRender() {
 	for (const s of scripts) {
 		html += '<tr class="border-b border-gray-100 dark:border-slate-700">';
 		html += '<td class="py-1 px-2 font-medium">' + esc(s.name) + '</td>';
-		html += '<td class="py-1 px-2 text-xs text-gray-500 dark:text-slate-400">' + esc(t(s.kind || 'empty')) + '</td>';
+		html += '<td class="py-1 px-2 text-xs text-gray-500 dark:text-slate-400">' + esc(scriptKindLabel(s.kind)) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs">' + ((s.apdus || []).length) + '</td>';
 		html += '<td class="py-1 px-2 text-xs">' + esc((s.created || '').slice(0, 10)) + '</td>';
 		html += '<td class="py-1 px-2 whitespace-nowrap">' +
@@ -13909,7 +13919,8 @@ const LANG_RU = {
 	'Listener': 'Слушатель',
 	'Scripts': 'Скрипты',
 	'Empty': 'Пустой',
-	'Explore': 'Обзор',
+	'Explore ISD': 'Обзор ISD',
+	'Delete AID': 'Удалить AID',
 	'New': 'Новый',
 	'New script from': 'Новый скрипт из',
 	'Generate': 'Сгенерировать',

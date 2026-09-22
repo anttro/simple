@@ -788,7 +788,7 @@ Keys are never stored or logged.
 {"action": "start", "mode": "tls", "host": "127.0.0.1", "port": 8443,
  "psk_map": [{"identity": "89012345678901234567",
               "psk_hex": "00112233445566778899aabbccddeeff"}],
- "script": ["80CAFF2100", "80F28002024F0000"], "script_kind": "Explore"}
+ "script": ["80CAFF2100", "80F28002024F0000"], "script_kind": "Explore ISD"}
 ```
 
 `script` is the APDU list served to the card (an explicit list, or `none`);
@@ -873,7 +873,7 @@ Returns the configured command script and the execution state:
 
 ```json
 {"script": ["80CAFF2100", "80F28002024F0000"], "next": 2, "total": 2,
- "done": [0, 1], "kind": "Explore",
+ "done": [0, 1], "kind": "Explore ISD",
  "pending": {"index": 17, "pos": null, "page": true, "apdu": "80F28003024F0000"},
  "pages": 11, "pages_queued": 0, "complete": false,
  "results": [{"index": 1, "pos": 0, "page": false, "sw": "9000",

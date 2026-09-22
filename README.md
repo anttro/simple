@@ -624,9 +624,9 @@ The **Scripts** pill manages named APDU lists stored in `localStorage` (`simple_
 | Template | What it builds |
 |---|---|
 | **Empty** | an empty list |
-| **Explore** | the reference administration sequence (`GET DATA FF21`, GET STATUS ISD/ELF/application listings, `GET DATA 0085`); long listings auto-continue through `SW 6310/CAFE` pages |
+| **Explore ISD** | the reference administration sequence (`GET DATA FF21`, GET STATUS ISD/ELF/application listings, `GET DATA 0085`); long listings auto-continue through `SW 6310/CAFE` pages |
 | **Install from .cap** | INSTALL [for load] → LOAD ×N → INSTALL [for install] from a `.cap` (optional SD AID, install/STK parameters, make selectable) via `POST /api/scp81/gen-install`; the file is only used to generate the APDUs — it is not stored, not even its name |
-| **Delete** | DELETE APDUs from an AID list (one per line) with P2 = object only / object and related objects |
+| **Delete AID** | DELETE APDUs from an AID list (one per line) with P2 = object only / object and related objects |
 
 The table lists each script with kind, APDU count and creation time; **Edit** opens the name + APDU editor and **Delete** removes it. Over a session the server serves one C-APDU per card POST and tracks execution: the card reports status in its next POST (`X-Admin-Script-Status`), a session that dies resends only the unexecuted APDUs (`X-Admin-Resume` continues, a fresh dialog restarts), and a completed script is closed with `204 No Content`. The Remote APDU → **RAM/GP** builder can feed a command chain straight into the run with **Queue in SCP81**.
 
