@@ -683,6 +683,7 @@ pysim-simple-server --http-port 8080
 
 - **"Failed to establish context: Access denied"** — `pcscd` не запущен или нет прав: `sudo systemctl enable --now pcscd && sudo usermod -a -G pcscd $USER`.
 - **"device file /dev/ttyUSB0 does not exist"** — нет serial-ридера; подключите USB-ридер или укажите `-d`. Сервер всё равно стартует без ридера.
+- **"Service not available" (0x8010001D) / ридер пропал после перезапуска `pcscd`** — сервер восстанавливается сам: сторож перезапускает монитор присутствия pyscard, а следующий equip (автоматически после повторной вставки карты или кнопкой **Equip**) пересоздаёт транспорт PC/SC. Перезапуск сервера не нужен.
 
 ### Справочник API
 

@@ -253,6 +253,11 @@ def main():
     server.card = card
     server.rs = rs
     server.app = app
+    # PC/SC recovery: recreate the transport after a service failure (pcscd
+    # restart / reader re-enumeration); _ensure_transport() calls this.
+    def _new_transport():
+        return mod.init_reader(opts, **kwargs)
+    server.transport_factory = _new_transport
     server.sms_oa = opts.sms_oa
     server.sms_sc = opts.sms_sm_sc
     server.log_requests = opts.log_requests

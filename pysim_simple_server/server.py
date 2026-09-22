@@ -28,7 +28,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.1.1'
+VERSION = '3.1.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1181,6 +1181,9 @@ _POLL_INTERVAL = 30
 _POLL_TIMER = None
 _CARD_LOCK = threading.RLock()
 _CARD_CONNECTED = False
+# True when the current PC/SC transport is unusable (service failure): the
+# next equip recreates it via server.transport_factory (_ensure_transport).
+_TRANSPORT_STALE = False
 
 def _set_poll_interval(seconds):
     global _POLL_INTERVAL
@@ -1212,7 +1215,7 @@ def _do_status_poll():
                 _handle_proactive_chain(scc, st_sw)
         except Exception as e:
             sys.stderr.write('AUTO-STATUS error: %s\n' % e)
-            _handle_card_disconnect()
+            _handle_card_disconnect(stale=_is_pcsc_error(e))
     _reset_poll_timer()
 
 def _poll_enable():
@@ -2512,8 +2515,24 @@ def _record_tr(entry, tr_tlv, tr_sw=None):
         entry['tr_decoded'] = []
 
 
-def _handle_card_disconnect():
-    global _CARD_CONNECTED
+def _is_pcsc_error(exc):
+    """True for a PC/SC-level failure.
+
+    pyscard sets ``hresult`` on its exceptions (card-level errors such as
+    pySim's ``SwMatchError`` do not).  After such a failure the PC/SC context
+    captured when the reader was opened is dead, so the transport has to be
+    recreated before the card can be used again."""
+    return getattr(exc, 'hresult', -1) not in (-1, None)
+
+
+def _handle_card_disconnect(stale=False):
+    """Tear down the card session; ``stale`` marks the transport as dead.
+
+    Called on card removal (no ``stale``) and on PC/SC errors (``stale``, see
+    ``_is_pcsc_error``): the next equip recreates the transport."""
+    global _CARD_CONNECTED, _TRANSPORT_STALE
+    if stale:
+        _TRANSPORT_STALE = True
     _poll_disable()
     _cancel_menu_timeout()
     _timer_cancel()
@@ -2530,6 +2549,37 @@ def _handle_card_disconnect():
         _server_ref.equipping = False
         _server_ref.card_session = getattr(_server_ref, 'card_session', 0) + 1
     _reset_proactive_log()
+
+
+def _ensure_transport(server):
+    """Recreate the PC/SC transport after a service failure.
+
+    pyscard keeps the context handle it established when the reader was
+    opened (``PCSCCardConnection.connect`` uses it), so the old connection
+    cannot be revived once pcscd restarted - a fresh transport is the only
+    way back.  ``server.transport_factory`` is installed by ``__main__``.
+    Returns False when the reconnect failed (the caller should give up)."""
+    global _TRANSPORT_STALE
+    if not _TRANSPORT_STALE or server is None:
+        return True
+    factory = getattr(server, 'transport_factory', None)
+    if factory is None:
+        _TRANSPORT_STALE = False
+        return True
+    try:
+        sl = factory()
+    except Exception as e:
+        sys.stderr.write('TRANSPORT: PC/SC reconnect failed: %s\n' % e)
+        return False
+    server.sl = sl
+    server.card = None
+    server.scc = None
+    app = getattr(server, 'app', None)
+    if app is not None:
+        app.sl = sl
+    _TRANSPORT_STALE = False
+    sys.stderr.write('TRANSPORT: PC/SC reconnected\n')
+    return True
 
 
 def _apply_equipped_card(server):
@@ -2577,10 +2627,13 @@ def _esim_reinit(server):
     active profile), then the standard equip path runs.
     """
     app = server.app
+    if not _ensure_transport(server):
+        return False
     server.equipping = True
     try:
         try:
-            server.scc.reset_card()
+            if server.scc:
+                server.scc.reset_card()
         except Exception as e:
             sys.stderr.write('ESIM: card reset failed: %s\n' % e)
         old_stdout, old_stderr = app.stdout, sys.stderr
@@ -2688,6 +2741,10 @@ def _auto_equip_worker():
             app = server.app
             if app is None or not getattr(server, 'terminal_profile', None):
                 return
+            # A pcscd restart kills the PC/SC context: rebuild the transport
+            # before equipping, otherwise the equip can never succeed.
+            if not _ensure_transport(server):
+                return
             server.equipping = True
             try:
                 sys.stderr.write('AUTO-EQUIP: card inserted, initializing\n')
@@ -2745,16 +2802,77 @@ class _CardPresenceObserver(CardObserver):
 
 
 _card_presence_observer = None
+_card_watchdog = None
+
+
+def _card_monitor_alive():
+    """True while pyscard's presence-monitoring thread is running.
+
+    pyscard 2.x runs the thread eagerly (``_START_ON_DEMAND_ = False``) and
+    stops it itself on ``SCARD_E_NO_SERVICE``, so a server that outlives a
+    pcscd restart would never see card insertions again without a watchdog."""
+    try:
+        from smartcard.CardMonitoring import CardMonitor
+        rmthread = getattr(CardMonitor(), 'rmthread', None)
+        thread = getattr(rmthread, 'instance', None)
+        return bool(thread is not None and thread.is_alive())
+    except Exception:
+        return False
+
+
+def _restart_card_monitor(reader_name):
+    """Recreate pyscard's presence-monitoring thread.
+
+    The fresh thread reports cards that are already present as *inserted* on
+    its first pass, which triggers our auto-equip; the observers stay
+    registered on the untouched Observable singleton."""
+    from smartcard.CardMonitoring import CardMonitor, CardMonitoringThread
+    monitor = CardMonitor().instance
+    CardMonitoringThread.instance = None
+    monitor.rmthread = CardMonitoringThread(monitor)
+
+
+def _watchdog_tick(reader_name, alive_fn=None, restart_fn=None):
+    """One presence-monitor watchdog pass; returns 'ok' or 'restarted'."""
+    alive_fn = alive_fn or _card_monitor_alive
+    restart_fn = restart_fn or _restart_card_monitor
+    if alive_fn():
+        return 'ok'
+    sys.stderr.write('CARD-WATCH: PC/SC presence monitor stopped; restarting\n')
+    restart_fn(reader_name)
+    return 'restarted'
+
+
+def _start_card_watchdog(reader_name, interval=5.0):
+    """Keep the pyscard presence monitor alive across pcscd restarts."""
+    if not reader_name:
+        return None
+
+    def run():
+        while True:
+            time.sleep(interval)
+            try:
+                _watchdog_tick(reader_name)
+            except Exception as e:
+                sys.stderr.write('CARD-WATCH: monitor restart failed: %s\n' % e)
+
+    thread = threading.Thread(target=run, name='card-watchdog', daemon=True)
+    thread.start()
+    return thread
+
 
 def start_card_monitor(reader_name):
     """Start the process-wide pyscard monitor (one daemon thread, no process)
-    and register our reader's presence observer."""
-    global _card_presence_observer
+    and register our reader's presence observer; a watchdog keeps the monitor
+    (and with it auto-equip) alive when pcscd restarts."""
+    global _card_presence_observer, _card_watchdog
     if not reader_name:
         return None
     if _card_presence_observer is None:
         _card_presence_observer = _CardPresenceObserver(reader_name)
         CardMonitor().addObserver(_card_presence_observer)
+    if _card_watchdog is None or not _card_watchdog.is_alive():
+        _card_watchdog = _start_card_watchdog(reader_name)
     return _card_presence_observer
 
 
@@ -2976,7 +3094,7 @@ def _timer_expired(timer_id, elapsed):
                 data, sw = scc._tp.send_apdu(apdu)
             except Exception as e:
                 sys.stderr.write('TIMER-EXPIRATION send error: %s\n' % e)
-                _handle_card_disconnect()
+                _handle_card_disconnect(stale=_is_pcsc_error(e))
                 return
             sys.stderr.write('ENVELOPE(Timer Expiration): timer=%d elapsed=%ds -> %s\n'
                              % (timer_id, elapsed, sw))
@@ -3782,6 +3900,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             self._log_req(body)
             cmd = body.get('cmd', '')
+            is_equip = str(cmd).strip().startswith('equip')
+            if is_equip:
+                # A pcscd restart kills the PC/SC context; rebuild the
+                # transport so a manual Equip recovers too.
+                _ensure_transport(self.server)
             t0 = time.time()
             out = StringIO()
             old_stdout = app.stdout
@@ -3798,7 +3921,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr = old_stderr
             elapsed = int((time.time() - t0) * 1000)
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
-            is_equip = str(cmd).strip().startswith('equip')
             if is_equip:
                 _tlog('equip: onecmd_plus_hooks %dms' % elapsed)
             if is_equip and self.server.app and self.server.app.card and self.server.terminal_profile:
@@ -3928,7 +4050,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('STATUS poll error: %s\n' % e)
-                _handle_card_disconnect()
+                _handle_card_disconnect(stale=_is_pcsc_error(e))
                 self._send_json({'sw': None, 'error': 'card disconnected'})
                 self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/net-sim':
@@ -3960,7 +4082,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': str(e)})
             except Exception as e:
                 sys.stderr.write('Net-sim error: %s\n' % e)
-                _handle_card_disconnect()
+                _handle_card_disconnect(stale=_is_pcsc_error(e))
                 self._send_json({'error': 'simulation failed: %s' % e}, 500)
                 self._log_resp({'error': str(e)})
         elif self.path == '/api/net-state-refresh':
@@ -4314,8 +4436,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('Handler error: %s\n' % e)
-                if 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
-                    _handle_card_disconnect()
+                if _is_pcsc_error(e) or 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
+                    _handle_card_disconnect(stale=_is_pcsc_error(e))
                 err = {'success': False, 'error': str(e), 'exists': False}
                 self._send_json(err, 500)
                 self._log_resp(err)
@@ -4394,7 +4516,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('Event send error: %s\n' % e)
-                _handle_card_disconnect()
+                _handle_card_disconnect(stale=_is_pcsc_error(e))
                 self._send_json({'sw': None, 'error': 'card disconnected'})
                 self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/pli-dict':
@@ -4531,8 +4653,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('OTA send error: %s\n' % e)
-                if 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
-                    _handle_card_disconnect()
+                if _is_pcsc_error(e) or 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
+                    _handle_card_disconnect(stale=_is_pcsc_error(e))
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)
