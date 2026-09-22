@@ -7,6 +7,9 @@ import unittest
 
 from pysim_simple_server import gsmtap
 
+FCI = ('62278202782183023F00A50A8001718302C0F28701018A01058B032F0601'
+       'C60990014083010183010A')
+
 
 class PacketTests(unittest.TestCase):
     def test_header_and_payload(self):
@@ -23,12 +26,6 @@ class PacketTests(unittest.TestCase):
         self.assertEqual((antenna, slot, res), (0, 0, 0))
         self.assertEqual(pkt[16:], apdu)
 
-    def test_atr_subtype_and_slot(self):
-        pkt = gsmtap.build_packet(gsmtap.GSMTAP_SIM_ATR, b'\x3b\x00', slot_nr=2)
-        self.assertEqual(pkt[12], gsmtap.GSMTAP_SIM_ATR)   # sub_type
-        self.assertEqual(pkt[14], 2)                       # sub_slot
-        self.assertEqual(pkt[16:], b'\x3b\x00')
-
     def test_parse_target_defaults_and_overrides(self):
         self.assertEqual(gsmtap.parse_target(None), ('127.0.0.1', 4729))
         self.assertEqual(gsmtap.parse_target(''), ('127.0.0.1', 4729))
@@ -39,7 +36,7 @@ class PacketTests(unittest.TestCase):
 
 
 class SenderTests(unittest.TestCase):
-    def test_send_apdu_and_atr_reach_a_udp_listener(self):
+    def test_send_apdu_reaches_a_udp_listener(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(('127.0.0.1', 0))
         sock.settimeout(2.0)
@@ -47,16 +44,12 @@ class SenderTests(unittest.TestCase):
         sender = gsmtap.GsmtapSender(host, port)
         try:
             sender.send_apdu(bytes.fromhex('00A40004023F00'))
-            sender.send_atr(bytes.fromhex('3B00'))
-            first, _addr = sock.recvfrom(2048)
-            second, _addr = sock.recvfrom(2048)
+            data, _addr = sock.recvfrom(2048)
         finally:
             sender.close()
             sock.close()
-        self.assertEqual(first[12], gsmtap.GSMTAP_SIM_APDU)   # sub_type
-        self.assertEqual(first[16:], bytes.fromhex('00A40004023F00'))
-        self.assertEqual(second[12], gsmtap.GSMTAP_SIM_ATR)
-        self.assertEqual(second[16:], bytes.fromhex('3B00'))
+        self.assertEqual(data[12], gsmtap.GSMTAP_SIM_APDU)   # sub_type
+        self.assertEqual(data[16:], bytes.fromhex('00A40004023F00'))
 
     def test_send_never_raises_without_a_listener(self):
         sender = gsmtap.GsmtapSender('127.0.0.1', 1)   # nothing listening
@@ -75,26 +68,61 @@ class Recorder:
 
 
 class TracerTests(unittest.TestCase):
-    def test_command_and_response_are_wire_shaped(self):
+    def trace(self, cmd, sw='9000', resp=''):
         rec = Recorder()
-        tracer = gsmtap.GsmtapApduTracer(rec)
-        tracer.trace_command('00A40004023F00')
-        tracer.trace_response('00A40004023F00', '9000', '622982027821')
-        self.assertEqual(rec.apdus, [
-            bytes.fromhex('00A40004023F00'),
-            bytes.fromhex('6229820278219000'),   # data + SW1SW2
+        gsmtap.GsmtapApduTracer(rec).trace_response(cmd, sw, resp)
+        return rec.apdus
+
+    def test_case4_data_becomes_command_plus_get_response(self):
+        # A case-4 command goes on the wire without its Le byte and the data
+        # follows via GET RESPONSE (T=0).
+        self.assertEqual(self.trace('00A40004023F0000', resp=FCI), [
+            bytes.fromhex('00A40004023F00') + bytes([0x61, len(FCI) // 2]),
+            bytes.fromhex('00C00000') + bytes([len(FCI) // 2])
+            + bytes.fromhex(FCI) + bytes.fromhex('9000'),
         ])
 
-    def test_response_without_data_is_the_sw(self):
-        rec = Recorder()
-        gsmtap.GsmtapApduTracer(rec).trace_response('00B000000A', '6A82', '')
-        self.assertEqual(rec.apdus, [bytes.fromhex('6A82')])
+    def test_case4_error_is_command_plus_sw(self):
+        self.assertEqual(
+            self.trace('00A4040410A0000005591010FFFFFFFF890000010000', sw='6A82'),
+            [bytes.fromhex('00A4040410A0000005591010FFFFFFFF8900000100' + '6A82')])
 
-    def test_malformed_hex_never_raises(self):
+    def test_case2_merges_the_response_into_the_command_packet(self):
+        self.assertEqual(self.trace('00B000000A', resp='980711090000640070F2'),
+                         [bytes.fromhex('00B000000A980711090000640070F29000')])
+
+    def test_case2_error_keeps_the_status_word(self):
+        self.assertEqual(self.trace('80F2000C00', sw='6A82'),
+                         [bytes.fromhex('80F2000C006A82')])
+
+    def test_case3_merges_the_status_word(self):
+        tp = '8010000022' + 'FF' * 34
+        self.assertEqual(self.trace(tp, sw='9130'),
+                         [bytes.fromhex(tp + '9130')])
+
+    def test_long_case4_response_is_chunked(self):
+        data = 'AA' * 300
+        packets = self.trace('00A40004023F0000', resp=data)
+        self.assertEqual(len(packets), 3)          # command + 2 GET RESPONSEs
+        self.assertEqual(packets[0],
+                         bytes.fromhex('00A40004023F00') + bytes([0x61, 255]))
+        self.assertEqual(packets[1][:5], bytes([0x00, 0xC0, 0x00, 0x00, 255]))
+        self.assertEqual(packets[1][5:], bytes.fromhex(data[:255 * 2]))
+        self.assertEqual(packets[2][:5], bytes([0x00, 0xC0, 0x00, 0x00, 45]))
+        self.assertEqual(packets[2][5:],
+                         bytes.fromhex(data[255 * 2:]) + bytes.fromhex('9000'))
+
+    def test_unparseable_apdu_falls_back_to_raw_packets(self):
+        self.assertEqual(self.trace('00A4', resp='AA'),
+                         [bytes.fromhex('00A4'), bytes.fromhex('AA9000')])
+
+    def test_malformed_hex_sends_nothing(self):
+        self.assertEqual(self.trace('zz', resp='AA'), [])
+        self.assertEqual(self.trace('', resp=''), [])
+
+    def test_trace_command_sends_nothing(self):
         rec = Recorder()
-        tracer = gsmtap.GsmtapApduTracer(rec)
-        tracer.trace_command('not-hex')
-        tracer.trace_response('00A4', None, None)
+        gsmtap.GsmtapApduTracer(rec).trace_command('00A40004023F0000')
         self.assertEqual(rec.apdus, [])
 
     def test_fanout_forwards_every_callback(self):

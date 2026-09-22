@@ -668,7 +668,7 @@ pysim-simple-server --http-port 8080
 | `-d` / `--device` | Путь к serial-устройству |
 | `--no-card-init` | Пропустить инициализацию карты (сохранить CAT-сессию) |
 | `--apdu-trace` | Лог APDU-трафика в stderr |
-| `--gsmtap [HOST[:PORT]]` | Поток всех APDU (и ATR карты при equip) в виде GSMTAP-SIM UDP-пакетов для Wireshark / SIMtrace Analyser (`--capture gsmtap`); цель по умолчанию `127.0.0.1:4729`. Совместимо с `--apdu-trace` |
+| `--gsmtap [HOST[:PORT]]` | Поток APDU карты в виде GSMTAP-SIM UDP-пакетов для Wireshark / SIMtrace Analyser (`--capture gsmtap`); цель по умолчанию `127.0.0.1:4729`. Только APDU (без ATR), в «проводной» форме (у case-4 убирается Le, данные — как GET RESPONSE TPDU, ответы case-2/3 объединяются с командой). Совместимо с `--apdu-trace` |
 | `--log-requests` | Лог запросов/ответов в stderr |
 | `--sms-oa` / `--sms-sm-sc` | Адрес отправителя SMS-DELIVER / SM-SC для PoR-in-submit |
 | `--terminal-profile` | Hex TERMINAL PROFILE (по умолчанию — 33-байтовый профиль реального телефона с BIP-событиями/командами; без него живая карта не запускает HTTP OTA) |

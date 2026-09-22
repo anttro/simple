@@ -14,7 +14,7 @@ from pySim.cards import UiccCardBase
 from .shell import load_pysim_app
 from . import fastinit
 from . import gsmtap
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _send_gsmtap_atr, _LineFilter
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter
 
 
 _server_start = 0
@@ -267,10 +267,6 @@ def main():
     server.card_present = card is not None
     server.card_session = 1 if card is not None else 0
     server.iccid = iccid
-    server.gsmtap = gsmtap_sender
-    # Stream the ATR so a GSMTAP receiver (SIMtrace Analyser, Wireshark) has
-    # the session context before the first APDU of this session.
-    _send_gsmtap_atr(server)
     # Network state monitor: install the state read during the startup init
     # (right after the ICCID, before the TERMINAL PROFILE).  No readable
     # ICCID means the card is considered unusable - give up.

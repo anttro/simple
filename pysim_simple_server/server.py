@@ -28,7 +28,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.1.0'
+VERSION = '3.1.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2532,34 +2532,10 @@ def _handle_card_disconnect():
     _reset_proactive_log()
 
 
-def _send_gsmtap_atr(server):
-    """Stream the card's ATR as a GSMTAP-SIM packet (--gsmtap only).
-
-    Sent at every equip so a GSMTAP receiver (SIMtrace Analyser, Wireshark)
-    has the session context before the first APDU of the new session."""
-    sender = getattr(server, 'gsmtap', None)
-    if sender is None:
-        return
-    rs = getattr(server, 'rs', None)
-    atr = None
-    if rs is not None:
-        try:
-            atr = (rs.identity or {}).get('ATR')
-        except Exception:
-            atr = None
-    if not atr:
-        return
-    try:
-        sender.send_atr(bytes.fromhex(atr))
-    except (ValueError, TypeError):
-        pass
-
-
 def _apply_equipped_card(server):
     """Common post-equip state refresh + TERMINAL PROFILE, shared by the
     /api/command equip branch and the auto-equip worker."""
     global _CARD_CONNECTED
-    _send_gsmtap_atr(server)
     server.stk_pending = None
     server.menu_active = False
     _cancel_menu_timeout()

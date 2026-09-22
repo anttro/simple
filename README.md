@@ -685,7 +685,7 @@ pysim-simple-server --http-port 8080
 | `-d` / `--device` | Serial device path |
 | `--no-card-init` | Skip card init to preserve the CAT session (no file manager) |
 | `--apdu-trace` | Log APDU-level traces to stderr |
-| `--gsmtap [HOST[:PORT]]` | Stream every APDU (and the card ATR at equip) as GSMTAP-SIM UDP packets for Wireshark / SIMtrace Analyser (`--capture gsmtap`); default target `127.0.0.1:4729`. Combines with `--apdu-trace` |
+| `--gsmtap [HOST[:PORT]]` | Stream the card APDUs as GSMTAP-SIM UDP packets for Wireshark / SIMtrace Analyser (`--capture gsmtap`); default target `127.0.0.1:4729`. APDUs only (no ATR), emitted in wire shape (case-4 Le stripped, data as a GET RESPONSE TPDU, case-2/3 responses merged into the command packet). Combines with `--apdu-trace` |
 | `--log-requests` | Log request/response payloads to stderr |
 | `--sms-oa` / `--sms-sm-sc` | SMS-DELIVER originating address / SM-SC for PoR-in-submit |
 | `--terminal-profile` | TERMINAL PROFILE payload hex (default: 33-byte real-handset profile that advertises BIP events/commands; the live card ignores HTTP OTA without it) |
