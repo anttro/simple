@@ -275,8 +275,15 @@ Returns:
 
 ### `POST /api/send-ota`
 
-Send an OTA command (SCP80) to the card via SMS-PP-DOWNLOAD ENVELOPE.
-The secured packet is delivered in an SMS-DELIVER TPDU wrapped in an ENVELOPE command.
+Send an OTA command (SCP80) to the card via SMS-PP-DOWNLOAD ENVELOPE
+(one ENVELOPE per SMS).  With `apdu` the secured packet is built
+server-side (no single-SMS limit); a packet that does not fit one SMS is
+sent as a **concatenated** download per TS 31.115 §4.3: the packet is
+split into SMS user-data parts (first SM 132 octets, following ones 134 —
+the first one additionally carries the concatenation and CPI IEs) and the
+segments are sent in order.  A packet that would need more than 5 segments
+is refused (the card's concatenation buffer is the limit).  With `sp` a
+pre-built packet is delivered the same way.
 
 **Request body:**
 ```json
@@ -296,10 +303,15 @@ The secured packet is delivered in an SMS-DELIVER TPDU wrapped in an ENVELOPE co
 **Response (delivery PoR):**
 ```json
 {"success": true, "sw": "9000", "response_data": "027100000e0a...",
+ "bytes": 36, "segments": 1,
  "por": {"response_status": "por_ok", "tar": "B00000", "pcntr": 0,
          "decoded": {"number_of_commands": 1, "last_status_word": "6e00",
                       "last_response_data": ""}}}
 ```
+
+`bytes` is the secured packet size and `segments` the number of SMS
+segments sent (1 = single SMS, >1 = concatenated download; the failure
+response carries them too, plus an `error`).
 
 **Response (submit PoR):** PoR is extracted from the SMS-SUBMIT TPDU
 fetched via a proactive command (FETCH). The response contains the
@@ -338,27 +350,28 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 | `stk_params` | no | Hex CA TLV (TS 102 226 §8.2.1.3.2.1) for SIM toolkit app-specific params |
 | `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) for `gen_install_parameters()` |
 | `make_selectable` | no | If true (default), final INSTALL uses P1=`0C` (install + make selectable) |
-| `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240. When empty/omitted the server auto-fits: the largest size whose SCP80 secured packet still encodes into one SMS (140 octets; e.g. 107 for the 3DES `spi1=16/spi2=01` configuration). An explicit value larger than the fitting size is clamped; over SCP80 the default 240 does **not** fit and used to fail with pySim's "Cannot encode command in a single SMS". |
+| `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
 
 **Response (success):**
 ```json
 {"success": true, "failed_step": null,
- "steps": [{"name": "install_for_load", "apdu": "80E60200...", "por_status": "por_ok", "sw": "9000"},
-           {"name": "load_0", "apdu": "80E80000...", "por_status": "por_ok", "sw": "9000"},
-           {"name": "install_for_install", "apdu": "80E60C00...", "por_status": "por_ok", "sw": "9000"}],
+ "steps": [{"name": "install_for_load", "apdu": "80E60200...", "por_status": "por_ok", "sw": "9000", "bytes": 58, "segments": 1},
+           {"name": "load_0", "apdu": "80E80000...", "por_status": "por_ok", "sw": "9000", "bytes": 274, "segments": 3},
+           {"name": "install_for_install", "apdu": "80E60C00...", "por_status": "por_ok", "sw": "9000", "bytes": 66, "segments": 1}],
  "final_cntr": "0000000004",
  "load_file_aid": "A000000003000000",
  "module_aid": "A000000003000000",
  "application_aid": "A000000003000000",
- "load_block_size": 107,
+ "load_block_size": 240,
  "load_block_size_requested": null,
- "load_block_size_clamped": false}
+ "load_block_size_auto": true}
 ```
 
-`load_block_size` is the effective size used for the LOAD blocks,
-`load_block_size_requested` echoes an explicit `load_block_size` (null =
-auto-fit) and `load_block_size_clamped` is true when the requested size was
-reduced to fit one SMS.
+`load_block_size` is the effective size used for the LOAD blocks (240 by
+default), `load_block_size_requested` echoes an explicit `load_block_size`
+(null = the default was used) and `load_block_size_auto` marks that default.
+Each step reports the secured packet size `bytes` and the number of SMS
+`segments` it took.
 
 **Response (failure):**
 ```json

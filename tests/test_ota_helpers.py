@@ -20,17 +20,23 @@ if str(PY_SIM) not in sys.path:
     sys.path.insert(0, str(PY_SIM))
 
 from pysim_simple_server.server import (
+    _build_secured_packet,
     _build_sms_tpdu,
     _build_tr,
     _decode_cmd,
     _decode_por,
     _decode_tr,
     _log_proactive,
-    _max_load_block_size,
     _ota_reference,
     _record_tr,
+    _send_secured_packet,
     _spi_from_bytes,
+    _split_secured_packet,
     _tr_data_only,
+    SCP80_FIRST_BYTES,
+    SCP80_MAX_SEGMENTS,
+    SCP80_NEXT_BYTES,
+    SCP80_SINGLE_BYTES,
 )
 
 # Synthetic dummy key material (no real card keys).
@@ -177,28 +183,136 @@ class TestOtaReference(unittest.TestCase):
         self.assertEqual(out, AES_REFERENCE_VECTORS[('1e', '19')])
         self.assertEqual(spi['counter'], 'counter_must_be_lower')
 
-    def test_max_load_block_size_fits_one_sms(self):
-        # LOAD blocks are too large for SCP80 at the 240-byte default (pySim
-        # refuses a secured packet above 140 octets), so the helper finds the
-        # largest payload that still encodes into a single SMS.
-        mx = _max_load_block_size('16', '01', '15', '15', 'b00000',
-                                  '0000000001', K, K)
-        self.assertGreater(mx, 0)
-        self.assertLessEqual(mx, 240)
-        def load_apdu(n):
-            return '80E80000%02X%s00' % (n, '00' * n)
-        out, _ = _ota_reference('16', '01', '15', '15', 'b00000',
-                                '0000000001', load_apdu(mx), K, K)
-        self.assertLessEqual(len(out) // 2, 140)
-        with self.assertRaises(ValueError):
-            _ota_reference('16', '01', '15', '15', 'b00000',
-                           '0000000001', load_apdu(mx + 1), K, K)
+    def test_ram_load_sequence_uses_full_240_byte_blocks(self):
+        # The one-SMS clamp was removed: the RAM path's default LOAD blocks
+        # are the GP maximum of 240 bytes, and each secured packet still fits
+        # the card's concatenation buffer.
+        from pysim_simple_server.server import _cap_apdu_sequence
+        seq = _cap_apdu_sequence('A000000003000000', 'A000000003000001',
+                                 'AA' * 600, block_size=240)
+        loads = [a for a in seq if a.startswith('80E8')]
+        self.assertGreater(len(loads), 1)
+        for apdu in loads:
+            self.assertLessEqual(int(apdu[8:10], 16), 240)
+            sp, _ = _build_secured_packet('16', '01', '15', '15', 'b00000',
+                                          '0000000001', apdu, K, K)
+            self.assertLessEqual(len(_split_secured_packet(bytes.fromhex(sp))),
+                                 SCP80_MAX_SEGMENTS)
 
-    def test_max_load_block_size_respects_the_requested_cap(self):
-        mx = _max_load_block_size('16', '01', '15', '15', 'b00000',
-                                  '0000000001', K, K, requested=50)
-        self.assertLessEqual(mx, 50)
-        self.assertGreater(mx, 0)
+
+class TestSmsConcatenation(unittest.TestCase):
+    """SCP80 SMS concatenation: packet building and segment sending
+    (TS 31.115 4.2/4.3)."""
+
+    def test_secured_packet_matches_the_pysim_reference_for_one_sms(self):
+        # Our encoder only lifts pySim's single-SMS refusal; for packets that
+        # fit one SMS it must stay byte-identical to the pySim reference.
+        for spi1, spi2 in (('06', '09'), ('16', '01'), ('02', '09'), ('04', '19')):
+            ref, _ = _ota_reference(spi1, spi2, '15', '15', 'b00000',
+                                    '0000000001', APDU, K, K)
+            out, _ = _build_secured_packet(spi1, spi2, '15', '15', 'b00000',
+                                           '0000000001', APDU, K, K)
+            self.assertEqual(out, ref, (spi1, spi2))
+
+    def test_split_keeps_the_sms_user_data_budget(self):
+        self.assertEqual(_split_secured_packet(b'A' * SCP80_SINGLE_BYTES),
+                         [b'A' * SCP80_SINGLE_BYTES])
+        parts = _split_secured_packet(b'A' * (SCP80_SINGLE_BYTES + 1))
+        self.assertEqual([len(p) for p in parts],
+                         [SCP80_FIRST_BYTES, SCP80_SINGLE_BYTES + 1 - SCP80_FIRST_BYTES])
+        pkt = bytes(range(256)) * 2
+        parts = _split_secured_packet(pkt)
+        self.assertEqual(len(parts[0]), SCP80_FIRST_BYTES)
+        self.assertTrue(all(len(p) <= SCP80_NEXT_BYTES for p in parts[1:]))
+        self.assertEqual(b''.join(parts), pkt)
+        # Without the CPI IE the single-SM budget is the full 140 octets.
+        self.assertEqual(_split_secured_packet(b'A' * 140, include_cpi=False),
+                         [b'A' * 140])
+
+    def test_240_byte_load_block_encodes_and_fits_the_card_buffer(self):
+        # The RAM path no longer clamps LOAD blocks to one SMS: a 240-byte
+        # block (the GP maximum) becomes a concatenated command.
+        apdu = '80E80000F0' + '00' * 240 + '00'
+        out, _ = _build_secured_packet('16', '01', '15', '15', 'b00000',
+                                       '0000000001', apdu, K, K)
+        self.assertGreater(len(out) // 2, 140)
+        parts = _split_secured_packet(bytes.fromhex(out))
+        self.assertTrue(2 <= len(parts) <= SCP80_MAX_SEGMENTS, len(parts))
+        # pySim still refuses the same command - the reason we build it here.
+        with self.assertRaises(ValueError):
+            _ota_reference('16', '01', '15', '15', 'b00000', '0000000001', apdu, K, K)
+
+    def test_send_secured_packet_sends_the_segments_in_order(self):
+        import pysim_simple_server.server as srv
+        apdu = '80E80000F0' + '00' * 240 + '00'
+        sp_hex, _ = _build_secured_packet('16', '01', '15', '15', 'b00000',
+                                          '0000000001', apdu, K, K)
+        sent = []
+
+        def fake_envelope(tpdu_hex, scc, sm_sc=None, submit_handler=None):
+            sent.append(tpdu_hex.upper())
+            return '', '9000'
+
+        with mock.patch.object(srv, '_send_envelope', side_effect=fake_envelope):
+            result = _send_secured_packet(object(), sp_hex, oa_number='12345')
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['bytes'], len(sp_hex) // 2)
+        self.assertEqual(result['segments'], len(sent))
+        self.assertTrue(2 <= result['segments'] <= SCP80_MAX_SEGMENTS)
+        total = result['segments']
+        for num, tpdu in enumerate(sent, start=1):
+            concat = '000301%02X%02X' % (total, num)   # IEI 00, IEDL 3, ref 01
+            udhl = '07' if num == 1 else '05'
+            self.assertIn(udhl + concat, tpdu, num)
+            if num == 1:
+                self.assertIn(udhl + concat + '7000', tpdu)   # CPI in the first SM
+            else:
+                self.assertNotIn(concat + '7000', tpdu)
+
+    def test_send_secured_packet_refuses_more_than_the_card_buffer(self):
+        length = SCP80_FIRST_BYTES + SCP80_NEXT_BYTES * (SCP80_MAX_SEGMENTS - 1) + 1
+        result = _send_secured_packet(object(), '00' * length, oa_number='12345')
+        self.assertFalse(result['success'])
+        self.assertIn('too large', result['error'])
+        self.assertEqual(result['segments'], SCP80_MAX_SEGMENTS + 1)
+
+    def test_send_secured_packet_rejects_bad_hex(self):
+        result = _send_secured_packet(object(), 'zz', oa_number='12345')
+        self.assertFalse(result['success'])
+        self.assertIn('Invalid secured packet', result['error'])
+
+    def test_send_secured_packet_reports_a_failed_envelope(self):
+        import pysim_simple_server.server as srv
+
+        def fake_envelope(*args, **kwargs):
+            return '', '6F00'
+
+        with mock.patch.object(srv, '_send_envelope', side_effect=fake_envelope):
+            result = _send_secured_packet(object(), '00' * 10, oa_number='12345')
+        self.assertFalse(result['success'])
+        self.assertEqual(result['sw'], '6F00')
+        self.assertEqual(result['bytes'], 10)
+        self.assertIn('segment 1', result['error'])
+
+    def test_sms_user_data_budget_is_enforced(self):
+        # The splitter sizes every part exactly; a caller passing more than
+        # the SM can carry gets a clear error instead of an invalid TPDU.
+        with self.assertRaises(ValueError):
+            _build_sms_tpdu('00' * (SCP80_SINGLE_BYTES + 1))
+        with self.assertRaises(ValueError):
+            _build_sms_tpdu('00' * 141, include_cpi=False)
+        with self.assertRaises(ValueError):
+            _build_sms_tpdu('00' * (SCP80_FIRST_BYTES + 1), chunk_total=2, chunk_num=1)
+        # The exact capacities are all accepted.
+        self.assertTrue(_build_sms_tpdu('00' * SCP80_SINGLE_BYTES))
+        self.assertTrue(_build_sms_tpdu('00' * SCP80_FIRST_BYTES, chunk_total=2, chunk_num=1))
+        self.assertTrue(_build_sms_tpdu('00' * SCP80_NEXT_BYTES, chunk_total=2, chunk_num=2))
+        self.assertTrue(_build_sms_tpdu('00' * 140, include_cpi=False))
+
+    def test_segment_cap_matches_the_envelope_segment_limit(self):
+        from pysim_simple_server.server import MAX_ENVELOPE_SEGMENTS
+        self.assertEqual(SCP80_MAX_SEGMENTS, MAX_ENVELOPE_SEGMENTS)
+        self.assertEqual(SCP80_MAX_SEGMENTS, 5)
 
 
 class TestDecodePor(unittest.TestCase):

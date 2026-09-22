@@ -431,6 +431,10 @@ PoR confirms the card received and executed the secured packet. Two modes:
 
 Delivery PoR (SPI2 `01`) is simpler — the card returns the PoR directly in the ENVELOPE response. Submit PoR (SPI2 `21`) is used when the card cannot respond inline (e.g. during ELF operations where the ENVELOPE response space is limited).
 
+#### SMS delivery
+
+A secured packet is delivered in an SMS-PP-DOWNLOAD ENVELOPE. Its size in bytes and the number of SMS it takes are shown under the packet field; a packet that does not fit one SMS is delivered as a **concatenated** SMS-PP download (TS 31.115 §4.3): the packet is split into SMS user-data parts (first SM 132 octets, following ones 134 — the first one additionally carries the concatenation and CPI information elements) and the segments are sent in order. A packet that would need more than 5 segments is refused — that is the practical limit of the card's concatenation buffer.
+
 #### References
 
 - ETSI TS 102 225 V18.1.0: Secured packet structure for UICC based applications
@@ -449,7 +453,7 @@ The RAM subtab offers two operations selected from the **Operation** dropdown:
 | Operation | Description |
 |---|---|
 | **Explore Card (all GP data)** | Queries GET STATUS for ISD, Applications, ELFs, and ELF Modules, plus GET DATA FF21 for memory info. Results appear in an explorer view with per-item **Delete** buttons. |
-| **Install Package (.cap file)** | Sends a `.cap` file to the card via the server: INSTALL\[for load\] → LOAD ×N → INSTALL\[for install (+make selectable)\]. |
+| **Install Package (.cap file)** | Sends a `.cap` file to the card via the server: INSTALL\[for load\] → LOAD ×N → INSTALL\[for install (+make selectable)\]. The load file is split into LOAD APDUs of 1–240 bytes of payload (240 by default, editable in **LOAD block size**); a secured packet larger than one SMS is delivered as a concatenated SMS-PP download of up to 5 segments. |
 
 #### Explorer View
 

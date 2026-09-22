@@ -550,6 +550,7 @@
 		<button data-needs="card" onclick="pysimSendOta()" id="sp-send-btn" class="hidden mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send to Card">Send to Card</button>
 		<div id="sp-por-status" class="mt-2 text-base font-semibold font-mono hidden"></div>
 		<textarea id="sp-result" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea>
+		<div id="sp-size-info" class="text-xs mt-1 text-gray-500 dark:text-slate-400"></div>
 		<div id="sp-send-result" class="mt-2 text-xs font-mono hidden"></div>
 		<div id="sp-verify-result" class="mt-2 text-xs font-mono hidden"></div>
 
@@ -693,9 +694,9 @@
 				<label class="flex items-center gap-2 mt-2">
 					<input type="checkbox" id="ram-make-sel" checked> <span class="text-sm" data-l10n="Make selectable">Make selectable</span>
 				</label>
-				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400 mt-2" data-l10n="LOAD block size (bytes, empty = auto-fit)">LOAD block size (bytes, empty = auto-fit)</label>
-				<input id="ram-load-size" type="number" min="1" max="240" class="w-32 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="auto">
-				<div class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="Splits the load file into LOAD APDUs that fit one SCP80 SMS; auto-fit picks the largest size that encodes into 140 octets.">Splits the load file into LOAD APDUs that fit one SCP80 SMS; auto-fit picks the largest size that encodes into 140 octets.</div>
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400 mt-2" data-l10n="LOAD block size (bytes, empty = 240)">LOAD block size (bytes, empty = 240)</label>
+				<input id="ram-load-size" type="number" min="1" max="240" class="w-32 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="240">
+				<div class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="Splits the load file into LOAD APDUs (1-240 bytes of payload). A secured packet larger than one SMS is sent as a concatenated SMS-PP download (up to 5 SMs).">Splits the load file into LOAD APDUs (1-240 bytes of payload). A secured packet larger than one SMS is sent as a concatenated SMS-PP download (up to 5 SMs).</div>
 			</div>
 
 			<div id="ram-progress" class="hidden mb-3">
@@ -1436,7 +1437,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.1.4';
+const SIMPLE_VERSION = '3.2.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -3268,6 +3269,7 @@ function spCntrAdjust(delta) {
 }
 function spInvalidate() {
 	document.getElementById('sp-result').value = '';
+	spShowSizeInfo();
 }
 
 function updateSp() {
@@ -3468,6 +3470,56 @@ function aesCmac(data, keyBytes) {
 // CPL = octets from CHL to end incl. padding; CHL = 13 + len_sig.
 // CPI (0x70) and CHI (null) are NOT part of the SMS packet data.
 function genSp() {
+	_genSpBuild();
+	spShowSizeInfo();
+}
+
+// ===== SCP80 SMS segmentation (TS 31.115 4.2/4.3) =====
+// Capacities mirror the server's SCP80_*_BYTES constants (pysim_simple_server/
+// server.py): 140 octets of SMS user data minus the UDH, which carries the
+// concatenation IE (5 octets) in every SM and the CPI IE (2 octets) in the
+// first one of a concatenated command.
+const SCP80_MAX_SMS = 5;
+const SCP80_SINGLE_BYTES = 137;
+const SCP80_FIRST_BYTES = 132;
+const SCP80_NEXT_BYTES = 134;
+
+// Secured packet hex -> {bytes, segments} of the SMS-PP download.
+function scp80SegmentInfo(hex) {
+	const bytes = Math.floor((hex || '').replace(/[^0-9a-fA-F]/g, '').length / 2);
+	if (!bytes) return { bytes: 0, segments: 0 };
+	if (bytes <= SCP80_SINGLE_BYTES) return { bytes: bytes, segments: 1 };
+	let segments = 1;
+	let rest = bytes - SCP80_FIRST_BYTES;
+	while (rest > 0) { segments += 1; rest -= SCP80_NEXT_BYTES; }
+	return { bytes: bytes, segments: segments };
+}
+
+function spSizeInfoText(hex) {
+	const info = scp80SegmentInfo(hex);
+	if (!info.segments) return '';
+	let s = info.bytes + ' ' + t('bytes') + ' · ' + info.segments + ' SMS';
+	if (info.segments > 1) s += ' (' + t('concatenated') + ')';
+	if (info.segments > SCP80_MAX_SMS) {
+		s += ' — ' + t('too large for the card concatenation buffer') + ' (' + SCP80_MAX_SMS + ' SMS)';
+	}
+	return s;
+}
+
+// Refresh the packet size / SMS count line under the packet field.
+function spShowSizeInfo() {
+	const el = document.getElementById('sp-size-info');
+	if (!el) return;
+	const value = (document.getElementById('sp-result') || {}).value || '';
+	const isPacket = /^\s*[0-9a-fA-F\s]+$/.test(value);
+	const info = isPacket ? scp80SegmentInfo(value) : { bytes: 0, segments: 0 };
+	el.textContent = info.segments ? spSizeInfoText(value) : '';
+	el.className = 'text-xs mt-1 ' + (info.segments > SCP80_MAX_SMS
+		? 'text-red-600 dark:text-red-400'
+		: 'text-gray-500 dark:text-slate-400');
+}
+
+function _genSpBuild() {
 	const apduHex = (document.getElementById('sp-apdu').value || '').replace(/[^0-9a-fA-F]/g, '');
 	if (!apduHex) { document.getElementById('sp-result').value = 'Error: specify APDU'; return; }
 
@@ -5804,6 +5856,9 @@ async function pysimSendOta() {
 				cApduSwitchSubtab('response');
 			}
 			let msg = 'OTA sent. SW: ' + data.sw;
+			if (data.bytes && data.segments) {
+				msg += ' | ' + data.bytes + ' ' + t('bytes') + ' · ' + data.segments + ' SMS';
+			}
 			const por = data.por;
 			if (por && por.response_status) {
 				msg += ' | PoR status: ' + por.response_status + ' (TAR ' + por.tar + ')';
@@ -5821,6 +5876,7 @@ async function pysimSendOta() {
 			cntrEl.value = spNextCntr(cntrEl.value);
 			msg += ' | CNTR -> ' + cntrEl.value;
 			document.getElementById('sp-result').value = '';
+			spShowSizeInfo();
 			// keep the selected card preset in sync with the new counter (v1.9.8)
 			spCntrSyncPreset();
 			sendResultEl.textContent = msg;
@@ -6429,7 +6485,9 @@ async function ramInstallCap(sp) {
 	let txt = '';
 	(data.steps || []).forEach((s, idx) => {
 		const mark = s.por_status === 'por_ok' ? '✅' : '❌';
-		txt += mark + ' ' + t('Step') + ' ' + (idx + 1) + ': ' + s.name + ' — ' + s.por_status + ' (SW ' + s.sw + ')\n';
+		let line = mark + ' ' + t('Step') + ' ' + (idx + 1) + ': ' + s.name + ' — ' + s.por_status + ' (SW ' + s.sw + ')';
+		if (s.bytes && s.segments) line += ' · ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
+		txt += line + '\n';
 	});
 	stepsEl.textContent = txt;
 
@@ -6438,11 +6496,7 @@ async function ramInstallCap(sp) {
 		let sizeInfo = '';
 		if (data.load_block_size) {
 			sizeInfo = ' — ' + t('LOAD blocks') + ': ' + data.load_block_size + ' B';
-			if (data.load_block_size_clamped) {
-				sizeInfo += ' (' + t('clamped from') + ' ' + data.load_block_size_requested + ')';
-			} else if (!data.load_block_size_requested) {
-				sizeInfo += ' (' + t('auto-fit') + ')';
-			}
+			if (data.load_block_size_auto) sizeInfo += ' (' + t('default') + ')';
 		}
 		resultEl.textContent = t('Install OK') + ' — load_file_aid=' + data.load_file_aid + ' module_aid=' + data.module_aid + sizeInfo;
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
@@ -13993,12 +14047,13 @@ const LANG_RU = {
 	'Object and related objects': 'Объект и связанные объекты',
 	'SD AID (empty = ISD)': 'AID SD (пусто = ISD)',
 	'CAP file': 'CAP-файл',
-	'LOAD block size (bytes, empty = auto-fit)': 'Размер блока LOAD (байт, пусто = авто)',
-	'Splits the load file into LOAD APDUs that fit one SCP80 SMS; auto-fit picks the largest size that encodes into 140 octets.': 'Разбивает load-файл на LOAD APDU, помещающиеся в один SMS SCP80; авто-подбор выбирает максимальный размер, укладывающийся в 140 октетов.',
+	'LOAD block size (bytes, empty = 240)': 'Размер блока LOAD (байт, пусто = 240)',
+	'default': 'по умолчанию',
+	'concatenated': 'конкатенация',
+	'too large for the card concatenation buffer': 'слишком велик для буфера конкатенации карты',
+	'Splits the load file into LOAD APDUs (1-240 bytes of payload). A secured packet larger than one SMS is sent as a concatenated SMS-PP download (up to 5 SMs).': 'Разбивает load-файл на LOAD APDU (полезная нагрузка 1–240 байт). Защищённый пакет больше одного SMS отправляется как конкатенированная SMS-PP загрузка (до 5 SMS).',
 	'LOAD block size must be 1..240': 'Размер блока LOAD должен быть в диапазоне 1..240',
 	'LOAD blocks': 'Блоки LOAD',
-	'clamped from': 'ограничено с',
-	'auto-fit': 'авто',
 	'Redirect to external server': 'Перенаправление на внешний сервер',
 	'Pass-through (card destination)': 'Проброс (адрес карты)',
 	'Redirect: every BIP channel the card opens is connected to this Host:Port (the external HTTP OTA platform); TLS is terminated there, and the address the card requests is only logged.': 'Перенаправление: каждый открываемый картой BIP-канал подключается к этому Host:Port (внешняя платформа HTTP OTA); TLS завершается там, а запрошенный картой адрес только журналируется.',

@@ -28,9 +28,14 @@ function extractFunc(src, name) {
 
 const FNS = ['hexToBytes', 'bytesToHex', 'des3Keys', 'des3EncryptBlock', 'des3CbcEncrypt',
 	'xorBytes', 'zeroPad', 'cbcMac', 'aesCbcEncrypt', 'aesShiftLeft1', 'aesCmacSubkeys',
-	'aesCmac', 'genSp', 'spNextCntr'];
+	'aesCmac', '_genSpBuild', 'genSp', 'spNextCntr', 'scp80SegmentInfo', 'spSizeInfoText',
+	'spShowSizeInfo'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
+for (const c of ['SCP80_MAX_SMS', 'SCP80_SINGLE_BYTES', 'SCP80_FIRST_BYTES', 'SCP80_NEXT_BYTES']) {
+	code += html.match(new RegExp('const ' + c + ' = \\d+;'))[0].replace('const ', 'var ') + '\n';
+}
+code += 'function t(s){return s;}\n';
 
 // All test vectors are computed with the synthetic dummy key material below
 // (no live/sample card keys, no ICCIDs). They are cross-checked byte-for-byte
@@ -228,4 +233,40 @@ test('spNextCntr increments with carry', () => {
 test('spNextCntr tolerates lower case and separators', () => {
 	assert.strictEqual(spNextCntr('00000000 0a'), '000000000B');
 	assert.strictEqual(spNextCntr(''), '0000000001');
+});
+
+test('scp80SegmentInfo mirrors the server segmentation rules', () => {
+	assert.deepStrictEqual(scp80SegmentInfo(''), { bytes: 0, segments: 0 });
+	assert.deepStrictEqual(scp80SegmentInfo('AA'.repeat(137)), { bytes: 137, segments: 1 });
+	assert.deepStrictEqual(scp80SegmentInfo('AA'.repeat(138)), { bytes: 138, segments: 2 });
+	assert.deepStrictEqual(scp80SegmentInfo('AA'.repeat(132 + 134)), { bytes: 266, segments: 2 });
+	assert.deepStrictEqual(scp80SegmentInfo('AA'.repeat(132 + 134 * 2)), { bytes: 400, segments: 3 });
+});
+
+test('spSizeInfoText reports size, SMS count and the card buffer limit', () => {
+	assert.strictEqual(spSizeInfoText('AA'.repeat(18)), '18 bytes · 1 SMS');
+	assert.strictEqual(spSizeInfoText('AA'.repeat(266)), '266 bytes · 2 SMS (concatenated)');
+	assert.match(spSizeInfoText('AA'.repeat(132 + 134 * 5)),
+		/too large for the card concatenation buffer \(5 SMS\)/);
+	assert.strictEqual(spSizeInfoText(''), '');
+});
+
+test('the SCP80 UI constants match the server segmentation constants', () => {
+	const py = fs.readFileSync(
+		path.join(__dirname, '..', '..', 'pysim_simple_server', 'server.py'), 'utf8');
+	const read = (name) => {
+		const m = new RegExp('^' + name + '\\s*=\\s*(\\d+)', 'm').exec(py);
+		assert.ok(m, name + ' not found in server.py');
+		return parseInt(m[1], 10);
+	};
+	assert.strictEqual(SCP80_SINGLE_BYTES, read('SCP80_SINGLE_BYTES'));
+	assert.strictEqual(SCP80_FIRST_BYTES, read('SCP80_FIRST_BYTES'));
+	assert.strictEqual(SCP80_NEXT_BYTES, read('SCP80_NEXT_BYTES'));
+	assert.strictEqual(SCP80_MAX_SMS, read('MAX_ENVELOPE_SEGMENTS'));
+});
+
+test('a generated single-SMS packet shows its size and SMS count', () => {
+	const pkt = makeRun({});
+	const info = elements['sp-size-info'] || {};
+	assert.strictEqual(info.textContent, (pkt.length / 2) + ' bytes · 1 SMS');
 });

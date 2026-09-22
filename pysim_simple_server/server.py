@@ -7,6 +7,7 @@ import threading
 import traceback
 import re
 import codecs
+import zlib
 from urllib.parse import unquote_plus
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -28,9 +29,28 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.1.4'
+VERSION = '3.2.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
+
+# --- SCP80 SMS concatenation (TS 31.115 4.2/4.3) -------------------------
+#
+# SMS user data budget: 140 octets.  A packet that fits one SM carries only
+# the CPI IE in the UDH; a concatenated command carries the concatenation IE
+# (5 octets) in every SM plus the CPI IE (2 octets) in the first one, so the
+# payload capacities differ.  All figures include the UDHL octet.
+SCP80_SINGLE_BYTES = 137    # 140 - UDHL(1) - CPI IE(2)
+SCP80_FIRST_BYTES = 132     # 140 - UDHL(1) - concat IE(5) - CPI IE(2)
+SCP80_NEXT_BYTES = 134      # 140 - UDHL(1) - concat IE(5)
+# Fixed concatenation reference (TS 23.040 9.2.3.24.1): the server is the
+# only sender and only one concatenated message is ever in flight, so there
+# are no segments of another message to tell apart.
+SCP80_CONCAT_REF = 0x01
+# Segment cap: the card's concatenation buffer is limited (5-7 SMs is
+# typical for UICCs), so a longer packet could never be reassembled anyway.
+SCP80_MAX_SEGMENTS = MAX_ENVELOPE_SEGMENTS
+
+
 
 
 # Static file serving (the PWA lives in <repo>/frontend, served by this server
@@ -798,18 +818,25 @@ def _cap_parse(cap_hex):
     return loadfile_aid, module_aid, loadfile_data
 
 
-def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', include_cpi=True):
+def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', include_cpi=True,
+                    chunk_ref=SCP80_CONCAT_REF):
     chunk = bytes.fromhex(chunk_hex)
     # TS 23.040 UDH: first octet is UDHL, then the information elements.
-    # TS 31.115 4.2/4.3: the OTA CPI is UDH IEIa='70' with IEIDLa='00'.
+    # TS 31.115 4.2/4.3: a concatenated command carries the concatenation IE
+    # in every SM and the OTA CPI (IEIa='70', IEIDLa='00') in the first one.
     udh = b''
     if chunk_total > 1:
-        udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
+        udh = bytes([0x00, 0x03, chunk_ref, chunk_total, chunk_num])
         if chunk_num == 1 and include_cpi:
             udh += bytes([0x70, 0x00])
     elif include_cpi:
         udh = bytes([0x70, 0x00])
     tp_ud = (bytes([len(udh)]) + udh + chunk) if udh else chunk
+    # TP-UDL counts the whole user data (UDHL octet + UDH + payload) and the
+    # SMS limit is 140 octets; the splitter sizes every part for its own UDH.
+    budget = 140 - len(udh) - (1 if udh else 0)
+    if len(chunk) > budget:
+        raise ValueError('SMS user data overflow: %d > %d octets' % (len(chunk), budget))
     first_byte = 0x44 if udh and chunk_total > 1 else (0x40 if udh else 0x04)
     tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0xF6]) + _encode_scts() + bytes([len(tp_ud)]) + tp_ud
     return tpdu.hex()
@@ -921,26 +948,141 @@ def _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex, kic_key_he
     return b2h(out), spi
 
 
-def _max_load_block_size(spi1, spi2, kic, kid, tar_hex, cntr_hex,
-                         kic_key_hex, kid_key_hex, requested=240):
-    """Largest LOAD block payload that still fits one SMS (TS 31.115).
+def _split_secured_packet(pkt, include_cpi=True):
+    """Split a command packet into SMS user-data parts (TS 31.115 4.3).
 
-    pySim's SMS dialect refuses to encode a secured packet above 140 octets,
-    so a LOAD APDU of the default 240-byte block cannot be sent over SCP80.
-    Trial-encode a synthetic LOAD APDU for decreasing payload sizes (the
-    cipher padding makes a closed-form bound unreliable) and return the
-    largest one that encodes; 0 = not even a 1-byte block fits."""
-    cap = max(1, min(int(requested or 240), 240))
-    for n in range(cap, 0, -1):
-        apdu = '80E80000%02X%s00' % (n, '00' * n)
+    Every part plus its UDH stays within the 140-octet SMS user data; the
+    first part of a concatenated command is smaller because its UDH also
+    carries the CPI IE."""
+    single_max = SCP80_SINGLE_BYTES if include_cpi else 140
+    if len(pkt) <= single_max:
+        return [pkt]
+    first = SCP80_FIRST_BYTES if include_cpi else SCP80_NEXT_BYTES
+    parts = [pkt[:first]]
+    rest = pkt[first:]
+    while rest:
+        parts.append(rest[:SCP80_NEXT_BYTES])
+        rest = rest[SCP80_NEXT_BYTES:]
+    return parts
+
+
+def _encode_cmd_unlimited(otak, spi, tar, apdu):
+    """SCP80 command packet (TS 102 225 5.1.1 / TS 31.115 4.2) of any size.
+
+    pySim's OtaDialectSms.encode_cmd refuses packets above 140 octets
+    ("Fragmentation not implemented") - exactly the packets that need SMS
+    concatenation.  The coding is identical, so the packet is built here
+    with pySim's key material and header constructor and without the length
+    limit; the tests pin our output to pySim's byte-for-byte for packets
+    that fit one SMS (/api/sp-verify keeps using pySim as the reference)."""
+    from pySim.ota import OtaDialectSms
+    dialect = OtaDialectSms()
+    len_sig = dialect._compute_sig_len(spi)
+    pad_cnt = 0
+    apdu = bytes(apdu)
+    if spi['ciphering']:
+        # Append padding bytes to end up with blocksize.
+        len_cipher = 6 + len_sig + len(apdu)
+        padding = otak.crypt._get_padding(len_cipher, otak.crypt.blocksize)
+        pad_cnt = len(padding)
+        apdu += padding
+
+    kic = {'key': otak.kic_idx, 'algo': otak.algo_crypt}
+    kid = {'key': otak.kid_idx, 'algo': otak.algo_auth}
+    # CHL = octets from (and including) SPI to the end of RC/CC/DS:
+    # 13 == SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1).
+    chl = 13 + len_sig
+    part_head = dialect.hdr_construct.build({'chl': chl, 'spi': spi, 'kic': kic,
+                                             'kid': kid, 'tar': tar})
+    part_cnt = otak.cntr.to_bytes(5, 'big') + pad_cnt.to_bytes(1, 'big')
+    envelope_data = part_head + part_cnt + apdu
+    cpl = len(envelope_data) + len_sig
+    envelope_data = cpl.to_bytes(2, 'big') + envelope_data
+
+    if spi['rc_cc_ds'] == 'cc':
+        cc = otak.auth.sign(envelope_data)
+        envelope_data = part_cnt + cc + apdu
+    elif spi['rc_cc_ds'] == 'rc':
+        crc32 = zlib.crc32(envelope_data) & 0xffffffff
+        envelope_data = part_cnt + crc32.to_bytes(4, 'big') + apdu
+    elif spi['rc_cc_ds'] == 'no_rc_cc_ds':
+        envelope_data = part_cnt + apdu
+    else:
+        raise ValueError('Invalid rc_cc_ds: %s' % spi['rc_cc_ds'])
+
+    if spi['ciphering']:
+        ciph = otak.crypt.encrypt(envelope_data)
+        envelope_data = part_head + ciph
+        cpl = len(envelope_data)
+        envelope_data = cpl.to_bytes(2, 'big') + envelope_data
+    else:
+        envelope_data = part_head + envelope_data
+    return envelope_data
+
+
+def _build_secured_packet(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex,
+                          kic_key_hex, kid_key_hex):
+    """SCP80 command packet of any size; returns (hex, spi).
+
+    The CPL fix-up for the unciphered case mirrors _ota_reference: pySim
+    drops the CPL octets there, but they are part of the RC/CC/DS
+    calculation (TS 31.115 4.2)."""
+    from osmocom.utils import h2b, b2h
+    otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
+    spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
+    out = _encode_cmd_unlimited(otak, spi, h2b(tar_hex), h2b(apdu_hex))
+    if not spi['ciphering'] and spi['rc_cc_ds'] != 'no_rc_cc_ds':
+        # CPL counts octets from the CHL octet to the last octet of the
+        # Secured Data (incl. padding) - exactly the length of the
+        # unciphered range.
+        cpl = len(out)
+        out = cpl.to_bytes(2, 'big') + out
+    return b2h(out), spi
+
+
+def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
+                         submit_handler=None, max_segments=SCP80_MAX_SEGMENTS):
+    """Send a secured packet as SMS-PP download ENVELOPEs, one per segment.
+
+    TS 31.115 4.3: the whole command packet is split into SMS user-data
+    parts (the first SM carries the concatenation IE plus the CPI IE, the
+    following ones only the concatenation IE) and the card reassembles them.
+    Returns a dict with success/bytes/segments/sw/response_data or error."""
+    try:
+        pkt = bytes.fromhex(sp_hex or '')
+    except ValueError as e:
+        return {'success': False, 'bytes': 0, 'segments': 0,
+                'error': 'Invalid secured packet: %s' % e}
+    if not pkt:
+        return {'success': False, 'bytes': 0, 'segments': 0,
+                'error': 'Empty secured packet'}
+    parts = _split_secured_packet(pkt, include_cpi=include_cpi)
+    total = len(parts)
+    if total > max_segments:
+        return {'success': False, 'bytes': len(pkt), 'segments': total,
+                'error': 'Secured packet too large: %d segments (max %d - the '
+                         'card concatenation buffer)' % (total, max_segments)}
+    data = None
+    sw = None
+    sys.stderr.write('OTA SEND: %d SMS segment(s), %d bytes\n' % (total, len(pkt)))
+    for i, part in enumerate(parts):
         try:
-            out_hex, _ = _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex,
-                                        apdu, kic_key_hex, kid_key_hex)
-        except ValueError:
-            continue
-        if len(out_hex) // 2 <= 140:
-            return n
-    return 0
+            tpdu = _build_sms_tpdu(part.hex(), total, i + 1, oa_number=oa_number,
+                                   include_cpi=include_cpi)
+        except ValueError as e:
+            return {'success': False, 'bytes': len(pkt), 'segments': total,
+                    'error': str(e)}
+        if total > 1:
+            sys.stderr.write('OTA SEND: ENVELOPE %d/%d (%d B)%s\n' % (
+                i + 1, total, len(part), ' + CPI' if i == 0 and include_cpi else ''))
+        data, sw = _send_envelope(tpdu, scc, sm_sc=sm_sc or '12345678912',
+                                  submit_handler=submit_handler)
+        if sw != '9000' and not sw.startswith('91'):
+            return {'success': False, 'sw': sw, 'bytes': len(pkt),
+                    'segments': total,
+                    'error': 'ENVELOPE failed at segment %d' % (i + 1)}
+    return {'success': True, 'bytes': len(pkt), 'segments': total, 'sw': sw,
+            'response_data': data if data else None}
 
 
 def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
@@ -4563,7 +4705,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             include_cpi = body.get('includeCpi', True)
             try:
                 if apdu:
-                    # RAM operation: SCP80-wrap the raw GP command
+                    # RAM operation: SCP80-wrap the raw GP command.  The packet
+                    # may exceed one SMS (pySim refuses that), so use our own
+                    # encoder and let _send_secured_packet segment it.
                     spi1 = body.get('spi1', '16')
                     spi2 = body.get('spi2', '01')
                     kic = body.get('kic', '25')
@@ -4572,12 +4716,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     cntr = body.get('cntr', '')
                     kic_key = body.get('kicKey', '')
                     kid_key = body.get('kidKey', '')
-                    sp_hex, _ = _ota_reference(spi1, spi2, kic, kid, tar, cntr, apdu, kic_key, kid_key)
-                    sp_bytes = bytes.fromhex(sp_hex)
+                    sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, cntr, apdu, kic_key, kid_key)
                 else:
                     # Regular SCP80: use pre-built secured packet
                     sp_hex = sp
-                    sp_bytes = bytes.fromhex(sp_hex)
                 spi2_val = int(body.get('spi2', '00'), 16)
                 por_in_submit = bool(spi2_val & 0x20)
                 submit_handler = None
@@ -4587,65 +4729,55 @@ class PysimHandler(BaseHTTPRequestHandler):
                     old_proactive = scc._tp.proactive_handler
                     scc._tp.proactive_handler = submit_handler
                 try:
-                    max_chunk = 130
-                    chunks = [sp_bytes[i:i+max_chunk] for i in range(0, len(sp_bytes), max_chunk)]
-                    total = len(chunks)
-                    sys.stderr.write('OTA SEND: SPI %s %s KIc %s KID %s TAR %s CNTR %s LEN %dB CHUNKS %d\n' % (
+                    sys.stderr.write('OTA SEND: SPI %s %s KIc %s KID %s TAR %s CNTR %s LEN %dB\n' % (
                         body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
                         body.get('kid', ''), body.get('tar', ''), body.get('cntr', ''),
-                        len(sp_bytes), total))
-                    if total > MAX_ENVELOPE_SEGMENTS:
-                        resp = {'success': False, 'error': 'Secured packet too large: %d segments (max %d)' % (total, MAX_ENVELOPE_SEGMENTS)}
-                        sys.stderr.write('OTA SEND FAILED: %d segments exceeds max %d\n' % (total, MAX_ENVELOPE_SEGMENTS))
+                        len(sp_hex) // 2))
+                    sys.stderr.write('RAM C-APDU: %s\n' % apdu if apdu else sp)
+                    sys.stderr.write('RAM SECURED-PACKET: %s\n' % sp_hex)
+                    result = _send_secured_packet(
+                        scc, sp_hex, oa_number=self.server.sms_oa,
+                        sm_sc=self.server.sms_sc, include_cpi=include_cpi,
+                        submit_handler=submit_handler)
+                    if not result['success']:
+                        resp = result
+                        sys.stderr.write('OTA SEND FAILED: %s\n' % result.get('error'))
                     else:
-                        sys.stderr.write('RAM C-APDU: %s\n' % apdu if apdu else sp)
-                        sys.stderr.write('RAM SECURED-PACKET: %s\n' % sp_hex)
-                        last_data = None
-                        last_sw = None
-                        for i, chunk in enumerate(chunks):
-                            tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
-                                                   include_cpi=include_cpi)
-                            data, sw = _send_envelope(tpdu, scc, sm_sc=self.server.sms_sc, submit_handler=submit_handler)
-                            last_data = data
-                            last_sw = sw
-                            if sw != '9000' and not sw.startswith('91'):
-                                resp = {'success': False, 'sw': sw, 'error': 'ENVELOPE failed at chunk %d' % (i + 1)}
-                                sys.stderr.write('OTA SEND FAILED: chunk %d SW %s\n' % (i + 1, sw))
-                                break
+                        resp = {'success': True, 'sw': result['sw'],
+                                'response_data': result['response_data'],
+                                'bytes': result['bytes'], 'segments': result['segments']}
+                        por_src = 'envelope'
+                        por_hex = resp['response_data']
+                        if submit_handler and submit_handler.submit_tpdu_hex:
+                            tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
+                            idx = tpdu_b.find(b'\x02\x71\x00')
+                            if idx >= 0:
+                                por_hex = tpdu_b[idx:].hex()
+                                por_src = 'sms-submit'
+                        por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                                          body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
+                                          body.get('kidKey', ''), por_hex)
+                        # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
+                        is_ram = bool(apdu)
+                        por_required = bool(spi2_val & 0x01)
+                        no_por_received = not por_hex and not (submit_handler and submit_handler.submit_tpdu_hex)
+                        if is_ram and por_required and result['sw'] == '9000' and no_por_received:
+                            sys.stderr.write('WARNING: Card refused to return PoR - ENVELOPE returned 9000 with no response data\n')
+                        sys.stderr.write('RAM RESPONSE-PACKET: %s\n' % (por_hex if por_hex else 'empty'))
+                        if por:
+                            resp['por'] = por
+                            extra = ''
+                            if por.get('decoded'):
+                                extra = ' (compact: %s cmd, last SW %s)' % (por['decoded'].get('number_of_commands', '?'),
+                                                                            por['decoded'].get('last_status_word', '?'))
+                                sys.stderr.write('RAM R-APDU: %s\n' % por['decoded'].get('last_response_data', ''))
+                            sys.stderr.write('OTA PoR[%s]: status=%s TAR=%s CNTR=%s PCNTR=%s RPL=%s RHL=%s%s\n' % (
+                                por_src, por.get('response_status'), por.get('tar'), por.get('cntr'),
+                                por.get('pcntr'), por.get('rpl'), por.get('rhl'), extra))
+                        elif por_hex:
+                            sys.stderr.write('OTA PoR[%s]: undecodable raw=%s\n' % (por_src, str(por_hex)))
                         else:
-                            resp = {'success': True, 'sw': last_sw, 'response_data': last_data if last_data else None}
-                            por_src = 'envelope'
-                            por_hex = resp['response_data']
-                            if submit_handler and submit_handler.submit_tpdu_hex:
-                                tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
-                                idx = tpdu_b.find(b'\x02\x71\x00')
-                                if idx >= 0:
-                                    por_hex = tpdu_b[idx:].hex()
-                                    por_src = 'sms-submit'
-                            por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
-                                              body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
-                                              body.get('kidKey', ''), por_hex)
-                            # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
-                            is_ram = bool(apdu)
-                            por_required = bool(spi2_val & 0x01)
-                            no_por_received = not por_hex and not (submit_handler and submit_handler.submit_tpdu_hex)
-                            if is_ram and por_required and last_sw == '9000' and no_por_received:
-                                sys.stderr.write('WARNING: Card refused to return PoR - ENVELOPE returned 9000 with no response data\n')
-                            sys.stderr.write('RAM RESPONSE-PACKET: %s\n' % (por_hex if por_hex else 'empty'))
-                            if por:
-                                resp['por'] = por
-                                extra = ''
-                                if por.get('decoded'):
-                                    extra = ' (compact: %s cmd, last SW %s)' % (por['decoded'].get('number_of_commands', '?'),
-                                                                                por['decoded'].get('last_status_word', '?'))
-                                    sys.stderr.write('RAM R-APDU: %s\n' % por['decoded'].get('last_response_data', ''))
-                                sys.stderr.write('OTA PoR[%s]: status=%s TAR=%s CNTR=%s PCNTR=%s RPL=%s RHL=%s%s\n' % (
-                                    por_src, por.get('response_status'), por.get('tar'), por.get('cntr'),
-                                    por.get('pcntr'), por.get('rpl'), por.get('rhl'), extra))
-                            elif por_hex:
-                                sys.stderr.write('OTA PoR[%s]: undecodable raw=%s\n' % (por_src, str(por_hex)))
-                            else:
-                                sys.stderr.write('OTA PoR[%s]: none\n' % por_src)
+                            sys.stderr.write('OTA PoR[%s]: none\n' % por_src)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
@@ -4732,22 +4864,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                         self._send_json(err, 400)
                         self._log_resp(err)
                         return
-                max_block = _max_load_block_size(spi1, spi2, kic, kid, tar, cntr,
-                                                 kic_key, kid_key,
-                                                 requested=block_size_req or 240)
-                if max_block < 1:
-                    err = {'success': False,
-                           'error': 'no LOAD block fits a single SMS with these '
-                                    'SCP80 parameters'}
-                    self._send_json(err, 500)
-                    self._log_resp(err)
-                    return
-                block_size = min(block_size_req, max_block) if block_size_req else max_block
-                block_clamped = block_size_req is not None and block_size != block_size_req
-                sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes%s\n' % (
-                    block_size,
-                    (' (requested %d, clamped to fit one SMS)' % block_size_req)
-                    if block_clamped else ''))
+                # The GP LOAD payload limit is 240 bytes per APDU; SCP80
+                # concatenates the secured packet over up to SCP80_MAX_SEGMENTS
+                # SMs, so a block no longer has to fit into a single SMS.
+                block_size = block_size_req or 240
+                sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % block_size)
 
                 steps = []
                 encode_error = None
@@ -4758,16 +4879,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                 def _send_gp_apdu(apdu_hex, step_name):
                     nonlocal cntr, encode_error
                     try:
-                        sp_hex, _ = _ota_reference(spi1, spi2, kic, kid, tar, cntr, apdu_hex, kic_key, kid_key)
+                        sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, cntr, apdu_hex, kic_key, kid_key)
                     except ValueError as e:
                         encode_error = str(e)
                         steps.append({'name': step_name, 'por_status': 'encode_error',
                                       'sw': encode_error})
                         sys.stderr.write('RAM-INSTALL: %s encode failed: %s\n' % (step_name, e))
                         return False
-                    sp_bytes = bytes.fromhex(sp_hex)
-                    max_chunk = 130
-                    chunks = [sp_bytes[i:i + max_chunk] for i in range(0, len(sp_bytes), max_chunk)]
                     submit_handler = None
                     old_proactive = None
                     if por_in_submit and hasattr(scc, '_tp'):
@@ -4775,19 +4893,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                         old_proactive = scc._tp.proactive_handler
                         scc._tp.proactive_handler = submit_handler
                     try:
-                        last_data = None
-                        last_sw = None
-                        for i, chunk in enumerate(chunks):
-                            tpdu = _build_sms_tpdu(chunk.hex(), len(chunks), i + 1,
-                                                   oa_number=self.server.sms_oa, include_cpi=include_cpi)
-                            data, sw = _send_envelope(tpdu, scc, sm_sc=self.server.sms_sc,
-                                                      submit_handler=submit_handler)
-                            last_data = data
-                            last_sw = sw
-                            if sw != '9000' and not sw.startswith('91'):
-                                steps.append({'name': step_name, 'por_status': 'envelope_error', 'sw': sw})
-                                sys.stderr.write('RAM-INSTALL: %s ENVELOPE failed SW %s\n' % (step_name, sw))
-                                return False
+                        result = _send_secured_packet(
+                            scc, sp_hex, oa_number=self.server.sms_oa,
+                            sm_sc=self.server.sms_sc, include_cpi=include_cpi,
+                            submit_handler=submit_handler)
+                        if not result['success']:
+                            steps.append({'name': step_name, 'por_status': 'envelope_error',
+                                          'sw': result.get('sw') or result.get('error'),
+                                          'bytes': result.get('bytes'),
+                                          'segments': result.get('segments')})
+                            sys.stderr.write('RAM-INSTALL: %s send failed: %s\n' % (
+                                step_name, result.get('error')))
+                            return False
+                        last_data = result['response_data']
+                        last_sw = result['sw']
                         # Decode PoR
                         por_src = 'envelope'
                         por_hex = last_data
@@ -4802,10 +4921,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         if por and por.get('decoded'):
                             ps = por['decoded'].get('response_status', '')
                             por_status = 'por_ok' if ps == '9100' else 'por_error_%s' % ps
-                            sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s\n' % (step_name, por_src, ps))
+                            sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s (%d B, %d SM)\n' % (
+                                step_name, por_src, ps, result['bytes'], result['segments']))
                         elif last_sw == '9000' and not por_hex:
                             por_status = 'no_por'
-                        steps.append({'name': step_name, 'por_status': por_status, 'sw': last_sw})
+                        steps.append({'name': step_name, 'por_status': por_status, 'sw': last_sw,
+                                      'bytes': result['bytes'], 'segments': result['segments']})
                         # Increment counter
                         cntr = '%010X' % ((int(cntr, 16) + 1) % (2 ** 32))
                         return True
@@ -4834,7 +4955,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                 'load_block_size': block_size,
                                 'load_block_size_requested': block_size_req,
-                                'load_block_size_clamped': block_clamped}
+                                'load_block_size_auto': not block_size_req}
                         self._send_json(resp)
                         self._log_resp(resp)
                         return
@@ -4843,7 +4964,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'module_aid': module_aid, 'final_cntr': cntr,
                         'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
-                        'load_block_size_clamped': block_clamped}
+                        'load_block_size_auto': not block_size_req}
                 sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
                     loadfile_aid, module_aid, cntr))
                 self._send_json(resp)
