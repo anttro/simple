@@ -226,6 +226,30 @@ test('efDiffData reports only differing fields; efContentDiff decodes both sides
 	assert.strictEqual(efContentDiff('EF.NOPE', null, '00', '01'), null);
 });
 
+test('efFlatten skips the all-FF empty marker', () => {
+	assert.deepStrictEqual(efFlatten({ empty: true }), []);
+});
+
+test('efDiffData names an all-FF side Empty (all FF)', () => {
+	assert.deepStrictEqual(efDiffData({ empty: true }, { full: 'Miran' }),
+		[['Full name', 'Empty (all FF)', 'Miran']]);
+	assert.deepStrictEqual(efDiffData({ full: 'Miran' }, { empty: true }),
+		[['Full name', 'Miran', 'Empty (all FF)']]);
+	assert.deepStrictEqual(efDiffData({ empty: true }, { empty: true }), []);
+	// a field merely missing from a non-empty record stays blank
+	assert.deepStrictEqual(efDiffData({ full: 'Miran' }, { full: 'Miran', short: 'Mir' }),
+		[['Short name', '', 'Mir']]);
+});
+
+test('efContentDiff reports an empty PNN record side', () => {
+	const expected = 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF';
+	const actual = '430887CDB43CEC2687FFFFFFFFFFFFFFFFFFFFFF';
+	assert.deepStrictEqual(efDecPnn(efBytes(actual)), { full: 'Miran' });
+	const dd = efContentDiff('EF.PNN', '6fc5', expected, actual);
+	assert.ok(dd, 'decoded diff expected');
+	assert.deepStrictEqual(dd.rows, [['Full name', 'Empty (all FF)', 'Miran']]);
+});
+
 test('efDataSummary produces one-line summaries', () => {
 	assert.strictEqual(efDataSummary(efDecImsi(efBytes('082982608200002080'))), 'IMSI 228062800000208');
 	assert.strictEqual(efDataSummary(efDecIccid(efBytes('988812010000400310f0'))), 'ICCID 8988211000000430010');

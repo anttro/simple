@@ -1436,7 +1436,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.1.3';
+const SIMPLE_VERSION = '3.1.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -12964,6 +12964,10 @@ function efFlatten(data) {
 	const rows = [];
 	if (data === null || data === undefined) return rows;
 	if (typeof data !== 'object') { rows.push(['', efPrimitive(data)]); return rows; }
+	// `empty: true` marks an all-FF (unused) record - a marker, not a field.
+	// The decoded views show their own "empty" note; the comparison shows
+	// 'Empty (all FF)' for the empty side of a diff.
+	if (data.empty === true) return rows;
 	const arrayRows = (label, arr) => {
 		if (!arr.length) return;
 		if (typeof arr[0] !== 'object' || arr[0] === null) {
@@ -12997,10 +13001,18 @@ function efDiffData(expData, actData) {
 	for (const [k, v] of efFlatten(expData)) e[k] = v;
 	for (const [k, v] of efFlatten(actData)) a[k] = v;
 	const labels = [...new Set([...Object.keys(e), ...Object.keys(a)])];
+	// A side that decodes to an all-FF record has no fields at all: say so in
+	// its cells instead of leaving them blank.  A field merely absent from a
+	// non-empty record still shows as blank.
+	const expEmpty = expData && expData.empty === true ? t('Empty (all FF)') : '';
+	const actEmpty = actData && actData.empty === true ? t('Empty (all FF)') : '';
 	const rows = [];
 	for (const l of labels) {
 		const ev = e[l], av = a[l];
-		if (ev !== av) rows.push([l, ev === undefined ? '' : ev, av === undefined ? '' : av]);
+		if (ev === av) continue;
+		rows.push([l,
+			ev === undefined ? expEmpty : ev,
+			av === undefined ? actEmpty : av]);
 	}
 	return rows;
 }
@@ -14036,6 +14048,7 @@ const LANG_RU = {
 	'not updated': 'не обновлён',
 	'not present': 'отсутствует',
 	'empty': 'пусто',
+	'Empty (all FF)': 'Пусто (только FF)',
 	'No data': 'Нет данных',
 	'Home': 'Домашняя сеть',
 	'Home equivalent': 'Эквивалентная домашней',
