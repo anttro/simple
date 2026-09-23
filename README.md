@@ -44,7 +44,7 @@ Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profil
 
 ## Remote APDU tab
 
-Builds command APDUs (C-APDUs). Seven sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **RAM/GP**, **Expanded Script**, **Push commands**, and **Parser** (sub-pills **C-APDU Parser** / **R-APDU parser**).
+Builds command APDUs (C-APDUs). Six sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **RAM/GP**, **Expanded Script**, **Push commands**, and **Parser** (sub-pills **C-APDU Parser** / **R-APDU parser**).
 
 ### SIM RFM
 
@@ -359,7 +359,7 @@ Pastes raw APDU hex and renders a collapsible tree. It auto-detects the containe
 
 ### Push commands
 
-Groups the commands that make the card dial out. Three sub-pills switch between the forms - HTTP OTA Trigger (Push SMS), HTTP OTA Store (SD admin params) and Channel / link trigger - and only the selected one is shown (the two GP forms share their fields). They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
+Groups the commands that make the card dial out. Three sub-pills switch between the forms - HTTP OTA Trigger (Push SMS), HTTP OTA Store (SD admin params) and Channel / link trigger - and only the selected one is shown (the two GP forms share their fields; the mode switches the heading and its mode-specific rows - the SD params tag in Store, the Command Scripting template in Trigger - and the payload wrapping). They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
 
 #### Administration session (HTTP OTA)
 
@@ -370,7 +370,7 @@ Builds the Remote Application Management over HTTP payloads defined in GlobalPla
 
 | Section | Tag | Contents |
 |---|---|---|
-| Connection parameters | `84` | COMPREHENSION-TLVs needed to open the TCP connection (OPEN CHANNEL per TS 102 223): Device Identities `02`, Alpha `80`, Bearer `01`, vendor TLVs. Row editor + presets, editable hex. |
+| Connection parameters | `84` | COMPREHENSION-TLVs needed to open the TCP connection (OPEN CHANNEL per TS 102 223): Device Identities `82`, Alpha `05`, Command details `81`, Bearer `35` (`03` = default bearer), vendor TLVs. Row editor + presets, editable hex. |
 | Security parameters | `85` | Table 4-6: LV PSK Identity (text), LV Key version/KID. Identifies the PSK TLS key (RFC 4279). |
 | Retry policy | `86` | Table 4-7: retry counter (2 bytes, e.g. `B000`), retry waiting delay as the TS 102 223 timer TLV (`25 03 HH MM SS`), optional vendor-specific report-failure TLV. |
 | HTTP POST | `89` | Tables 4-8/9/10: Host header (`8A`), X-Admin-From agent ID (`8B`), URI (`8C`) — text converted to octets. |
@@ -385,6 +385,7 @@ The **Channel / link trigger** sub-pill builds the §9 requests with the same en
 - **CAT_TP link** (`02`) - destination port in transport level `3C` with protocol type 00 (mandatory), optional buffer size `39` / identification data `36`; standalone it relies on card-provisioned defaults, so prefer the pair above;
 - **TCP connection** (`03`) - bearer `35`, transport level `3C` with protocol type 02, destination address `3E` (`21` IPv4 / `57` IPv6 / `F0` FQDN), NAA/APN `47`; the parameters are the OPEN CHANNEL TCP set and are mandatory in the request, so `03` is self-contained (no companion `01`) - the connection is established over BIP or a direct IP connection (TS 102 483) where supported;
 - **Identification packet** (`04`) is not a trigger - it needs an already open TCP channel, so the TCP request has an *Also send the identification packet (04)* checkbox that appends it in the same message; `04` also stays in the chain's PUSH row for scripts.
+- **PoR** - Stepping Stones R7 §18.6.3 recommends *not* requesting a PoR for a successful push (it may disturb the ME-card communication); request one only to investigate a failure, in SMS-SUBMIT mode (SCP80 SPI2 bit `0x20`).
 
 ---
 
