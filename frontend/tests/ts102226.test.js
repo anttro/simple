@@ -251,6 +251,18 @@ test('pushSectionApdus builds the guided §9 channel/link requests', () => {
 		[tcp, '80EC01040436020102']);
 	// The follow-up only applies to the TCP request.
 	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withIdp: true }), ['80EC0101']);
+	// Stepping Stones R7 18.6: the BIP channel opening and the CAT_TP link
+	// request go in the same message; 01 carries the channel parameters, 02 the
+	// CAT_TP port (mandatory) plus optional max SDU / identification data.
+	assert.deepStrictEqual(
+		pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '1F90' }),
+		['80EC0101', '80EC0102053C03001F90']);
+	assert.deepStrictEqual(
+		pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '1F90', pushSdu: '0200', pushIdent: 'ABCD' }),
+		['80EC0101', '80EC01020D3C03001F90390202003602ABCD']);
+	// The CAT_TP port is mandatory for the pair, and the option only applies to 01.
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '' }), []);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withCat: false, pushPort: '1F90' }), ['80EC0101']);
 });
 
 test('chainApduList drops GET RESPONSE and splits multi-APDU rows', () => {

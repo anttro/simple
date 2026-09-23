@@ -173,14 +173,14 @@
 	</div>
 	<div id="c-apdu-sub-httpota" class="hidden">
 		<div class="flex flex-wrap gap-2 mb-3">
-			<button id="hota-form-btn-trigger" onclick="hotaSetForm('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="Trigger (Push SMS)">Trigger (Push SMS)</button>
-			<button id="hota-form-btn-store" onclick="hotaSetForm('store')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Store (SD admin params)">Store (SD admin params)</button>
+			<button id="hota-form-btn-trigger" onclick="hotaSetForm('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="HTTP OTA Trigger (Push SMS)">HTTP OTA Trigger (Push SMS)</button>
+			<button id="hota-form-btn-store" onclick="hotaSetForm('store')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="HTTP OTA Store (SD admin params)">HTTP OTA Store (SD admin params)</button>
 			<button id="hota-form-btn-link" onclick="hotaSetForm('link')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Channel / link trigger">Channel / link trigger</button>
 		</div>
 
 		<div id="hota-form-gp">
-		<h3 id="hota-heading-trigger" class="text-base font-medium mb-3" data-l10n="HTTP OTA Administrative session trigger (Push SMS)">HTTP OTA Administrative session trigger (Push SMS)</h3>
-		<h3 id="hota-heading-store" class="text-base font-medium mb-3 hidden" data-l10n="HTTP OTA Administrative session store data (SD admin params)">HTTP OTA Administrative session store data (SD admin params)</h3>
+		<h3 id="hota-heading-trigger" class="text-base font-medium mb-3" data-l10n="Administrative session trigger (Push SMS)">Administrative session trigger (Push SMS)</h3>
+		<h3 id="hota-heading-store" class="text-base font-medium mb-3 hidden" data-l10n="Administrative session store data (SD admin params)">Administrative session store data (SD admin params)</h3>
 
 		<div id="hota-store-tag-row" class="mb-3 hidden">
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="SD params tag">SD params tag</label>
@@ -305,14 +305,18 @@
 			<div data-push-link="01">
 				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)">OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)</label>
 				<textarea id="push-link-data" rows="2" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 mb-2" placeholder="82102081..."></textarea>
+				<label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+					<input type="checkbox" id="push-link-cat" onchange="pushUpdate('link')" class="rounded">
+					<span data-l10n="Also request the CAT_TP link establishment (02) in the same message">Also request the CAT_TP link establishment (02) in the same message</span>
+				</label>
 			</div>
-			<div data-push-link="02" class="grid grid-cols-2 gap-2 mb-2">
+			<div data-push-link="02" id="push-link-cat-fields-1" class="grid grid-cols-2 gap-2 mb-2">
 				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Max SDU (hex, optional)">Max SDU (hex, optional)</label>
 					<input id="push-link-sdu" oninput="pushUpdate('link')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></div>
 				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Identification data (hex, optional)">Identification data (hex, optional)</label>
 					<input id="push-link-ident" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></div>
 			</div>
-			<div data-push-link="02,03" class="grid grid-cols-2 gap-2 mb-2">
+			<div data-push-link="02,03" id="push-link-cat-fields-2" class="grid grid-cols-2 gap-2 mb-2">
 				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination port (hex)">Destination port (hex)</label>
 					<input id="push-link-port" oninput="pushUpdate('link')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="1F90"></div>
 				<div data-push-link="03"><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Bearer description (hex, empty = 350103)">Bearer description (hex, empty = 350103)</label>
@@ -322,7 +326,7 @@
 				<div data-push-link="03"><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="NAA / APN (text)">NAA / APN (text)</label>
 					<input id="push-link-apn" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="internet"></div>
 			</div>
-			<div data-push-link="02,03" class="mb-2">
+			<div data-push-link="02,03" id="push-link-cat-fields-3" class="mb-2">
 				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Extra TLVs (hex, optional)">Extra TLVs (hex, optional)</label>
 				<input id="push-link-extra" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
 			</div>
@@ -2164,9 +2168,11 @@ const _pushApdus = {};
 function pushReadFields(section) {
 	const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
 	const idp = document.getElementById('push-' + section + '-idp');
+	const cat = document.getElementById('push-' + section + '-cat');
 	return {
 		request: v('push-' + section + '-request') || '01',
 		withIdp: !!(idp && idp.checked),
+		withCat: !!(cat && cat.checked),
 		pushData: v('push-' + section + '-data'),
 		pushPort: v('push-' + section + '-port'),
 		pushSdu: v('push-' + section + '-sdu'),
@@ -2204,6 +2210,17 @@ function pushSectionApdus(section, f) {
 			? buildApdu(0x80, 0xEC, 0x01, 0x04, idp.length / 2, idp)
 			: buildApdu(0x80, 0xEC, 0x01, 0x04, null, null));
 	}
+	// SIMalliance Stepping Stones R7 18.6 recommends sending the BIP channel
+	// opening together with the CAT_TP link request in the same message: the
+	// channel parameters ride in 01, the CAT_TP port in 02.
+	if (request === '01' && f.withCat) {
+		if (hx(f.pushPort).length !== 4) return [];   // CAT_TP port is mandatory (9.2.2)
+		const cat = chainPushData({ pushType: '02', pushPort: f.pushPort,
+			pushSdu: f.pushSdu, pushIdent: f.pushIdent, pushExtra: f.pushExtra });
+		apdus.push(cat
+			? buildApdu(0x80, 0xEC, 0x01, 0x02, cat.length / 2, cat)
+			: buildApdu(0x80, 0xEC, 0x01, 0x02, null, null));
+	}
 	return apdus;
 }
 
@@ -2229,6 +2246,15 @@ function pushUpdate(section) {
 	});
 	const idpBlock = document.getElementById('push-' + section + '-idp-block');
 	if (idpBlock) idpBlock.classList.toggle('hidden', !(f.request === '03' && f.withIdp));
+	// On request 01 the shared CAT_TP field blocks (port, max SDU, identification
+	// data, extra TLVs) follow the "also request the CAT_TP link" checkbox; for
+	// the other requests their own data-push rules already showed/hid them.
+	if (f.request === '01') {
+		['-cat-fields-1', '-cat-fields-2', '-cat-fields-3'].forEach(suffix => {
+			const el = document.getElementById('push-' + section + suffix);
+			if (el) el.classList.toggle('hidden', !f.withCat);
+		});
+	}
 }
 
 // Import the §9 C-APDU(s) into the Expanded Script builder as 22 command TLVs
@@ -14949,14 +14975,15 @@ const LANG_RU = {
 	'expected': 'ожидалось',
 	'actual': 'фактически',
 	'HTTP OTA': 'HTTP OTA',
-	'Trigger (Push SMS)': 'Триггер (Push SMS)',
+	'HTTP OTA Trigger (Push SMS)': 'HTTP OTA Триггер (Push SMS)',
 	'Push commands': 'Пуш/триггер',
-	'HTTP OTA Administrative session trigger (Push SMS)': 'HTTP OTA — триггер административной сессии (Push SMS)',
-	'HTTP OTA Administrative session store data (SD admin params)': 'HTTP OTA — запись данных административной сессии (параметры SD)',
+	'Administrative session trigger (Push SMS)': 'Триггер административной сессии (Push SMS)',
+	'Administrative session store data (SD admin params)': 'Запись данных административной сессии (параметры SD)',
 	'Not the administration session — a C-APDU for an app that supports BIP/CAT_TP': 'C-APDU для приложения с поддержкой BIP/CAT_TP (не admin session!)',
 	'Request': 'Запрос',
 	'BIP channel opening (OPEN CHANNEL)': 'Открытие BIP-канала (OPEN CHANNEL)',
 	'Channel / link trigger': 'Триггер канала/линка',
+	'Also request the CAT_TP link establishment (02) in the same message': 'Также запросить установление соединения CAT_TP (02) в том же сообщении',
 	'Channel / link establishment (TS 102 226 §9)': 'Установление канала/линка (TS 102 226 §9)',
 	'Also send the identification packet (04) in the same message': 'Также отправить пакет идентификации (04) в том же сообщении',
 	'The identification packet follows the TCP request in the same message (ICCID when empty).': 'Пакет идентификации отправляется следом за TCP-запросом в том же сообщении (при пустом значении — ICCID).',
@@ -14972,7 +14999,7 @@ const LANG_RU = {
 	'Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)': 'Значение адреса назначения (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)',
 	'NAA / APN (text)': 'NAA / APN (текст)',
 	'C-APDU (TS 102 226 §9)': 'C-APDU (TS 102 226 §9)',
-	'Store (SD admin params)': 'Store (параметры SD)',
+	'HTTP OTA Store (SD admin params)': 'HTTP OTA Store (параметры SD)',
 	'SD params tag': 'Tag параметров SD',
 	"Connection parameters ('84')": "Параметры соединения ('84')",
 	'+ TLV': '+ TLV',
