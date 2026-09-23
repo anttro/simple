@@ -44,7 +44,7 @@ Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profil
 
 ## Remote APDU tab
 
-Builds command APDUs (C-APDUs). Seven sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **Expanded Script**, **RAM/GP**, **HTTP OTA**, **C-APDU Parser**, and **Response parser**.
+Builds command APDUs (C-APDUs). Seven sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **RAM/GP**, **Expanded Script**, **HTTP OTA**, **C-APDU Parser**, and **Response parser**.
 
 ### SIM RFM
 
