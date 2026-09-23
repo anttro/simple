@@ -55,8 +55,7 @@
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="ram" onclick="cApduSwitchSubtab('ram')">RAM/GP</button>
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="ber" onclick="cApduSwitchSubtab('ber')">Expanded Script</button>
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="httpota" onclick="cApduSwitchSubtab('httpota')" data-l10n="Push commands">Push commands</button>
-		<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="parse" onclick="cApduSwitchSubtab('parse')" data-l10n="C-APDU Parser">C-APDU Parser</button>
-		<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="response" onclick="cApduSwitchSubtab('response')" data-l10n="Response parser">Response parser</button>
+		<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="parser" onclick="cApduSwitchSubtab('parser')" data-l10n="Parser">Parser</button>
 		</div>
 			<div id="c-apdu-sub-sim">
 		<div id="chain-sim-rows"></div>
@@ -172,15 +171,6 @@
 		<textarea id="chain-ram-expanded" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-2" placeholder="Expanded script forms (AA / AE80)"></textarea>
 		<button onclick="packToSp('chain-ram-preview')" id="chain-ram-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
 	</div>
-	<div id="c-apdu-sub-parse" class="hidden">
-		<div class="mb-3">
-			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="APDU hex">APDU hex</label>
-			<textarea id="parse-input" rows="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="80 E6 0C 00 ..."></textarea>
-		</div>
-		<button onclick="parseHex()" class="mb-3 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700" data-l10n="Decode">Decode</button>
-		<div id="parse-output"></div>
-	</div>
-
 	<div id="c-apdu-sub-httpota" class="hidden">
 		<div class="flex flex-wrap gap-2 mb-3">
 			<button id="hota-form-btn-trigger" onclick="hotaSetForm('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="Trigger (Push SMS)">Trigger (Push SMS)</button>
@@ -371,6 +361,20 @@
 		</div>
 	</div>
 
+	<div id="c-apdu-sub-parser" class="hidden">
+		<div class="flex flex-wrap gap-2 mb-3">
+			<button id="parser-btn-parse" onclick="parserSwitchSubtab('parse')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="C-APDU Parser">C-APDU Parser</button>
+			<button id="parser-btn-response" onclick="parserSwitchSubtab('response')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="R-APDU parser">R-APDU parser</button>
+		</div>
+		<div id="c-apdu-sub-parse" class="hidden">
+			<div class="mb-3">
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="APDU hex">APDU hex</label>
+				<textarea id="parse-input" rows="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="80 E6 0C 00 ..."></textarea>
+			</div>
+			<button onclick="parseHex()" class="mb-3 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700" data-l10n="Decode">Decode</button>
+			<div id="parse-output"></div>
+		</div>
+
 			<div id="c-apdu-sub-response" class="hidden">
 		<div class="mb-3">
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Command">Command</label>
@@ -439,6 +443,7 @@
 		</div>
 		<button onclick="decodeResponse()" class="mb-3 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700" data-l10n="Decode">Decode</button>
 		<div id="resp-output" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 whitespace-pre-wrap" style="min-height:100px"></div>
+	</div>
 	</div>
 	</div>
 	<div class="w-1/4">
@@ -1569,7 +1574,34 @@ function scp80SwitchSubtab(name) {
 	setHelpAnchor(scp80HelpAnchor);
 }
 
+// Top-level Remote APDU subtabs; the C-APDU and R-APDU parsers are nested
+// panels behind the Parser pill (parserSwitchSubtab).
+const C_APDU_SUBTABS = ['sim', 'usim', 'ram', 'ber', 'httpota', 'parser'];
+const PARSER_HELP_ANCHORS = { parse: 'c-apdu-parser', response: 'response-parser' };
+let _parserSub = 'parse';
+
+function parserSwitchSubtab(name) {
+	_parserSub = (name === 'response') ? 'response' : 'parse';
+	[['parse', 'parser-btn-parse'], ['response', 'parser-btn-response']].forEach(pair => {
+		const btn = document.getElementById(pair[1]);
+		if (!btn) return;
+		btn.className = 'px-4 py-1.5 text-sm rounded-full ' + (pair[0] === _parserSub
+			? 'bg-blue-600 text-white'
+			: 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600');
+	});
+	document.getElementById('c-apdu-sub-parse').classList.toggle('hidden', _parserSub !== 'parse');
+	document.getElementById('c-apdu-sub-response').classList.toggle('hidden', _parserSub !== 'response');
+	setHelpAnchor(PARSER_HELP_ANCHORS[_parserSub]);
+}
+
 function cApduSwitchSubtab(name) {
+	// Nested names select the Parser pill first, so callers can keep
+	// addressing the panels directly (e.g. after a successful send).
+	if (name === 'parse' || name === 'response') {
+		cApduSwitchSubtab('parser');
+		parserSwitchSubtab(name);
+		return;
+	}
 	document.querySelectorAll('.c-apdu-subtab').forEach(btn => {
 		const active = btn.dataset.sub === name;
 		btn.classList.toggle('bg-blue-600', active);
@@ -1579,11 +1611,12 @@ function cApduSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !active);
 		btn.classList.toggle('dark:text-slate-300', !active);
 	});
-	['sim', 'usim', 'ram', 'ber', 'parse', 'httpota', 'response'].forEach(s => {
+	C_APDU_SUBTABS.forEach(s => {
 		const el = document.getElementById('c-apdu-sub-' + s);
 		if (el) el.classList.toggle('hidden', s !== name);
 	});
-	setHelpAnchor({sim:'sim-rfm', usim:'usim-rfm', ber:'ber-tlv', ram:'ram-gp', parse:'c-apdu-parser', httpota:'http-ota', response:'response-parser'}[name] || 'c-apdu');
+	setHelpAnchor({sim:'sim-rfm', usim:'usim-rfm', ber:'ber-tlv', ram:'ram-gp', httpota:'push-commands'}[name] || 'c-apdu');
+	if (name === 'parser') parserSwitchSubtab(_parserSub);
 }
 
 function phoneSwitchSubtab(name) {
@@ -14481,7 +14514,8 @@ const LANG_RU = {
 	'KID key error: ': 'Ошибка KID key: ',
 	'Error: ciphering requires KIc key': 'Ошибка: ciphering requires KIc key',
 	'Error: MAC requires KID key': 'Ошибка: MAC requires KID key',
-	'Response parser': 'Парсер ответов',
+	'Parser': 'Разбор',
+	'R-APDU parser': 'Разбор R-APDU',
 	'C-APDU Parser': 'Разбор C-APDU',
 	'Cards': 'Карты',
 	'Card reader': 'Картридер',

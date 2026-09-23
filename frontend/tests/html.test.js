@@ -119,9 +119,19 @@ test('profile rows have a Clone action', () => {
     assert.match(html, /t\('Clone'\)/);
 });
 
-test('response parser is a Remote APDU pill', () => {
-    assert.match(html, /data-sub="response" onclick="cApduSwitchSubtab\('response'\)"/);
-    assert.ok(html.includes('id="c-apdu-sub-response"'));
+test('the C-APDU and R-APDU parsers are sub-pills of the Parser pill', () => {
+    // The Parser pill is a top-level Remote APDU subtab...
+    assert.match(html, /data-sub="parser" onclick="cApduSwitchSubtab\('parser'\)"/);
+    // ...and both parser panels live inside its container, one after the other.
+    const container = html.indexOf('id="c-apdu-sub-parser"');
+    const parse = html.indexOf('id="c-apdu-sub-parse"');
+    const response = html.indexOf('id="c-apdu-sub-response"');
+    assert.ok(container > 0, 'Parser container missing');
+    assert.ok(parse > container, 'C-APDU panel must be inside the Parser container');
+    assert.ok(response > parse, 'R-APDU panel must follow the C-APDU panel');
+    // Their sub-pill buttons exist and switch through parserSwitchSubtab.
+    assert.match(html, /id="parser-btn-parse" onclick="parserSwitchSubtab\('parse'\)"/);
+    assert.match(html, /id="parser-btn-response" onclick="parserSwitchSubtab\('response'\)"/);
 });
 
 test('profiler and phone simulator are top-level tab contents', () => {
