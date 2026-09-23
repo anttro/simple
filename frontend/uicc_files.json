@@ -1,0 +1,3931 @@
+{
+ "generated": "2026-09-23",
+ "files": [
+  {
+   "path": "MF/2F00",
+   "name": "EF.DIR",
+   "sym": "MF/EF.DIR",
+   "fid": "2F00",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/2F05",
+   "name": "EF.PL",
+   "sym": "MF/EF.PL",
+   "fid": "2F05",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/2F06",
+   "name": "EF.ARR",
+   "sym": "MF/EF.ARR",
+   "fid": "2F06",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/2F08",
+   "name": "EF.UMPC",
+   "sym": "MF/EF.UMPC",
+   "fid": "2F08",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/2FE2",
+   "name": "EF.ICCID",
+   "sym": "MF/EF.ICCID",
+   "fid": "2FE2",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10",
+   "name": "DF.TELECOM",
+   "sym": "MF/DF.TELECOM",
+   "fid": "7F10",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3A",
+   "name": "DF.PHONEBOOK",
+   "sym": "MF/DF.TELECOM/DF.PHONEBOOK",
+   "fid": "5F3A",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3A/4F22",
+   "name": "EF.PSC",
+   "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PSC",
+   "fid": "4F22",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3A/4F23",
+   "name": "EF.CC",
+   "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.CC",
+   "fid": "4F23",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3A/4F24",
+   "name": "EF.PUID",
+   "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PUID",
+   "fid": "4F24",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3A/4F30",
+   "name": "EF.PBR",
+   "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PBR",
+   "fid": "4F30",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3B",
+   "name": "DF.MULTIMEDIA",
+   "sym": "MF/DF.TELECOM/DF.MULTIMEDIA",
+   "fid": "5F3B",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3B/4F47",
+   "name": "EF.MML",
+   "sym": "MF/DF.TELECOM/DF.MULTIMEDIA/EF.MML",
+   "fid": "4F47",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3B/4F48",
+   "name": "EF.MMDF",
+   "sym": "MF/DF.TELECOM/DF.MULTIMEDIA/EF.MMDF",
+   "fid": "4F48",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3D",
+   "name": "DF.MCS",
+   "sym": "MF/DF.TELECOM/DF.MCS",
+   "fid": "5F3D",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3D/4F01",
+   "name": "EF.MST",
+   "sym": "MF/DF.TELECOM/DF.MCS/EF.MST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3D/4F02",
+   "name": "EF.MCS_CONFIG",
+   "sym": "MF/DF.TELECOM/DF.MCS/EF.MCS_CONFIG",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3E",
+   "name": "DF.V2X",
+   "sym": "MF/DF.TELECOM/DF.V2X",
+   "fid": "5F3E",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3E/4F01",
+   "name": "EF.VST",
+   "sym": "MF/DF.TELECOM/DF.V2X/EF.VST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3E/4F02",
+   "name": "EF.V2X_CONFIG",
+   "sym": "MF/DF.TELECOM/DF.V2X/EF.V2X_CONFIG",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F3A",
+   "name": "EF.ADN",
+   "sym": "MF/DF.TELECOM/EF.ADN",
+   "fid": "6F3A",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F3B",
+   "name": "EF.FDN",
+   "sym": "MF/DF.TELECOM/EF.FDN",
+   "fid": "6F3B",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F3C",
+   "name": "EF.SMS",
+   "sym": "MF/DF.TELECOM/EF.SMS",
+   "fid": "6F3C",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F3D",
+   "name": "EF.CCP",
+   "sym": "MF/DF.TELECOM/EF.CCP",
+   "fid": "6F3D",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F40",
+   "name": "EF.MSISDN",
+   "sym": "MF/DF.TELECOM/EF.MSISDN",
+   "fid": "6F40",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F42",
+   "name": "EF.SMSP",
+   "sym": "MF/DF.TELECOM/EF.SMSP",
+   "fid": "6F42",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F43",
+   "name": "EF.SMSS",
+   "sym": "MF/DF.TELECOM/EF.SMSS",
+   "fid": "6F43",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F44",
+   "name": "EF.LND",
+   "sym": "MF/DF.TELECOM/EF.LND",
+   "fid": "6F44",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F47",
+   "name": "EF.SMSR",
+   "sym": "MF/DF.TELECOM/EF.SMSR",
+   "fid": "6F47",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F49",
+   "name": "EF.SDN",
+   "sym": "MF/DF.TELECOM/EF.SDN",
+   "fid": "6F49",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4A",
+   "name": "EF.EXT1",
+   "sym": "MF/DF.TELECOM/EF.EXT1",
+   "fid": "6F4A",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4B",
+   "name": "EF.EXT2",
+   "sym": "MF/DF.TELECOM/EF.EXT2",
+   "fid": "6F4B",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4C",
+   "name": "EF.EXT3",
+   "sym": "MF/DF.TELECOM/EF.EXT3",
+   "fid": "6F4C",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4D",
+   "name": "EF.BDN",
+   "sym": "MF/DF.TELECOM/EF.BDN",
+   "fid": "6F4D",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4E",
+   "name": "EF.EXT4",
+   "sym": "MF/DF.TELECOM/EF.EXT4",
+   "fid": "6F4E",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F4F",
+   "name": "EF.ECCP",
+   "sym": "MF/DF.TELECOM/EF.ECCP",
+   "fid": "6F4F",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/6F58",
+   "name": "EF.CMI",
+   "sym": "MF/DF.TELECOM/EF.CMI",
+   "fid": "6F58",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20",
+   "name": "DF.GSM",
+   "sym": "MF/DF.GSM",
+   "fid": "7F20",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F05",
+   "name": "EF.LP",
+   "sym": "MF/DF.GSM/EF.LP",
+   "fid": "6F05",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F07",
+   "name": "EF.IMSI",
+   "sym": "MF/DF.GSM/EF.IMSI",
+   "fid": "6F07",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F20",
+   "name": "EF.Kc",
+   "sym": "MF/DF.GSM/EF.Kc",
+   "fid": "6F20",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F2C",
+   "name": "EF.DCK",
+   "sym": "MF/DF.GSM/EF.DCK",
+   "fid": "6F2C",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F30",
+   "name": "EF.PLMNsel",
+   "sym": "MF/DF.GSM/EF.PLMNsel",
+   "fid": "6F30",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F31",
+   "name": "EF.HPPLMN",
+   "sym": "MF/DF.GSM/EF.HPPLMN",
+   "fid": "6F31",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F32",
+   "name": "EF.CNL",
+   "sym": "MF/DF.GSM/EF.CNL",
+   "fid": "6F32",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F37",
+   "name": "EF.ACMmax",
+   "sym": "MF/DF.GSM/EF.ACMmax",
+   "fid": "6F37",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F38",
+   "name": "EF.SST",
+   "sym": "MF/DF.GSM/EF.SST",
+   "fid": "6F38",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F39",
+   "name": "EF.ACM",
+   "sym": "MF/DF.GSM/EF.ACM",
+   "fid": "6F39",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F3E",
+   "name": "EF.GID1",
+   "sym": "MF/DF.GSM/EF.GID1",
+   "fid": "6F3E",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F3F",
+   "name": "EF.GID2",
+   "sym": "MF/DF.GSM/EF.GID2",
+   "fid": "6F3F",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F41",
+   "name": "EF.PUCT",
+   "sym": "MF/DF.GSM/EF.PUCT",
+   "fid": "6F41",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F45",
+   "name": "EF.CBMI",
+   "sym": "MF/DF.GSM/EF.CBMI",
+   "fid": "6F45",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F46",
+   "name": "EF.SPN",
+   "sym": "MF/DF.GSM/EF.SPN",
+   "fid": "6F46",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F48",
+   "name": "EF.CBMID",
+   "sym": "MF/DF.GSM/EF.CBMID",
+   "fid": "6F48",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F50",
+   "name": "EF.CBMIR",
+   "sym": "MF/DF.GSM/EF.CBMIR",
+   "fid": "6F50",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F51",
+   "name": "EF.NIA",
+   "sym": "MF/DF.GSM/EF.NIA",
+   "fid": "6F51",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F52",
+   "name": "EF.KcGPRS",
+   "sym": "MF/DF.GSM/EF.KcGPRS",
+   "fid": "6F52",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F53",
+   "name": "EF.LOCIGPRS",
+   "sym": "MF/DF.GSM/EF.LOCIGPRS",
+   "fid": "6F53",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F54",
+   "name": "EF.SUME",
+   "sym": "MF/DF.GSM/EF.SUME",
+   "fid": "6F54",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F60",
+   "name": "EF.PLMNwAcT",
+   "sym": "MF/DF.GSM/EF.PLMNwAcT",
+   "fid": "6F60",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F61",
+   "name": "EF.OPLMNwAcT",
+   "sym": "MF/DF.GSM/EF.OPLMNwAcT",
+   "fid": "6F61",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F62",
+   "name": "EF.HPLMNwAcT",
+   "sym": "MF/DF.GSM/EF.HPLMNwAcT",
+   "fid": "6F62",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F63",
+   "name": "EF.CPBCCH",
+   "sym": "MF/DF.GSM/EF.CPBCCH",
+   "fid": "6F63",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F64",
+   "name": "EF.InvScan",
+   "sym": "MF/DF.GSM/EF.InvScan",
+   "fid": "6F64",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F74",
+   "name": "EF.BCCH",
+   "sym": "MF/DF.GSM/EF.BCCH",
+   "fid": "6F74",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F78",
+   "name": "EF.ACC",
+   "sym": "MF/DF.GSM/EF.ACC",
+   "fid": "6F78",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F7B",
+   "name": "EF.FPLMN",
+   "sym": "MF/DF.GSM/EF.FPLMN",
+   "fid": "6F7B",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6F7E",
+   "name": "EF.LOCI",
+   "sym": "MF/DF.GSM/EF.LOCI",
+   "fid": "6F7E",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FAD",
+   "name": "EF.AD",
+   "sym": "MF/DF.GSM/EF.AD",
+   "fid": "6FAD",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FAE",
+   "name": "EF.Phase",
+   "sym": "MF/DF.GSM/EF.Phase",
+   "fid": "6FAE",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB1",
+   "name": "EF.VGCS",
+   "sym": "MF/DF.GSM/EF.VGCS",
+   "fid": "6FB1",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB2",
+   "name": "EF.VGCSS",
+   "sym": "MF/DF.GSM/EF.VGCSS",
+   "fid": "6FB2",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB3",
+   "name": "EF.VBS",
+   "sym": "MF/DF.GSM/EF.VBS",
+   "fid": "6FB3",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB4",
+   "name": "EF.VBSS",
+   "sym": "MF/DF.GSM/EF.VBSS",
+   "fid": "6FB4",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB5",
+   "name": "EF.eMLPP",
+   "sym": "MF/DF.GSM/EF.eMLPP",
+   "fid": "6FB5",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB6",
+   "name": "EF.AAeM",
+   "sym": "MF/DF.GSM/EF.AAeM",
+   "fid": "6FB6",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FB7",
+   "name": "EF.ECC",
+   "sym": "MF/DF.GSM/EF.ECC",
+   "fid": "6FB7",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FC5",
+   "name": "EF.PNN",
+   "sym": "MF/DF.GSM/EF.PNN",
+   "fid": "6FC5",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FC6",
+   "name": "EF.OPL",
+   "sym": "MF/DF.GSM/EF.OPL",
+   "fid": "6FC6",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FC7",
+   "name": "EF.MBDN",
+   "sym": "MF/DF.GSM/EF.MBDN",
+   "fid": "6FC7",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FC8",
+   "name": "EF.EXT6",
+   "sym": "MF/DF.GSM/EF.EXT6",
+   "fid": "6FC8",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FC9",
+   "name": "EF.MBI",
+   "sym": "MF/DF.GSM/EF.MBI",
+   "fid": "6FC9",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCA",
+   "name": "EF.MWIS",
+   "sym": "MF/DF.GSM/EF.MWIS",
+   "fid": "6FCA",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCB",
+   "name": "EF.CFIS",
+   "sym": "MF/DF.GSM/EF.CFIS",
+   "fid": "6FCB",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCC",
+   "name": "EF.EXT7",
+   "sym": "MF/DF.GSM/EF.EXT7",
+   "fid": "6FCC",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCD",
+   "name": "EF.SPDI",
+   "sym": "MF/DF.GSM/EF.SPDI",
+   "fid": "6FCD",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCE",
+   "name": "EF.MMSN",
+   "sym": "MF/DF.GSM/EF.MMSN",
+   "fid": "6FCE",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FCF",
+   "name": "EF.EXT8",
+   "sym": "MF/DF.GSM/EF.EXT8",
+   "fid": "6FCF",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FD0",
+   "name": "EF.MMSICP",
+   "sym": "MF/DF.GSM/EF.MMSICP",
+   "fid": "6FD0",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FD1",
+   "name": "EF.MMSUP",
+   "sym": "MF/DF.GSM/EF.MMSUP",
+   "fid": "6FD1",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F20/6FD2",
+   "name": "EF.MMSUCP",
+   "sym": "MF/DF.GSM/EF.MMSUCP",
+   "fid": "6FD2",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "ADF.ECASD",
+   "name": "ADF.ECASD",
+   "sym": "ADF.ECASD",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.ECASD",
+   "aid": "A0000005591010FFFFFFFF8900000200"
+  },
+  {
+   "path": "ADF.ISD",
+   "name": "ADF.ISD",
+   "sym": "ADF.ISD",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.ISD",
+   "aid": "A000000003000000"
+  },
+  {
+   "path": "ADF.ISD-R",
+   "name": "ADF.ISD-R",
+   "sym": "ADF.ISD-R",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.ISD-R",
+   "aid": "A0000005591010FFFFFFFF8900000100"
+  },
+  {
+   "path": "ADF.ISIM",
+   "name": "ADF.ISIM",
+   "sym": "ADF.ISIM",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.ISIM",
+   "aid": "A0000000871004"
+  },
+  {
+   "path": "ADF.ISIM/6F02",
+   "name": "EF.IMPI",
+   "sym": "ADF.ISIM/EF.IMPI",
+   "fid": "6F02",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F03",
+   "name": "EF.DOMAIN",
+   "sym": "ADF.ISIM/EF.DOMAIN",
+   "fid": "6F03",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F04",
+   "name": "EF.IMPU",
+   "sym": "ADF.ISIM/EF.IMPU",
+   "fid": "6F04",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F06",
+   "name": "EF.ARR",
+   "sym": "ADF.ISIM/EF.ARR",
+   "fid": "6F06",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F07",
+   "name": "EF.IST",
+   "sym": "ADF.ISIM/EF.IST",
+   "fid": "6F07",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F09",
+   "name": "EF.P-CSCF",
+   "sym": "ADF.ISIM/EF.P-CSCF",
+   "fid": "6F09",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F0A",
+   "name": "EF.GBAUAPI",
+   "sym": "ADF.ISIM/EF.GBAUAPI",
+   "fid": "6F0A",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F0B",
+   "name": "EF.IMSDCI",
+   "sym": "ADF.ISIM/EF.IMSDCI",
+   "fid": "6F0B",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F3C",
+   "name": "EF.SMS",
+   "sym": "ADF.ISIM/EF.SMS",
+   "fid": "6F3C",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F42",
+   "name": "EF.SMSP",
+   "sym": "ADF.ISIM/EF.SMSP",
+   "fid": "6F42",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F43",
+   "name": "EF.SMSS",
+   "sym": "ADF.ISIM/EF.SMSS",
+   "fid": "6F43",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6F47",
+   "name": "EF.SMSR",
+   "sym": "ADF.ISIM/EF.SMSR",
+   "fid": "6F47",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FAD",
+   "name": "EF.AD",
+   "sym": "ADF.ISIM/EF.AD",
+   "fid": "6FAD",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FD5",
+   "name": "EF.GBABP",
+   "sym": "ADF.ISIM/EF.GBABP",
+   "fid": "6FD5",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FD7",
+   "name": "EF.GBANL",
+   "sym": "ADF.ISIM/EF.GBANL",
+   "fid": "6FD7",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FDD",
+   "name": "EF.NAFKCA",
+   "sym": "ADF.ISIM/EF.NAFKCA",
+   "fid": "6FDD",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FE7",
+   "name": "EF.UICCIARI",
+   "sym": "ADF.ISIM/EF.UICCIARI",
+   "fid": "6FE7",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FF7",
+   "name": "EF.FromPreferred",
+   "sym": "ADF.ISIM/EF.FromPreferred",
+   "fid": "6FF7",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FF8",
+   "name": "EF.IMSConfigData",
+   "sym": "ADF.ISIM/EF.IMSConfigData",
+   "fid": "6FF8",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FFA",
+   "name": "EF.WebRTCURI",
+   "sym": "ADF.ISIM/EF.WebRTCURI",
+   "fid": "6FFA",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FFC",
+   "name": "EF.XCAPConfigData",
+   "sym": "ADF.ISIM/EF.XCAPConfigData",
+   "fid": "6FFC",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.ISIM/6FFE",
+   "name": "EF.MuDMiDConfigData",
+   "sym": "ADF.ISIM/EF.MuDMiDConfigData",
+   "fid": "6FFE",
+   "kind": "ef",
+   "root": "ADF.ISIM"
+  },
+  {
+   "path": "ADF.USIM",
+   "name": "ADF.USIM",
+   "sym": "ADF.USIM",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.USIM",
+   "aid": "A0000000871002"
+  },
+  {
+   "path": "ADF.USIM/5F3A",
+   "name": "DF.PHONEBOOK",
+   "sym": "ADF.USIM/DF.PHONEBOOK",
+   "fid": "5F3A",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3A/4F22",
+   "name": "EF.PSC",
+   "sym": "ADF.USIM/DF.PHONEBOOK/EF.PSC",
+   "fid": "4F22",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3A/4F23",
+   "name": "EF.CC",
+   "sym": "ADF.USIM/DF.PHONEBOOK/EF.CC",
+   "fid": "4F23",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3A/4F24",
+   "name": "EF.PUID",
+   "sym": "ADF.USIM/DF.PHONEBOOK/EF.PUID",
+   "fid": "4F24",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3A/4F30",
+   "name": "EF.PBR",
+   "sym": "ADF.USIM/DF.PHONEBOOK/EF.PBR",
+   "fid": "4F30",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3B",
+   "name": "DF.GSM-ACCESS",
+   "sym": "ADF.USIM/DF.GSM-ACCESS",
+   "fid": "5F3B",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3B/4F20",
+   "name": "EF.Kc",
+   "sym": "ADF.USIM/DF.GSM-ACCESS/EF.Kc",
+   "fid": "4F20",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3B/4F52",
+   "name": "EF.KcGPRS",
+   "sym": "ADF.USIM/DF.GSM-ACCESS/EF.KcGPRS",
+   "fid": "4F52",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3B/4F63",
+   "name": "EF.CPBCCH",
+   "sym": "ADF.USIM/DF.GSM-ACCESS/EF.CPBCCH",
+   "fid": "4F63",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3B/4F64",
+   "name": "EF.InvScan",
+   "sym": "ADF.USIM/DF.GSM-ACCESS/EF.InvScan",
+   "fid": "4F64",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40",
+   "name": "DF.WLAN",
+   "sym": "ADF.USIM/DF.WLAN",
+   "fid": "5F40",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F41",
+   "name": "EF.Pseudo",
+   "sym": "ADF.USIM/DF.WLAN/EF.Pseudo",
+   "fid": "4F41",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F42",
+   "name": "EF.UPLMNWLAN",
+   "sym": "ADF.USIM/DF.WLAN/EF.UPLMNWLAN",
+   "fid": "4F42",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F43",
+   "name": "EF.OPLMNWLAN",
+   "sym": "ADF.USIM/DF.WLAN/EF.OPLMNWLAN",
+   "fid": "4F43",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F44",
+   "name": "EF.UWSIDL",
+   "sym": "ADF.USIM/DF.WLAN/EF.UWSIDL",
+   "fid": "4F44",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F45",
+   "name": "EF.OWSIDL",
+   "sym": "ADF.USIM/DF.WLAN/EF.OWSIDL",
+   "fid": "4F45",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F46",
+   "name": "EF.WRI",
+   "sym": "ADF.USIM/DF.WLAN/EF.WRI",
+   "fid": "4F46",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F47",
+   "name": "EF.HWSIDL",
+   "sym": "ADF.USIM/DF.WLAN/EF.HWSIDL",
+   "fid": "4F47",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F48",
+   "name": "EF.WEHPLMNPI",
+   "sym": "ADF.USIM/DF.WLAN/EF.WEHPLMNPI",
+   "fid": "4F48",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F49",
+   "name": "EF.WHPI",
+   "sym": "ADF.USIM/DF.WLAN/EF.WHPI",
+   "fid": "4F49",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F4A",
+   "name": "EF.WLRPLMN",
+   "sym": "ADF.USIM/DF.WLAN/EF.WLRPLMN",
+   "fid": "4F4A",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F40/4F4B",
+   "name": "EF.HPLMNDAI",
+   "sym": "ADF.USIM/DF.WLAN/EF.HPLMNDAI",
+   "fid": "4F4B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50",
+   "name": "DF.HNB",
+   "sym": "ADF.USIM/DF.HNB",
+   "fid": "5F50",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F81",
+   "name": "EF.ACSGL",
+   "sym": "ADF.USIM/DF.HNB/EF.ACSGL",
+   "fid": "4F81",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F82",
+   "name": "EF.CSGT",
+   "sym": "ADF.USIM/DF.HNB/EF.CSGT",
+   "fid": "4F82",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F83",
+   "name": "EF.HNBN",
+   "sym": "ADF.USIM/DF.HNB/EF.HNBN",
+   "fid": "4F83",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F84",
+   "name": "EF.OCSGL",
+   "sym": "ADF.USIM/DF.HNB/EF.OCSGL",
+   "fid": "4F84",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F85",
+   "name": "EF.OCSGT",
+   "sym": "ADF.USIM/DF.HNB/EF.OCSGT",
+   "fid": "4F85",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F50/4F86",
+   "name": "EF.OHNBN",
+   "sym": "ADF.USIM/DF.HNB/EF.OHNBN",
+   "fid": "4F86",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90",
+   "name": "DF.ProSe",
+   "sym": "ADF.USIM/DF.ProSe",
+   "fid": "5F90",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F01",
+   "name": "EF.PROSE_MON",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_MON",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F02",
+   "name": "EF.PROSE_ANN",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_ANN",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F03",
+   "name": "EF.PROSEFUNC",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSEFUNC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F04",
+   "name": "EF.PROSE_RADIO_COM",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_COM",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F05",
+   "name": "EF.PROSE_RADIO_MON",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_MON",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F06",
+   "name": "EF.PROSE_RADIO_ANN",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_ANN",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F07",
+   "name": "EF.PROSE_POLICY",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_POLICY",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F08",
+   "name": "EF.PROSE_PLMN",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_PLMN",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F09",
+   "name": "EF.PROSE_GC",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_GC",
+   "fid": "4F09",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F10",
+   "name": "EF.PST",
+   "sym": "ADF.USIM/DF.ProSe/EF.PST",
+   "fid": "4F10",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F11",
+   "name": "EF.UIRC",
+   "sym": "ADF.USIM/DF.ProSe/EF.UIRC",
+   "fid": "4F11",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F12",
+   "name": "EF.PROSE_GM_DISCOVERY",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_GM_DISCOVERY",
+   "fid": "4F12",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F13",
+   "name": "EF.PROSE_RELAY",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RELAY",
+   "fid": "4F13",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F90/4F14",
+   "name": "EF.PROSE_RELAY_DISCOVERY",
+   "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
+   "fid": "4F14",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0",
+   "name": "DF.5GS",
+   "sym": "ADF.USIM/DF.5GS",
+   "fid": "5FC0",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F01",
+   "name": "EF.5GS3GPPLOCI",
+   "sym": "ADF.USIM/DF.5GS/EF.5GS3GPPLOCI",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F02",
+   "name": "EF.5GSN3GPPLOCI",
+   "sym": "ADF.USIM/DF.5GS/EF.5GSN3GPPLOCI",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F03",
+   "name": "EF.5GS3GPPNSC",
+   "sym": "ADF.USIM/DF.5GS/EF.5GS3GPPNSC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F04",
+   "name": "EF.5GSN3GPPNSC",
+   "sym": "ADF.USIM/DF.5GS/EF.5GSN3GPPNSC",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F05",
+   "name": "EF.5GAUTHKEYS",
+   "sym": "ADF.USIM/DF.5GS/EF.5GAUTHKEYS",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F06",
+   "name": "EF.UAC_AIC",
+   "sym": "ADF.USIM/DF.5GS/EF.UAC_AIC",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F07",
+   "name": "EF.SUCI_Calc_Info",
+   "sym": "ADF.USIM/DF.5GS/EF.SUCI_Calc_Info",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F08",
+   "name": "EF.OPL5G",
+   "sym": "ADF.USIM/DF.5GS/EF.OPL5G",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F09",
+   "name": "EF.SUPI_NAI",
+   "sym": "ADF.USIM/DF.5GS/EF.SUPI_NAI",
+   "fid": "4F09",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0A",
+   "name": "EF.Routing_Indicator",
+   "sym": "ADF.USIM/DF.5GS/EF.Routing_Indicator",
+   "fid": "4F0A",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0B",
+   "name": "EF.URSP",
+   "sym": "ADF.USIM/DF.5GS/EF.URSP",
+   "fid": "4F0B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0C",
+   "name": "EF.TN3GPPSNN",
+   "sym": "ADF.USIM/DF.5GS/EF.TN3GPPSNN",
+   "fid": "4F0C",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0D",
+   "name": "EF.CAG",
+   "sym": "ADF.USIM/DF.5GS/EF.CAG",
+   "fid": "4F0D",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0E",
+   "name": "EF.SOR-CMCI",
+   "sym": "ADF.USIM/DF.5GS/EF.SOR-CMCI",
+   "fid": "4F0E",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F0F",
+   "name": "EF.DRI",
+   "sym": "ADF.USIM/DF.5GS/EF.DRI",
+   "fid": "4F0F",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F10",
+   "name": "EF.5GSEDRX",
+   "sym": "ADF.USIM/DF.5GS/EF.5GSEDRX",
+   "fid": "4F10",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F11",
+   "name": "EF.5GNSWO_CONF",
+   "sym": "ADF.USIM/DF.5GS/EF.5GNSWO_CONF",
+   "fid": "4F11",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F15",
+   "name": "EF.MCHPPLMN",
+   "sym": "ADF.USIM/DF.5GS/EF.MCHPPLMN",
+   "fid": "4F15",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FC0/4F16",
+   "name": "EF.KAUSF_DERIVATION",
+   "sym": "ADF.USIM/DF.5GS/EF.KAUSF_DERIVATION",
+   "fid": "4F16",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FD0",
+   "name": "DF.SAIP",
+   "sym": "ADF.USIM/DF.SAIP",
+   "fid": "5FD0",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FD0/4F01",
+   "name": "EF.SUCI_Calc_Info",
+   "sym": "ADF.USIM/DF.SAIP/EF.SUCI_Calc_Info",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FE0",
+   "name": "DF.SNPN",
+   "sym": "ADF.USIM/DF.SNPN",
+   "fid": "5FE0",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FE0/4F01",
+   "name": "EF.PWS_SNPN",
+   "sym": "ADF.USIM/DF.SNPN/EF.PWS_SNPN",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FE0/4F02",
+   "name": "EF.NID",
+   "sym": "ADF.USIM/DF.SNPN/EF.NID",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0",
+   "name": "DF.5G_ProSe",
+   "sym": "ADF.USIM/DF.5G_ProSe",
+   "fid": "5FF0",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F01",
+   "name": "EF.5G_PROSE_ST",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_ST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F02",
+   "name": "EF.5G_PROSE_DD",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_DD",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F03",
+   "name": "EF.5G_PROSE_DC",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_DC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F04",
+   "name": "EF.5G_PROSE_U2NRU",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_U2NRU",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F05",
+   "name": "EF.5G_PROSE_RU",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_RU",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F06",
+   "name": "EF.5G_PROSE_UIR",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_UIR",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F07",
+   "name": "EF.5G_PROSE_U2URU",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_U2URU",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF0/4F08",
+   "name": "EF.5G_PROSE_EU",
+   "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_EU",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF1",
+   "name": "DF.5MBSUECONFIG",
+   "sym": "ADF.USIM/DF.5MBSUECONFIG",
+   "fid": "5FF1",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FF1/4F01",
+   "name": "EF.5MBSUECONFIG",
+   "sym": "ADF.USIM/DF.5MBSUECONFIG/EF.5MBSUECONFIG",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F01",
+   "name": "EF.eAKA",
+   "sym": "ADF.USIM/EF.eAKA",
+   "fid": "6F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F02",
+   "name": "EF.OCST",
+   "sym": "ADF.USIM/EF.OCST",
+   "fid": "6F02",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F05",
+   "name": "EF.LI",
+   "sym": "ADF.USIM/EF.LI",
+   "fid": "6F05",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F06",
+   "name": "EF.ARR",
+   "sym": "ADF.USIM/EF.ARR",
+   "fid": "6F06",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F07",
+   "name": "EF.IMSI",
+   "sym": "ADF.USIM/EF.IMSI",
+   "fid": "6F07",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F08",
+   "name": "EF.Keys",
+   "sym": "ADF.USIM/EF.Keys",
+   "fid": "6F08",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F09",
+   "name": "EF.KeysPS",
+   "sym": "ADF.USIM/EF.KeysPS",
+   "fid": "6F09",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F0A",
+   "name": "EF.GBAUAPI",
+   "sym": "ADF.USIM/EF.GBAUAPI",
+   "fid": "6F0A",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F0B",
+   "name": "EF.IMSDCI",
+   "sym": "ADF.USIM/EF.IMSDCI",
+   "fid": "6F0B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F2C",
+   "name": "EF.DCK",
+   "sym": "ADF.USIM/EF.DCK",
+   "fid": "6F2C",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F31",
+   "name": "EF.HPPLMN",
+   "sym": "ADF.USIM/EF.HPPLMN",
+   "fid": "6F31",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F32",
+   "name": "EF.CNL",
+   "sym": "ADF.USIM/EF.CNL",
+   "fid": "6F32",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F37",
+   "name": "EF.ACMmax",
+   "sym": "ADF.USIM/EF.ACMmax",
+   "fid": "6F37",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F38",
+   "name": "EF.UST",
+   "sym": "ADF.USIM/EF.UST",
+   "fid": "6F38",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F39",
+   "name": "EF.ACM",
+   "sym": "ADF.USIM/EF.ACM",
+   "fid": "6F39",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F3B",
+   "name": "EF.FDN",
+   "sym": "ADF.USIM/EF.FDN",
+   "fid": "6F3B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F3C",
+   "name": "EF.SMS",
+   "sym": "ADF.USIM/EF.SMS",
+   "fid": "6F3C",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F3E",
+   "name": "EF.GID1",
+   "sym": "ADF.USIM/EF.GID1",
+   "fid": "6F3E",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F3F",
+   "name": "EF.GID2",
+   "sym": "ADF.USIM/EF.GID2",
+   "fid": "6F3F",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F40",
+   "name": "EF.MSISDN",
+   "sym": "ADF.USIM/EF.MSISDN",
+   "fid": "6F40",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F41",
+   "name": "EF.PUCT",
+   "sym": "ADF.USIM/EF.PUCT",
+   "fid": "6F41",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F42",
+   "name": "EF.SMSP",
+   "sym": "ADF.USIM/EF.SMSP",
+   "fid": "6F42",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F43",
+   "name": "EF.SMSS",
+   "sym": "ADF.USIM/EF.SMSS",
+   "fid": "6F43",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F45",
+   "name": "EF.CBMI",
+   "sym": "ADF.USIM/EF.CBMI",
+   "fid": "6F45",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F46",
+   "name": "EF.SPN",
+   "sym": "ADF.USIM/EF.SPN",
+   "fid": "6F46",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F47",
+   "name": "EF.SMSR",
+   "sym": "ADF.USIM/EF.SMSR",
+   "fid": "6F47",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F48",
+   "name": "EF.CBMID",
+   "sym": "ADF.USIM/EF.CBMID",
+   "fid": "6F48",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F49",
+   "name": "EF.SDN",
+   "sym": "ADF.USIM/EF.SDN",
+   "fid": "6F49",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F4B",
+   "name": "EF.EXT2",
+   "sym": "ADF.USIM/EF.EXT2",
+   "fid": "6F4B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F4C",
+   "name": "EF.EXT3",
+   "sym": "ADF.USIM/EF.EXT3",
+   "fid": "6F4C",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F4D",
+   "name": "EF.BDN",
+   "sym": "ADF.USIM/EF.BDN",
+   "fid": "6F4D",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F4E",
+   "name": "EF.EXT5",
+   "sym": "ADF.USIM/EF.EXT5",
+   "fid": "6F4E",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F4F",
+   "name": "EF.CCP2",
+   "sym": "ADF.USIM/EF.CCP2",
+   "fid": "6F4F",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F50",
+   "name": "EF.CBMIR",
+   "sym": "ADF.USIM/EF.CBMIR",
+   "fid": "6F50",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F55",
+   "name": "EF.EXT4",
+   "sym": "ADF.USIM/EF.EXT4",
+   "fid": "6F55",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F56",
+   "name": "EF.EST",
+   "sym": "ADF.USIM/EF.EST",
+   "fid": "6F56",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F57",
+   "name": "EF.ACL",
+   "sym": "ADF.USIM/EF.ACL",
+   "fid": "6F57",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F58",
+   "name": "EF.CMI",
+   "sym": "ADF.USIM/EF.CMI",
+   "fid": "6F58",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F5B",
+   "name": "EF.START-HFN",
+   "sym": "ADF.USIM/EF.START-HFN",
+   "fid": "6F5B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F5C",
+   "name": "EF.THRESHOLD",
+   "sym": "ADF.USIM/EF.THRESHOLD",
+   "fid": "6F5C",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F60",
+   "name": "EF.PLMNwAcT",
+   "sym": "ADF.USIM/EF.PLMNwAcT",
+   "fid": "6F60",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F61",
+   "name": "EF.OPLMNwAcT",
+   "sym": "ADF.USIM/EF.OPLMNwAcT",
+   "fid": "6F61",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F62",
+   "name": "EF.HPLMNwAcT",
+   "sym": "ADF.USIM/EF.HPLMNwAcT",
+   "fid": "6F62",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F65",
+   "name": "EF.RPLMNAcTD",
+   "sym": "ADF.USIM/EF.RPLMNAcTD",
+   "fid": "6F65",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F73",
+   "name": "EF.PSLOCI",
+   "sym": "ADF.USIM/EF.PSLOCI",
+   "fid": "6F73",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F78",
+   "name": "EF.ACC",
+   "sym": "ADF.USIM/EF.ACC",
+   "fid": "6F78",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F7B",
+   "name": "EF.FPLMN",
+   "sym": "ADF.USIM/EF.FPLMN",
+   "fid": "6F7B",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F7E",
+   "name": "EF.LOCI",
+   "sym": "ADF.USIM/EF.LOCI",
+   "fid": "6F7E",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F80",
+   "name": "EF.ICI",
+   "sym": "ADF.USIM/EF.ICI",
+   "fid": "6F80",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F81",
+   "name": "EF.OCI",
+   "sym": "ADF.USIM/EF.OCI",
+   "fid": "6F81",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F82",
+   "name": "EF.ICT",
+   "sym": "ADF.USIM/EF.ICT",
+   "fid": "6F82",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6F83",
+   "name": "EF.OCT",
+   "sym": "ADF.USIM/EF.OCT",
+   "fid": "6F83",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FAD",
+   "name": "EF.AD",
+   "sym": "ADF.USIM/EF.AD",
+   "fid": "6FAD",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB1",
+   "name": "EF.VGCS",
+   "sym": "ADF.USIM/EF.VGCS",
+   "fid": "6FB1",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB2",
+   "name": "EF.VGCSS",
+   "sym": "ADF.USIM/EF.VGCSS",
+   "fid": "6FB2",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB3",
+   "name": "EF.VBS",
+   "sym": "ADF.USIM/EF.VBS",
+   "fid": "6FB3",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB4",
+   "name": "EF.VBSS",
+   "sym": "ADF.USIM/EF.VBSS",
+   "fid": "6FB4",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB5",
+   "name": "EF.eMLPP",
+   "sym": "ADF.USIM/EF.eMLPP",
+   "fid": "6FB5",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB6",
+   "name": "EF.AAeM",
+   "sym": "ADF.USIM/EF.AAeM",
+   "fid": "6FB6",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FB7",
+   "name": "EF.ECC",
+   "sym": "ADF.USIM/EF.ECC",
+   "fid": "6FB7",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC4",
+   "name": "EF.NETPAR",
+   "sym": "ADF.USIM/EF.NETPAR",
+   "fid": "6FC4",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC5",
+   "name": "EF.PNN",
+   "sym": "ADF.USIM/EF.PNN",
+   "fid": "6FC5",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC6",
+   "name": "EF.OPL",
+   "sym": "ADF.USIM/EF.OPL",
+   "fid": "6FC6",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC7",
+   "name": "EF.MBDN",
+   "sym": "ADF.USIM/EF.MBDN",
+   "fid": "6FC7",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC8",
+   "name": "EF.EXT6",
+   "sym": "ADF.USIM/EF.EXT6",
+   "fid": "6FC8",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FC9",
+   "name": "EF.MBI",
+   "sym": "ADF.USIM/EF.MBI",
+   "fid": "6FC9",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCA",
+   "name": "EF.MWIS",
+   "sym": "ADF.USIM/EF.MWIS",
+   "fid": "6FCA",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCB",
+   "name": "EF.CFIS",
+   "sym": "ADF.USIM/EF.CFIS",
+   "fid": "6FCB",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCC",
+   "name": "EF.EXT7",
+   "sym": "ADF.USIM/EF.EXT7",
+   "fid": "6FCC",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCD",
+   "name": "EF.SPDI",
+   "sym": "ADF.USIM/EF.SPDI",
+   "fid": "6FCD",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCE",
+   "name": "EF.MMSN",
+   "sym": "ADF.USIM/EF.MMSN",
+   "fid": "6FCE",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FCF",
+   "name": "EF.EXT8",
+   "sym": "ADF.USIM/EF.EXT8",
+   "fid": "6FCF",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD0",
+   "name": "EF.MMSICP",
+   "sym": "ADF.USIM/EF.MMSICP",
+   "fid": "6FD0",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD1",
+   "name": "EF.MMSUP",
+   "sym": "ADF.USIM/EF.MMSUP",
+   "fid": "6FD1",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD2",
+   "name": "EF.MMSUCP",
+   "sym": "ADF.USIM/EF.MMSUCP",
+   "fid": "6FD2",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD3",
+   "name": "EF.NIA",
+   "sym": "ADF.USIM/EF.NIA",
+   "fid": "6FD3",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD4",
+   "name": "EF.VGCSCA",
+   "sym": "ADF.USIM/EF.VGCSCA",
+   "fid": "6FD4",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD5",
+   "name": "EF.VBSCA",
+   "sym": "ADF.USIM/EF.VBSCA",
+   "fid": "6FD5",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD6",
+   "name": "EF.GBABP",
+   "sym": "ADF.USIM/EF.GBABP",
+   "fid": "6FD6",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD7",
+   "name": "EF.MSK",
+   "sym": "ADF.USIM/EF.MSK",
+   "fid": "6FD7",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD8",
+   "name": "EF.MUK",
+   "sym": "ADF.USIM/EF.MUK",
+   "fid": "6FD8",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FD9",
+   "name": "EF.EHPLMN",
+   "sym": "ADF.USIM/EF.EHPLMN",
+   "fid": "6FD9",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FDA",
+   "name": "EF.GBANL",
+   "sym": "ADF.USIM/EF.GBANL",
+   "fid": "6FDA",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FDB",
+   "name": "EF.EHPLMNPI",
+   "sym": "ADF.USIM/EF.EHPLMNPI",
+   "fid": "6FDB",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FDD",
+   "name": "EF.NAFKCA",
+   "sym": "ADF.USIM/EF.NAFKCA",
+   "fid": "6FDD",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FDE",
+   "name": "EF.SPNI",
+   "sym": "ADF.USIM/EF.SPNI",
+   "fid": "6FDE",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FDF",
+   "name": "EF.PNNI",
+   "sym": "ADF.USIM/EF.PNNI",
+   "fid": "6FDF",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FE2",
+   "name": "EF.NCP-IP",
+   "sym": "ADF.USIM/EF.NCP-IP",
+   "fid": "6FE2",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FE3",
+   "name": "EF.EPSLOCI",
+   "sym": "ADF.USIM/EF.EPSLOCI",
+   "fid": "6FE3",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FE4",
+   "name": "EF.EPSNSC",
+   "sym": "ADF.USIM/EF.EPSNSC",
+   "fid": "6FE4",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FE6",
+   "name": "EF.UFC",
+   "sym": "ADF.USIM/EF.UFC",
+   "fid": "6FE6",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FE8",
+   "name": "EF.NASCONFIG",
+   "sym": "ADF.USIM/EF.NASCONFIG",
+   "fid": "6FE8",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FEC",
+   "name": "EF.PWS",
+   "sym": "ADF.USIM/EF.PWS",
+   "fid": "6FEC",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FED",
+   "name": "EF.FDNURI",
+   "sym": "ADF.USIM/EF.FDNURI",
+   "fid": "6FED",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FEE",
+   "name": "EF.BDNURI",
+   "sym": "ADF.USIM/EF.BDNURI",
+   "fid": "6FEE",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FEF",
+   "name": "EF.SDNURI",
+   "sym": "ADF.USIM/EF.SDNURI",
+   "fid": "6FEF",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF1",
+   "name": "EF.IPS",
+   "sym": "ADF.USIM/EF.IPS",
+   "fid": "6FF1",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF3",
+   "name": "EF.ePDGId",
+   "sym": "ADF.USIM/EF.ePDGId",
+   "fid": "6FF3",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF4",
+   "name": "EF.ePDGSelection",
+   "sym": "ADF.USIM/EF.ePDGSelection",
+   "fid": "6FF4",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF5",
+   "name": "EF.ePDGIdEm",
+   "sym": "ADF.USIM/EF.ePDGIdEm",
+   "fid": "6FF5",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF6",
+   "name": "EF.ePDGSelectionEm",
+   "sym": "ADF.USIM/EF.ePDGSelectionEm",
+   "fid": "6FF6",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF7",
+   "name": "EF.FromPreferred",
+   "sym": "ADF.USIM/EF.FromPreferred",
+   "fid": "6FF7",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF8",
+   "name": "EF.IMSConfigData",
+   "sym": "ADF.USIM/EF.IMSConfigData",
+   "fid": "6FF8",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FFC",
+   "name": "EF.XCAPConfigData",
+   "sym": "ADF.USIM/EF.XCAPConfigData",
+   "fid": "6FFC",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FFD",
+   "name": "EF.EARFCNList",
+   "sym": "ADF.USIM/EF.EARFCNList",
+   "fid": "6FFD",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FFE",
+   "name": "EF.MuDMiDConfigData",
+   "sym": "ADF.USIM/EF.MuDMiDConfigData",
+   "fid": "6FFE",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI",
+   "name": "ADF.USIM-non-IMSI",
+   "sym": "ADF.USIM-non-IMSI",
+   "fid": "",
+   "kind": "adf",
+   "root": "ADF.USIM-NON-IMSI",
+   "aid": "A000000087100B"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3A",
+   "name": "DF.PHONEBOOK",
+   "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK",
+   "fid": "5F3A",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3A/4F22",
+   "name": "EF.PSC",
+   "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PSC",
+   "fid": "4F22",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3A/4F23",
+   "name": "EF.CC",
+   "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.CC",
+   "fid": "4F23",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3A/4F24",
+   "name": "EF.PUID",
+   "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PUID",
+   "fid": "4F24",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3A/4F30",
+   "name": "EF.PBR",
+   "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PBR",
+   "fid": "4F30",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3B",
+   "name": "DF.GSM-ACCESS",
+   "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS",
+   "fid": "5F3B",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3B/4F20",
+   "name": "EF.Kc",
+   "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.Kc",
+   "fid": "4F20",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3B/4F52",
+   "name": "EF.KcGPRS",
+   "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.KcGPRS",
+   "fid": "4F52",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3B/4F63",
+   "name": "EF.CPBCCH",
+   "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.CPBCCH",
+   "fid": "4F63",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3B/4F64",
+   "name": "EF.InvScan",
+   "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.InvScan",
+   "fid": "4F64",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40",
+   "name": "DF.WLAN",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN",
+   "fid": "5F40",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F41",
+   "name": "EF.Pseudo",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.Pseudo",
+   "fid": "4F41",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F42",
+   "name": "EF.UPLMNWLAN",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.UPLMNWLAN",
+   "fid": "4F42",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F43",
+   "name": "EF.OPLMNWLAN",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.OPLMNWLAN",
+   "fid": "4F43",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F44",
+   "name": "EF.UWSIDL",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.UWSIDL",
+   "fid": "4F44",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F45",
+   "name": "EF.OWSIDL",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.OWSIDL",
+   "fid": "4F45",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F46",
+   "name": "EF.WRI",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WRI",
+   "fid": "4F46",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F47",
+   "name": "EF.HWSIDL",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.HWSIDL",
+   "fid": "4F47",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F48",
+   "name": "EF.WEHPLMNPI",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WEHPLMNPI",
+   "fid": "4F48",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F49",
+   "name": "EF.WHPI",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WHPI",
+   "fid": "4F49",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F4A",
+   "name": "EF.WLRPLMN",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WLRPLMN",
+   "fid": "4F4A",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F40/4F4B",
+   "name": "EF.HPLMNDAI",
+   "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.HPLMNDAI",
+   "fid": "4F4B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50",
+   "name": "DF.HNB",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB",
+   "fid": "5F50",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F81",
+   "name": "EF.ACSGL",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.ACSGL",
+   "fid": "4F81",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F82",
+   "name": "EF.CSGT",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.CSGT",
+   "fid": "4F82",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F83",
+   "name": "EF.HNBN",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.HNBN",
+   "fid": "4F83",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F84",
+   "name": "EF.OCSGL",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OCSGL",
+   "fid": "4F84",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F85",
+   "name": "EF.OCSGT",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OCSGT",
+   "fid": "4F85",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F50/4F86",
+   "name": "EF.OHNBN",
+   "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OHNBN",
+   "fid": "4F86",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90",
+   "name": "DF.ProSe",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe",
+   "fid": "5F90",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F01",
+   "name": "EF.PROSE_MON",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_MON",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F02",
+   "name": "EF.PROSE_ANN",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_ANN",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F03",
+   "name": "EF.PROSEFUNC",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSEFUNC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F04",
+   "name": "EF.PROSE_RADIO_COM",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_COM",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F05",
+   "name": "EF.PROSE_RADIO_MON",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_MON",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F06",
+   "name": "EF.PROSE_RADIO_ANN",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_ANN",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F07",
+   "name": "EF.PROSE_POLICY",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_POLICY",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F08",
+   "name": "EF.PROSE_PLMN",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_PLMN",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F09",
+   "name": "EF.PROSE_GC",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_GC",
+   "fid": "4F09",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F10",
+   "name": "EF.PST",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PST",
+   "fid": "4F10",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F11",
+   "name": "EF.UIRC",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.UIRC",
+   "fid": "4F11",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F12",
+   "name": "EF.PROSE_GM_DISCOVERY",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_GM_DISCOVERY",
+   "fid": "4F12",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F13",
+   "name": "EF.PROSE_RELAY",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RELAY",
+   "fid": "4F13",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F90/4F14",
+   "name": "EF.PROSE_RELAY_DISCOVERY",
+   "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
+   "fid": "4F14",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0",
+   "name": "DF.5GS",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS",
+   "fid": "5FC0",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F01",
+   "name": "EF.5GS3GPPLOCI",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GS3GPPLOCI",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F02",
+   "name": "EF.5GSN3GPPLOCI",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSN3GPPLOCI",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F03",
+   "name": "EF.5GS3GPPNSC",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GS3GPPNSC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F04",
+   "name": "EF.5GSN3GPPNSC",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSN3GPPNSC",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F05",
+   "name": "EF.5GAUTHKEYS",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GAUTHKEYS",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F06",
+   "name": "EF.UAC_AIC",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.UAC_AIC",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F07",
+   "name": "EF.SUCI_Calc_Info",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SUCI_Calc_Info",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F08",
+   "name": "EF.OPL5G",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.OPL5G",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F09",
+   "name": "EF.SUPI_NAI",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SUPI_NAI",
+   "fid": "4F09",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0A",
+   "name": "EF.Routing_Indicator",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.Routing_Indicator",
+   "fid": "4F0A",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0B",
+   "name": "EF.URSP",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.URSP",
+   "fid": "4F0B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0C",
+   "name": "EF.TN3GPPSNN",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.TN3GPPSNN",
+   "fid": "4F0C",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0D",
+   "name": "EF.CAG",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.CAG",
+   "fid": "4F0D",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0E",
+   "name": "EF.SOR-CMCI",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SOR-CMCI",
+   "fid": "4F0E",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F0F",
+   "name": "EF.DRI",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.DRI",
+   "fid": "4F0F",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F10",
+   "name": "EF.5GSEDRX",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSEDRX",
+   "fid": "4F10",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F11",
+   "name": "EF.5GNSWO_CONF",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GNSWO_CONF",
+   "fid": "4F11",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F15",
+   "name": "EF.MCHPPLMN",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.MCHPPLMN",
+   "fid": "4F15",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FC0/4F16",
+   "name": "EF.KAUSF_DERIVATION",
+   "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.KAUSF_DERIVATION",
+   "fid": "4F16",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FD0",
+   "name": "DF.SAIP",
+   "sym": "ADF.USIM-non-IMSI/DF.SAIP",
+   "fid": "5FD0",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FD0/4F01",
+   "name": "EF.SUCI_Calc_Info",
+   "sym": "ADF.USIM-non-IMSI/DF.SAIP/EF.SUCI_Calc_Info",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FE0",
+   "name": "DF.SNPN",
+   "sym": "ADF.USIM-non-IMSI/DF.SNPN",
+   "fid": "5FE0",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FE0/4F01",
+   "name": "EF.PWS_SNPN",
+   "sym": "ADF.USIM-non-IMSI/DF.SNPN/EF.PWS_SNPN",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FE0/4F02",
+   "name": "EF.NID",
+   "sym": "ADF.USIM-non-IMSI/DF.SNPN/EF.NID",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0",
+   "name": "DF.5G_ProSe",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe",
+   "fid": "5FF0",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F01",
+   "name": "EF.5G_PROSE_ST",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_ST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F02",
+   "name": "EF.5G_PROSE_DD",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_DD",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F03",
+   "name": "EF.5G_PROSE_DC",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_DC",
+   "fid": "4F03",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F04",
+   "name": "EF.5G_PROSE_U2NRU",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_U2NRU",
+   "fid": "4F04",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F05",
+   "name": "EF.5G_PROSE_RU",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_RU",
+   "fid": "4F05",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F06",
+   "name": "EF.5G_PROSE_UIR",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_UIR",
+   "fid": "4F06",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F07",
+   "name": "EF.5G_PROSE_U2URU",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_U2URU",
+   "fid": "4F07",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF0/4F08",
+   "name": "EF.5G_PROSE_EU",
+   "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_EU",
+   "fid": "4F08",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF1",
+   "name": "DF.5MBSUECONFIG",
+   "sym": "ADF.USIM-non-IMSI/DF.5MBSUECONFIG",
+   "fid": "5FF1",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FF1/4F01",
+   "name": "EF.5MBSUECONFIG",
+   "sym": "ADF.USIM-non-IMSI/DF.5MBSUECONFIG/EF.5MBSUECONFIG",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F01",
+   "name": "EF.eAKA",
+   "sym": "ADF.USIM-non-IMSI/EF.eAKA",
+   "fid": "6F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F02",
+   "name": "EF.OCST",
+   "sym": "ADF.USIM-non-IMSI/EF.OCST",
+   "fid": "6F02",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F05",
+   "name": "EF.LI",
+   "sym": "ADF.USIM-non-IMSI/EF.LI",
+   "fid": "6F05",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F06",
+   "name": "EF.ARR",
+   "sym": "ADF.USIM-non-IMSI/EF.ARR",
+   "fid": "6F06",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F08",
+   "name": "EF.Keys",
+   "sym": "ADF.USIM-non-IMSI/EF.Keys",
+   "fid": "6F08",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F09",
+   "name": "EF.KeysPS",
+   "sym": "ADF.USIM-non-IMSI/EF.KeysPS",
+   "fid": "6F09",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F0A",
+   "name": "EF.GBAUAPI",
+   "sym": "ADF.USIM-non-IMSI/EF.GBAUAPI",
+   "fid": "6F0A",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F0B",
+   "name": "EF.IMSDCI",
+   "sym": "ADF.USIM-non-IMSI/EF.IMSDCI",
+   "fid": "6F0B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F2C",
+   "name": "EF.DCK",
+   "sym": "ADF.USIM-non-IMSI/EF.DCK",
+   "fid": "6F2C",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F31",
+   "name": "EF.HPPLMN",
+   "sym": "ADF.USIM-non-IMSI/EF.HPPLMN",
+   "fid": "6F31",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F32",
+   "name": "EF.CNL",
+   "sym": "ADF.USIM-non-IMSI/EF.CNL",
+   "fid": "6F32",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F37",
+   "name": "EF.ACMmax",
+   "sym": "ADF.USIM-non-IMSI/EF.ACMmax",
+   "fid": "6F37",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F38",
+   "name": "EF.UST",
+   "sym": "ADF.USIM-non-IMSI/EF.UST",
+   "fid": "6F38",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F39",
+   "name": "EF.ACM",
+   "sym": "ADF.USIM-non-IMSI/EF.ACM",
+   "fid": "6F39",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F3B",
+   "name": "EF.FDN",
+   "sym": "ADF.USIM-non-IMSI/EF.FDN",
+   "fid": "6F3B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F3C",
+   "name": "EF.SMS",
+   "sym": "ADF.USIM-non-IMSI/EF.SMS",
+   "fid": "6F3C",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F3E",
+   "name": "EF.GID1",
+   "sym": "ADF.USIM-non-IMSI/EF.GID1",
+   "fid": "6F3E",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F3F",
+   "name": "EF.GID2",
+   "sym": "ADF.USIM-non-IMSI/EF.GID2",
+   "fid": "6F3F",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F40",
+   "name": "EF.MSISDN",
+   "sym": "ADF.USIM-non-IMSI/EF.MSISDN",
+   "fid": "6F40",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F41",
+   "name": "EF.PUCT",
+   "sym": "ADF.USIM-non-IMSI/EF.PUCT",
+   "fid": "6F41",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F42",
+   "name": "EF.SMSP",
+   "sym": "ADF.USIM-non-IMSI/EF.SMSP",
+   "fid": "6F42",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F43",
+   "name": "EF.SMSS",
+   "sym": "ADF.USIM-non-IMSI/EF.SMSS",
+   "fid": "6F43",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F45",
+   "name": "EF.CBMI",
+   "sym": "ADF.USIM-non-IMSI/EF.CBMI",
+   "fid": "6F45",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F46",
+   "name": "EF.SPN",
+   "sym": "ADF.USIM-non-IMSI/EF.SPN",
+   "fid": "6F46",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F47",
+   "name": "EF.SMSR",
+   "sym": "ADF.USIM-non-IMSI/EF.SMSR",
+   "fid": "6F47",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F48",
+   "name": "EF.CBMID",
+   "sym": "ADF.USIM-non-IMSI/EF.CBMID",
+   "fid": "6F48",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F49",
+   "name": "EF.SDN",
+   "sym": "ADF.USIM-non-IMSI/EF.SDN",
+   "fid": "6F49",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F4B",
+   "name": "EF.EXT2",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT2",
+   "fid": "6F4B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F4C",
+   "name": "EF.EXT3",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT3",
+   "fid": "6F4C",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F4D",
+   "name": "EF.BDN",
+   "sym": "ADF.USIM-non-IMSI/EF.BDN",
+   "fid": "6F4D",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F4E",
+   "name": "EF.EXT5",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT5",
+   "fid": "6F4E",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F4F",
+   "name": "EF.CCP2",
+   "sym": "ADF.USIM-non-IMSI/EF.CCP2",
+   "fid": "6F4F",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F50",
+   "name": "EF.CBMIR",
+   "sym": "ADF.USIM-non-IMSI/EF.CBMIR",
+   "fid": "6F50",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F55",
+   "name": "EF.EXT4",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT4",
+   "fid": "6F55",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F56",
+   "name": "EF.EST",
+   "sym": "ADF.USIM-non-IMSI/EF.EST",
+   "fid": "6F56",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F57",
+   "name": "EF.ACL",
+   "sym": "ADF.USIM-non-IMSI/EF.ACL",
+   "fid": "6F57",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F58",
+   "name": "EF.CMI",
+   "sym": "ADF.USIM-non-IMSI/EF.CMI",
+   "fid": "6F58",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F5B",
+   "name": "EF.START-HFN",
+   "sym": "ADF.USIM-non-IMSI/EF.START-HFN",
+   "fid": "6F5B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F5C",
+   "name": "EF.THRESHOLD",
+   "sym": "ADF.USIM-non-IMSI/EF.THRESHOLD",
+   "fid": "6F5C",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F60",
+   "name": "EF.PLMNwAcT",
+   "sym": "ADF.USIM-non-IMSI/EF.PLMNwAcT",
+   "fid": "6F60",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F61",
+   "name": "EF.OPLMNwAcT",
+   "sym": "ADF.USIM-non-IMSI/EF.OPLMNwAcT",
+   "fid": "6F61",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F62",
+   "name": "EF.HPLMNwAcT",
+   "sym": "ADF.USIM-non-IMSI/EF.HPLMNwAcT",
+   "fid": "6F62",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F65",
+   "name": "EF.RPLMNAcTD",
+   "sym": "ADF.USIM-non-IMSI/EF.RPLMNAcTD",
+   "fid": "6F65",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F73",
+   "name": "EF.PSLOCI",
+   "sym": "ADF.USIM-non-IMSI/EF.PSLOCI",
+   "fid": "6F73",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F78",
+   "name": "EF.ACC",
+   "sym": "ADF.USIM-non-IMSI/EF.ACC",
+   "fid": "6F78",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F7B",
+   "name": "EF.FPLMN",
+   "sym": "ADF.USIM-non-IMSI/EF.FPLMN",
+   "fid": "6F7B",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F7E",
+   "name": "EF.LOCI",
+   "sym": "ADF.USIM-non-IMSI/EF.LOCI",
+   "fid": "6F7E",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F80",
+   "name": "EF.ICI",
+   "sym": "ADF.USIM-non-IMSI/EF.ICI",
+   "fid": "6F80",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F81",
+   "name": "EF.OCI",
+   "sym": "ADF.USIM-non-IMSI/EF.OCI",
+   "fid": "6F81",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F82",
+   "name": "EF.ICT",
+   "sym": "ADF.USIM-non-IMSI/EF.ICT",
+   "fid": "6F82",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6F83",
+   "name": "EF.OCT",
+   "sym": "ADF.USIM-non-IMSI/EF.OCT",
+   "fid": "6F83",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FAD",
+   "name": "EF.AD",
+   "sym": "ADF.USIM-non-IMSI/EF.AD",
+   "fid": "6FAD",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB1",
+   "name": "EF.VGCS",
+   "sym": "ADF.USIM-non-IMSI/EF.VGCS",
+   "fid": "6FB1",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB2",
+   "name": "EF.VGCSS",
+   "sym": "ADF.USIM-non-IMSI/EF.VGCSS",
+   "fid": "6FB2",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB3",
+   "name": "EF.VBS",
+   "sym": "ADF.USIM-non-IMSI/EF.VBS",
+   "fid": "6FB3",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB4",
+   "name": "EF.VBSS",
+   "sym": "ADF.USIM-non-IMSI/EF.VBSS",
+   "fid": "6FB4",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB5",
+   "name": "EF.eMLPP",
+   "sym": "ADF.USIM-non-IMSI/EF.eMLPP",
+   "fid": "6FB5",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB6",
+   "name": "EF.AAeM",
+   "sym": "ADF.USIM-non-IMSI/EF.AAeM",
+   "fid": "6FB6",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FB7",
+   "name": "EF.ECC",
+   "sym": "ADF.USIM-non-IMSI/EF.ECC",
+   "fid": "6FB7",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC4",
+   "name": "EF.NETPAR",
+   "sym": "ADF.USIM-non-IMSI/EF.NETPAR",
+   "fid": "6FC4",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC5",
+   "name": "EF.PNN",
+   "sym": "ADF.USIM-non-IMSI/EF.PNN",
+   "fid": "6FC5",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC6",
+   "name": "EF.OPL",
+   "sym": "ADF.USIM-non-IMSI/EF.OPL",
+   "fid": "6FC6",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC7",
+   "name": "EF.MBDN",
+   "sym": "ADF.USIM-non-IMSI/EF.MBDN",
+   "fid": "6FC7",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC8",
+   "name": "EF.EXT6",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT6",
+   "fid": "6FC8",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FC9",
+   "name": "EF.MBI",
+   "sym": "ADF.USIM-non-IMSI/EF.MBI",
+   "fid": "6FC9",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCA",
+   "name": "EF.MWIS",
+   "sym": "ADF.USIM-non-IMSI/EF.MWIS",
+   "fid": "6FCA",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCB",
+   "name": "EF.CFIS",
+   "sym": "ADF.USIM-non-IMSI/EF.CFIS",
+   "fid": "6FCB",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCC",
+   "name": "EF.EXT7",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT7",
+   "fid": "6FCC",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCD",
+   "name": "EF.SPDI",
+   "sym": "ADF.USIM-non-IMSI/EF.SPDI",
+   "fid": "6FCD",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCE",
+   "name": "EF.MMSN",
+   "sym": "ADF.USIM-non-IMSI/EF.MMSN",
+   "fid": "6FCE",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FCF",
+   "name": "EF.EXT8",
+   "sym": "ADF.USIM-non-IMSI/EF.EXT8",
+   "fid": "6FCF",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD0",
+   "name": "EF.MMSICP",
+   "sym": "ADF.USIM-non-IMSI/EF.MMSICP",
+   "fid": "6FD0",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD1",
+   "name": "EF.MMSUP",
+   "sym": "ADF.USIM-non-IMSI/EF.MMSUP",
+   "fid": "6FD1",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD2",
+   "name": "EF.MMSUCP",
+   "sym": "ADF.USIM-non-IMSI/EF.MMSUCP",
+   "fid": "6FD2",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD3",
+   "name": "EF.NIA",
+   "sym": "ADF.USIM-non-IMSI/EF.NIA",
+   "fid": "6FD3",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD4",
+   "name": "EF.VGCSCA",
+   "sym": "ADF.USIM-non-IMSI/EF.VGCSCA",
+   "fid": "6FD4",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD5",
+   "name": "EF.VBSCA",
+   "sym": "ADF.USIM-non-IMSI/EF.VBSCA",
+   "fid": "6FD5",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD6",
+   "name": "EF.GBABP",
+   "sym": "ADF.USIM-non-IMSI/EF.GBABP",
+   "fid": "6FD6",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD7",
+   "name": "EF.MSK",
+   "sym": "ADF.USIM-non-IMSI/EF.MSK",
+   "fid": "6FD7",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD8",
+   "name": "EF.MUK",
+   "sym": "ADF.USIM-non-IMSI/EF.MUK",
+   "fid": "6FD8",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FD9",
+   "name": "EF.EHPLMN",
+   "sym": "ADF.USIM-non-IMSI/EF.EHPLMN",
+   "fid": "6FD9",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FDA",
+   "name": "EF.GBANL",
+   "sym": "ADF.USIM-non-IMSI/EF.GBANL",
+   "fid": "6FDA",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FDB",
+   "name": "EF.EHPLMNPI",
+   "sym": "ADF.USIM-non-IMSI/EF.EHPLMNPI",
+   "fid": "6FDB",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FDD",
+   "name": "EF.NAFKCA",
+   "sym": "ADF.USIM-non-IMSI/EF.NAFKCA",
+   "fid": "6FDD",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FDE",
+   "name": "EF.SPNI",
+   "sym": "ADF.USIM-non-IMSI/EF.SPNI",
+   "fid": "6FDE",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FDF",
+   "name": "EF.PNNI",
+   "sym": "ADF.USIM-non-IMSI/EF.PNNI",
+   "fid": "6FDF",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FE2",
+   "name": "EF.NCP-IP",
+   "sym": "ADF.USIM-non-IMSI/EF.NCP-IP",
+   "fid": "6FE2",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FE3",
+   "name": "EF.EPSLOCI",
+   "sym": "ADF.USIM-non-IMSI/EF.EPSLOCI",
+   "fid": "6FE3",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FE4",
+   "name": "EF.EPSNSC",
+   "sym": "ADF.USIM-non-IMSI/EF.EPSNSC",
+   "fid": "6FE4",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FE6",
+   "name": "EF.UFC",
+   "sym": "ADF.USIM-non-IMSI/EF.UFC",
+   "fid": "6FE6",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FE8",
+   "name": "EF.NASCONFIG",
+   "sym": "ADF.USIM-non-IMSI/EF.NASCONFIG",
+   "fid": "6FE8",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FEC",
+   "name": "EF.PWS",
+   "sym": "ADF.USIM-non-IMSI/EF.PWS",
+   "fid": "6FEC",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FED",
+   "name": "EF.FDNURI",
+   "sym": "ADF.USIM-non-IMSI/EF.FDNURI",
+   "fid": "6FED",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FEE",
+   "name": "EF.BDNURI",
+   "sym": "ADF.USIM-non-IMSI/EF.BDNURI",
+   "fid": "6FEE",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FEF",
+   "name": "EF.SDNURI",
+   "sym": "ADF.USIM-non-IMSI/EF.SDNURI",
+   "fid": "6FEF",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF1",
+   "name": "EF.IPS",
+   "sym": "ADF.USIM-non-IMSI/EF.IPS",
+   "fid": "6FF1",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF3",
+   "name": "EF.ePDGId",
+   "sym": "ADF.USIM-non-IMSI/EF.ePDGId",
+   "fid": "6FF3",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF4",
+   "name": "EF.ePDGSelection",
+   "sym": "ADF.USIM-non-IMSI/EF.ePDGSelection",
+   "fid": "6FF4",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF5",
+   "name": "EF.ePDGIdEm",
+   "sym": "ADF.USIM-non-IMSI/EF.ePDGIdEm",
+   "fid": "6FF5",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF6",
+   "name": "EF.ePDGSelectionEm",
+   "sym": "ADF.USIM-non-IMSI/EF.ePDGSelectionEm",
+   "fid": "6FF6",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF7",
+   "name": "EF.FromPreferred",
+   "sym": "ADF.USIM-non-IMSI/EF.FromPreferred",
+   "fid": "6FF7",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF8",
+   "name": "EF.IMSConfigData",
+   "sym": "ADF.USIM-non-IMSI/EF.IMSConfigData",
+   "fid": "6FF8",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FFC",
+   "name": "EF.XCAPConfigData",
+   "sym": "ADF.USIM-non-IMSI/EF.XCAPConfigData",
+   "fid": "6FFC",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FFD",
+   "name": "EF.EARFCNList",
+   "sym": "ADF.USIM-non-IMSI/EF.EARFCNList",
+   "fid": "6FFD",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FFE",
+   "name": "EF.MuDMiDConfigData",
+   "sym": "ADF.USIM-non-IMSI/EF.MuDMiDConfigData",
+   "fid": "6FFE",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  }
+ ]
+}

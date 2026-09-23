@@ -77,6 +77,15 @@ CLA = `A0` (GSM 11.11 / ISO 7816-4).
 | By DF name / AID | 04 | 00 | AID (application ID) |
 | ADF RFM chain | 00 | 00 | Comma-separated FIDs, each selected in turn |
 
+#### SELECT file picker
+
+Every SELECT row offers a file picker: a filter box, an **all files** toggle, the session start root with the current DF, and the file list grouped by root (`MF`, `ADF.USIM`, ...). Picking a file fills the fields for the current method; when the method cannot express the selection the picker switches to one that can - preferring **path** (one SELECT), then **chain** - and says so, e.g. `7F106F40` (path from MF) or `7F20,6F46` (relative FID chain).
+
+- **List source**: with a card equipped the loaded file-manager tree wins (card names, probed presence; probed-absent files are hidden). Without a card, or for branches the tree has not loaded, the shipped standard list is used: `uicc_files.json`, generated from pySim's profiles/application classes by `pysim_simple_server/uicc_files.py` and drift-guarded by `tests/test_uicc_files.py`. It is specs-default until **Probe all files** runs in the file manager. Custom files are always merged.
+- **Session start**: the implicit current DF follows the TAR the secured packet is sent to (UICC Shared File System RFM -> MF, TS 102 226 §7.2; ADF RFM -> its ADF, §7.3). Defaults: MF here, ADF.USIM for USIM RFM; changeable per row.
+- **Path** is the FID sequence from MF without the MF identifier (ISO 7816-4); the USIM "from current DF" variant uses the relative tail. **Chain** stays relative to the current DF and follows the TS 102 221 §11.1.1.2 FID search order (children, parent, siblings).
+- ADF roots are not pickable - an application is selected by AID, which the **By AID** method keeps manual (TS 102 226 §7.1 forbids P1=`04` for RFM).
+
 #### Options
 
 - **Start with SELECT** — checkbox to prepend a SELECT command before the operation. When unchecked, the operation is sent standalone with CLA.

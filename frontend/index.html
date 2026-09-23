@@ -1451,7 +1451,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.3.0';
+const SIMPLE_VERSION = '3.4.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2449,7 +2449,7 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 		var silent = usim && f.silent;
 		var html = '<div class="grid grid-cols-2 gap-2 mb-2"><div>' +
 			'<label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Method</label>' +
-			'<select onchange="' + uf('method') + ';chainRender(\'' + chainId + '\')" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+			'<select onchange="' + uf('method') + ';rfmNoticeClear(\'' + chainId + '\',' + idx + ');chainRender(\'' + chainId + '\')" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
 			'<option value="fid"' + (method === 'fid' ? ' selected' : '') + '>By FID</option>' +
 			'<option value="path"' + (method === 'path' ? ' selected' : '') + '>By path</option>' +
 			'<option value="dfname"' + (method === 'dfname' ? ' selected' : '') + '>By AID</option>' +
@@ -2482,6 +2482,7 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 			html += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">FID chain (comma-separated)</label>' +
 				'<input value="' + escHtml(f.chain || '') + '" oninput="' + uf('chain') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="3F00,2FE2,C0"></div>';
 		}
+		if (method !== 'dfname') html += rfmPickerHtml(chainId, idx, method);
 		return html;
 	}
 	if (cmd === 'read-record') {
@@ -3210,6 +3211,332 @@ function chainBuildFcp(chainId, idx, kind) {
 		inner = '83' + '02' + fid + '80' + '02' + size.padStart(4, '0').slice(-4);
 	}
 	f.fcp = '62' + berLenStr(inner.length / 2) + inner;
+	chainRender(chainId);
+}
+
+// ===== RFM SELECT file picker =====
+// The picker merges three file sources, deduped by the canonical FID path:
+// the loaded file-manager tree (authoritative names and probed presence), the
+// custom-file list, and the standard list shipped as frontend/uicc_files.json
+// (built from pySim by pysim_simple_server/uicc_files.py and precached by the
+// service worker, so the builders work offline).  Probed-absent files
+// (exists === false) are dropped; without a card the list is the specs default
+// until "Probe all files" has run in the file manager.
+let _uiccStdFiles = null;
+let _uiccStdLoad = null;
+let _rfmShowAll = false;
+const _rfmFilter = {};
+const _rfmNotice = {};
+const _rfmStartDf = {};
+
+function rfmRowKey(chainId, idx) { return chainId + '#' + idx; }
+
+function uiccStdFilesLoad() {
+	if (_uiccStdFiles) return Promise.resolve(_uiccStdFiles);
+	if (!_uiccStdLoad) {
+		_uiccStdLoad = fetch('uicc_files.json')
+			.then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+			.then(doc => { _uiccStdFiles = (doc && Array.isArray(doc.files)) ? doc.files : []; })
+			.catch(() => { _uiccStdFiles = []; })
+			.then(() => {
+				// Redraw pickers that were drawn before the list arrived.
+				Object.keys(_chains).forEach(id => {
+					if (document.getElementById(id + '-rows')) chainRender(id);
+				});
+				return _uiccStdFiles;
+			});
+	}
+	return _uiccStdLoad;
+}
+
+function rfmParentPath(path) { return (path || '').split('/').slice(0, -1).join('/'); }
+function rfmEntryByPath(list, path) {
+	const k = (path || '').toUpperCase();
+	for (const e of list) if (e.path === k) return e;
+	return null;
+}
+function rfmRoots(list) {
+	const set = new Set();
+	for (const e of list) set.add(e.root);
+	const roots = Array.from(set);
+	roots.sort((a, b) => (a === 'MF' ? -1 : b === 'MF' ? 1 : a.localeCompare(b)));
+	return roots;
+}
+
+// Merge the file sources; the first source wins per canonical path.
+function rfmFileEntries() {
+	const out = [];
+	const seen = new Set();
+	const nodes = {};
+	const add = (path, name, fid, kind, source, exists, aid) => {
+		const key = (path || '').toUpperCase();
+		if (!key || key.split('/').length < 2) return;   // roots are group headers
+		if (exists === false) return;                    // probed absent
+		if (seen.has(key)) return;
+		seen.add(key);
+		out.push({
+			path: key, name: name, fid: (fid || '').toUpperCase(), kind: kind,
+			source: source, exists: exists, aid: (aid || '').toUpperCase(),
+			root: key.split('/')[0],
+		});
+	};
+	if (pysimFsTreeRoot) {
+		const walk = node => {
+			for (const ch of (node.children || [])) {
+				const p = pysimFsNodePath(ch);
+				if (p) nodes[p.toUpperCase()] = ch;
+				add(p, ch.name, ch.fid,
+					ch.isDir ? ((ch.name || '').startsWith('ADF.') ? 'adf' : 'df') : 'ef',
+					ch.custom ? 'custom' : 'card', ch.exists);
+				if (ch.isDir) walk(ch);
+			}
+		};
+		walk(pysimFsTreeRoot);
+	}
+	for (const c of pysimCustomFiles) {
+		const node = nodes[(c.path || '').toUpperCase()];
+		add(c.path, c.name, pysimCustomFid(c), c.kind === 'df' ? 'df' : 'ef',
+			'custom', node ? node.exists : null);
+	}
+	for (const e of (_uiccStdFiles || [])) {
+		const node = nodes[(e.path || '').toUpperCase()];
+		add(e.path, e.name, e.fid, e.kind, 'standard', node ? node.exists : null, e.aid);
+	}
+	return out;
+}
+
+// --- session context (the implicit "current DF") ---
+// TS 102 226 7.2/7.3: the UICC Shared File System RFM application starts in
+// MF, an ADF RFM application in its ADF - it depends on the TAR the secured
+// packet is sent to, not on the builder, so the picker lets it be changed.
+function rfmStartDf(chainId) {
+	if (!_rfmStartDf[chainId]) {
+		_rfmStartDf[chainId] = chainKind(chainId) === 'usim' ? 'ADF.USIM' : 'MF';
+	}
+	return _rfmStartDf[chainId];
+}
+function rfmSetStartDf(chainId, value) {
+	_rfmStartDf[chainId] = (value || 'MF').toUpperCase();
+	chainRender(chainId);
+}
+function rfmNoticeClear(chainId, idx) { delete _rfmNotice[rfmRowKey(chainId, idx)]; }
+
+function rfmApplySelect(chainId, cur, f, list) {
+	const method = f.method || 'fid';
+	if (method === 'fid') {
+		const fid = (f.fid || '').toUpperCase();
+		const hit = list.find(e => rfmParentPath(e.path) === cur && e.fid === fid);
+		return hit ? (hit.kind === 'ef' ? cur : hit.path) : cur;
+	}
+	if (method === 'path') {
+		const hex = (f.path || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (hex.length < 4 || hex.length % 4 !== 0) return cur;
+		let p = (chainKind(chainId) === 'usim' && f.base === 'df') ? cur : 'MF';
+		for (const fid of (hex.match(/.{4}/g) || [])) {
+			const hit = list.find(e => rfmParentPath(e.path) === p && e.fid === fid);
+			if (!hit) return cur;
+			p = hit.path;
+		}
+		const hit = rfmEntryByPath(list, p);
+		return hit ? (hit.kind === 'ef' ? rfmParentPath(hit.path) : hit.path) : cur;
+	}
+	if (method === 'chain') {
+		let c = cur;
+		for (const tok of (f.chain || '').split(',')) {
+			const t = tok.trim().toUpperCase();
+			if (!t || /^C0/.test(t)) continue;
+			c = rfmApplySelect(chainId, c, { method: 'fid', fid: t }, list);
+		}
+		return c;
+	}
+	if (method === 'dfname') {
+		const aid = (f.dfname || '').toUpperCase();
+		const hit = list.find(e => e.kind === 'adf' && e.aid === aid);
+		return hit ? hit.path : cur;
+	}
+	return cur;
+}
+
+function rfmCurrentDf(chainId, idx, list) {
+	let cur = rfmStartDf(chainId).toUpperCase();
+	const rows = (_chains[chainId] || { rows: [] }).rows || [];
+	for (let i = 0; i < idx; i++) {
+		const r = rows[i];
+		if (r.cmd !== 'select') continue;
+		cur = rfmApplySelect(chainId, cur, r.fields, list) || cur;
+	}
+	return cur;
+}
+
+// FID sequence from `base` down to `target` (same root), e.g. '7F106F3A'.
+function rfmFidsFrom(list, base, target) {
+	let p = (base || '').toUpperCase();
+	const t = (target || '').toUpperCase();
+	if (!t.startsWith(p + '/')) return '';
+	const fids = [];
+	for (const seg of t.slice(p.length + 1).split('/')) {
+		p = p + '/' + seg;
+		const e = rfmEntryByPath(list, p);
+		if (!e || !e.fid) return '';
+		fids.push(e.fid);
+	}
+	return fids.join('');
+}
+
+// Relative FID chain from cur to target, using the FID search order of
+// TS 102 221 11.1.1.2 (children -> parent -> children of the parent): the
+// sequence never needs a hop to the common ancestor itself.
+function rfmRelativeChain(list, cur, target) {
+	const c = (cur || '').toUpperCase().split('/');
+	const t = (target || '').toUpperCase().split('/');
+	if (c[0] !== t[0]) return '';                 // different roots: FID cannot cross
+	let i = 0;
+	while (i < c.length && i < t.length && c[i] === t[i]) i++;
+	const fids = [];
+	for (let n = c.length - 1; n >= i + 1; n--) {
+		const e = rfmEntryByPath(list, c.slice(0, n).join('/'));
+		if (!e || !e.fid) return '';
+		fids.push(e.fid);
+	}
+	for (let n = i + 1; n <= t.length; n++) {
+		const e = rfmEntryByPath(list, t.slice(0, n).join('/'));
+		if (!e || !e.fid) return '';
+		fids.push(e.fid);
+	}
+	return fids.join(',');
+}
+
+// Which method can express a picked file at this row, and with what values.
+// When the row's method cannot express it the fill switches - preferring path
+// (one SELECT) over chain, per the agreed behaviour - and the picker says so.
+function rfmSelectFill(chainId, idx, entry, list) {
+	if (entry.kind === 'adf') return null;         // ADF roots are selected by AID (manual)
+	const kind = chainKind(chainId);
+	const cur = rfmCurrentDf(chainId, idx, list);
+	const row = (_chains[chainId] || { rows: [] }).rows[idx] || { fields: {} };
+	const method = row.fields.method || 'fid';
+	const rowBase = row.fields.base || 'mf';
+	const cands = [];
+	if (rfmParentPath(entry.path) === cur) {
+		cands.push({ method: 'fid', fields: { fid: entry.fid } });
+	}
+	const pathDf = rfmFidsFrom(list, cur, entry.path);
+	if (kind === 'usim' && pathDf) cands.push({ method: 'path', fields: { path: pathDf, base: 'df' } });
+	const pathMf = rfmFidsFrom(list, 'MF', entry.path);
+	if (pathMf) cands.push({ method: 'path', fields: { path: pathMf, base: 'mf' } });
+	const chain = rfmRelativeChain(list, cur, entry.path);
+	if (chain) cands.push({ method: 'chain', fields: { chain: chain } });
+	if (!cands.length) return null;
+	const same = cands.find(c => c.method === method &&
+		(c.fields.base === undefined || c.fields.base === rowBase));
+	if (same) return { method: method, fields: same.fields, switched: false };
+	for (const m of ['path', 'chain', 'fid']) {
+		const matches = cands.filter(x => x.method === m);
+		if (!matches.length) continue;
+		const sameBase = matches.find(x => x.fields.base === undefined || x.fields.base === rowBase);
+		return { method: m, fields: (sameBase || matches[0]).fields, switched: true };
+	}
+	return null;
+}
+
+function rfmFileOptionsHtml(chainId, idx, list) {
+	const key = rfmRowKey(chainId, idx);
+	const filter = (_rfmFilter[key] || '').toUpperCase();
+	const groups = new Map();
+	let hidden = 0;
+	for (const e of list) {
+		if (e.kind === 'adf') continue;
+		if (filter) {
+			const hay = (e.name + ' ' + e.path + ' ' + (e.sym || '')).toUpperCase();
+			if (hay.indexOf(filter) < 0) continue;
+		}
+		const fill = rfmSelectFill(chainId, idx, e, list);
+		// Default: only what the current method can express.  "all files"
+		// reveals the rest; picking one of those switches the method (the
+		// option is marked with the method it would switch to).
+		if (!fill || (!_rfmShowAll && fill.switched)) { hidden++; continue; }
+		if (!groups.has(e.root)) groups.set(e.root, []);
+		groups.get(e.root).push({ e: e, fill: fill });
+	}
+	let html = '<option value="">— pick a file —</option>';
+	for (const [root, items] of groups) {
+		html += '<optgroup label="' + escHtml(root) + '">';
+		for (const it of items) {
+			const parent = rfmParentPath(it.e.sym || it.e.path).replace(/^[^/]+\//, '');
+			html += '<option value="' + escHtml(it.e.path) + '">' +
+				escHtml(it.e.name + ' — ' + (it.e.fid || it.e.aid || '') + (parent ? ' — ' + parent : '') +
+					(it.fill && it.fill.switched ? '  → ' + it.fill.method : '')) +
+				'</option>';
+		}
+		html += '</optgroup>';
+	}
+	if (!groups.size) {
+		html += '<option value="" disabled>' +
+			(hidden ? 'no file matches the current method — check "all files"' : 'no matching files') +
+			'</option>';
+	}
+	return html;
+}
+
+function rfmPickerHtml(chainId, idx, method) {
+	const list = rfmFileEntries();
+	const key = rfmRowKey(chainId, idx);
+	const cur = rfmCurrentDf(chainId, idx, list);
+	const filter = _rfmFilter[key] || '';
+	const notice = _rfmNotice[key];
+	const rootOpts = rfmRoots(list).map(r =>
+		'<option value="' + escHtml(r) + '"' + (r === rfmStartDf(chainId) ? ' selected' : '') + '>' + escHtml(r) + '</option>'
+	).join('');
+	return '<div class="mt-2 p-2 border border-gray-200 dark:border-slate-700 rounded rfm-file-picker">' +
+		'<div class="flex gap-1 items-center flex-wrap mb-1">' +
+			'<input class="rfm-file-filter font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800 w-40" placeholder="filter" value="' + escHtml(filter) + '" oninput="rfmFileFilterInput(this,\'' + chainId + '\',' + idx + ')">' +
+			'<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><input type="checkbox" class="rounded"' + (_rfmShowAll ? ' checked' : '') + ' onchange="rfmFileShowAll(this)"> all files</label>' +
+			'<span class="text-xs text-gray-400 dark:text-slate-500">starts in</span>' +
+			'<select class="rfm-file-start text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800" onchange="rfmSetStartDf(\'' + chainId + '\', this.value)">' + rootOpts + '</select>' +
+			'<span class="text-xs text-gray-400 dark:text-slate-500">DF: ' + escHtml(cur) + '</span>' +
+		'</div>' +
+		'<select class="rfm-file-select w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-1 dark:bg-slate-800" onchange="rfmFilePick(this,\'' + chainId + '\',' + idx + ')">' + rfmFileOptionsHtml(chainId, idx, list) + '</select>' +
+		'<div class="rfm-file-note text-xs mt-0.5 ' + (notice ? notice.cls : 'text-gray-400 dark:text-slate-500') + '">' + escHtml(notice ? notice.text : '') + '</div>' +
+	'</div>';
+}
+
+function rfmFileFilterInput(input, chainId, idx) {
+	_rfmFilter[rfmRowKey(chainId, idx)] = input.value;
+	const sel = input.closest('.rfm-file-picker').querySelector('.rfm-file-select');
+	if (sel) sel.innerHTML = rfmFileOptionsHtml(chainId, idx, rfmFileEntries());
+}
+
+function rfmFileShowAll(cb) {
+	_rfmShowAll = cb.checked;
+	Object.keys(_chains).forEach(id => {
+		if (document.getElementById(id + '-rows')) chainRender(id);
+	});
+}
+
+function rfmFilePick(sel, chainId, idx) {
+	const key = rfmRowKey(chainId, idx);
+	const path = sel.value;
+	if (!path) return;
+	const list = rfmFileEntries();
+	const entry = list.find(e => e.path === path);
+	if (!entry) return;
+	const fill = rfmSelectFill(chainId, idx, entry, list);
+	if (!fill) {
+		_rfmNotice[key] = {
+			text: entry.name + ': not reachable from ' + rfmCurrentDf(chainId, idx, list) +
+				' with FID/path/chain — an ADF is selected by AID (kept manual).',
+			cls: 'text-amber-600 dark:text-amber-400',
+		};
+		chainRender(chainId);
+		return;
+	}
+	const row = _chains[chainId].rows[idx];
+	row.fields = Object.assign({}, row.fields, fill.fields, { method: fill.method });
+	_rfmNotice[key] = fill.switched
+		? { text: 'switched to ' + fill.method + ' for ' + entry.name +
+			' (' + (fill.fields.path || fill.fields.chain || fill.fields.fid) + ')',
+		    cls: 'text-gray-500 dark:text-slate-400' }
+		: { text: '', cls: 'text-gray-400 dark:text-slate-500' };
 	chainRender(chainId);
 }
 
@@ -14680,6 +15007,7 @@ function toggleTheme() {
 document.getElementById('theme-btn').textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
 updateConvFields();
 updateSp();
+uiccStdFilesLoad();
 updateSpKic();
 updateSpKid();
 chainInit('chain-sim');

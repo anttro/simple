@@ -1,4 +1,4 @@
-const CACHE = 'simple-v241';
+const CACHE = 'simple-v242';
 const URLS = [
   'index.html',
   'help.html',
@@ -14,6 +14,7 @@ const URLS = [
   'sim.svg',
   'sim_anim.svg',
   'nosim.svg',
+  'uicc_files.json',
 ];
 
 self.addEventListener('install', e => {
