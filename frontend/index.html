@@ -303,8 +303,48 @@
 				</select>
 			</div>
 			<div data-push-link="01">
-				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)">OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)</label>
-				<textarea id="push-link-data" rows="2" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 mb-2" placeholder="82102081..."></textarea>
+				<div class="mb-2">
+					<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Mode">Mode</label>
+					<select id="push-link-oc-mode" onchange="pushUpdate('link')" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">
+						<option value="fields" data-l10n="Fields">Fields</option>
+						<option value="hex" data-l10n="Hex">Hex</option>
+					</select>
+				</div>
+				<div id="push-link-oc-fields">
+					<div class="grid grid-cols-2 gap-2 mb-2">
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Bearer description (hex, default 350103)">Bearer description (hex, default 350103)</label>
+							<input id="push-link-oc-bearer" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="350103"></div>
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Buffer size (hex, 2 bytes)">Buffer size (hex, 2 bytes)</label>
+							<input id="push-link-oc-buffer" oninput="pushUpdate('link')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="0200"></div>
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Transport protocol">Transport protocol</label>
+							<select id="push-link-oc-proto" onchange="pushUpdate('link')" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">
+								<option value="01" data-l10n="UDP, UICC client, remote">UDP, UICC client, remote</option>
+								<option value="02" data-l10n="TCP, UICC client, remote">TCP, UICC client, remote</option>
+							</select></div>
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination port (hex)">Destination port (hex)</label>
+							<input id="push-link-oc-port" oninput="pushUpdate('link')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="1F90"></div>
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)">Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)</label>
+							<input id="push-link-oc-addr" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="210A000001"></div>
+						<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="NAA / APN (text)">NAA / APN (text)</label>
+							<input id="push-link-oc-apn" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="internet"></div>
+					</div>
+					<div class="mb-2">
+						<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-400">
+							<input type="checkbox" id="push-link-oc-alpha-null" onchange="pushUpdate('link')" class="rounded">
+							<span data-l10n="Alpha (transparent — no user confirmation)">Alpha (transparent — no user confirmation)</span>
+						</label>
+						<div class="mt-1"><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Alpha identifier (hex, optional)">Alpha identifier (hex, optional)</label>
+							<input id="push-link-oc-alpha" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></div>
+					</div>
+					<div class="mb-2">
+						<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Extra TLVs (hex, optional)">Extra TLVs (hex, optional)</label>
+						<input id="push-link-oc-extra" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+					</div>
+				</div>
+				<div id="push-link-oc-hex">
+					<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="OPEN CHANNEL COMPREHENSION-TLVs (hex)">OPEN CHANNEL COMPREHENSION-TLVs (hex)</label>
+					<textarea id="push-link-data" rows="2" oninput="pushUpdate('link')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 mb-2" placeholder="82102081..."></textarea>
+				</div>
 				<label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
 					<input type="checkbox" id="push-link-cat" onchange="pushUpdate('link')" class="rounded">
 					<span data-l10n="Also request the CAT_TP link establishment (02) in the same message">Also request the CAT_TP link establishment (02) in the same message</span>
@@ -2182,7 +2222,46 @@ function pushReadFields(section) {
 		pushApn: v('push-' + section + '-apn'),
 		pushExtra: v('push-' + section + '-extra'),
 		idpIdent: v('push-' + section + '-idp-ident'),
+		ocMode: v('push-' + section + '-oc-mode') || 'fields',
+		ocBearer: v('push-' + section + '-oc-bearer'),
+		ocBuffer: v('push-' + section + '-oc-buffer'),
+		ocProto: v('push-' + section + '-oc-proto') || '01',
+		ocPort: v('push-' + section + '-oc-port'),
+		ocAddr: v('push-' + section + '-oc-addr'),
+		ocApn: v('push-' + section + '-oc-apn'),
+		ocAlphaNull: !!(document.getElementById('push-' + section + '-oc-alpha-null') || {}).checked,
+		ocAlpha: v('push-' + section + '-oc-alpha'),
+		ocExtra: v('push-' + section + '-oc-extra'),
 	};
+}
+
+// OPEN CHANNEL COMPREHENSION-TLVs from the guided "Fields" mode of the BIP
+// channel opening request (the most used parameters per SIMalliance Stepping
+// Stones R7 18.6.1).  The local address is never emitted (TS 102 226 9.2.1
+// forbids it and the guide recommends against it); login/password and anything
+// else stay in the extra TLVs field.  Bearer, buffer size and the destination
+// address keep the defaults/behaviour of the OPEN CHANNEL command: the bearer
+// defaults to the default bearer (35 01 03), the transport level is only
+// emitted with a port and is limited to UDP/TCP client remote (TS 102 223
+// 6.6.27.4).
+function pushOpenChannelTlvs(f) {
+	const hx = s => (s || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	const four = s => hx(s).padStart(4, '0').slice(-4);
+	let out = hx(f.ocBearer) || '350103';
+	const port = hx(f.ocPort);
+	if (port) out += '3C03' + (f.ocProto === '02' ? '02' : '01') + four(port);
+	const addr = hx(f.ocAddr);
+	if (addr) out += '3E' + berLenStr(addr.length / 2) + addr;
+	const apn = _hotaAsciiHex((f.ocApn || '').trim());
+	if (apn) out += '47' + berLenStr(apn.length / 2) + apn;
+	const buffer = hx(f.ocBuffer);
+	if (buffer) out += '3902' + four(buffer);
+	if (f.ocAlphaNull) out += '0500';
+	else {
+		const alpha = hx(f.ocAlpha);
+		if (alpha) out += '05' + berLenStr(alpha.length / 2) + alpha;
+	}
+	return out + hx(f.ocExtra);
 }
 
 // C-APDUs for a §9 push from the form's field values; empty when a mandatory
@@ -2200,7 +2279,8 @@ function pushSectionApdus(section, f) {
 	if (request === '02' && hx(f.pushPort).length !== 4) return [];
 	if (request === '03' && (hx(f.pushPort).length !== 4 || !hx(f.pushAddr))) return [];
 	const p2 = parseInt(request, 16);
-	const data = chainPushData(Object.assign({}, f, { pushType: request }));
+	const ocTlvs = (request === '01' && f.ocMode !== 'hex') ? pushOpenChannelTlvs(f) : f.pushData;
+	const data = chainPushData(Object.assign({}, f, { pushType: request, pushData: ocTlvs }));
 	const apdus = [data
 		? buildApdu(0x80, 0xEC, 0x01, p2, data.length / 2, data)
 		: buildApdu(0x80, 0xEC, 0x01, p2, null, null)];
@@ -2244,6 +2324,11 @@ function pushUpdate(section) {
 		const btn = document.getElementById('push-' + section + '-' + kind + '-btn');
 		if (btn) btn.disabled = !apdus.length;
 	});
+	const ocFields = document.getElementById('push-' + section + '-oc-fields');
+	const ocHex = document.getElementById('push-' + section + '-oc-hex');
+	const ocHexMode = f.ocMode === 'hex';
+	if (ocFields) ocFields.classList.toggle('hidden', ocHexMode);
+	if (ocHex) ocHex.classList.toggle('hidden', !ocHexMode);
 	const idpBlock = document.getElementById('push-' + section + '-idp-block');
 	if (idpBlock) idpBlock.classList.toggle('hidden', !(f.request === '03' && f.withIdp));
 	// On request 01 the shared CAT_TP field blocks (port, max SDU, identification
@@ -14983,13 +15068,23 @@ const LANG_RU = {
 	'Request': 'Запрос',
 	'BIP channel opening (OPEN CHANNEL)': 'Открытие BIP-канала (OPEN CHANNEL)',
 	'Channel / link trigger': 'Триггер канала/линка',
+	'Mode': 'Режим',
+	'Fields': 'Поля',
+	'Hex': 'Hex',
+	'Bearer description (hex, default 350103)': 'Описание bearer (hex, по умолчанию 350103)',
+	'Buffer size (hex, 2 bytes)': 'Размер буфера (hex, 2 байта)',
+	'Transport protocol': 'Транспортный протокол',
+	'UDP, UICC client, remote': 'UDP, клиент UICC, удалённое соединение',
+	'TCP, UICC client, remote': 'TCP, клиент UICC, удалённое соединение',
+	'Alpha (transparent — no user confirmation)': 'Alpha (прозрачный режим — без подтверждения пользователя)',
+	'Alpha identifier (hex, optional)': 'Alpha-идентификатор (hex, необязательно)',
 	'Also request the CAT_TP link establishment (02) in the same message': 'Также запросить установление соединения CAT_TP (02) в том же сообщении',
 	'Channel / link establishment (TS 102 226 §9)': 'Установление канала/линка (TS 102 226 §9)',
 	'Also send the identification packet (04) in the same message': 'Также отправить пакет идентификации (04) в том же сообщении',
 	'The identification packet follows the TCP request in the same message (ICCID when empty).': 'Пакет идентификации отправляется следом за TCP-запросом в том же сообщении (при пустом значении — ICCID).',
 	'CAT_TP link establishment': 'Установление соединения CAT_TP',
 	'TCP connection': 'TCP-соединение',
-	'OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)': 'COMPREHENSION-TLV OPEN CHANNEL (hex, необязательно)',
+	'OPEN CHANNEL COMPREHENSION-TLVs (hex)': 'COMPREHENSION-TLV OPEN CHANNEL (hex)',
 	'Destination port (hex)': 'Порт назначения (hex)',
 	'Max SDU (hex, optional)': 'Макс. SDU (hex, необязательно)',
 	'Identification data (hex, optional)': 'Данные идентификации (hex, необязательно)',

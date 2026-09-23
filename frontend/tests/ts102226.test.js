@@ -31,7 +31,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'buildSelect', 'escHtml', 'esc', 'chainInit',
 	'chainKind', 'chainIsEmbedded', 'chainCommands', 'chainBuildRowHex',
 	'chainSimBuildRowHex', 'chainRamBuildRowHex', 'chainPushData', '_hotaAsciiHex',
-	'chainApduList', 'chainBuildFcp', 'pushSectionApdus'];
+	'chainApduList', 'chainBuildFcp', 'pushSectionApdus', 'pushOpenChannelTlvs'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['CHAIN_CMDS_SIM', 'CHAIN_CMDS_USIM', 'CHAIN_CMDS_RAM']) {
@@ -229,8 +229,8 @@ test('CREATE FILE FCP template skeleton (TS 102 222 table 4)', () => {
 
 test('pushSectionApdus builds the guided §9 channel/link requests', () => {
 	// BIP channel opening: OPEN CHANNEL TLVs are optional.
-	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '350103' }), ['80EC010103350103']);
-	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '' }), ['80EC0101']);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '350103' }), ['80EC010103350103']);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '' }), ['80EC0101']);
 	// CAT_TP: the destination port is mandatory (9.2.2).
 	assert.deepStrictEqual(pushSectionApdus('link', { request: '02', pushPort: '1F90' }), ['80EC0102053C03001F90']);
 	assert.deepStrictEqual(pushSectionApdus('link', { request: '02', pushPort: '' }), []);
@@ -250,19 +250,51 @@ test('pushSectionApdus builds the guided §9 channel/link requests', () => {
 		pushSectionApdus('link', { request: '03', pushPort: '0050', pushAddr: '210A000001', pushApn: 'internet', withIdp: true, idpIdent: '0102' }),
 		[tcp, '80EC01040436020102']);
 	// The follow-up only applies to the TCP request.
-	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withIdp: true }), ['80EC0101']);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '', withIdp: true }), ['80EC0101']);
 	// Stepping Stones R7 18.6: the BIP channel opening and the CAT_TP link
 	// request go in the same message; 01 carries the channel parameters, 02 the
 	// CAT_TP port (mandatory) plus optional max SDU / identification data.
 	assert.deepStrictEqual(
-		pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '1F90' }),
+		pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '', withCat: true, pushPort: '1F90' }),
 		['80EC0101', '80EC0102053C03001F90']);
 	assert.deepStrictEqual(
-		pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '1F90', pushSdu: '0200', pushIdent: 'ABCD' }),
+		pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '', withCat: true, pushPort: '1F90', pushSdu: '0200', pushIdent: 'ABCD' }),
 		['80EC0101', '80EC01020D3C03001F90390202003602ABCD']);
 	// The CAT_TP port is mandatory for the pair, and the option only applies to 01.
-	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withCat: true, pushPort: '' }), []);
-	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', pushData: '', withCat: false, pushPort: '1F90' }), ['80EC0101']);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '', withCat: true, pushPort: '' }), []);
+	assert.deepStrictEqual(pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '', withCat: false, pushPort: '1F90' }), ['80EC0101']);
+});
+
+test('pushOpenChannelTlvs composes the guided OPEN CHANNEL parameters', () => {
+	// The bearer defaults to the default bearer (35 01 03); the local address is
+	// never emitted (TS 102 226 9.2.1 / Stepping Stones 18.6.1).
+	assert.strictEqual(pushOpenChannelTlvs({}), '350103');
+	assert.strictEqual(pushOpenChannelTlvs({ ocBearer: '350104' }), '350104');
+	// Transport level (UDP or TCP client remote only, TS 102 223 6.6.27.4).
+	assert.strictEqual(pushOpenChannelTlvs({ ocProto: '01', ocPort: '1F90' }), '3501033C03011F90');
+	assert.strictEqual(pushOpenChannelTlvs({ ocProto: '02', ocPort: '0050' }), '3501033C03020050');
+	// Full set: transport level + destination address + NAA + buffer size +
+	// transparent alpha (05 00 = no user confirmation).
+	assert.strictEqual(
+		pushOpenChannelTlvs({ ocProto: '01', ocPort: '1F90', ocAddr: '210A000001', ocApn: 'internet',
+			ocBuffer: '0200', ocAlphaNull: true }),
+		'350103' + '3C03011F90' + '3E05210A000001' + '4708696E7465726E6574' + '39020200' + '0500');
+	// A custom alpha identifier and free-form extra TLVs (login/password, ...).
+	assert.strictEqual(pushOpenChannelTlvs({ ocAlpha: '00410042' }), '350103050400410042');
+	assert.strictEqual(pushOpenChannelTlvs({ ocExtra: '4708696E7465726E6574' }), '3501034708696E7465726E6574');
+	// Fields mode feeds the same encoder as the raw hex field.
+	assert.deepStrictEqual(
+		pushSectionApdus('link', { request: '01', ocMode: 'fields', ocProto: '01', ocPort: '1F90' }),
+		['80EC0101083501033C03011F90']);
+	assert.deepStrictEqual(
+		pushSectionApdus('link', { request: '01', ocMode: 'hex', pushData: '350103' }),
+		['80EC010103350103']);
+	// Fields mode plus the CAT_TP follow-up: the OPEN CHANNEL port is its own
+	// field, the CAT_TP port comes from the shared one.
+	assert.deepStrictEqual(
+		pushSectionApdus('link', { request: '01', ocMode: 'fields', ocProto: '01', ocPort: '1F90',
+			withCat: true, pushPort: '1F91' }),
+		['80EC0101083501033C03011F90', '80EC0102053C03001F91']);
 });
 
 test('chainApduList drops GET RESPONSE and splits multi-APDU rows', () => {
