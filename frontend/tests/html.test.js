@@ -134,6 +134,22 @@ test('the C-APDU and R-APDU parsers are sub-pills of the Parser pill', () => {
     assert.match(html, /id="parser-btn-response" onclick="parserSwitchSubtab\('response'\)"/);
 });
 
+test('the document and its inline script are complete', () => {
+    // A truncated index.html (missing </script></body></html>) makes the whole
+    // inline script fail to parse in the browser: every onclick handler then
+    // reports "function is not defined" while the Node tests still pass,
+    // because they extract functions from the text without ever running the
+    // document's script.
+    assert.ok(html.trimEnd().endsWith('</html>'), 'index.html must end with </html>');
+    assert.strictEqual((html.match(/<script\b/g) || []).length,
+        (html.match(/<\/script>/g) || []).length, 'every <script> must be closed');
+    const inline = html.match(/<script>([\s\S]*)<\/script>\s*<\/body>/);
+    assert.ok(inline, 'inline script not found');
+    assert.ok(inline[1].length > 100000, 'inline script looks truncated');
+    new Function(inline[1]);   // throws on a syntax error
+    assert.ok(inline[1].includes('function cApduSwitchSubtab'), 'key function missing');
+});
+
 test('profiler and phone simulator are top-level tab contents', () => {
     assert.ok(html.includes('id="tab-profiler" class="tab-content hidden"'));
     assert.ok(html.includes('id="tab-phone" class="tab-content hidden"'));

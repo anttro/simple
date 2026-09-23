@@ -359,7 +359,7 @@ Pastes raw APDU hex and renders a collapsible tree. It auto-detects the containe
 
 ### Push commands
 
-Groups the commands that make the card dial out. Four sub-pills switch between the forms - Trigger (Push SMS), Store (SD admin params), BIP / CAT_TP trigger and TCP trigger - and only the selected one is shown (the two GP forms share their fields). They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
+Groups the commands that make the card dial out. Three sub-pills switch between the forms - Trigger (Push SMS), Store (SD admin params) and Channel / link trigger - and only the selected one is shown (the two GP forms share their fields). They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
 
 #### Administration session (HTTP OTA)
 
@@ -379,10 +379,12 @@ The **Command Scripting template** checkbox wraps the whole `81` triggering comm
 
 #### TS 102 226 §9 PUSH
 
-Two guided sections build the §9 requests with the same encoder as the RAM/GP chain's **PUSH** row and offer **Pack into Secured packet** (TAR stays manual - the request goes to the target application) and **→ Expanded Script** (wraps the APDU in the `22` Command TLV):
+The **Channel / link trigger** sub-pill builds the §9 requests with the same encoder as the RAM/GP chain's **PUSH** row and offers **Pack into Secured packet** (TAR stays manual - the request goes to the target application) and **→ Expanded Script** (each APDU becomes a `22` Command TLV):
 
-- **BIP / CAT_TP** — `01` BIP channel opening (OPEN CHANNEL COMPREHENSION-TLVs optional) or `02` CAT_TP link (destination port in transport level `3C` with protocol type 00, optional buffer size `39` / identification data `36`);
-- **TCP** — `03` TCP connection (bearer `35`, transport level `3C` with protocol type 02, destination address `3E` - `21` IPv4 / `57` IPv6 / `F0` FQDN, NAA/APN `47`) or `04` identification packet (sent over an already open channel; the ICCID is used when absent).
+- **BIP channel opening** (`01`) - OPEN CHANNEL COMPREHENSION-TLVs optional; the application issues the proactive OPEN CHANNEL itself;
+- **CAT_TP link** (`02`) - destination port in transport level `3C` with protocol type 00 (mandatory), optional buffer size `39` / identification data `36`;
+- **TCP connection** (`03`) - bearer `35`, transport level `3C` with protocol type 02, destination address `3E` (`21` IPv4 / `57` IPv6 / `F0` FQDN), NAA/APN `47`; the parameters are the OPEN CHANNEL TCP set (BIP, or a direct IP connection per TS 102 483 where supported);
+- **Identification packet** (`04`) is not a trigger - it needs an already open TCP channel, so the TCP request has an *Also send the identification packet (04)* checkbox that appends it in the same message; `04` also stays in the chain's PUSH row for scripts.
 
 ---
 
