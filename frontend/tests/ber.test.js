@@ -103,7 +103,7 @@ function buildPcHtml(extraFields) {
 }
 
 const FNS = ['berLenStr', 'gsm7TextToSeptets', 'gsm7Encode', 'genBerPcValue', 'genErrorActionValue',
-	'genScriptChainingValue'];
+	'genScriptChainingValue', 'chainKind', 'chainIsEmbedded', 'chainCommands', 'berCmdChainId', 'genBerCmdApdu', 'genBerRowValue'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 const berTagsMatch = html.match(/const BER_TAGS = \{[^}]*\};/);
@@ -116,6 +116,16 @@ for (const m of [berTagsMatch, berQualMatch, berDevMatch, berTonesMatch, gsm7Alp
 	if (!m) throw new Error('constant not found');
 	code = m[0] + '\n' + code;
 }
+for (const c of ['CHAIN_CMDS_SIM', 'CHAIN_CMDS_USIM', 'CHAIN_CMDS_RAM']) {
+	const m = html.match(new RegExp('const ' + c + ' = \\[[\\s\\S]*?\\n\\];'));
+	if (!m) throw new Error('catalog not found: ' + c);
+	code += m[0].replace('const ', 'var ') + '\n';
+}
+code += html.match(/const _chains = \{\};/)[0].replace('const ', 'var ') + '\n';
+code += html.match(/const CHAIN_LISTENERS = \{\};/)[0].replace('const ', 'var ') + '\n';
+// The embedded command chain is built by the shared command builders, which
+// are covered by ts102226.test.js; here only the C-APDU row wiring matters.
+code += 'function chainBuildRowHex(chainId) { return chainId === \'ber-ram-7\' ? \'80D0010101AA\' : \'\'; }\n';
 code += '\nvar __berConsts = {BER_TAGS, BER_QUAL, BER_DEVICES, BER_TONES, GSM7_ALPHABET, GSM7_EXT_MAP};';
 eval(code);
 const {BER_TAGS, BER_QUAL, BER_DEVICES, BER_TONES, GSM7_ALPHABET, GSM7_EXT_MAP} = __berConsts;
@@ -277,4 +287,37 @@ test('genScriptChainingValue no position emits empty', () => {
 	keep.name = 'chaining-0-keep';
 	row.children.push(first, interm, last, keep, el('chaining-script-id'), el('chaining-additional'));
 	assert.strictEqual(genScriptChainingValue(row, '83'), '');
+});
+
+// ===== Expanded Script C-APDU rows (TS 102 226 5.2.1.0/5.2.1.1) =====
+
+function cmdRow(mode, value) {
+	const row = new StubEl();
+	row.dataset = { berUid: '7' };
+	const modeEl = el('ber-cmd-mode', mode);
+	const hexEl = el('ber-hex', value || '');
+	const typeEl = el('ber-type', 'c-apdu');
+	row.children.push(typeEl, modeEl, hexEl);
+	row.querySelector = sel => ({ '.ber-type': typeEl, '.ber-cmd-mode': modeEl, '.ber-hex': hexEl })[sel] || null;
+	return row;
+}
+
+test('genBerCmdApdu reads pasted hex or the embedded command chain', () => {
+	assert.strictEqual(genBerCmdApdu(cmdRow('hex', '80 ca ff21 00')), '80CAFF2100');
+	assert.strictEqual(genBerCmdApdu(cmdRow('ram', 'ignored')), '80D0010101AA');
+	assert.strictEqual(genBerCmdApdu(cmdRow('hex', '')), '');
+});
+
+test('genBerRowValue wraps a C-APDU row in the 22 command TLV', () => {
+	assert.strictEqual(genBerRowValue(cmdRow('ram', '')), '220680D0010101AA');
+	assert.strictEqual(genBerRowValue(cmdRow('hex', '80C AFF2100')), '220580CAFF2100');
+	assert.strictEqual(genBerRowValue(cmdRow('hex', '')), '');
+});
+
+test('the embedded pickers offer the RFM/RAM command sets without GET RESPONSE', () => {
+	assert.ok(chainCommands('ber-sim-1').some(c => c.value === 'select'));
+	assert.ok(chainCommands('ber-usim-1').some(c => c.value === 'create-file'));
+	assert.ok(chainCommands('ber-ram-1').some(c => c.value === 'push'));
+	assert.ok(!chainCommands('ber-ram-1').some(c => c.value === 'get-response'));
+	assert.ok(chainCommands('chain-ram').some(c => c.value === 'get-response'));
 });

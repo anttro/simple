@@ -74,6 +74,8 @@
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">DISABLE PIN</td><td class="py-1 px-2 font-mono">26</td><td class="py-1 px-2">Отключение PIN</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">ENABLE PIN</td><td class="py-1 px-2 font-mono">28</td><td class="py-1 px-2">Включение PIN</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">UNBLOCK PIN</td><td class="py-1 px-2 font-mono">2C</td><td class="py-1 px-2">Разблокировка PIN с помощью PUK</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">SEARCH RECORD (SEEK)</td><td class="py-1 px-2 font-mono">A2</td><td class="py-1 px-2">Поиск образца в линейном фиксированном EF; P2 задаёт тип 1/2 и режим (TS 151 011 &sect;9.2.7)</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">INCREASE</td><td class="py-1 px-2 font-mono">32</td><td class="py-1 px-2">Прибавить значение к последней увеличенной/обновлённой записи циклического EF (значение 3 байта, TS 151 011 &sect;9.2.8)</td></tr>
 			<tr><td class="py-1 px-2 font-mono">GET RESPONSE</td><td class="py-1 px-2 font-mono">C0</td><td class="py-1 px-2">Получение данных, на которые указывает предшествующий <code class="font-mono text-sm">61XX</code>/<code class="font-mono text-sm">9FXX</code></td></tr>
 		</tbody>
 	</table>
@@ -90,13 +92,17 @@
 		</tbody>
 	</table>
 	<p class="text-sm mb-3">Для record-команд режим P2: <strong>Absolute (04)</strong>, <strong>Next (02)</strong> или <strong>Previous (03)</strong>. Если за Case&nbsp;4 командой сразу следует строка GET RESPONSE, сборщик цепочки автоматически убирает её байт Le (ETSI TS 102 226 &sect;5.1.1). В правой колонке — панель конвертации (IMSI, MSISDN, ICCID, SPN, PLMN, nibble swap). См. <a href="#conversion" class="text-blue-600 dark:text-blue-400 hover:underline">&sect;2.5</a>.</p>
+	<p class="text-sm mb-3"><strong>&rarr; Расширенный скрипт</strong> отправляет собранную цепочку в конструктор Expanded Script строками C-APDU (строки GET RESPONSE отбрасываются — расширенный формат их не использует, TS 102 226 &sect;5.2.1.1). Приложение UICC Shared File System RFM (TAR <code class="font-mono text-sm">B00000</code>) доступно и в компактном, и в расширенном формате — если TAR не настроен на автоопределение формата, используются разные значения TAR (TS 102 226 &sect;7.0/&sect;5.3).</p>
 
 	<h3 id="usim-rfm" class="text-lg font-medium mb-2">2.2 USIM RFM</h3>
-	<p class="mb-2">CLA = <code class="font-mono text-sm">00</code> (ETSI TS 102 221). Тот же сборщик цепочки и набор команд, что и SIM. Отличия:</p>
+	<p class="mb-2">CLA = <code class="font-mono text-sm">00</code> (ETSI TS 102 221). Тот же сборщик цепочки и набор команд, что и SIM, плюс административные команды UICC и формы SEARCH RECORD / INCREASE из TS 102 221:</p>
 	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
 		<li><strong>SELECT</strong> по умолчанию запрашивает FCP (P2=<code class="font-mono text-sm">04</code>) и добавляет Le=<code class="font-mono text-sm">00</code>; флажок <strong>Silent (P2=0C)</strong> выбирает файл без запроса FCP (без Le, без данных ответа).</li>
 		<li><strong>По пути</strong> предлагает выбор <strong>from MF</strong> (P1=<code class="font-mono text-sm">08</code>) или <strong>from current DF</strong> (P1=<code class="font-mono text-sm">09</code>); текущий DF сессии ADF RFM — ADF.USIM.</li>
 		<li><strong>Упаковать в Secured packet</strong> устанавливает TAR SCP80 в <strong>ADF RFM TAR</strong> выбранной предустановки (по умолчанию <code class="font-mono text-sm">B00001</code>), привязанный к AID ADF (ADF.USIM).</li>
+		<li><strong>SEARCH RECORD</strong> (TS 102 221 &sect;11.1.7) — простые режимы (P2=<code class="font-mono text-sm">10</code>/<code class="font-mono text-sm">12</code>, P1 = номер записи) и расширенный режим (P2=<code class="font-mono text-sm">18</code>) с 2-байтовым search indication; <strong>INCREASE</strong> (&sect;11.1.8) принимает необязательный SFI и прибавляемое значение.</li>
+		<li><strong>CREATE FILE</strong> / <strong>DELETE FILE</strong> / <strong>RESIZE FILE</strong> (ETSI TS 102 222 &sect;6.3/6.4/6.10) принимают шаблон FCP; кнопка <strong>Build template</strong> собирает структурный каркас (file descriptor, FID, LCSI, размер и разрешающее компактное правило доступа <code class="font-mono text-sm">8C 02 7F 00</code> — проверьте его для своей карты). RESIZE FILE использует CLA <code class="font-mono text-sm">80</code> (TS 102 222 Table 1: <code class="font-mono text-sm">'8X'</code>/<code class="font-mono text-sm">'CX'</code>).</li>
+		<li><strong>SET DATA</strong> / <strong>RETRIEVE DATA</strong> (TS 102 221 &sect;11.3) работают с BER-TLV EF: P2 выбирает первый/следующий/повторный блок (+SFI), поле тега необязательно (<code class="font-mono text-sm">5C</code> — список размещённых тегов).</li>
 		<li>Каждый переход SELECT в цепочке запрашивает FCP, если не отмечен как silent.</li>
 	</ul>
 
@@ -113,13 +119,15 @@
 			<th class="text-left py-1 px-2">Тип</th><th class="text-left py-1 px-2">Тег</th><th class="text-left py-1 px-2">Описание</th>
 		</tr></thead>
 		<tbody>
-			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">C-APDU</td><td class="py-1 px-2 font-mono">22</td><td class="py-1 px-2">APDU</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">C-APDU</td><td class="py-1 px-2 font-mono">22</td><td class="py-1 px-2">Любая команда удалённого управления: hex APDU или команда, собранная редакторами SIM RFM / USIM RFM / RAM-GP (TS 102 226 &sect;5.2.1.0; GET RESPONSE в этом формате не используется, &sect;5.2.1.1)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Immediate Action</td><td class="py-1 px-2 font-mono">81</td><td class="py-1 px-2">Проактивная команда или action indicator</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Error Action</td><td class="py-1 px-2 font-mono">82</td><td class="py-1 px-2">Условное восстановление при ошибках с action indicator или проактивной командой</td></tr>
 			<tr><td class="py-1 px-2">Script Chaining</td><td class="py-1 px-2 font-mono">83</td><td class="py-1 px-2">Многопакетное выполнение скрипта с флагами First/Intermediary/Last</td></tr>
 		</tbody>
 	</table>
 	<p class="text-sm mb-3">Сборщик Immediate Action предлагает action indicator (<code class="font-mono text-sm">81</code>/<code class="font-mono text-sm">82</code>), структурированный сборщик проактивных команд (REFRESH, DISPLAY TEXT, PLAY TONE с авто-генерацией COMPREHENSION-TLV), или ручной hex-ввод.</p>
+	<p class="text-sm mb-3">Строка <strong>C-APDU</strong> начинает в режиме <strong>Hex</strong> (вставьте любую команду) и может переключиться на одно-строчный редактор <strong>SIM RFM</strong>, <strong>USIM RFM</strong> или <strong>RAM/GP</strong>, который собирает команду из полей — итоговый APDU оборачивается в TLV <code class="font-mono text-sm">22</code> и показывается рядом с выбором. GET RESPONSE там не предлагается: расширенный формат не несёт GET RESPONSE (TS 102 226 &sect;5.2.1.1). Кнопка <strong>&rarr; Расширенный скрипт</strong> в представлениях SIM RFM / USIM RFM / RAM-GP добавляет их команды строками C-APDU.</p>
+	<p class="text-sm mb-3">Только три проактивные команды допустимы как Immediate Action (TS 102 226 Table 5.5): REFRESH, DISPLAY TEXT и PLAY TONE — поведение карты для любой другой проактивной команды не определено.</p>
 
 	<h4 id="ber-error-action" class="font-medium mb-2 text-base">Error Action TLV (Tag 82)</h4>
 	<p class="text-sm mb-2">Восстановление при ошибках по TS 102 226 §5.2.1.3 — одна из четырёх форм:</p>
@@ -131,13 +139,14 @@
 	</ul>
 
 	<h4 id="ber-script-chaining" class="font-medium mb-2 text-base">Script Chaining TLV (Tag 83)</h4>
-	<p class="text-sm mb-2">Многопакетное выполнение скрипта с сохранением контекста:</p>
+	<p class="text-sm mb-2">Многопакетное выполнение скрипта с сохранением контекста (TS 102 226 &sect;5.2.1.4). TLV имеет вид <code class="font-mono text-sm">83 01 &lt;флаг&gt;</code>, присутствует один раз и только как первый Command TLV; допускается для RFM и RAM:</p>
 	<ul class="text-sm list-disc pl-5 mb-2">
-		<li><strong>Флаги цепочки:</strong> <code class="font-mono text-sm">01</code> первый скрипт (удалять инфо о цепочке при сбросе), <code class="font-mono text-sm">11</code> первый скрипт (сохранять инфо о цепочке при сбросе, только RFM), <code class="font-mono text-sm">02</code> последующий скрипт (будут ещё), <code class="font-mono text-sm">03</code> последующий скрипт (последний)</li>
-		<li><strong>Идентификатор скрипта:</strong> Корреляционный идентификатор между пакетами (1-4 байта hex, авто-инкремент подсказки)</li>
-		<li><strong>Дополнительные данные:</strong> Расширенная информация цепочки (опционально hex)</li>
-		<li><strong>Сохранение контекста:</strong> UICC сохраняет состояние безопасности/транзакции между пакетами</li>
+		<li><code class="font-mono text-sm">01</code> &mdash; первый скрипт, удалить информацию цепочки при сбросе карты</li>
+		<li><code class="font-mono text-sm">11</code> &mdash; первый скрипт, сохранить информацию цепочки при сбросе карты (только RFM)</li>
+		<li><code class="font-mono text-sm">02</code> &mdash; последующий скрипт, далее будут ещё</li>
+		<li><code class="font-mono text-sm">03</code> &mdash; последующий скрипт, последний</li>
 	</ul>
+	<p class="text-sm mb-3">При цепочке сессия команд выходит за рамки одного шаблона: UICC сохраняет контекст файла/PIN (RFM) или сессию приложения (RAM, например цепочку STORE DATA) до последнего скрипта.</p>
 
 	<h4 id="expanded-response" class="font-medium mb-2 text-base">Декодирование ответов (TS 102 226 §5.2.2)</h4>
 	<p class="text-sm mb-2">Входящие ответы Proof of Receipt декодируются сервером — формат expanded Remote Application response data (TS 102 226 §5.2.2) или компактный формат. Представление Secured Packet показывает результат после <strong>Отправить на карту</strong> (см. <a href="#secured-packet" class="text-blue-600 dark:text-blue-400 hover:underline">&sect;3.1</a>): статус PoR (TAR, счётчик, сырой PoR), а статусное слово и данные ответа последней команды подставляются в подвкладку <strong>&laquo;Парсер ответов&raquo;</strong> (Remote APDU).</p>
@@ -160,6 +169,8 @@
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">GET DATA</td><td class="py-1 px-2 font-mono">CA</td><td class="py-1 px-2 font-mono">tag</td><td class="py-1 px-2">Чтение объектов данных</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">STORE DATA</td><td class="py-1 px-2 font-mono">E2</td><td class="py-1 px-2 font-mono">00/40/80/C0/E0</td><td class="py-1 px-2">Запись данных</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">SET STATUS</td><td class="py-1 px-2 font-mono">F0</td><td class="py-1 px-2 font-mono">80/40/60</td><td class="py-1 px-2">Управление жизненным циклом</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">PUT KEY</td><td class="py-1 px-2 font-mono">D0</td><td class="py-1 px-2 font-mono">key ver</td><td class="py-1 px-2">Замена ключа: P1 = версия ключа, P2 = идентификатор ключа, данные = новый ключевой материал (GP Card Spec &sect;11.8)</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">PUSH</td><td class="py-1 px-2 font-mono">EC</td><td class="py-1 px-2 font-mono">01</td><td class="py-1 px-2">Просьба приложению открыть BIP-канал / CAT_TP-соединение / TCP-соединение или отправить пакет идентификации (TS 102 226 &sect;9)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">EXTERNAL AUTHENTICATE</td><td class="py-1 px-2 font-mono">82</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">Аутентификация SCP</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">INTERNAL AUTHENTICATE</td><td class="py-1 px-2 font-mono">88</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">Challenge-response</td></tr>
 			<tr><td class="py-1 px-2 font-mono">GET RESPONSE</td><td class="py-1 px-2 font-mono">C0</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">Получение данных после <code class="font-mono text-sm">61XX</code> (Le настраивается)</td></tr>
@@ -195,6 +206,7 @@
 		</tbody>
 	</table>
 	<p class="text-sm mb-3">Полные таблицы GET STATUS P1/P2, тегов GET DATA, DELETE P1, STORE DATA P1 и SET STATUS см. в GlobalPlatform v2.3.1 и ETSI TS 102 226 &sect;8.2.1.3.2.</p>
+	<p class="text-sm mb-3"><strong>PUSH</strong> (TS 102 226 &sect;9.2) — это C-APDU (<code class="font-mono text-sm">80 EC 01 P2</code>), адресованный приложению, поддерживающему BIP и/или CAT_TP (не триггер HTTP-администрирования — тот собирается в конструкторе HTTP OTA выше). P2: <code class="font-mono text-sm">01</code> открытие BIP-канала (COMPREHENSION-TLV OPEN CHANNEL, необязательно), <code class="font-mono text-sm">02</code> CAT_TP-соединение (порт назначения в transport level <code class="font-mono text-sm">3C</code> с типом протокола 00, необязательные buffer size <code class="font-mono text-sm">39</code> / channel data <code class="font-mono text-sm">36</code>), <code class="font-mono text-sm">03</code> TCP-соединение (bearer <code class="font-mono text-sm">35</code>, transport level <code class="font-mono text-sm">3C</code> с типом протокола 02 = TCP-клиент, удалённое соединение, адрес назначения <code class="font-mono text-sm">3E</code>, NAA/APN <code class="font-mono text-sm">47</code>), <code class="font-mono text-sm">04</code> пакет идентификации (channel data <code class="font-mono text-sm">36</code>; при отсутствии используется ICCID). Проактивную команду OPEN CHANNEL выдаёт само приложение; успех — <code class="font-mono text-sm">90 00</code>, отказ — <code class="font-mono text-sm">6F 00</code> с Result TLV в данных ответа, некорректные данные отклоняются с <code class="font-mono text-sm">6A 80</code>. P1 <code class="font-mono text-sm">80</code> зарезервирован для приложения.</p>
 
 	<h3 id="conversion" class="text-lg font-medium mb-2">2.5 Конвертация (боковые панели SIM/USIM)</h3>
 	<ul class="list-disc list-inside text-sm space-y-1">

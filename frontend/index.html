@@ -74,10 +74,13 @@
 			<button onclick="chainAddRow('chain-sim','disable')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ DISABLE PIN</button>
 			<button onclick="chainAddRow('chain-sim','enable')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ ENABLE PIN</button>
 			<button onclick="chainAddRow('chain-sim','unblock')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ UNBLOCK PIN</button>
+			<button onclick="chainAddRow('chain-sim','search-record')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ SEARCH RECORD</button>
+			<button onclick="chainAddRow('chain-sim','increase')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ INCREASE</button>
 			<button onclick="chainAddRow('chain-sim','get-response')" class="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">+ GET RESPONSE</button>
 		</div>
 		<textarea id="chain-sim-preview" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800" placeholder="Chain preview — add commands above"></textarea>
 		<button onclick="packToSp('chain-sim-preview')" id="chain-sim-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+		<button onclick="loadExpandedScript('chain-sim')" id="chain-sim-expanded-btn" class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700" data-l10n="→ Expanded Script">→ Expanded Script</button>
 	</div>
 
 	<div id="c-apdu-sub-usim" class="hidden">
@@ -95,10 +98,18 @@
 			<button onclick="chainAddRow('chain-usim','disable')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ DISABLE PIN</button>
 			<button onclick="chainAddRow('chain-usim','enable')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ ENABLE PIN</button>
 			<button onclick="chainAddRow('chain-usim','unblock')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ UNBLOCK PIN</button>
+			<button onclick="chainAddRow('chain-usim','search-record')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ SEARCH RECORD</button>
+			<button onclick="chainAddRow('chain-usim','increase')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ INCREASE</button>
+			<button onclick="chainAddRow('chain-usim','create-file')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ CREATE FILE</button>
+			<button onclick="chainAddRow('chain-usim','delete-file')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ DELETE FILE</button>
+			<button onclick="chainAddRow('chain-usim','resize-file')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ RESIZE FILE</button>
+			<button onclick="chainAddRow('chain-usim','set-data')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ SET DATA</button>
+			<button onclick="chainAddRow('chain-usim','retrieve-data')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ RETRIEVE DATA</button>
 			<button onclick="chainAddRow('chain-usim','get-response')" class="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">+ GET RESPONSE</button>
 		</div>
 		<textarea id="chain-usim-preview" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800" placeholder="Chain preview — add commands above"></textarea>
 		<button onclick="packToSp('chain-usim-preview')" id="chain-usim-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+		<button onclick="loadExpandedScript('chain-usim')" id="chain-usim-expanded-btn" class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700" data-l10n="→ Expanded Script">→ Expanded Script</button>
 	</div>
 
 	<div id="c-apdu-sub-ber" class="hidden">
@@ -140,6 +151,8 @@
 			<button onclick="chainAddRow('chain-ram','get-data')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ GET DATA</button>
 			<button onclick="chainAddRow('chain-ram','store-data')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ STORE DATA</button>
 			<button onclick="chainAddRow('chain-ram','set-status')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ SET STATUS</button>
+			<button onclick="chainAddRow('chain-ram','put-key')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ PUT KEY</button>
+			<button onclick="chainAddRow('chain-ram','push')" class="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700">+ PUSH</button>
 			<button onclick="chainAddRow('chain-ram','ext-auth')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ EXTERNAL AUTH</button>
 			<button onclick="chainAddRow('chain-ram','int-auth')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">+ INTERNAL AUTH</button>
 			<button onclick="chainAddRow('chain-ram','get-response')" class="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">+ GET RESPONSE</button>
@@ -152,6 +165,7 @@
 				<option value="AA">AA (definite)</option>
 			</select>
 			<button onclick="ramBuildExpanded()" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700" data-l10n="To expanded">To expanded</button>
+			<button onclick="loadExpandedScript('chain-ram')" class="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700" data-l10n="→ Expanded Script">→ Expanded Script</button>
 			<button data-needs="server" onclick="ramQueueScp81()" class="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Queue in SCP81">Queue in SCP81</button>
 			<span id="chain-ram-queue-msg" class="text-xs"></span>
 		</div>
@@ -1437,7 +1451,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.2.0';
+const SIMPLE_VERSION = '3.3.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2301,6 +2315,9 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // Chain preview = concatenation of all row hexes, with Le stripping when
 // a Case 4 command is followed by GET RESPONSE (ETSI TS 102 226 compact).
 const _chains = {};
+// Per-chain refresh callbacks (used by the Expanded Script C-APDU rows, whose
+// editor is a virtual one-row chain without the stock preview elements).
+const CHAIN_LISTENERS = {};
 
 const CHAIN_CMDS_SIM = [
 	{value:'select',label:'SELECT'},{value:'read-record',label:'READ RECORD'},
@@ -2309,7 +2326,9 @@ const CHAIN_CMDS_SIM = [
 	{value:'activate-file',label:'ACTIVATE FILE'},{value:'deactivate-file',label:'DEACTIVATE FILE'},
 	{value:'verify',label:'VERIFY PIN'},{value:'change',label:'CHANGE PIN'},
 	{value:'disable',label:'DISABLE PIN'},{value:'enable',label:'ENABLE PIN'},
-	{value:'unblock',label:'UNBLOCK PIN'},{value:'get-response',label:'GET RESPONSE'},
+	{value:'unblock',label:'UNBLOCK PIN'},
+	{value:'search-record',label:'SEARCH RECORD (SEEK)'},{value:'increase',label:'INCREASE'},
+	{value:'get-response',label:'GET RESPONSE'},
 ];
 const CHAIN_CMDS_USIM = [
 	{value:'select',label:'SELECT'},{value:'read-record',label:'READ RECORD'},
@@ -2318,7 +2337,12 @@ const CHAIN_CMDS_USIM = [
 	{value:'activate-file',label:'ACTIVATE FILE'},{value:'deactivate-file',label:'DEACTIVATE FILE'},
 	{value:'verify',label:'VERIFY PIN'},{value:'change',label:'CHANGE PIN'},
 	{value:'disable',label:'DISABLE PIN'},{value:'enable',label:'ENABLE PIN'},
-	{value:'unblock',label:'UNBLOCK PIN'},{value:'get-response',label:'GET RESPONSE'},
+	{value:'unblock',label:'UNBLOCK PIN'},
+	{value:'search-record',label:'SEARCH RECORD'},{value:'increase',label:'INCREASE'},
+	{value:'create-file',label:'CREATE FILE'},{value:'delete-file',label:'DELETE FILE'},
+	{value:'resize-file',label:'RESIZE FILE'},{value:'set-data',label:'SET DATA'},
+	{value:'retrieve-data',label:'RETRIEVE DATA'},
+	{value:'get-response',label:'GET RESPONSE'},
 ];
 const CHAIN_CMDS_RAM = [
 	{value:'install-load',label:'INSTALL [for load]'},
@@ -2329,10 +2353,32 @@ const CHAIN_CMDS_RAM = [
 	{value:'load',label:'LOAD'},{value:'delete',label:'DELETE'},
 	{value:'get-status',label:'GET STATUS'},{value:'get-data',label:'GET DATA'},
 	{value:'store-data',label:'STORE DATA'},{value:'set-status',label:'SET STATUS'},
+	{value:'put-key',label:'PUT KEY'},{value:'push',label:'PUSH (TS 102 226 §9)'},
 	{value:'ext-auth',label:'EXTERNAL AUTHENTICATE'},
 	{value:'int-auth',label:'INTERNAL AUTHENTICATE'},
 	{value:'get-response',label:'GET RESPONSE'},
 ];
+
+// ===== Chain container kinds =====
+// The SIM / USIM / RAM builders plus the one-row "virtual" chains embedded in
+// the Expanded Script C-APDU rows (id ber-<kind>-<row>); the kind selects the
+// command catalog and the row builders.
+function chainKind(chainId) {
+	if (chainId === 'chain-sim') return 'sim';
+	if (chainId === 'chain-usim') return 'usim';
+	const m = /^ber-(sim|usim|ram)-\d+$/.exec(chainId || '');
+	return m ? m[1] : 'ram';
+}
+function chainIsEmbedded(chainId) { return /^ber-/.test(chainId || ''); }
+function chainCommands(chainId) {
+	const kind = chainKind(chainId);
+	const cmds = kind === 'ram' ? CHAIN_CMDS_RAM : (kind === 'usim' ? CHAIN_CMDS_USIM : CHAIN_CMDS_SIM);
+	// GET RESPONSE is not used in the Expanded Remote Application data format
+	// (TS 102 226 5.2.1.1), so the embedded command pickers omit it.
+	return chainIsEmbedded(chainId) ? cmds.filter(function(c) { return c.value !== 'get-response'; }) : cmds;
+}
+function chainListen(chainId, fn) { CHAIN_LISTENERS[chainId] = fn; }
+function chainNotify(chainId) { const fn = CHAIN_LISTENERS[chainId]; if (fn) fn(); }
 
 function chainInit(id) { if (!_chains[id]) _chains[id] = {rows: []}; }
 function chainAddRow(id, cmd) { chainInit(id); _chains[id].rows.push({cmd: cmd, fields: {}}); chainRender(id); }
@@ -2347,6 +2393,7 @@ function chainUpdateField(id, idx, field, value) {
 	if (p) p.value = chainBuildHex(id);
 	const b = document.getElementById(id + '-pack-btn');
 	if (b) b.disabled = !chainBuildHex(id);
+	chainNotify(id);
 }
 
 function chainRender(chainId) {
@@ -2354,23 +2401,24 @@ function chainRender(chainId) {
 	const container = document.getElementById(chainId + '-rows');
 	const preview = document.getElementById(chainId + '-preview');
 	const packBtn = document.getElementById(chainId + '-pack-btn');
-	if (!container) return;
+	if (!container) { chainNotify(chainId); return; }
+	const embedded = chainIsEmbedded(chainId);
 	const rows = _chains[chainId].rows;
 	container.innerHTML = '';
 	rows.forEach(function(row, idx) {
 		const div = document.createElement('div');
 		div.className = 'mb-3 p-3 border border-gray-200 dark:border-slate-600 rounded';
-		div.innerHTML = chainRenderRow(chainId, idx, row);
+		div.innerHTML = chainRenderRow(chainId, idx, row, embedded);
 		container.appendChild(div);
 	});
 	const hex = chainBuildHex(chainId);
 	if (preview) preview.value = hex;
 	if (packBtn) packBtn.disabled = !hex;
+	chainNotify(chainId);
 }
 
-function chainRenderRow(chainId, idx, row) {
-	const isRam = chainId === 'chain-ram';
-	const cmds = isRam ? CHAIN_CMDS_RAM : (chainId === 'chain-usim' ? CHAIN_CMDS_USIM : CHAIN_CMDS_SIM);
+function chainRenderRow(chainId, idx, row, embedded) {
+	const cmds = chainCommands(chainId);
 	const cmdOpts = cmds.map(function(c) {
 		return '<option value="' + c.value + '"' + (c.value === row.cmd ? ' selected' : '') + '>' + c.label + '</option>';
 	}).join('');
@@ -2379,7 +2427,7 @@ function chainRenderRow(chainId, idx, row) {
 	return '<div class="flex items-center gap-2 mb-2">' +
 		'<select onchange="chainUpdateCmd(\'' + chainId + '\',' + idx + ',this.value)" class="flex-shrink-0 w-52 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' + cmdOpts + '</select>' +
 		'<input id="' + chainId + '-row-' + idx + '-hex" readonly value="' + escHtml(hex) + '" class="flex-1 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-50 dark:bg-slate-900">' +
-		'<button onclick="chainDeleteRow(\'' + chainId + '\',' + idx + ')" class="text-red-500 hover:text-red-700 text-lg font-bold px-1" title="Delete">✕</button>' +
+		(embedded ? '' : '<button onclick="chainDeleteRow(\'' + chainId + '\',' + idx + ')" class="text-red-500 hover:text-red-700 text-lg font-bold px-1" title="Delete">✕</button>') +
 		'</div>' +
 		'<div class="pl-4">' + fieldsHtml + '</div>';
 }
@@ -2387,16 +2435,18 @@ function chainRenderRow(chainId, idx, row) {
 function chainRowFieldsHtml(chainId, idx, row) {
 	var f = row.fields;
 	function uf(field) { return "chainUpdateField('" + chainId + "'," + idx + ",'" + field + "',this.value)"; }
-	if (chainId === 'chain-sim' || chainId === 'chain-usim') return chainSimFieldsHtml(chainId, idx, f, uf);
-	return chainRamFieldsHtml(idx, row, f, uf);
+	const kind = chainKind(chainId);
+	if (kind === 'sim' || kind === 'usim') return chainSimFieldsHtml(chainId, idx, f, uf);
+	return chainRamFieldsHtml(chainId, idx, row, f, uf);
 }
 
 // ===== SIM/USIM field rendering =====
 function chainSimFieldsHtml(chainId, idx, f, uf) {
 	var cmd = (_chains[chainId] && _chains[chainId].rows[idx]) ? _chains[chainId].rows[idx].cmd : '';
+	var usim = chainKind(chainId) === 'usim';
 	if (cmd === 'select') {
 		var method = f.method || 'fid';
-		var silent = chainId === 'chain-usim' && f.silent;
+		var silent = usim && f.silent;
 		var html = '<div class="grid grid-cols-2 gap-2 mb-2"><div>' +
 			'<label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Method</label>' +
 			'<select onchange="' + uf('method') + ';chainRender(\'' + chainId + '\')" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
@@ -2405,9 +2455,9 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 			'<option value="dfname"' + (method === 'dfname' ? ' selected' : '') + '>By AID</option>' +
 			'<option value="chain"' + (method === 'chain' ? ' selected' : '') + '>Chain</option>' +
 			'</select></div>';
-		if (chainId === 'chain-usim') {
+		if (usim) {
 			html += '<div class="flex items-end pb-0.5"><label class="flex items-center gap-1.5 text-xs">' +
-				'<input type="checkbox"' + (silent ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'silent\',this.checked);chainRender(\'chain-usim\')" class="rounded">' +
+				'<input type="checkbox"' + (silent ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'silent\',this.checked);chainRender(\'' + chainId + '\')" class="rounded">' +
 				'Silent (P2=0C)</label></div>';
 		}
 		html += '</div>';
@@ -2418,9 +2468,9 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 		if (method === 'path') {
 			html += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Path (hex)</label>' +
 				'<input value="' + escHtml(f.path || '') + '" oninput="' + uf('path') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="7FFF6FC5">';
-			if (chainId === 'chain-usim') {
-				html += '<div class="flex gap-3 mt-1 text-xs"><label class="flex items-center gap-1"><input type="radio" name="ch-usim-' + idx + '-base" value="mf"' + ((f.base || 'mf') === 'mf' ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'base\',\'mf\')"> from MF</label>' +
-					'<label class="flex items-center gap-1"><input type="radio" name="ch-usim-' + idx + '-base" value="df"' + (f.base === 'df' ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-usim\',' + idx + ',\'base\',\'df\')"> from current DF (ADF.USIM)</label></div>';
+			if (usim) {
+				html += '<div class="flex gap-3 mt-1 text-xs"><label class="flex items-center gap-1"><input type="radio" name="ch-' + chainId + '-' + idx + '-base" value="mf"' + ((f.base || 'mf') === 'mf' ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'base\',\'mf\')"> from MF</label>' +
+					'<label class="flex items-center gap-1"><input type="radio" name="ch-' + chainId + '-' + idx + '-base" value="df"' + (f.base === 'df' ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'base\',\'df\')"> from current DF (ADF.USIM)</label></div>';
 			}
 			html += '</div>';
 		}
@@ -2515,6 +2565,113 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">New PIN</label>' +
 			'<input value="' + escHtml(f.pinNew || '') + '" oninput="' + uf('pinNew') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="5678" maxlength="8"></div></div>';
 	}
+	if (cmd === 'search-record') {
+		var srMode = f.srMode || (usim ? '10' : '02');
+		if (usim) {
+			var htmlSr = '<div class="grid grid-cols-3 gap-2 mb-2">' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Mode (P2)</label>' +
+				'<select onchange="' + uf('srMode') + '" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+				'<option value="10"' + (srMode === '10' ? ' selected' : '') + '>10 &mdash; forward from P1</option>' +
+				'<option value="12"' + (srMode === '12' ? ' selected' : '') + '>12 &mdash; backward from P1</option>' +
+				'<option value="18"' + (srMode === '18' ? ' selected' : '') + '>18 &mdash; enhanced search</option>' +
+				'<option value="1C"' + (srMode === '1C' ? ' selected' : '') + '>1C &mdash; proprietary search</option></select></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Record (P1, 00 = current)</label>' +
+				'<input value="' + escHtml(f.srRec || '00') + '" oninput="' + uf('srRec') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Le</label>' +
+				'<input value="' + escHtml(f.le || '00') + '" oninput="' + uf('le') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2" placeholder="00"></div></div>';
+			if (srMode === '18') {
+				htmlSr += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Search indication (2 bytes, table 11.13)</label>' +
+					'<input value="' + escHtml(f.srInd || '1800') + '" oninput="' + uf('srInd') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4"></div>';
+			}
+			htmlSr += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Search string (hex)</label>' +
+				'<input value="' + escHtml(f.srPattern || '') + '" oninput="' + uf('srPattern') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div>';
+			return htmlSr;
+		}
+		return '<div class="grid grid-cols-3 gap-2">' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Type/mode (P2)</label>' +
+			'<select onchange="' + uf('srMode') + '" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+			'<option value="00"' + (srMode === '00' ? ' selected' : '') + '>00 &mdash; type 1, from start</option>' +
+			'<option value="01"' + (srMode === '01' ? ' selected' : '') + '>01 &mdash; type 1, backward</option>' +
+			'<option value="02"' + (srMode === '02' ? ' selected' : '') + '>02 &mdash; type 1, next forward</option>' +
+			'<option value="03"' + (srMode === '03' ? ' selected' : '') + '>03 &mdash; type 1, previous</option>' +
+			'<option value="10"' + (srMode === '10' ? ' selected' : '') + '>10 &mdash; type 2, from start</option>' +
+			'<option value="11"' + (srMode === '11' ? ' selected' : '') + '>11 &mdash; type 2, backward</option>' +
+			'<option value="12"' + (srMode === '12' ? ' selected' : '') + '>12 &mdash; type 2, next forward</option>' +
+			'<option value="13"' + (srMode === '13' ? ' selected' : '') + '>13 &mdash; type 2, previous</option></select></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Pattern (1-16 bytes hex)</label>' +
+			'<input value="' + escHtml(f.srPattern || '') + '" oninput="' + uf('srPattern') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Le (empty for type 1)</label>' +
+			'<input value="' + escHtml(f.le || '') + '" oninput="' + uf('le') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div></div>';
+	}
+	if (cmd === 'increase') {
+		var inc = '<div class="grid grid-cols-3 gap-2">';
+		if (usim) {
+			inc += '<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">SFI (00 = current EF)</label>' +
+				'<input value="' + escHtml(f.sfi || '00') + '" oninput="' + uf('sfi') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>';
+		}
+		inc += '<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Value to add (hex)</label>' +
+			'<input value="' + escHtml(f.value || (usim ? '' : '000001')) + '" oninput="' + uf('value') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Le' + (usim ? '' : ' (empty = case 3)') + '</label>' +
+			'<input value="' + escHtml(f.le || (usim ? '00' : '')) + '" oninput="' + uf('le') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div></div>';
+		return inc;
+	}
+	if (cmd === 'create-file' || cmd === 'resize-file') {
+		var isCreate = cmd === 'create-file';
+		var st = f.structure || 'transparent';
+		var htmlFcp = '<div class="grid grid-cols-3 gap-2 mb-2">' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">FID (2 bytes)</label>' +
+			'<input value="' + escHtml(f.fid || '') + '" oninput="' + uf('fid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="6F00"></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">File size (hex bytes)</label>' +
+			'<input value="' + escHtml(f.fileSize || '') + '" oninput="' + uf('fileSize') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="0010"></div>' +
+			(isCreate ?
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Structure</label>' +
+				'<select onchange="' + uf('structure') + '" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+				'<option value="transparent"' + (st === 'transparent' ? ' selected' : '') + '>Transparent EF</option>' +
+				'<option value="linear_fixed"' + (st === 'linear_fixed' ? ' selected' : '') + '>Linear fixed EF</option>' +
+				'<option value="cyclic"' + (st === 'cyclic' ? ' selected' : '') + '>Cyclic EF</option>' +
+				'<option value="ber_tlv"' + (st === 'ber_tlv' ? ' selected' : '') + '>BER-TLV EF</option></select></div>'
+				:
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Mode (P1)</label>' +
+				'<select onchange="' + uf('mode') + '" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+				'<option value="00"' + ((f.mode || '00') === '00' ? ' selected' : '') + '>00 &mdash; mode 0</option>' +
+				'<option value="01"' + (f.mode === '01' ? ' selected' : '') + '>01 &mdash; mode 1</option></select></div>') +
+			'</div>';
+		if (isCreate) {
+			htmlFcp += '<div class="grid grid-cols-3 gap-2 mb-2">' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Record length (hex, record files)</label>' +
+				'<input value="' + escHtml(f.recLen || '') + '" oninput="' + uf('recLen') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="006E"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">LCSI</label>' +
+				'<input value="' + escHtml(f.lcsi || '05') + '" oninput="' + uf('lcsi') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>' +
+				'<div class="flex items-end pb-1"><label class="flex items-center gap-1 text-xs"><input type="checkbox"' + (f.shareable ? ' checked' : '') +
+				' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'shareable\',this.checked)" class="rounded"> Shareable</label></div></div>';
+		}
+		htmlFcp += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">FCP template (hex)</label>' +
+			'<textarea oninput="' + uf('fcp') + '" rows="2" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800">' + escHtml(f.fcp || '') + '</textarea></div>' +
+			'<button type="button" onclick="chainBuildFcp(\'' + chainId + '\',' + idx + ',\'' + (isCreate ? 'create' : 'resize') + '\')" class="text-xs px-2 py-1 bg-slate-600 text-white rounded hover:bg-slate-700">Build template</button>';
+		return htmlFcp;
+	}
+	if (cmd === 'delete-file') {
+		return '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">FID (2 bytes)</label>' +
+			'<input value="' + escHtml(f.fid || '') + '" oninput="' + uf('fid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="6F00"></div>';
+	}
+	if (cmd === 'set-data' || cmd === 'retrieve-data') {
+		var sdMode = f.sdMode || '80';
+		var htmlSd = '<div class="grid grid-cols-3 gap-2 mb-2">' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">P2 (block)</label>' +
+			'<select onchange="' + uf('sdMode') + '" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+			'<option value="80"' + (sdMode === '80' ? ' selected' : '') + '>80 &mdash; first block</option>' +
+			'<option value="00"' + (sdMode === '00' ? ' selected' : '') + '>00 &mdash; next block</option>' +
+			'<option value="40"' + (sdMode === '40' ? ' selected' : '') + '>40 &mdash; retransmit previous</option></select></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">SFI (00 = current EF)</label>' +
+			'<input value="' + escHtml(f.sfi || '00') + '" oninput="' + uf('sfi') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">' + (cmd === 'set-data' ? 'Data (BER-TLV hex)' : 'Tag (hex, 5C = tag list)') + '</label>' +
+			'<input value="' + escHtml(cmd === 'set-data' ? (f.value || '') : (f.tag || '')) + '" oninput="' + uf(cmd === 'set-data' ? 'value' : 'tag') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div></div>';
+		if (cmd === 'retrieve-data') {
+			htmlSd += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Le</label>' +
+				'<input value="' + escHtml(f.le || '00') + '" oninput="' + uf('le') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>';
+		}
+		return htmlSd;
+	}
 	if (cmd === 'get-response') {
 		return '<div class="text-xs text-gray-500 dark:text-slate-400 italic">No parameters &mdash; CLA=C0 INS=C0 P1=00 P2=00</div>';
 	}
@@ -2522,7 +2679,7 @@ function chainSimFieldsHtml(chainId, idx, f, uf) {
 }
 
 // ===== RAM/GP field rendering =====
-function chainRamFieldsHtml(idx, row, f, uf) {
+function chainRamFieldsHtml(chainId, idx, row, f, uf) {
 	var cmd = row.cmd;
 	if (cmd === 'install-load') {
 		return '<div class="grid grid-cols-2 gap-2 mb-2">' +
@@ -2542,15 +2699,15 @@ function chainRamFieldsHtml(idx, row, f, uf) {
 			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Executable Module AID / Applet Class AID</label>' +
 			'<input value="' + escHtml(f.modAid || '') + '" oninput="' + uf('modAid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="A000000151000000"></div></div>';
 		// Privileges
-		html += chainRamPrivHtml(idx, f, uf);
+		html += chainRamPrivHtml(chainId, idx, f, uf);
 		// Toolkit
-		html += chainRamToolkitHtml(idx, f, uf);
+		html += chainRamToolkitHtml(chainId, idx, f, uf);
 		return html;
 	}
 	if (cmd === 'install-make-sel') {
 		return '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Application / Instance AID</label>' +
 			'<input value="' + escHtml(f.aid || '') + '" oninput="' + uf('aid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="A000000151000000"></div>' +
-			chainRamPrivHtml(idx, f, uf);
+			chainRamPrivHtml(chainId, idx, f, uf);
 	}
 	if (cmd === 'install-reg-update') {
 		return '<div class="grid grid-cols-2 gap-2 mb-2">' +
@@ -2558,7 +2715,7 @@ function chainRamFieldsHtml(idx, row, f, uf) {
 			'<input value="' + escHtml(f.sdAid || '') + '" oninput="' + uf('sdAid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="A000000151000000"></div>' +
 			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Application / Instance AID</label>' +
 			'<input value="' + escHtml(f.aid || '') + '" oninput="' + uf('aid') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="A000000151000000"></div></div>' +
-			chainRamPrivHtml(idx, f, uf);
+			chainRamPrivHtml(chainId, idx, f, uf);
 	}
 	if (cmd === 'install-extradition') {
 		return '<div class="grid grid-cols-2 gap-2">' +
@@ -2601,7 +2758,7 @@ function chainRamFieldsHtml(idx, row, f, uf) {
 	if (cmd === 'get-data') {
 		var tag = f.tag || '5F50';
 		return '<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">GET DATA tag</label>' +
-			'<select onchange="chainUpdateField(\'chain-ram\',' + idx + ',\'tag\',this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800 mb-1">' +
+			'<select onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'tag\',this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800 mb-1">' +
 			'<option value=""' + (!tag ? ' selected' : '') + '>&mdash; select preset &mdash;</option>' +
 			'<option value="42"' + (tag === '42' ? ' selected' : '') + '>42 &mdash; IIN</option>' +
 			'<option value="45"' + (tag === '45' ? ' selected' : '') + '>45 &mdash; CIN</option>' +
@@ -2672,6 +2829,51 @@ function chainRamFieldsHtml(idx, row, f, uf) {
 		return '<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Data (hex) &mdash; challenge</label>' +
 			'<input value="' + escHtml(f.data || '') + '" oninput="' + uf('data') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="hex"></div>';
 	}
+	if (cmd === 'put-key') {
+		return '<div class="grid grid-cols-2 gap-2 mb-2">' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Key version (P1, hex)</label>' +
+			'<input value="' + escHtml(f.keyVer || '01') + '" oninput="' + uf('keyVer') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Key identifier (P2, hex)</label>' +
+			'<input value="' + escHtml(f.keyId || '01') + '" oninput="' + uf('keyId') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="2"></div></div>' +
+			'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Key data (hex, GP Card Spec 11.8 &mdash; new key under the KEK / target key, optional KCV)</label>' +
+			'<textarea oninput="' + uf('data') + '" rows="2" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800">' + escHtml(f.data || '') + '</textarea></div>';
+	}
+	if (cmd === 'push') {
+		var pt = f.pushType || '01';
+		var htmlPush = '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Request (P2)</label>' +
+			'<select onchange="' + uf('pushType') + ';chainRender(\'' + chainId + '\')" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' +
+			'<option value="01"' + (pt === '01' ? ' selected' : '') + '>01 &mdash; BIP channel opening (TS 102 226 9.2.1)</option>' +
+			'<option value="02"' + (pt === '02' ? ' selected' : '') + '>02 &mdash; CAT_TP link establishment (9.2.2)</option>' +
+			'<option value="03"' + (pt === '03' ? ' selected' : '') + '>03 &mdash; TCP connection (9.2.3)</option>' +
+			'<option value="04"' + (pt === '04' ? ' selected' : '') + '>04 &mdash; identification packet (9.2.4)</option></select></div>';
+		if (pt === '02') {
+			htmlPush += '<div class="grid grid-cols-3 gap-2 mb-2">' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Destination port (hex)</label>' +
+				'<input value="' + escHtml(f.pushPort || '') + '" oninput="' + uf('pushPort') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="1F90"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Max SDU (hex, optional)</label>' +
+				'<input value="' + escHtml(f.pushSdu || '') + '" oninput="' + uf('pushSdu') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Identification data (hex, optional)</label>' +
+				'<input value="' + escHtml(f.pushIdent || '') + '" oninput="' + uf('pushIdent') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div></div>';
+		} else if (pt === '03') {
+			htmlPush += '<div class="grid grid-cols-2 gap-2 mb-2">' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Destination port (hex)</label>' +
+				'<input value="' + escHtml(f.pushPort || '') + '" oninput="' + uf('pushPort') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" maxlength="4" placeholder="0050"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Bearer description (hex, empty = 350103 default bearer)</label>' +
+				'<input value="' + escHtml(f.pushBearer || '') + '" oninput="' + uf('pushBearer') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="350103"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Destination address value (hex: 21+IPv4 / 57+IPv6 / F0+FQDN)</label>' +
+				'<input value="' + escHtml(f.pushAddr || '') + '" oninput="' + uf('pushAddr') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="210A000001"></div>' +
+				'<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Network access name / APN (text)</label>' +
+				'<input value="' + escHtml(f.pushApn || '') + '" oninput="' + uf('pushApn') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div></div>';
+		} else if (pt === '04') {
+			htmlPush += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Identification data (hex, optional &mdash; ICCID is used when absent)</label>' +
+				'<input value="' + escHtml(f.pushIdent || '') + '" oninput="' + uf('pushIdent') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800"></div>';
+		}
+		var extraField = pt === '01' ? 'pushData' : 'pushExtra';
+		htmlPush += '<div class="mb-2"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">' +
+			(pt === '01' ? 'OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)' : 'Extra TLVs (hex, optional)') + '</label>' +
+			'<textarea oninput="' + uf(extraField) + '" rows="2" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800">' + escHtml(f[extraField] || '') + '</textarea></div>';
+		return htmlPush;
+	}
 	if (cmd === 'get-response') {
 		return '<div><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">Le (max bytes)</label>' +
 			'<input value="' + escHtml(f.le || '00') + '" oninput="' + uf('le') + '" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="00" maxlength="2"></div>';
@@ -2680,7 +2882,7 @@ function chainRamFieldsHtml(idx, row, f, uf) {
 }
 
 // ===== RAM/GP privileges sub-form (per-row) =====
-function chainRamPrivHtml(idx, f, uf) {
+function chainRamPrivHtml(chainId, idx, f, uf) {
 	var priv = f.priv || '00';
 	var b1 = parseInt(priv.substring(0, 2), 16) || 0;
 	var b2 = priv.length >= 4 ? parseInt(priv.substring(2, 4), 16) : 0;
@@ -2705,29 +2907,29 @@ function chainRamPrivHtml(idx, f, uf) {
 		var byteIdx = c[2];
 		var val = parseInt(c[1], 16);
 		var checked = (byteIdx === 'b1' && (b1 & val)) || (byteIdx === 'b2' && (b2 & val)) || (byteIdx === 'b3' && (b3 & val));
-		html += '<label class="flex items-center gap-1"><input type="checkbox" class="chain-priv-' + byteIdx + '-' + idx + '"' +
-			(checked ? ' checked' : '') + ' onchange="chainRamUpdatePriv(' + idx + ')"> ' + c[0] + '</label>';
+		html += '<label class="flex items-center gap-1"><input type="checkbox" class="chain-priv-' + chainId + '-' + byteIdx + '-' + idx + '"' +
+			(checked ? ' checked' : '') + ' onchange="chainRamUpdatePriv(\'' + chainId + '\',' + idx + ')"> ' + c[0] + '</label>';
 	});
 	html += '</div></div>';
 	return html;
 }
 
-function chainRamUpdatePriv(idx) {
+function chainRamUpdatePriv(chainId, idx) {
 	var b1 = 0, b2 = 0, b3 = 0;
-	document.querySelectorAll('.chain-priv-b1-' + idx + ':checked').forEach(function(cb) { b1 |= parseInt(cb.value, 16); });
-	document.querySelectorAll('.chain-priv-b2-' + idx + ':checked').forEach(function(cb) { b2 |= parseInt(cb.value, 16); });
-	document.querySelectorAll('.chain-priv-b3-' + idx + ':checked').forEach(function(cb) { b3 |= parseInt(cb.value, 16); });
+	document.querySelectorAll('.chain-priv-' + chainId + '-b1-' + idx + ':checked').forEach(function(cb) { b1 |= parseInt(cb.value, 16); });
+	document.querySelectorAll('.chain-priv-' + chainId + '-b2-' + idx + ':checked').forEach(function(cb) { b2 |= parseInt(cb.value, 16); });
+	document.querySelectorAll('.chain-priv-' + chainId + '-b3-' + idx + ':checked').forEach(function(cb) { b3 |= parseInt(cb.value, 16); });
 	var hex = b1.toString(16).padStart(2, '0').toUpperCase();
 	hex += b2.toString(16).padStart(2, '0').toUpperCase();
 	if (b3) hex += b3.toString(16).padStart(2, '0').toUpperCase();
-	chainUpdateField('chain-ram', idx, 'priv', hex);
+	chainUpdateField(chainId, idx, 'priv', hex);
 }
 
 // ===== RAM/GP toolkit sub-form (per-row) =====
-function chainRamToolkitHtml(idx, f, uf) {
+function chainRamToolkitHtml(chainId, idx, f, uf) {
 	var enabled = f.tkEnabled;
 	var html = '<div class="mb-2"><label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">' +
-		'<input type="checkbox"' + (enabled ? ' checked' : '') + ' onchange="chainUpdateField(\'chain-ram\',' + idx + ',\'tkEnabled\',this.checked);chainRender(\'chain-ram\')" class="rounded">' +
+		'<input type="checkbox"' + (enabled ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'tkEnabled\',this.checked);chainRender(\'' + chainId + '\')" class="rounded">' +
 		'SIM/UICC Toolkit parameters</label></div>';
 	if (!enabled) return html;
 	var tkMode = f.tkMode || 'ea';
@@ -2792,7 +2994,7 @@ function chainRamToolkitHtml(idx, f, uf) {
 // ===== SIM/USIM hex builder =====
 function chainSimBuildRowHex(chainId, idx, row) {
 	var f = row.fields;
-	var isSim = chainId === 'chain-sim';
+	var isSim = chainKind(chainId) === 'sim';
 	var cla = isSim ? 0xA0 : 0x00;
 
 	if (row.cmd === 'select') {
@@ -2844,6 +3046,70 @@ function chainSimBuildRowHex(chainId, idx, row) {
 	}
 	if (row.cmd === 'get-response') {
 		return '00C0000000';
+	}
+	function sdP2(f) {
+		var base = parseInt((f.sdMode || '80').replace(/[^0-9a-fA-F]/g, '') || '80', 16);
+		var sfi = parseInt((f.sfi || '00').replace(/[^0-9a-fA-F]/g, '') || '00', 16);
+		return (base | (sfi & 0x1F)) & 0xFF;
+	}
+	if (row.cmd === 'search-record') {
+		var pattern = (f.srPattern || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (!pattern) return '';
+		var srm = parseInt(f.srMode || (isSim ? '02' : '10'), 16);
+		if (isSim) {
+			// TS 51 011 9.2.7 SEEK: type/mode in P2, pattern in the data field.
+			var seekLe = (f.le || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+			return buildApdu(0xA0, 0xA2, 0x00, srm, pattern.length / 2, pattern) + seekLe;
+		}
+		var ind = '';
+		if (srm === 0x18) {
+			// Enhanced search: 2-byte indication (TS 102 221 table 11.13) first.
+			ind = (f.srInd || '1800').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+			if (ind.length !== 4) return '';
+		}
+		var srData = ind + pattern;
+		var rec = parseInt((f.srRec || '00').replace(/[^0-9a-fA-F]/g, '') || '00', 16);
+		var srLe = (f.le || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		return buildApdu(cla, 0xA2, rec, srm, srData.length / 2, srData) + srLe;
+	}
+	if (row.cmd === 'increase') {
+		var add = (f.value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (!add || add.length % 2) return '';
+		var incLe = (f.le || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (isSim) {
+			// TS 51 011 9.2.8: class A0, P1/P2 = 00, P3 = 03 (3-byte value).
+			return buildApdu(0xA0, 0x32, 0x00, 0x00, add.length / 2, add) + incLe;
+		}
+		var incSfi = parseInt((f.sfi || '00').replace(/[^0-9a-fA-F]/g, '') || '00', 16);
+		return buildApdu(cla, 0x32, incSfi ? (0x80 | (incSfi & 0x1F)) : 0x00, 0x00, add.length / 2, add) + incLe;
+	}
+	if (row.cmd === 'create-file') {
+		var fcp = (f.fcp || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (fcp.length < 4 || fcp.substr(0, 2) !== '62') return '';
+		return buildApdu(cla, 0xE0, 0x00, 0x00, fcp.length / 2, fcp);
+	}
+	if (row.cmd === 'delete-file') {
+		var dfid = (f.fid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (dfid.length !== 4) return '';
+		return buildApdu(cla, 0xE4, 0x00, 0x00, 0x02, dfid);
+	}
+	if (row.cmd === 'resize-file') {
+		var rfcp = (f.fcp || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (rfcp.length < 4 || rfcp.substr(0, 2) !== '62') return '';
+		// TS 102 222 table 1: RESIZE FILE uses CLA '8X'/'CX' (80 without SM).
+		return buildApdu(0x80, 0xD4, parseInt(f.mode || '00', 16), 0x00, rfcp.length / 2, rfcp);
+	}
+	if (row.cmd === 'set-data') {
+		var sdData = (f.value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (!sdData) return '';
+		return buildApdu(cla, 0xDB, 0x00, sdP2(f), sdData.length / 2, sdData);
+	}
+	if (row.cmd === 'retrieve-data') {
+		var rdTag = (f.tag || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		var rdLe = (f.le || '00').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		var rdP2 = sdP2(f);
+		if (rdTag) return buildApdu(cla, 0xCB, 0x00, rdP2, rdTag.length / 2, rdTag) + rdLe;
+		return buildApdu(cla, 0xCB, 0x00, rdP2, null, null) + rdLe;
 	}
 	var OPS2 = {
 		'read-record': {ins: 0xB2}, 'read-binary': {ins: 0xB0},
@@ -2910,7 +3176,79 @@ function chainSimBuildRowHex(chainId, idx, row) {
 	return buildApdu(cla, op.ins, p1, p2v, p3, data);
 }
 
+// Compose the FCP template for the CREATE FILE / RESIZE FILE builders
+// (TS 102 222 tables 4 and 17).  The access rule uses the compact format with
+// AM=7F (all EF commands) and SC=00 (no condition) - review it for the card.
+function chainBuildFcp(chainId, idx, kind) {
+	var row = _chains[chainId] && _chains[chainId].rows[idx];
+	if (!row) return;
+	var f = row.fields;
+	var fid = (f.fid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (fid.length !== 4) return;
+	var size = (f.fileSize || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (size.length % 2) size = '0' + size;
+	if (!size) size = '0000';
+	var inner;
+	if (kind === 'create') {
+		var st = f.structure || 'transparent';
+		var record = st === 'linear_fixed' || st === 'cyclic';
+		var fd = ({ transparent: 0x01, linear_fixed: 0x02, cyclic: 0x06, ber_tlv: 0x39 })[st] || 0x01;
+		if (f.shareable) fd |= 0x40;
+		var recLen = (f.recLen || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (record) {
+			if (recLen.length % 2) recLen = '0' + recLen;
+			if (recLen.length !== 4) return;
+			if (size === '0000') size = recLen;
+		}
+		inner = '82' + (record ? '04' : '02') + fd.toString(16).padStart(2, '0').toUpperCase() + '21' + (record ? recLen : '');
+		inner += '83' + '02' + fid;
+		inner += '8A' + '01' + (f.lcsi || '05').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2).toUpperCase();
+		inner += '8C' + '02' + '7F00';
+		inner += '80' + '02' + size.padStart(4, '0').slice(-4);
+		if (st === 'ber_tlv') inner += 'A5' + '00';
+	} else {
+		inner = '83' + '02' + fid + '80' + '02' + size.padStart(4, '0').slice(-4);
+	}
+	f.fcp = '62' + berLenStr(inner.length / 2) + inner;
+	chainRender(chainId);
+}
+
 // ===== RAM/GP hex builder =====
+// PUSH command data field (TS 102 226 9.2.1-9.2.4):
+//   01 BIP channel opening   - OPEN CHANNEL COMPREHENSION-TLVs (optional)
+//   02 CAT_TP link           - transport level 3C (protocol type 00) plus
+//                              optional buffer size 39 / channel data 36
+//   03 TCP connection        - bearer 35, transport level 3C (protocol type 02,
+//                              TCP client remote), destination 3E, NAA 47
+//   04 identification packet - channel data 36 (optional)
+function chainPushData(f) {
+	function hx(s) { return (s || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase(); }
+	function port(v) { var h = hx(v); return h.length === 4 ? h : ''; }
+	var pt = f.pushType || '01';
+	if (pt === '01') return hx(f.pushData);
+	if (pt === '04') {
+		var id4 = hx(f.pushIdent);
+		return id4 ? '36' + berLenStr(id4.length / 2) + id4 : '';
+	}
+	if (pt === '02') {
+		var catPort = port(f.pushPort);
+		if (!catPort) return '';
+		var out2 = '3C' + '03' + '00' + catPort;
+		var sdu = port(f.pushSdu);
+		if (sdu) out2 += '39' + '02' + sdu;
+		var id2 = hx(f.pushIdent);
+		if (id2) out2 += '36' + berLenStr(id2.length / 2) + id2;
+		return out2 + hx(f.pushExtra);
+	}
+	var out3 = hx(f.pushBearer) || '350103';
+	out3 += '3C' + '03' + '02' + (port(f.pushPort) || '0000');
+	var addr = hx(f.pushAddr);
+	if (addr) out3 += '3E' + berLenStr(addr.length / 2) + addr;
+	var apn = _hotaAsciiHex((f.pushApn || '').trim());
+	if (apn) out3 += '47' + berLenStr(apn.length / 2) + apn;
+	return out3 + hx(f.pushExtra);
+}
+
 function chainRamBuildRowHex(idx, row) {
 	var f = row.fields;
 	var cmd = row.cmd;
@@ -3081,6 +3419,17 @@ function chainRamBuildRowHex(idx, row) {
 		var dl9 = berLenStr(ramData4.length / 2);
 		return buildApdu(0x00, 0x88, 0x00, 0x00, parseInt(dl9, 16), ramData4) + '00';
 	}
+	if (cmd === 'put-key') {
+		var pkData = (f.data || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (!pkData) return '';
+		return buildApdu(0x80, 0xD0, parseInt(f.keyVer || '01', 16), parseInt(f.keyId || '01', 16), pkData.length / 2, pkData);
+	}
+	if (cmd === 'push') {
+		var pushData = chainPushData(f);
+		var pushP2 = parseInt(f.pushType || '01', 16);
+		if (!pushData) return buildApdu(0x80, 0xEC, 0x01, pushP2, null, null);
+		return buildApdu(0x80, 0xEC, 0x01, pushP2, pushData.length / 2, pushData);
+	}
 	if (cmd === 'get-response') {
 		var le = parseInt(f.le, 16) || 0;
 		return buildApdu(0x80, 0xC0, 0x00, 0x00, le, null);
@@ -3093,7 +3442,8 @@ function chainBuildRowHex(chainId, idx) {
 	chainInit(chainId);
 	var row = _chains[chainId].rows[idx];
 	if (!row) return '';
-	if (chainId === 'chain-sim' || chainId === 'chain-usim') {
+	const kind = chainKind(chainId);
+	if (kind === 'sim' || kind === 'usim') {
 		return chainSimBuildRowHex(chainId, idx, row);
 	}
 	return chainRamBuildRowHex(idx, row);
@@ -3184,16 +3534,45 @@ function genConvert() {
 }
 
 // ===== Secured Packet UI =====
-function chainRamApduList() {
-	// One hex APDU per chain row (the same rows the preview concatenates).
+// One APDU per built command, for consumers outside the compact chain: a row
+// that expands to several APDUs (SELECT by FID chain) is split, and GET
+// RESPONSE rows are dropped because the expanded format does not use them
+// (TS 102 226 5.2.1.1).
+function chainApduList(chainId) {
 	const list = [];
-	chainInit('chain-ram');
-	const rows = _chains['chain-ram'].rows;
+	chainInit(chainId);
+	const rows = _chains[chainId].rows;
 	for (let i = 0; i < rows.length; i++) {
-		const h = chainBuildRowHex('chain-ram', i);
-		if (h) list.push(h);
+		if (rows[i].cmd === 'get-response') continue;
+		const h = chainBuildRowHex(chainId, i);
+		if (!h) continue;
+		if (rows[i].cmd === 'select' && (rows[i].fields.method || 'fid') === 'chain') {
+			parseCompactApdus(h).forEach(function(n) {
+				if (n.hex && /^APDU/.test(n.label)) list.push(n.hex);
+			});
+		} else {
+			list.push(h);
+		}
 	}
 	return list;
+}
+
+function chainRamApduList() {
+	return chainApduList('chain-ram');
+}
+
+// Import a built chain into the Expanded Script builder as C-APDU rows.
+function loadExpandedScript(chainId) {
+	const apdus = chainApduList(chainId);
+	if (!apdus.length) return;
+	cApduSwitchSubtab('ber');
+	for (const hex of apdus) {
+		const row = addBerRow('c-apdu');
+		const input = row.querySelector('.ber-hex');
+		if (input) input.value = hex;
+		updateBerRow(row.querySelector('.ber-type'));
+	}
+	genBerTlv();
 }
 
 function ramBuildExpanded() {
@@ -3678,15 +4057,21 @@ const BER_TONES = [
 ];
 const BER_DEVICES = [['81','UICC'],['82','Terminal'],['83','Network'],['02','Display']];
 
+// Stable per-row id for the embedded command chains (row indices are
+// renumbered when a row is deleted, the uid is not).
+let _berUidSeq = 0;
+
 function addBerRow(type) {
 	const c = document.getElementById('ber-rows');
 	const idx = c.children.length;
 	const row = document.createElement('div');
 	row.className = 'ber-row border border-gray-300 dark:border-slate-600 rounded p-2 bg-gray-50 dark:bg-slate-800';
 	row.dataset.berIdx = idx;
+	row.dataset.berUid = String(++_berUidSeq);
 	row.innerHTML = berRowHtml(idx, type);
 	c.appendChild(row);
 	onBerTypeChange(row.querySelector('.ber-type'));
+	return row;
 }
 
 function berRowHtml(idx, type) {
@@ -3715,7 +4100,17 @@ function onBerTypeChange(sel) {
 	const body = row.querySelector('.ber-body');
 	const type = sel.value;
 	if (type === 'c-apdu') {
-		body.innerHTML = `<input class="ber-hex w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-1 dark:bg-slate-700 dark:text-slate-300" placeholder="hex" oninput="updateBerRow(this)">`;
+		body.innerHTML = `<div class="flex gap-1 mb-1 flex-wrap items-center">
+			<select class="ber-cmd-mode text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-1 dark:bg-slate-700 dark:text-slate-300" onchange="onBerCmdModeChange(this)">
+				<option value="hex">Hex</option>
+				<option value="sim">SIM RFM</option>
+				<option value="usim">USIM RFM</option>
+				<option value="ram">RAM/GP</option>
+			</select>
+			<span class="ber-cmd-apdu text-xs font-mono text-gray-500 dark:text-slate-400"></span>
+		</div>
+		<div class="ber-cmd-editor"></div>`;
+		onBerCmdModeChange(body.querySelector('.ber-cmd-mode'));
 	} else if (type === 'chaining') {
 		body.innerHTML = buildScriptChainingRow(row.dataset.berIdx);
 	} else if (type === 'error') {
@@ -3735,6 +4130,52 @@ function onBerTypeChange(sel) {
 		onBerSubTypeChange(body.querySelector('.ber-subtype'));
 	}
 	updateBerRow(sel);
+}
+
+// ===== Expanded Script C-APDU picker (TS 102 226 5.2.1.0/5.2.1.1) =====
+// A C-APDU TLV may hold any remote management command; instead of pasting
+// hex, the row can host a one-row "virtual" chain built with the SIM RFM /
+// USIM RFM / RAM-GP command editors (GET RESPONSE is excluded - the expanded
+// format does not use it).
+function berCmdChainId(uid, kind) { return 'ber-' + kind + '-' + uid; }
+
+function onBerCmdModeChange(sel) {
+	const row = sel.closest('.ber-row');
+	const editor = row.querySelector('.ber-cmd-editor');
+	const mode = sel.value;
+	if (mode === 'hex') {
+		editor.innerHTML = '<input class="ber-hex w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-1 dark:bg-slate-700 dark:text-slate-300" placeholder="hex" oninput="updateBerRow(this)">';
+		updateBerRow(sel);
+		return;
+	}
+	const id = berCmdChainId(row.dataset.berUid, mode);
+	editor.innerHTML = '<div id="' + id + '-rows"></div>';
+	const cmds = chainCommands(id);
+	_chains[id] = {rows: [{cmd: cmds[0].value, fields: {}}]};
+	chainListen(id, function() { berRefreshCmdRow(row, id); });
+	chainRender(id);
+	updateBerRow(sel);
+}
+
+// Echo the embedded command's APDU next to the picker and refresh the TLV
+// preview whenever the one-row chain changes.
+function berRefreshCmdRow(row, chainId) {
+	const echo = row.querySelector('.ber-cmd-apdu');
+	const hex = chainBuildRowHex(chainId, 0);
+	if (echo) echo.textContent = hex ? hex.match(/.{2}/g).join(' ') : '';
+	const type = row.querySelector('.ber-type');
+	if (type) updateBerRow(type);
+}
+
+// The C-APDU a row contributes: pasted hex or the embedded command chain.
+function genBerCmdApdu(row) {
+	const modeSel = row.querySelector('.ber-cmd-mode');
+	const mode = modeSel ? modeSel.value : 'hex';
+	if (mode === 'hex') {
+		const input = row.querySelector('.ber-hex');
+		return input ? (input.value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase() : '';
+	}
+	return chainBuildRowHex(berCmdChainId(row.dataset.berUid, mode), 0);
 }
 
 function buildErrorActionRow() {
@@ -3885,9 +4326,9 @@ function genBerRowValue(row) {
 		return genScriptChainingValue(row, tag);
 	}
 	if (type === 'c-apdu') {
-		const hex = (row.querySelector('.ber-hex').value||'').replace(/[^0-9a-fA-F]/g,'');
+		const hex = genBerCmdApdu(row);
 		if (!hex) return '';
-		return tag + berLenStr(hex.length/2) + hex;
+		return tag + berLenStr(hex.length / 2) + hex;
 	}
 	const st = row.querySelector('.ber-subtype').value;
 	if (st === 'action') {
@@ -13579,6 +14020,7 @@ const LANG_RU = {
 	'Queued': 'В очереди',
 	'Expanded format': 'Развёрнутый формат',
 	'To expanded': 'В развёрнутый',
+	'→ Expanded Script': '→ Расширенный скрипт',
 	'Queue in SCP81': 'В очередь SCP81',
 	'No commands': 'Нет команд',
 	'APDUs': 'APDU',

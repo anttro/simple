@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['buildApdu', 'buildSelect', 'escHtml', 'chainInit', 'chainSimBuildRowHex'];
+const FNS = ['buildApdu', 'buildSelect', 'escHtml', 'chainInit', 'chainKind', 'chainSimBuildRowHex'];
 let code = '';
 for (const f of FNS) {
 	code += extractFunc(html, f) + '\n';

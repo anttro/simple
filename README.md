@@ -64,6 +64,9 @@ CLA = `A0` (GSM 11.11 / ISO 7816-4).
 | DEACTIVATE FILE | 04 | Deactivate a file |
 | VERIFY PIN | 20 | Verify PIN1 or PIN2 |
 | CHANGE PIN | 24 | Change PIN1 or PIN2 |
+| UNBLOCK PIN | 2C | Unblock a PIN with the PUK |
+| SEARCH RECORD (SEEK) | A2 | Search a linear fixed EF for a pattern; P2 selects type 1/2 and the mode (TS 151 011 §9.2.7) |
+| INCREASE | 32 | Add a value to the last increased/updated record of a cyclic EF (3-byte value, TS 151 011 §9.2.8) |
 
 #### SELECT methods
 
@@ -91,6 +94,18 @@ CLA = `A0` (GSM 11.11 / ISO 7816-4).
 
 CLA = `00` (ETSI TS 102 221). Same commands as SIM, but SELECT uses P1=09, P2=0C (by FID from current directory).
 
+The UICC administrative command set is available on top of the SIM set (ETSI TS 102 221/102 222):
+
+| Command | INS | Description |
+|---|---|---|
+| SEARCH RECORD | A2 | Simple (P2=10/12, P1 = record number) and enhanced (P2=18, 2-byte indication) search per TS 102 221 §11.1.7 |
+| INCREASE | 32 | Add a value to a cyclic EF record; optional SFI in P1 (TS 102 221 §11.1.8) |
+| CREATE FILE | E0 | Create an EF from an FCP template; **Build template** composes a structural skeleton (TS 102 222 §6.3) |
+| DELETE FILE | E4 | Delete the EF/DF with the given FID (TS 102 222 §6.4) |
+| RESIZE FILE | D4 | Resize a file (FCP with FID + new size); CLA `80` per TS 102 222 Table 1 (TS 102 222 §6.10) |
+| SET DATA | DB | Write a BER-TLV object; P2 selects first/next/retransmit block (+SFI) (TS 102 221 §11.3.2) |
+| RETRIEVE DATA | CB | Read a BER-TLV object or the tag list (`5C`); P2 as above (TS 102 221 §11.3.1) |
+
 #### References
 
 - ETSI TS 102 221: UICC-Terminal Interface; Physical and Logical Characteristics
@@ -110,10 +125,16 @@ Two encoding variants:
 
 | Type | Tag | Description |
 |---|---|---|
-| C-APDU | 22 | Raw APDU hex |
+| C-APDU | 22 | Any remote management command: raw hex or built with the SIM RFM / USIM RFM / RAM-GP editors (TS 102 226 §5.2.1.0) |
 | Immediate Action | 81 | Proactive command or action indicator |
 | Error Action | 82 | Proactive command on error |
 | Script Chaining | 83 | Chaining data for multi-packet scripts |
+
+#### C-APDU rows
+
+A C-APDU row starts in **Hex** mode (paste any command) and can switch to a one-row **SIM RFM**, **USIM RFM** or **RAM/GP** editor that builds the command from fields — the resulting APDU is wrapped in the `22` TLV and echoed next to the picker. GET RESPONSE is not offered there: the expanded format carries no GET RESPONSE (TS 102 226 §5.2.1.1). **→ Expanded Script** in the SIM RFM / USIM RFM / RAM-GP views appends their built commands as C-APDU rows (GET RESPONSE hops dropped).
+
+Only REFRESH, DISPLAY TEXT and PLAY TONE are allowed as an Immediate Action (TS 102 226 Table 5.5) and only DISPLAY TEXT and PLAY TONE as an Error Action (Table 5.9); the behaviour of the card for any other proactive command is undefined.
 
 #### Immediate Action builder
 
@@ -150,8 +171,12 @@ CLA = `80` (GlobalPlatform Card Specification v2.3.1). Remote Application Manage
 | GET DATA | CA | tag | Read card data objects |
 | STORE DATA | E2 | 00/40/80/C0 | Store data (key, certificate, etc.) |
 | SET STATUS | F0 | 80/40/60 | Lifecycle state management |
+| PUT KEY | D0 | key ver | Replace a key: P1 = key version, P2 = key identifier, data = new key material (GP Card Spec §11.8) |
+| PUSH | EC | 01 | Ask an application to open a BIP channel / CAT_TP link / TCP connection or send an identification packet (TS 102 226 §9) |
 | EXTERNAL AUTHENTICATE | 82 | 00 | SCP host authentication |
 | INTERNAL AUTHENTICATE | 88 | 00 | Card challenge-response |
+
+**PUSH** (TS 102 226 §9.2) is a C-APDU (`80 EC 01 P2`) addressed to an application that supports BIP and/or CAT_TP — not the HTTP administration trigger (that is the HTTP OTA builder above). P2: `01` BIP channel opening (OPEN CHANNEL COMPREHENSION-TLVs, optional), `02` CAT_TP link (destination port in transport level `3C` with protocol type 00, optional buffer size `39` / channel data `36`), `03` TCP connection (bearer `35`, transport level `3C` with protocol type 02 = TCP client remote, destination address `3E`, NAA/APN `47`), `04` identification packet (channel data `36`; the ICCID is used when absent). The application issues the proactive OPEN CHANNEL itself; success is `90 00`, failure `6F 00` with the Result TLV in the response data, malformed data is rejected with `6A 80`.
 
 #### INSTALL [for install] — Privilege Builder
 

@@ -74,6 +74,8 @@
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">DISABLE PIN</td><td class="py-1 px-2 font-mono">26</td><td class="py-1 px-2">Disable a PIN</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">ENABLE PIN</td><td class="py-1 px-2 font-mono">28</td><td class="py-1 px-2">Enable a PIN</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">UNBLOCK PIN</td><td class="py-1 px-2 font-mono">2C</td><td class="py-1 px-2">Unblock a PIN with PUK</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">SEARCH RECORD (SEEK)</td><td class="py-1 px-2 font-mono">A2</td><td class="py-1 px-2">Search a linear fixed EF for a pattern; P2 selects type 1/2 and the mode (TS 151 011 &sect;9.2.7)</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">INCREASE</td><td class="py-1 px-2 font-mono">32</td><td class="py-1 px-2">Add a value to the last increased/updated record of a cyclic EF (3-byte value, TS 151 011 &sect;9.2.8)</td></tr>
 			<tr><td class="py-1 px-2 font-mono">GET RESPONSE</td><td class="py-1 px-2 font-mono">C0</td><td class="py-1 px-2">Fetch data indicated by a preceding <code class="font-mono text-sm">61XX</code>/<code class="font-mono text-sm">9FXX</code> status word</td></tr>
 		</tbody>
 	</table>
@@ -90,12 +92,16 @@
 		</tbody>
 	</table>
 	<p class="text-sm mb-3">For record commands, the P2 mode is <strong>Absolute (04)</strong>, <strong>Next (02)</strong>, or <strong>Previous (03)</strong>. When a Case&nbsp;4 command is immediately followed by a GET RESPONSE row, the chain builder strips its trailing Le byte automatically (ETSI TS 102 226 &sect;5.1.1). A conversion panel is embedded in the right column (IMSI, MSISDN, ICCID, SPN, PLMN, nibble swap). See <a href="#conversion" class="text-blue-600 dark:text-blue-400 hover:underline">&sect;2.5</a>.</p>
+	<p class="text-sm mb-3"><strong>&rarr; Expanded Script</strong> sends the built chain to the Expanded Script builder as C-APDU rows (GET RESPONSE hops are dropped &mdash; the expanded format does not use them, TS 102 226 &sect;5.2.1.1). The UICC Shared File System RFM application (TAR <code class="font-mono text-sm">B00000</code>) is reachable with either the compact or the expanded format &mdash; unless the TAR is configured for automatic format detection, the two use different TAR values (TS 102 226 &sect;7.0/&sect;5.3).</p>
 
 	<h3 id="usim-rfm" class="text-lg font-medium mb-2">2.2 USIM RFM</h3>
-	<p class="mb-2">CLA = <code class="font-mono text-sm">00</code> (ETSI TS 102 221). Same chain builder and command set as SIM. Differences:</p>
+	<p class="mb-2">CLA = <code class="font-mono text-sm">00</code> (ETSI TS 102 221). Same chain builder and command set as SIM, plus the UICC administrative commands, and the TS 102 221 forms of SEARCH RECORD / INCREASE:</p>
 	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
 		<li><strong>SELECT</strong> requests FCP by default (P2=<code class="font-mono text-sm">04</code>) and appends Le=<code class="font-mono text-sm">00</code>; a <strong>Silent (P2=0C)</strong> checkbox selects without requesting FCP (no Le, no response data).</li>
 		<li><strong>By path</strong> offers <strong>from MF</strong> (P1=<code class="font-mono text-sm">08</code>) or <strong>from current DF</strong> (P1=<code class="font-mono text-sm">09</code>); the current DF of an ADF RFM session is ADF.USIM.</li>
+		<li><strong>SEARCH RECORD</strong> (TS 102 221 &sect;11.1.7) offers the simple modes (P2=<code class="font-mono text-sm">10</code>/<code class="font-mono text-sm">12</code>, P1 = record number) and the enhanced mode (P2=<code class="font-mono text-sm">18</code>) with the 2-byte search indication; <strong>INCREASE</strong> (&sect;11.1.8) takes an optional SFI and the value to add.</li>
+		<li><strong>CREATE FILE</strong> / <strong>DELETE FILE</strong> / <strong>RESIZE FILE</strong> (ETSI TS 102 222 &sect;6.3/6.4/6.10) take an FCP template; <strong>Build template</strong> composes a structural skeleton (file descriptor, FID, LCSI, size, and a permissive compact access rule <code class="font-mono text-sm">8C 02 7F 00</code> &mdash; review it for your card). RESIZE FILE uses CLA <code class="font-mono text-sm">80</code> (TS 102 222 Table 1: <code class="font-mono text-sm">'8X'</code>/<code class="font-mono text-sm">'CX'</code>).</li>
+		<li><strong>SET DATA</strong> / <strong>RETRIEVE DATA</strong> (TS 102 221 &sect;11.3) operate on BER-TLV EFs: P2 selects first/next/retransmit block (+SFI), the tag field is optional (<code class="font-mono text-sm">5C</code> lists the allocated tags).</li>
 		<li><strong>Pack into Secured packet</strong> sets the SCP80 TAR to the selected preset&rsquo;s <strong>ADF RFM TAR</strong> (<code class="font-mono text-sm">B00001</code> by default), linked to the ADF&rsquo;s AID (ADF.USIM).</li>
 		<li>Each SELECT hop in a chain requests FCP unless marked silent.</li>
 	</ul>
@@ -113,13 +119,14 @@
 			<th class="text-left py-1 px-2">Type</th><th class="text-left py-1 px-2">Tag</th><th class="text-left py-1 px-2">Description</th>
 		</tr></thead>
 		<tbody>
-			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">C-APDU</td><td class="py-1 px-2 font-mono">22</td><td class="py-1 px-2">Raw APDU hex</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">C-APDU</td><td class="py-1 px-2 font-mono">22</td><td class="py-1 px-2">Any remote management command: raw APDU hex or a command built with the SIM RFM / USIM RFM / RAM-GP editors (TS 102 226 &sect;5.2.1.0; GET RESPONSE is not used in this format, &sect;5.2.1.1)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Immediate Action</td><td class="py-1 px-2 font-mono">81</td><td class="py-1 px-2">Proactive command or action indicator</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2">Error Action</td><td class="py-1 px-2 font-mono">82</td><td class="py-1 px-2">Conditional error recovery with action indicator or proactive command</td></tr>
 			<tr><td class="py-1 px-2">Script Chaining</td><td class="py-1 px-2 font-mono">83</td><td class="py-1 px-2">Multi-packet script execution with First/Intermediary/Last flags</td></tr>
 		</tbody>
 	</table>
-	<p class="text-sm mb-3">The Immediate Action builder offers an action indicator (<code class="font-mono text-sm">81</code>/<code class="font-mono text-sm">82</code>), a structured proactive command builder (REFRESH, DISPLAY TEXT, PLAY TONE with auto-generated COMPREHENSION-TLV objects), or a freeform hex input.</p>
+	<p class="text-sm mb-3">A <strong>C-APDU</strong> row starts in <strong>Hex</strong> mode (paste any command) and can switch to a one-row <strong>SIM RFM</strong>, <strong>USIM RFM</strong> or <strong>RAM/GP</strong> editor that builds the command from fields &mdash; the resulting APDU is wrapped in the <code class="font-mono text-sm">22</code> TLV and shown next to the picker. GET RESPONSE is not offered there: the expanded format carries no GET RESPONSE (TS 102 226 &sect;5.2.1.1). <strong>&rarr; Expanded Script</strong> in the SIM RFM / USIM RFM / RAM-GP views appends their built commands as C-APDU rows.</p>
+	<p class="text-sm mb-3">The Immediate Action builder offers an action indicator (<code class="font-mono text-sm">81</code>/<code class="font-mono text-sm">82</code>), a structured proactive command builder (REFRESH, DISPLAY TEXT, PLAY TONE with auto-generated COMPREHENSION-TLV objects), or a freeform hex input. Only those three proactive commands are allowed as an Immediate Action (TS 102 226 Table 5.5) &mdash; the behaviour of the card for any other proactive command is undefined.</p>
 
 	<h4 id="ber-error-action" class="font-medium mb-2 text-base">Error Action TLV (Tag 82)</h4>
 	<p class="text-sm mb-2">Error recovery per TS 102 226 §5.2.1.3 — one of four forms:</p>
@@ -131,13 +138,14 @@
 	</ul>
 
 	<h4 id="ber-script-chaining" class="font-medium mb-2 text-base">Script Chaining TLV (Tag 83)</h4>
-	<p class="text-sm mb-2">Multi-packet script execution with context preservation:</p>
+	<p class="text-sm mb-2">Multi-packet script execution with context preservation (TS 102 226 &sect;5.2.1.4). The TLV is <code class="font-mono text-sm">83 01 &lt;flag&gt;</code>, present once and only as the first Command TLV; it may be used for RFM and RAM only:</p>
 	<ul class="text-sm list-disc pl-5 mb-2">
-		<li><strong>Chaining Flags:</strong> <code class="font-mono text-sm">01</code> first script (delete chaining info on reset), <code class="font-mono text-sm">11</code> first script (keep chaining info across reset, RFM only), <code class="font-mono text-sm">02</code> subsequent script (more to follow), <code class="font-mono text-sm">03</code> subsequent script (last)</li>
-		<li><strong>Script ID:</strong> Correlation identifier across packets (1-4 bytes hex, auto-increment hints provided)</li>
-		<li><strong>Additional Data:</strong> Extended chaining information (optional hex)</li>
-		<li><strong>Context Preservation:</strong> UICC keeps security/transaction state open across chained scripts</li>
+		<li><code class="font-mono text-sm">01</code> &mdash; first script, delete chaining information upon card reset</li>
+		<li><code class="font-mono text-sm">11</code> &mdash; first script, keep chaining information across card reset (RFM only)</li>
+		<li><code class="font-mono text-sm">02</code> &mdash; subsequent script, more to follow</li>
+		<li><code class="font-mono text-sm">03</code> &mdash; subsequent script, last one</li>
 	</ul>
+	<p class="text-sm mb-3">With chaining the command session is extended beyond one scripting template: the UICC keeps the file/PIN context (RFM) or the application session (RAM, e.g. a chained STORE DATA sequence) until the last script.</p>
 
 	<h4 id="expanded-response" class="font-medium mb-2 text-base">Response decoding (TS 102 226 §5.2.2)</h4>
 	<p class="text-sm mb-2">Incoming Proof-of-Receipt responses are decoded by the server — expanded Remote Application response data (TS 102 226 §5.2.2) or the compact format. The Secured Packet view shows the outcome after <strong>Send to Card</strong> (see <a href="#secured-packet" class="text-blue-600 dark:text-blue-400 hover:underline">&sect;3.1</a>): the PoR status (TAR, counter, raw PoR), with the last command&rsquo;s status word and response data filled into the <strong>Response parser</strong> pill under Remote APDU.</p>
@@ -160,6 +168,8 @@
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">GET DATA</td><td class="py-1 px-2 font-mono">CA</td><td class="py-1 px-2 font-mono">tag</td><td class="py-1 px-2">Read card data objects</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">STORE DATA</td><td class="py-1 px-2 font-mono">E2</td><td class="py-1 px-2 font-mono">00/40/80/C0/E0</td><td class="py-1 px-2">Store data (key, certificate, &hellip;)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">SET STATUS</td><td class="py-1 px-2 font-mono">F0</td><td class="py-1 px-2 font-mono">80/40/60</td><td class="py-1 px-2">Lifecycle state management</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">PUT KEY</td><td class="py-1 px-2 font-mono">D0</td><td class="py-1 px-2 font-mono">key ver</td><td class="py-1 px-2">Replace a key: P1 = key version, P2 = key identifier, data = new key material (GP Card Spec &sect;11.8)</td></tr>
+			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">PUSH</td><td class="py-1 px-2 font-mono">EC</td><td class="py-1 px-2 font-mono">01</td><td class="py-1 px-2">Ask an application to open a BIP channel / CAT_TP link / TCP connection or send an identification packet (TS 102 226 &sect;9)</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">EXTERNAL AUTHENTICATE</td><td class="py-1 px-2 font-mono">82</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">SCP host authentication</td></tr>
 			<tr class="border-b border-gray-200 dark:border-slate-700"><td class="py-1 px-2 font-mono">INTERNAL AUTHENTICATE</td><td class="py-1 px-2 font-mono">88</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">Card challenge-response</td></tr>
 			<tr><td class="py-1 px-2 font-mono">GET RESPONSE</td><td class="py-1 px-2 font-mono">C0</td><td class="py-1 px-2 font-mono">00</td><td class="py-1 px-2">Fetch data after a <code class="font-mono text-sm">61XX</code> status (Le configurable)</td></tr>
@@ -195,6 +205,7 @@
 		</tbody>
 	</table>
 	<p class="text-sm mb-3">Refer to GlobalPlatform v2.3.1 and ETSI TS 102 226 &sect;8.2.1.3.2 for the full GET STATUS P1/P2, GET DATA tag, DELETE P1, STORE DATA P1, and SET STATUS tables.</p>
+	<p class="text-sm mb-3"><strong>PUSH</strong> (TS 102 226 &sect;9.2) is a C-APDU (<code class="font-mono text-sm">80 EC 01 P2</code>) addressed to an application that supports BIP and/or CAT_TP &mdash; not the HTTP administration trigger (that is the HTTP OTA builder above). P2: <code class="font-mono text-sm">01</code> BIP channel opening (OPEN CHANNEL COMPREHENSION-TLVs, optional), <code class="font-mono text-sm">02</code> CAT_TP link (destination port in transport level <code class="font-mono text-sm">3C</code> with protocol type 00, optional buffer size <code class="font-mono text-sm">39</code> / channel data <code class="font-mono text-sm">36</code>), <code class="font-mono text-sm">03</code> TCP connection (bearer <code class="font-mono text-sm">35</code>, transport level <code class="font-mono text-sm">3C</code> with protocol type 02 = TCP client remote, destination address <code class="font-mono text-sm">3E</code>, NAA/APN <code class="font-mono text-sm">47</code>), <code class="font-mono text-sm">04</code> identification packet (channel data <code class="font-mono text-sm">36</code>; the ICCID is used when absent). The application issues the proactive OPEN CHANNEL itself; success is <code class="font-mono text-sm">90 00</code>, failure <code class="font-mono text-sm">6F 00</code> with the Result TLV in the response data, and malformed data is rejected with <code class="font-mono text-sm">6A 80</code>. P1 <code class="font-mono text-sm">80</code> is reserved for application-specific usage.</p>
 
 	<h3 id="conversion" class="text-lg font-medium mb-2">2.5 Conversion (SIM/USIM sidebars)</h3>
 	<ul class="list-disc list-inside text-sm space-y-1">
