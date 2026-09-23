@@ -3462,9 +3462,11 @@ function rfmFileOptionsHtml(chainId, idx, list) {
 	for (const [root, items] of groups) {
 		html += '<optgroup label="' + escHtml(root) + '">';
 		for (const it of items) {
-			const parent = rfmParentPath(it.e.sym || it.e.path).replace(/^[^/]+\//, '');
+			// Path within the root, FIDs in order (the optgroup carries the
+			// root) - the same convention as the path field, with slashes.
+			const inRoot = it.e.path.slice(it.e.root.length + 1);
 			html += '<option value="' + escHtml(it.e.path) + '">' +
-				escHtml(it.e.name + ' — ' + (it.e.fid || it.e.aid || '') + (parent ? ' — ' + parent : '') +
+				escHtml(it.e.name + ' — ' + inRoot +
 					(it.fill && it.fill.switched ? '  → ' + it.fill.method : '')) +
 				'</option>';
 		}

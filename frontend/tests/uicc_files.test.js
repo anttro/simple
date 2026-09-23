@@ -194,6 +194,23 @@ test('rfmFileEntries merges card tree, custom files and the standard list', () =
 	pysimCustomFiles = [];
 });
 
+test('rfmFileOptionsHtml labels files with their path within the root', () => {
+	const list = rfmFileEntries();
+	setChain('chain-usim', [row('select', { method: 'fid' })]);
+	const opts = rfmFileOptionsHtml('chain-usim', 0, list);
+	// ADF.USIM session: EF.IMSI is a direct child of the root.
+	assert.ok(opts.includes('>EF.IMSI — 6F07<'), opts.match(/>EF\.IMSI[^<]*</)[0]);
+	// The root is the optgroup, the path is relative to it (FIDs in order).
+	assert.ok(opts.includes('<optgroup label="ADF.USIM">'));
+	assert.ok(!opts.includes('6F07 — '), 'no reversed "fid — parent" label');
+	// Deep file under a DF: the label reads like the path field.
+	rfmSetStartDf('chain-usim', 'MF');
+	setChain('chain-sim', [row('select', { method: 'path', path: '7F10' })]);
+	const deep = rfmFileOptionsHtml('chain-sim', 1, list);
+	assert.ok(deep.includes('>EF.MSISDN — 7F10/6F40<'), deep.match(/>EF\.MSISDN[^<]*</)[0]);
+	rfmSetStartDf('chain-usim', 'ADF.USIM');
+});
+
 test('rfmFileOptionsHtml groups by root and marks method switches', () => {
 	const list = rfmFileEntries();
 	setChain('chain-sim', [row('select', { method: 'fid' })]);
