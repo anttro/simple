@@ -359,7 +359,7 @@ Pastes raw APDU hex and renders a collapsible tree. It auto-detects the containe
 
 ### Push commands
 
-Groups the commands that make the card dial out: the GlobalPlatform HTTP administration session trigger (and its Store mode) plus the ETSI TS 102 226 §9 PUSH variants. They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
+Groups the commands that make the card dial out. Four sub-pills switch between the forms - Trigger (Push SMS), Store (SD admin params), BIP / CAT_TP trigger and TCP trigger - and only the selected one is shown (the two GP forms share their fields). They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
 
 #### Administration session (HTTP OTA)
 

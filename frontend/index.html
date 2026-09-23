@@ -182,11 +182,16 @@
 	</div>
 
 	<div id="c-apdu-sub-httpota" class="hidden">
-		<h3 class="text-base font-medium mb-3" data-l10n="Administrative session — administration trigger (HTTP OTA)">Administrative session — administration trigger (HTTP OTA)</h3>
-		<div class="flex gap-2 mb-3">
-			<button id="hota-mode-trigger" onclick="hotaSetMode('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="Trigger (Push SMS)">Trigger (Push SMS)</button>
-			<button id="hota-mode-store" onclick="hotaSetMode('store')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Store (SD admin params)">Store (SD admin params)</button>
+		<div class="flex flex-wrap gap-2 mb-3">
+			<button id="hota-form-btn-trigger" onclick="hotaSetForm('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="Trigger (Push SMS)">Trigger (Push SMS)</button>
+			<button id="hota-form-btn-store" onclick="hotaSetForm('store')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Store (SD admin params)">Store (SD admin params)</button>
+			<button id="hota-form-btn-bip" onclick="hotaSetForm('bip')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="BIP / CAT_TP trigger">BIP / CAT_TP trigger</button>
+			<button id="hota-form-btn-tcp" onclick="hotaSetForm('tcp')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="TCP trigger">TCP trigger</button>
 		</div>
+
+		<div id="hota-form-gp">
+		<h3 id="hota-heading-trigger" class="text-base font-medium mb-3" data-l10n="HTTP OTA Administrative session trigger (Push SMS)">HTTP OTA Administrative session trigger (Push SMS)</h3>
+		<h3 id="hota-heading-store" class="text-base font-medium mb-3 hidden" data-l10n="HTTP OTA Administrative session store data (SD admin params)">HTTP OTA Administrative session store data (SD admin params)</h3>
 
 		<div id="hota-store-tag-row" class="mb-3 hidden">
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="SD params tag">SD params tag</label>
@@ -294,8 +299,10 @@
 
 		<textarea id="hota-preview" rows="5" readonly oninput="hotaPreviewEdited()" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-3" placeholder="RAM-over-HTTP payload will appear here..."></textarea>
 		<button onclick="packToSp('hota-preview')" id="hota-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+		</div>
 
-		<h3 class="text-base font-medium mt-4 mb-2" data-l10n="BIP / CAT_TP trigger (TS 102 226 §9)">BIP / CAT_TP trigger (TS 102 226 §9)</h3>
+		<div id="push-form-bip" class="hidden">
+		<h3 class="text-base font-medium mb-2" data-l10n="BIP / CAT_TP trigger (TS 102 226 §9)">BIP / CAT_TP trigger (TS 102 226 §9)</h3>
 		<p class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Not the administration session — a C-APDU for an app that supports BIP/CAT_TP">Not the administration session — a C-APDU for an app that supports BIP/CAT_TP</p>
 		<div class="border border-gray-300 dark:border-slate-600 rounded p-3 bg-gray-50 dark:bg-slate-800 mb-3">
 			<div class="mb-2">
@@ -325,8 +332,10 @@
 		<textarea id="push-bip-preview" rows="2" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-2" placeholder="C-APDU (TS 102 226 §9)"></textarea>
 		<button onclick="packToSp('push-bip-preview')" id="push-bip-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
 		<button onclick="pushToExpanded('push-bip-preview')" id="push-bip-exp-btn" disabled class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="→ Expanded Script">→ Expanded Script</button>
+		</div>
 
-		<h3 class="text-base font-medium mt-4 mb-2" data-l10n="TCP trigger (TS 102 226 §9)">TCP trigger (TS 102 226 §9)</h3>
+		<div id="push-form-tcp" class="hidden">
+		<h3 class="text-base font-medium mb-2" data-l10n="TCP trigger (TS 102 226 §9)">TCP trigger (TS 102 226 §9)</h3>
 		<p class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Not the administration session — a C-APDU for an app that supports BIP/CAT_TP">Not the administration session — a C-APDU for an app that supports BIP/CAT_TP</p>
 		<div class="border border-gray-300 dark:border-slate-600 rounded p-3 bg-gray-50 dark:bg-slate-800 mb-3">
 			<div class="mb-2">
@@ -359,6 +368,7 @@
 		<textarea id="push-tcp-preview" rows="2" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-2" placeholder="C-APDU (TS 102 226 §9)"></textarea>
 		<button onclick="packToSp('push-tcp-preview')" id="push-tcp-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
 		<button onclick="pushToExpanded('push-tcp-preview')" id="push-tcp-exp-btn" disabled class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="→ Expanded Script">→ Expanded Script</button>
+		</div>
 	</div>
 
 			<div id="c-apdu-sub-response" class="hidden">
@@ -1925,6 +1935,7 @@ async function esimSetProfile(iccid, isdpAid, action) {
 
 // ===== HTTP OTA constructor =====
 let _hotaMode = 'trigger';
+let _hotaForm = 'trigger';
 function _hotaHex(s) { return (s || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase(); }
 function _hotaAsciiHex(s) { return (s || '').split('').map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase(); }
 function _hotaBerLen(n) {
@@ -2011,11 +2022,32 @@ function hotaBuild(mode, conn, sec, retry, httpPost, storeTag, expanded) {
 
 function hotaSetMode(mode) {
 	_hotaMode = mode;
-	document.getElementById('hota-mode-trigger').className = 'px-4 py-1.5 text-sm rounded-full ' + (mode === 'trigger' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600');
-	document.getElementById('hota-mode-store').className = 'px-4 py-1.5 text-sm rounded-full ' + (mode === 'store' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600');
+	document.getElementById('hota-heading-trigger').classList.toggle('hidden', mode !== 'trigger');
+	document.getElementById('hota-heading-store').classList.toggle('hidden', mode !== 'store');
 	document.getElementById('hota-store-tag-row').classList.toggle('hidden', mode !== 'store');
 	document.getElementById('hota-expanded-row').classList.toggle('hidden', mode !== 'trigger');
 	hotaUpdatePreview();
+}
+
+// The Push commands pill shows one form at a time: Trigger and Store share the
+// GP administration form (different payload mode), BIP/CAT_TP and TCP have
+// their own TS 102 226 §9 form.
+function hotaSetForm(form) {
+	_hotaForm = form;
+	['trigger', 'store', 'bip', 'tcp'].forEach(f => {
+		const btn = document.getElementById('hota-form-btn-' + f);
+		if (!btn) return;
+		btn.className = 'px-4 py-1.5 text-sm rounded-full ' + (f === form
+			? 'bg-blue-600 text-white'
+			: 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600');
+	});
+	const visible = form === 'bip' ? 'push-form-bip' : (form === 'tcp' ? 'push-form-tcp' : 'hota-form-gp');
+	['hota-form-gp', 'push-form-bip', 'push-form-tcp'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) el.classList.toggle('hidden', id !== visible);
+	});
+	if (form === 'trigger' || form === 'store') hotaSetMode(form);
+	else pushUpdate(form);
 }
 
 function hotaToggleConn() {
@@ -2180,6 +2212,7 @@ function pushToExpanded(sourceId) {
 
 function pushInit() {
 	['bip', 'tcp'].forEach(pushUpdate);
+	hotaSetForm('trigger');
 }
 pushInit();
 
@@ -14884,7 +14917,10 @@ const LANG_RU = {
 	'HTTP OTA': 'HTTP OTA',
 	'Trigger (Push SMS)': 'Триггер (Push SMS)',
 	'Push commands': 'Пуш/триггер',
-	'Administrative session — administration trigger (HTTP OTA)': 'Сессия администрирования — триггер (HTTP OTA)',
+	'HTTP OTA Administrative session trigger (Push SMS)': 'HTTP OTA — триггер административной сессии (Push SMS)',
+	'HTTP OTA Administrative session store data (SD admin params)': 'HTTP OTA — запись данных административной сессии (параметры SD)',
+	'BIP / CAT_TP trigger': 'Триггер BIP / CAT_TP',
+	'TCP trigger': 'Триггер TCP',
 	'BIP / CAT_TP trigger (TS 102 226 §9)': 'Триггер BIP / CAT_TP (TS 102 226 §9)',
 	'TCP trigger (TS 102 226 §9)': 'Триггер TCP (TS 102 226 §9)',
 	'Not the administration session — a C-APDU for an app that supports BIP/CAT_TP': 'C-APDU для приложения с поддержкой BIP/CAT_TP (не admin session!)',
