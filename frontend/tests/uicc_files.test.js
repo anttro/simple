@@ -112,8 +112,10 @@ test('rfmSelectFill prefers path when the method has to switch', () => {
 	assert.deepStrictEqual(fill, { method: 'path', fields: { path: '7F106F40', base: 'mf' }, switched: true });
 	// ADF entry cannot be reached from MF by FID/path/chain.
 	assert.strictEqual(rfmSelectFill('chain-sim', 0, entry('ADF.USIM/6F07'), rfmFileEntries()), null);
-	// USIM RFM starts in ADF.USIM: its files are direct children, deep ones use
-	// the relative path from the current DF.
+	// USIM RFM in an ADF session (the picker defaults to MF for both
+	// builders, so the ADF context is selected explicitly): ADF files are
+	// direct children, deep ones use the relative path from the current DF.
+	rfmSetStartDf('chain-usim', 'ADF.USIM');
 	setChain('chain-usim', [row('select', { method: 'fid' })]);
 	fill = rfmSelectFill('chain-usim', 0, entry('ADF.USIM/6F07'), rfmFileEntries());
 	assert.deepStrictEqual(fill, { method: 'fid', fields: { fid: '6F07' }, switched: false });
@@ -131,6 +133,7 @@ test('rfmSelectFill falls back to chain when path cannot express it', () => {
 	// DF.GSM-ACCESS branch is not under the current DF and not in the MF tree,
 	// so only the relative chain works.
 	const list = rfmFileEntries();
+	rfmSetStartDf('chain-usim', 'ADF.USIM');
 	setChain('chain-usim', [row('select', { method: 'path', path: '5F3A', base: 'df' })]);
 	const fill = rfmSelectFill('chain-usim', 1, entry('ADF.USIM/5F3B/4F20'), list);
 	assert.strictEqual(fill.method, 'chain');
@@ -153,6 +156,10 @@ test('rfmCurrentDf tracks the session context across rows', () => {
 	assert.strictEqual(rfmCurrentDf('chain-sim', 2, list), 'MF/7F10');
 	// A path select sets the DF to the file's parent.
 	assert.strictEqual(rfmCurrentDf('chain-sim', 3, list), 'MF/7F10');
+	// The picker defaults to MF for both builders; an ADF session is explicit.
+	delete _rfmStartDf['chain-usim'];
+	assert.strictEqual(rfmStartDf('chain-usim'), 'MF');
+	rfmSetStartDf('chain-usim', 'ADF.USIM');
 	setChain('chain-usim', [
 		row('select', { method: 'path', path: '5F3A', base: 'df' }),
 		row('select', { method: 'chain', chain: '4F22' }),
@@ -196,6 +203,7 @@ test('rfmFileEntries merges card tree, custom files and the standard list', () =
 
 test('rfmFileOptionsHtml labels files with their path within the root', () => {
 	const list = rfmFileEntries();
+	rfmSetStartDf('chain-usim', 'ADF.USIM');
 	setChain('chain-usim', [row('select', { method: 'fid' })]);
 	const opts = rfmFileOptionsHtml('chain-usim', 0, list);
 	// ADF.USIM session: EF.IMSI is a direct child of the root.

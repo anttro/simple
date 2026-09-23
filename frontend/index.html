@@ -3311,7 +3311,10 @@ function rfmFileEntries() {
 // packet is sent to, not on the builder, so the picker lets it be changed.
 function rfmStartDf(chainId) {
 	if (!_rfmStartDf[chainId]) {
-		_rfmStartDf[chainId] = chainKind(chainId) === 'usim' ? 'ADF.USIM' : 'MF';
+		// MF for both builders: the real implicit DF follows the TAR the
+		// secured packet is sent to (TS 102 226 7.2/7.3), so the picker
+		// starts neutral and the per-row selector covers ADF sessions.
+		_rfmStartDf[chainId] = 'MF';
 	}
 	return _rfmStartDf[chainId];
 }
