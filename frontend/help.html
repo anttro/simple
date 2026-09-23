@@ -229,7 +229,10 @@
 	<h3 id="c-apdu-parser" class="text-lg font-medium mb-2">2.6 C-APDU Parser</h3>
 	<p class="text-sm mb-3">Pastes raw APDU hex and renders a collapsible tree. It auto-detects the container: an <strong>Expanded Script</strong> (leading <code class="font-mono text-sm">AA</code> or <code class="font-mono text-sm">AE80</code>, decoded per ETSI TS 102 226 &sect;5.2.1) or a <strong>Compact C-APDU chain</strong> (a sequence of ISO 7816 C-APDUs). Each node shows its label, hex and a short description; parent nodes expand to reveal their sub-elements.</p>
 
-	<h3 id="http-ota" class="text-lg font-medium mb-2">2.7 HTTP OTA</h3>
+	<h3 id="push-commands" class="text-lg font-medium mb-2">2.7 Push commands</h3>
+	<p class="text-sm mb-3">Groups the commands that make the card dial out: the GlobalPlatform HTTP administration session trigger (and its Store mode) plus the ETSI TS 102 226 &sect;9 PUSH variants (BIP channel opening, CAT_TP link, TCP connection, identification packet). They come from different specs and are delivered differently &mdash; the administration trigger is a TLV message for the Security Domain, a &sect;9 PUSH is a C-APDU (<code class="font-mono text-sm">80 EC 01 P2</code>) for an application that supports BIP and/or CAT_TP.</p>
+
+	<h4 id="http-ota" class="font-medium mb-1">Administration session (HTTP OTA)</h4>
 	<p class="text-sm mb-3">Builds the Remote Application Management over HTTP payloads defined in GlobalPlatform <strong>GPC v2.2 Amendment B v1.1</strong> (&sect;4.7). Two modes:</p>
 	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
 		<li><strong>Trigger (Push SMS)</strong> — administration session triggering parameters (<code class="font-mono text-sm">81 &gt; 83 &gt; 84/[85]/[86]/89</code>, Table 4-3). This is the message that asks the card's Security Domain to dial out and start an HTTP session.</li>
@@ -247,6 +250,14 @@
 	</table>
 	<p class="text-sm mb-2"><strong>Command Scripting template</strong> (checkbox) wraps the whole <code class="font-mono text-sm">81</code> triggering command in the definite-length Expanded Remote Application data format (<code class="font-mono text-sm">AA</code>, ETSI TS 102 226 &sect;5.2.1) for TARs that process the expanded format (RAM-over-HTTP &sect;4.7).</p>
 	<p class="text-sm mb-2"><strong>Pack into Secured packet</strong> sends the built payload to the SCP80 tab for SPI/counter filling &mdash; insert the TAR the SD listens on (typically the OTASD TAR) there.</p>
+
+	<h4 id="push-ts102226" class="font-medium mb-1 mt-3">TS 102 226 §9 PUSH</h4>
+	<p class="text-sm mb-2">Two guided sections build the &sect;9 requests with the same encoder as the RAM/GP chain's <strong>PUSH</strong> row, preview the C-APDU, and offer <strong>Pack into Secured packet</strong> (the TAR stays manual: the request is addressed to the target application, not the Security Domain) and <strong>&rarr; Expanded Script</strong> (wraps the APDU in the <code class="font-mono text-sm">22</code> Command TLV and appends it to the Expanded Script builder).</p>
+	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
+		<li><strong>BIP / CAT_TP</strong> &mdash; request <code class="font-mono text-sm">01</code> BIP channel opening (optional OPEN CHANNEL COMPREHENSION-TLVs; the application defaults apply when empty) or <code class="font-mono text-sm">02</code> CAT_TP link establishment (destination port in transport level <code class="font-mono text-sm">3C</code> with protocol type 00, optional buffer size <code class="font-mono text-sm">39</code> / identification data <code class="font-mono text-sm">36</code>).</li>
+		<li><strong>TCP</strong> &mdash; request <code class="font-mono text-sm">03</code> TCP connection (bearer <code class="font-mono text-sm">35</code>, transport level <code class="font-mono text-sm">3C</code> with protocol type 02 = TCP client remote, destination address <code class="font-mono text-sm">3E</code> with type <code class="font-mono text-sm">21</code> IPv4 / <code class="font-mono text-sm">57</code> IPv6 / <code class="font-mono text-sm">F0</code> FQDN, NAA/APN <code class="font-mono text-sm">47</code>) or <code class="font-mono text-sm">04</code> identification packet (optional data, ICCID when absent &mdash; sent over an already open TCP channel, not a trigger).</li>
+		<li>Mandatory parameters are enforced in the guided sections: <code class="font-mono text-sm">02</code> needs the destination port, <code class="font-mono text-sm">03</code> the port and the destination address. The RAM/GP chain row keeps the lenient behaviour for free-form scripting.</li>
+	</ul>
 
 
 

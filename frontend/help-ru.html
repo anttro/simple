@@ -230,7 +230,10 @@
 	<h3 id="c-apdu-parser" class="text-lg font-medium mb-2">2.6 Разбор C-APDU</h3>
 	<p class="text-sm mb-3">Вставка raw APDU hex и отображение сворачиваемого дерева. Автоматически определяет контейнер: <strong>Expanded Script</strong> (начало <code class="font-mono text-sm">AA</code> или <code class="font-mono text-sm">AE80</code>, декодируется по ETSI TS 102 226 &sect;5.2.1) или <strong>Compact C-APDU chain</strong> (последовательность C-APDU ISO 7816). Каждый узел показывает метку, hex и краткое описание; родительские узлы раскрываются в подэлементы.</p>
 
-	<h3 id="http-ota" class="text-lg font-medium mb-2">2.7 HTTP OTA</h3>
+	<h3 id="push-commands" class="text-lg font-medium mb-2">2.7 Пуш/триггер</h3>
+	<p class="text-sm mb-3">Объединяет команды, заставляющие карту выйти в сеть: триггер административной сессии HTTP (GlobalPlatform) с режимом записи параметров и варианты команды PUSH из ETSI TS 102 226 &sect;9 (открытие BIP-канала, соединение CAT_TP, TCP-соединение, пакет идентификации). Они из разных спецификаций и доставляются по-разному &mdash; триггер администрирования это TLV-сообщение для Security Domain, а PUSH &sect;9 это C-APDU (<code class="font-mono text-sm">80 EC 01 P2</code>) для приложения с поддержкой BIP и/или CAT_TP.</p>
+
+	<h4 id="http-ota" class="font-medium mb-1">Сессия администрирования (HTTP OTA)</h4>
 	<p class="text-sm mb-3">Сборка payload&rsquo;ов Remote Application Management over HTTP по GlobalPlatform <strong>GPC v2.2 Amendment B v1.1</strong> (&sect;4.7). Два режима:</p>
 	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
 		<li><strong>Триггер (Push SMS)</strong> — параметры запуска административной сессии (<code class="font-mono text-sm">81 &gt; 83 &gt; 84/[85]/[86]/89</code>, таблица 4-3). Сообщение, которое просит Security Domain карты исходящим запросом начать HTTP-сессию.</li>
@@ -248,6 +251,14 @@
 	</table>
 	<p class="text-sm mb-2">Флажок <strong>Обёртка в Command Scripting template ('AA')</strong> оборачивает всю команду <code class="font-mono text-sm">81</code> в формат Expanded Remote Application data с определённой длиной (<code class="font-mono text-sm">AA</code>, ETSI TS 102 226 &sect;5.2.1) для TAR-ов, обрабатывающих расширенный формат (RAM-over-HTTP &sect;4.7).</p>
 	<p class="text-sm mb-2"><strong>Упаковать в Secured packet</strong> отправляет готовый payload на вкладку SCP80 для заполнения SPI/счётчика — там укажите TAR, который слушает SD (обычно TAR OTASD).</p>
+
+	<h4 id="push-ts102226" class="font-medium mb-1 mt-3">PUSH по TS 102 226 §9</h4>
+	<p class="text-sm mb-2">Два раздела собирают запросы &sect;9 тем же кодировщиком, что и строка <strong>PUSH</strong> в цепочке RAM/GP, показывают предпросмотр C-APDU и предлагают <strong>&laquo;Упаковать в Secured packet&raquo;</strong> (TAR остаётся ручным: запрос адресован целевому приложению, а не Security Domain) и <strong>&rarr; Расширенный скрипт</strong> (оборачивает APDU в Command TLV <code class="font-mono text-sm">22</code> и добавляет его в конструктор Expanded Script).</p>
+	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
+		<li><strong>BIP / CAT_TP</strong> &mdash; запрос <code class="font-mono text-sm">01</code> открытие BIP-канала (необязательные COMPREHENSION-TLV OPEN CHANNEL; при пустом значении действуют умолчания приложения) или <code class="font-mono text-sm">02</code> установление соединения CAT_TP (порт назначения в transport level <code class="font-mono text-sm">3C</code> с типом протокола 00, необязательные buffer size <code class="font-mono text-sm">39</code> / данные идентификации <code class="font-mono text-sm">36</code>).</li>
+		<li><strong>TCP</strong> &mdash; запрос <code class="font-mono text-sm">03</code> TCP-соединение (bearer <code class="font-mono text-sm">35</code>, transport level <code class="font-mono text-sm">3C</code> с типом протокола 02 = TCP-клиент, удалённое соединение, адрес назначения <code class="font-mono text-sm">3E</code> с типом <code class="font-mono text-sm">21</code> IPv4 / <code class="font-mono text-sm">57</code> IPv6 / <code class="font-mono text-sm">F0</code> FQDN, NAA/APN <code class="font-mono text-sm">47</code>) или <code class="font-mono text-sm">04</code> пакет идентификации (необязательные данные, при отсутствии используется ICCID &mdash; отправляется по уже открытому TCP-каналу, не триггер).</li>
+		<li>В управляемых разделах обязательные параметры проверяются: для <code class="font-mono text-sm">02</code> нужен порт назначения, для <code class="font-mono text-sm">03</code> &mdash; порт и адрес назначения. Строка PUSH в цепочке RAM/GP остаётся нестрогой для свободного составления скриптов.</li>
+	</ul>
 
 
 

@@ -31,7 +31,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'buildSelect', 'escHtml', 'esc', 'chainInit',
 	'chainKind', 'chainIsEmbedded', 'chainCommands', 'chainBuildRowHex',
 	'chainSimBuildRowHex', 'chainRamBuildRowHex', 'chainPushData', '_hotaAsciiHex',
-	'chainApduList', 'chainBuildFcp'];
+	'chainApduList', 'chainBuildFcp', 'pushSectionApdu'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['CHAIN_CMDS_SIM', 'CHAIN_CMDS_USIM', 'CHAIN_CMDS_RAM']) {
@@ -225,6 +225,24 @@ test('CREATE FILE FCP template skeleton (TS 102 222 table 4)', () => {
 	_chains['chain-usim'].rows.push(r4);
 	chainBuildFcp('chain-usim', 3, 'resize');
 	assert.strictEqual(r4.fields.fcp, '620883026F0780020010');
+});
+
+test('pushSectionApdu builds the guided §9 push commands (Remote APDU pill)', () => {
+	// BIP channel opening: OPEN CHANNEL TLVs are optional.
+	assert.strictEqual(pushSectionApdu('bip', { request: '01', pushData: '350103' }), '80EC010103350103');
+	assert.strictEqual(pushSectionApdu('bip', { request: '01', pushData: '' }), '80EC0101');
+	// CAT_TP: the destination port is mandatory (9.2.2).
+	assert.strictEqual(pushSectionApdu('bip', { request: '02', pushPort: '1F90' }), '80EC0102053C03001F90');
+	assert.strictEqual(pushSectionApdu('bip', { request: '02', pushPort: '' }), '');
+	// TCP: port and destination address are mandatory (9.2.3).
+	assert.strictEqual(
+		pushSectionApdu('tcp', { request: '03', pushPort: '0050', pushAddr: '210A000001', pushApn: 'internet' }),
+		'80EC010319' + '3501033C030200503E05210A0000014708696E7465726E6574');
+	assert.strictEqual(pushSectionApdu('tcp', { request: '03', pushPort: '0050' }), '');
+	assert.strictEqual(pushSectionApdu('tcp', { request: '03', pushAddr: '210A000001' }), '');
+	// Identification packet: optional data, ICCID is used when absent (9.2.4).
+	assert.strictEqual(pushSectionApdu('tcp', { request: '04', pushIdent: '0102' }), '80EC01040436020102');
+	assert.strictEqual(pushSectionApdu('tcp', { request: '04', pushIdent: '' }), '80EC0104');
 });
 
 test('chainApduList drops GET RESPONSE and splits multi-APDU rows', () => {

@@ -44,7 +44,7 @@ Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profil
 
 ## Remote APDU tab
 
-Builds command APDUs (C-APDUs). Seven sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **RAM/GP**, **Expanded Script**, **HTTP OTA**, **C-APDU Parser**, and **Response parser**.
+Builds command APDUs (C-APDUs). Seven sub-tabs cover different card generations, command sets and decoding tools: **SIM RFM**, **USIM RFM**, **RAM/GP**, **Expanded Script**, **Push commands**, **C-APDU Parser**, and **Response parser**.
 
 ### SIM RFM
 
@@ -357,7 +357,11 @@ Swaps nibble pairs of an even-length hex string.
 
 Pastes raw APDU hex and renders a collapsible tree. It auto-detects the container: an **Expanded Script** (leading `AA` or `AE80`, decoded per ETSI TS 102 226 §5.2.1) or a **Compact C-APDU chain** (a sequence of ISO 7816 C-APDUs). Each node shows its label, hex, and a short description; parent nodes expand to reveal their sub-elements.
 
-### HTTP OTA
+### Push commands
+
+Groups the commands that make the card dial out: the GlobalPlatform HTTP administration session trigger (and its Store mode) plus the ETSI TS 102 226 §9 PUSH variants. They are delivered differently - the administration trigger is a TLV message for the Security Domain, a §9 PUSH is a C-APDU (`80 EC 01 P2`) for an application that supports BIP/CAT_TP.
+
+#### Administration session (HTTP OTA)
 
 Builds the Remote Application Management over HTTP payloads defined in GlobalPlatform **GPC v2.2 Amendment B v1.1** (§4.7). Two modes:
 
@@ -372,6 +376,13 @@ Builds the Remote Application Management over HTTP payloads defined in GlobalPla
 | HTTP POST | `89` | Tables 4-8/9/10: Host header (`8A`), X-Admin-From agent ID (`8B`), URI (`8C`) — text converted to octets. |
 
 The **Command Scripting template** checkbox wraps the whole `81` triggering command in the definite-length Expanded Remote Application data format (`AA`, ETSI TS 102 226 §5.2.1) for TARs that process the expanded format. **Pack into Secured packet** sends the built payload to the SCP80 tab for SPI/counter filling — insert the TAR the SD listens on (typically the OTASD TAR) there.
+
+#### TS 102 226 §9 PUSH
+
+Two guided sections build the §9 requests with the same encoder as the RAM/GP chain's **PUSH** row and offer **Pack into Secured packet** (TAR stays manual - the request goes to the target application) and **→ Expanded Script** (wraps the APDU in the `22` Command TLV):
+
+- **BIP / CAT_TP** — `01` BIP channel opening (OPEN CHANNEL COMPREHENSION-TLVs optional) or `02` CAT_TP link (destination port in transport level `3C` with protocol type 00, optional buffer size `39` / identification data `36`);
+- **TCP** — `03` TCP connection (bearer `35`, transport level `3C` with protocol type 02, destination address `3E` - `21` IPv4 / `57` IPv6 / `F0` FQDN, NAA/APN `47`) or `04` identification packet (sent over an already open channel; the ICCID is used when absent).
 
 ---
 

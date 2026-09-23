@@ -54,7 +54,7 @@
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="usim" onclick="cApduSwitchSubtab('usim')">USIM RFM</button>
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="ram" onclick="cApduSwitchSubtab('ram')">RAM/GP</button>
 			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="ber" onclick="cApduSwitchSubtab('ber')">Expanded Script</button>
-			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="httpota" onclick="cApduSwitchSubtab('httpota')">HTTP OTA</button>
+			<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="httpota" onclick="cApduSwitchSubtab('httpota')" data-l10n="Push commands">Push commands</button>
 		<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="parse" onclick="cApduSwitchSubtab('parse')" data-l10n="C-APDU Parser">C-APDU Parser</button>
 		<button class="c-apdu-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-sub="response" onclick="cApduSwitchSubtab('response')" data-l10n="Response parser">Response parser</button>
 		</div>
@@ -182,6 +182,7 @@
 	</div>
 
 	<div id="c-apdu-sub-httpota" class="hidden">
+		<h3 class="text-base font-medium mb-3" data-l10n="Administrative session — administration trigger (HTTP OTA)">Administrative session — administration trigger (HTTP OTA)</h3>
 		<div class="flex gap-2 mb-3">
 			<button id="hota-mode-trigger" onclick="hotaSetMode('trigger')" class="px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-l10n="Trigger (Push SMS)">Trigger (Push SMS)</button>
 			<button id="hota-mode-store" onclick="hotaSetMode('store')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Store (SD admin params)">Store (SD admin params)</button>
@@ -293,6 +294,71 @@
 
 		<textarea id="hota-preview" rows="5" readonly oninput="hotaPreviewEdited()" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-3" placeholder="RAM-over-HTTP payload will appear here..."></textarea>
 		<button onclick="packToSp('hota-preview')" id="hota-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+
+		<h3 class="text-base font-medium mt-4 mb-2" data-l10n="BIP / CAT_TP trigger (TS 102 226 §9)">BIP / CAT_TP trigger (TS 102 226 §9)</h3>
+		<p class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Not the administration session — a C-APDU for an app that supports BIP/CAT_TP">Not the administration session — a C-APDU for an app that supports BIP/CAT_TP</p>
+		<div class="border border-gray-300 dark:border-slate-600 rounded p-3 bg-gray-50 dark:bg-slate-800 mb-3">
+			<div class="mb-2">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Request">Request</label>
+				<select id="push-bip-request" onchange="pushUpdate('bip')" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">
+					<option value="01" data-l10n="BIP channel opening (OPEN CHANNEL)">BIP channel opening (OPEN CHANNEL)</option>
+					<option value="02" data-l10n="CAT_TP link establishment">CAT_TP link establishment</option>
+				</select>
+			</div>
+			<div data-push-bip="01">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)">OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)</label>
+				<textarea id="push-bip-data" rows="2" oninput="pushUpdate('bip')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 mb-2" placeholder="82102081..."></textarea>
+			</div>
+			<div data-push-bip="02" class="grid grid-cols-3 gap-2 mb-2">
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination port (hex)">Destination port (hex)</label>
+					<input id="push-bip-port" oninput="pushUpdate('bip')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="1F90"></div>
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Max SDU (hex, optional)">Max SDU (hex, optional)</label>
+					<input id="push-bip-sdu" oninput="pushUpdate('bip')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></div>
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Identification data (hex, optional)">Identification data (hex, optional)</label>
+					<input id="push-bip-ident" oninput="pushUpdate('bip')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></div>
+			</div>
+			<div data-push-bip="02">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Extra TLVs (hex, optional)">Extra TLVs (hex, optional)</label>
+				<input id="push-bip-extra" oninput="pushUpdate('bip')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+			</div>
+		</div>
+		<textarea id="push-bip-preview" rows="2" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-2" placeholder="C-APDU (TS 102 226 §9)"></textarea>
+		<button onclick="packToSp('push-bip-preview')" id="push-bip-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+		<button onclick="pushToExpanded('push-bip-preview')" id="push-bip-exp-btn" disabled class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="→ Expanded Script">→ Expanded Script</button>
+
+		<h3 class="text-base font-medium mt-4 mb-2" data-l10n="TCP trigger (TS 102 226 §9)">TCP trigger (TS 102 226 §9)</h3>
+		<p class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="Not the administration session — a C-APDU for an app that supports BIP/CAT_TP">Not the administration session — a C-APDU for an app that supports BIP/CAT_TP</p>
+		<div class="border border-gray-300 dark:border-slate-600 rounded p-3 bg-gray-50 dark:bg-slate-800 mb-3">
+			<div class="mb-2">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Request">Request</label>
+				<select id="push-tcp-request" onchange="pushUpdate('tcp')" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">
+					<option value="03" data-l10n="TCP connection">TCP connection</option>
+					<option value="04" data-l10n="Identification packet">Identification packet</option>
+				</select>
+			</div>
+			<div data-push-tcp="03" class="grid grid-cols-2 gap-2 mb-2">
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Bearer description (hex, empty = 350103)">Bearer description (hex, empty = 350103)</label>
+					<input id="push-tcp-bearer" oninput="pushUpdate('tcp')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="350103"></div>
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination port (hex)">Destination port (hex)</label>
+					<input id="push-tcp-port" oninput="pushUpdate('tcp')" maxlength="4" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="0050"></div>
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)">Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)</label>
+					<input id="push-tcp-addr" oninput="pushUpdate('tcp')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="210A000001"></div>
+				<div><label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="NAA / APN (text)">NAA / APN (text)</label>
+					<input id="push-tcp-apn" oninput="pushUpdate('tcp')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" placeholder="internet"></div>
+			</div>
+			<div data-push-tcp="04" class="mb-2">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Identification data (hex, optional; ICCID when empty)">Identification data (hex, optional; ICCID when empty)</label>
+				<input id="push-tcp-ident" oninput="pushUpdate('tcp')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+				<div class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="The identification packet is sent over an already open TCP channel (not a trigger).">The identification packet is sent over an already open TCP channel (not a trigger).</div>
+			</div>
+			<div data-push-tcp="03">
+				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Extra TLVs (hex, optional)">Extra TLVs (hex, optional)</label>
+				<input id="push-tcp-extra" oninput="pushUpdate('tcp')" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+			</div>
+		</div>
+		<textarea id="push-tcp-preview" rows="2" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800 mb-2" placeholder="C-APDU (TS 102 226 §9)"></textarea>
+		<button onclick="packToSp('push-tcp-preview')" id="push-tcp-pack-btn" disabled class="mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Pack into Secured packet">Pack into Secured packet</button>
+		<button onclick="pushToExpanded('push-tcp-preview')" id="push-tcp-exp-btn" disabled class="mb-3 px-5 py-2.5 bg-violet-600 text-white text-sm font-medium rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="→ Expanded Script">→ Expanded Script</button>
 	</div>
 
 			<div id="c-apdu-sub-response" class="hidden">
@@ -1451,7 +1517,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.4.0';
+const SIMPLE_VERSION = '3.5.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2039,8 +2105,87 @@ function hotaPreviewEdited() {
 	const hex = document.getElementById('hota-preview').value;
 	document.getElementById('hota-pack-btn').disabled = !hex;
 }
+
+// ===== Push command sections (TS 102 226 9) =====
+// The BIP/CAT_TP and TCP sections feed the same encoder as the RAM/GP chain's
+// PUSH command (chainPushData, vector-tested in ts102226.test.js) and preview
+// the resulting C-APDU.  A §9 PUSH is addressed to the application's TAR, so
+// packing does not auto-select a TAR (unlike the RFM/RAM chain previews).
+function pushReadFields(section) {
+	const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+	if (section === 'bip') {
+		return {
+			request: v('push-bip-request') || '01',
+			pushData: v('push-bip-data'),
+			pushPort: v('push-bip-port'),
+			pushSdu: v('push-bip-sdu'),
+			pushIdent: v('push-bip-ident'),
+			pushExtra: v('push-bip-extra'),
+		};
+	}
+	return {
+		request: v('push-tcp-request') || '03',
+		pushBearer: v('push-tcp-bearer'),
+		pushPort: v('push-tcp-port'),
+		pushAddr: v('push-tcp-addr'),
+		pushApn: v('push-tcp-apn'),
+		pushIdent: v('push-tcp-ident'),
+		pushExtra: v('push-tcp-extra'),
+	};
+}
+
+// C-APDU for a §9 push from the section's field values; empty when a mandatory
+// parameter is missing (TS 102 226 9.2.2/9.2.3: CAT_TP and TCP need the
+// destination port, TCP also the destination address).  P2=01/04 may carry no
+// data (the application defaults / ICCID are used).  The RAM/GP chain row
+// stays lenient so scripts can be composed freely.
+function pushSectionApdu(section, f) {
+	const request = f.request || (section === 'bip' ? '01' : '03');
+	const hx = s => (s || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (request === '02' && hx(f.pushPort).length !== 4) return '';
+	if (request === '03' && (hx(f.pushPort).length !== 4 || !hx(f.pushAddr))) return '';
+	const data = chainPushData(Object.assign({}, f, { pushType: request }));
+	if (!data) return buildApdu(0x80, 0xEC, 0x01, parseInt(request, 16), null, null);
+	return buildApdu(0x80, 0xEC, 0x01, parseInt(request, 16), data.length / 2, data);
+}
+
+function pushToggleFields(section) {
+	const sel = document.getElementById('push-' + section + '-request');
+	const request = sel ? sel.value : '';
+	document.querySelectorAll('[data-push-' + section + ']').forEach(el => {
+		const when = (el.getAttribute('data-push-' + section) || '').split(',');
+		el.classList.toggle('hidden', when.indexOf(request) < 0);
+	});
+}
+
+function pushUpdate(section) {
+	pushToggleFields(section);
+	const apdu = pushSectionApdu(section, pushReadFields(section));
+	const preview = document.getElementById('push-' + section + '-preview');
+	if (preview) preview.value = apdu;
+	['pack', 'exp'].forEach(kind => {
+		const btn = document.getElementById('push-' + section + '-' + kind + '-btn');
+		if (btn) btn.disabled = !apdu;
+	});
+}
+
+// Import the §9 C-APDU into the Expanded Script builder as a 22 command TLV.
+function pushToExpanded(sourceId) {
+	const hex = (document.getElementById(sourceId) || {}).value || '';
+	if (!hex) return;
+	cApduSwitchSubtab('ber');
+	berAppendApdu(hex);
+	genBerTlv();
+}
+
+function pushInit() {
+	['bip', 'tcp'].forEach(pushUpdate);
+}
+pushInit();
+
 document.querySelectorAll('#c-apdu-sub-httpota input, #c-apdu-sub-httpota select').forEach(el => {
 	if (el.type === 'checkbox') return;
+	if ((el.id || '').indexOf('push-') === 0) return;   // §9 sections update themselves
 	el.addEventListener('input', hotaUpdatePreview);
 });
 
@@ -3893,17 +4038,20 @@ function chainRamApduList() {
 	return chainApduList('chain-ram');
 }
 
+// Append one raw APDU as a C-APDU row of the Expanded Script builder.
+function berAppendApdu(hex) {
+	const row = addBerRow('c-apdu');
+	const input = row.querySelector('.ber-hex');
+	if (input) input.value = hex;
+	updateBerRow(row.querySelector('.ber-type'));
+}
+
 // Import a built chain into the Expanded Script builder as C-APDU rows.
 function loadExpandedScript(chainId) {
 	const apdus = chainApduList(chainId);
 	if (!apdus.length) return;
 	cApduSwitchSubtab('ber');
-	for (const hex of apdus) {
-		const row = addBerRow('c-apdu');
-		const input = row.querySelector('.ber-hex');
-		if (input) input.value = hex;
-		updateBerRow(row.querySelector('.ber-type'));
-	}
+	apdus.forEach(berAppendApdu);
 	genBerTlv();
 }
 
@@ -14735,6 +14883,27 @@ const LANG_RU = {
 	'actual': 'фактически',
 	'HTTP OTA': 'HTTP OTA',
 	'Trigger (Push SMS)': 'Триггер (Push SMS)',
+	'Push commands': 'Пуш/триггер',
+	'Administrative session — administration trigger (HTTP OTA)': 'Сессия администрирования — триггер (HTTP OTA)',
+	'BIP / CAT_TP trigger (TS 102 226 §9)': 'Триггер BIP / CAT_TP (TS 102 226 §9)',
+	'TCP trigger (TS 102 226 §9)': 'Триггер TCP (TS 102 226 §9)',
+	'Not the administration session — a C-APDU for an app that supports BIP/CAT_TP': 'C-APDU для приложения с поддержкой BIP/CAT_TP (не admin session!)',
+	'Request': 'Запрос',
+	'BIP channel opening (OPEN CHANNEL)': 'Открытие BIP-канала (OPEN CHANNEL)',
+	'CAT_TP link establishment': 'Установление соединения CAT_TP',
+	'TCP connection': 'TCP-соединение',
+	'Identification packet': 'Пакет идентификации',
+	'OPEN CHANNEL COMPREHENSION-TLVs (hex, optional)': 'COMPREHENSION-TLV OPEN CHANNEL (hex, необязательно)',
+	'Destination port (hex)': 'Порт назначения (hex)',
+	'Max SDU (hex, optional)': 'Макс. SDU (hex, необязательно)',
+	'Identification data (hex, optional)': 'Данные идентификации (hex, необязательно)',
+	'Identification data (hex, optional; ICCID when empty)': 'Данные идентификации (hex, необязательно; при пустом — ICCID)',
+	'Extra TLVs (hex, optional)': 'Дополнительные TLV (hex, необязательно)',
+	'Bearer description (hex, empty = 350103)': 'Описание bearer (hex, пусто = 350103)',
+	'Destination address value (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)': 'Значение адреса назначения (hex: 21 IPv4 / 57 IPv6 / F0 FQDN)',
+	'NAA / APN (text)': 'NAA / APN (текст)',
+	'The identification packet is sent over an already open TCP channel (not a trigger).': 'Пакет идентификации отправляется по уже открытому TCP-каналу (не триггер).',
+	'C-APDU (TS 102 226 §9)': 'C-APDU (TS 102 226 §9)',
 	'Store (SD admin params)': 'Store (параметры SD)',
 	'SD params tag': 'Tag параметров SD',
 	"Connection parameters ('84')": "Параметры соединения ('84')",
