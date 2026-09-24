@@ -415,7 +415,7 @@ Builds SCP80 secured packets per ETSI TS 102 225.
 | Field | Size | Description |
 |---|---|---|
 | CPI | 1 | Command Packet Identifier (`02`) |
-| CPL | 1 | Command Packet Length |
+| CPL | 2 (SMS) | Command Packet Length (CHL..end incl. padding) |
 | CHI | 1 | Command Header Identifier (`01`) |
 | CHL | 1 | Command Header Length |
 | SPI | 2 | Security Parameter Indicator |
@@ -424,7 +424,7 @@ Builds SCP80 secured packets per ETSI TS 102 225.
 | TAR | 3 | Toolkit Application Reference |
 | CNTR | 5 | Replay counter |
 | PCNTR | 1 | Padding counter |
-| RC/CC/DS | 8 | Cryptographic Checksum / MAC |
+| RC/CC/DS | 4–8 | Redundancy Check (CRC-32) / Cryptographic Checksum (MAC) / Digital Signature |
 | Secured Data | variable | Padded APDU (encrypted if required) |
 
 #### SPI1 (Security Level)

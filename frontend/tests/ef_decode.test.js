@@ -28,6 +28,7 @@ const FNS = [
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
 	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
+	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
 	'efDecExt1', 'efDecSms', 'efDecSume', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
 	'efDecodeFile', 'efDecodeHex', 'efIsRawOnly', 'efFieldLabel', 'efPrimitive', 'efFlatten',
 	'efDiffData', 'efDataSummary', 'efContentDiff', 'gsm7Decode', 'efRenderFieldsHtml',
@@ -152,8 +153,22 @@ test('EF record decoders: SMS, OPL, DIR, ARR, IMPI/SMSP', () => {
 	assert.strictEqual(dir.applications.length, 1);
 	assert.strictEqual(dir.applications[0].aid, 'A0000000871002FFFFFFFF8907090000');
 	assert.strictEqual(dir.applications[0].label, 'USim1');
+	// EF.ARR: AM_DO 01 (read) guarded by ADM1 (TS 102 221 9.2.7 / ISO 7816-4 5.4.3.2)
 	const arr = efDecArr(efBytes('800101a40683010a950108'));
-	assert.deepStrictEqual(arr.rules, [{ tag: '0x80', hex: '01' }, { tag: '0xA4', hex: '83010A950108' }]);
+	assert.deepStrictEqual(arr.rules, ['AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)']);
+	// Two rules: update needs PIN app1 or app2, read is always
+	assert.deepStrictEqual(
+		efDecArr(efBytes('800102a010a406830101950108a4068301029501088001019000')).rules,
+		['AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): (PIN app1 (verify) OR PIN app2 (verify))',
+			'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always']);
+	// INCREASE / RESIZE ride AM_DO 0x84 with the command INS as value
+	assert.deepStrictEqual(efDecArr(efBytes('8401329000')).rules,
+		['INCREASE (AM_DO 0x84, INS 0x32): always']);
+	assert.deepStrictEqual(efDecArr(efBytes('8401D49000')).rules,
+		['RESIZE FILE (AM_DO 0x84, INS 0xD4): always']);
+	// b8=1: bits 7-4 are proprietary
+	assert.deepStrictEqual(efDecArr(efBytes('8001819000')).rules,
+		['AM 0x81 (bits 7-4 proprietary + READ/SEARCH (EF) / DELETE FILE child (DF)): always']);
 	const impi = efDecNai(efBytes('803137333830303630303030303031303140696d732e6d6e633030302e6d63633733382e336770706e6574776f726b2e6f7267'));
 	assert.strictEqual(impi.text, '738006000000101@ims.mnc000.mcc738.3gppnetwork.org');
 	const smsp = efDecSmsp(efBytes('534d5343ffffffffffffffffffffffffe1ffffffffffffffffffffffff0891945197109099f9ffffff0000a9'));

@@ -59,6 +59,8 @@ REFERENCE_VECTORS = {
         '00201516011515b00000e42573469e68a8462a57a505b0e2b1c09c1928c7a182311f',
     ('02', '09'):
         '001d1502091515b0000000000000010085a8ca1a9828b0bb00a40000023f00',
+    ('01', '09'):
+        '00191101091515b0000000000000010050c942dc00a40000023f00',
 }
 
 # AES-128 reference vectors (public synthetic keys from pySim test_ota.py).
@@ -153,6 +155,10 @@ class TestOtaReference(unittest.TestCase):
         out, _ = _ota_reference('02', '09', '15', '15', 'b00000', '0000000001', APDU, K, K)
         self.assertEqual(out, REFERENCE_VECTORS[('02', '09')])
 
+    def test_unciphered_rc_reference(self):
+        out, _ = _ota_reference('01', '09', '15', '15', 'b00000', '0000000001', APDU, K, K)
+        self.assertEqual(out, REFERENCE_VECTORS[('01', '09')])
+
     def test_unciphered_cpl_is_0x001d(self):
         # Regression: CPL counts octets from the CHL octet to the last octet
         # of the secured data (29 here), it must NOT be len(out)-2 (27/0x001b).
@@ -228,6 +234,22 @@ class TestSmsConcatenation(unittest.TestCase):
         # Without the CPI IE the single-SM budget is the full 140 octets.
         self.assertEqual(_split_secured_packet(b'A' * 140, include_cpi=False),
                          [b'A' * 140])
+
+    def test_unprotected_single_sm_keeps_the_chl_first_form(self):
+        # TS 31.115 Table 1 NOTE: the CPL is "not absolutely necessary" in a
+        # single SM - an unprotected packet keeps pySim's CHL-first form.
+        out, _ = _build_secured_packet('00', '09', '15', '15', 'b00000',
+                                       '0000000001', APDU, K, K)
+        self.assertEqual(out[:2], '0d')
+
+    def test_unprotected_concatenated_packet_gains_the_cpl(self):
+        # ... but it is required once the packet needs concatenation
+        # (TS 31.115 Table 1 NOTE / 4.3).
+        out, _ = _build_secured_packet('00', '09', '15', '15', 'b00000',
+                                       '0000000001', 'A0' * 200, K, K)
+        self.assertEqual(len(out) // 2, 216)
+        self.assertEqual(out[:4], '00d6')   # CPL = 214 = CHL..end
+        self.assertEqual(int(out[:4], 16), len(out) // 2 - 2)
 
     def test_240_byte_load_block_encodes_and_fits_the_card_buffer(self):
         # The RAM path no longer clamps LOAD blocks to one SMS: a 240-byte

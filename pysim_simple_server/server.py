@@ -29,7 +29,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.0'
+VERSION = '3.5.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -937,9 +937,12 @@ def _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex, kic_key_he
     otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
     spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
     out = OtaDialectSms().encode_cmd(otak, h2b(tar_hex), spi, h2b(apdu_hex))
-    if not spi['ciphering'] and spi['rc_cc_ds'] != 'no_rc_cc_ds':
+    if not spi['ciphering'] and (spi['rc_cc_ds'] != 'no_rc_cc_ds'
+                                 or len(out) > SCP80_SINGLE_BYTES):
         # pySim drops the CPL octets from its unciphered output; re-add them
-        # (they are included in the RC/CC/DS calculation) per TS 31.115 4.2.
+        # per TS 31.115 4.2 (they are part of the RC/CC/DS input) and per
+        # Table 1 NOTE / 4.3 (required for concatenation - the CHL-to-end
+        # range exceeds one SM).
         # CPL counts octets from the CHL octet to the last octet of the
         # Secured Data (incl. padding); pySim's unciphered output is exactly
         # that range, so the CPL value equals its length.
@@ -1031,10 +1034,12 @@ def _build_secured_packet(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex,
     otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
     spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
     out = _encode_cmd_unlimited(otak, spi, h2b(tar_hex), h2b(apdu_hex))
-    if not spi['ciphering'] and spi['rc_cc_ds'] != 'no_rc_cc_ds':
+    if not spi['ciphering'] and (spi['rc_cc_ds'] != 'no_rc_cc_ds'
+                                 or len(out) > SCP80_SINGLE_BYTES):
         # CPL counts octets from the CHL octet to the last octet of the
         # Secured Data (incl. padding) - exactly the length of the
-        # unciphered range.
+        # unciphered range.  Added for the RC/CC/DS input and for
+        # concatenation (TS 31.115 Table 1 NOTE / 4.3).
         cpl = len(out)
         out = cpl.to_bytes(2, 'big') + out
     return b2h(out), spi

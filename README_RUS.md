@@ -390,7 +390,7 @@ CLA = `80` (GlobalPlatform v2.3.1). Удалённое управление со
 | Поле | Размер | Описание |
 |---|---|---|
 | CPI | 1 | Command Packet Identifier (`02`) |
-| CPL | 1 | Command Packet Length |
+| CPL | 2 (SMS) | Command Packet Length (CHL..конец, включая padding) |
 | CHI | 1 | Command Header Identifier (`01`) |
 | CHL | 1 | Command Header Length |
 | SPI | 2 | Security Parameter Indicator |
@@ -399,7 +399,7 @@ CLA = `80` (GlobalPlatform v2.3.1). Удалённое управление со
 | TAR | 3 | Toolkit Application Reference |
 | CNTR | 5 | Счётчик повторов |
 | PCNTR | 1 | Padding counter |
-| RC/CC/DS | 8 | Контрольная сумма / MAC |
+| RC/CC/DS | 4–8 | CRC (CRC-32) / контрольная сумма (MAC) / цифровая подпись |
 | Secured Data | переменная | APDU (с шифрованием при необходимости) |
 
 #### SPI1 (Уровень безопасности)

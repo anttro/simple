@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.0';
+const SIMPLE_VERSION = '3.5.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4500,10 +4500,23 @@ function aesCmac(data, keyBytes) {
 	return mac.subarray(0, 8);
 }
 
+// Redundancy Check (RC) = CRC-32 (TS 102 225 5.1.3.2): reflected polynomial
+// 0xEDB88320, init and final XOR 0xFFFFFFFF, result big-endian - byte-identical
+// to pySim's zlib.crc32() usage.
+function crc32Bytes(data) {
+	let crc = 0xFFFFFFFF;
+	for (let i = 0; i < data.length; i++) {
+		crc ^= data[i];
+		for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+	}
+	crc = (crc ^ 0xFFFFFFFF) >>> 0;
+	return new Uint8Array([(crc >>> 24) & 0xFF, (crc >>> 16) & 0xFF, (crc >>> 8) & 0xFF, crc & 0xFF]);
+}
+
 // ===== Secure Packet assembly =====
 // TS 102 225 Table 1/2 + TS 31.115 Table 1 (SMS-PP):
 //   CPL(2) CHL(1) SPI(2) KIc(1) KID(1) TAR(3) CNTR(5) PCNTR(1) [RC/CC/DS] secured-data(+padding)
-// CPL = octets from CHL to end incl. padding; CHL = 13 + len_sig.
+// CPL = octets from CHL to end incl. padding; CHL = 13 + len_sig (CC 8, RC 4).
 // CPI (0x70) and CHI (null) are NOT part of the SMS packet data.
 function genSp() {
 	_genSpBuild();
@@ -4575,7 +4588,9 @@ function _genSpBuild() {
 	const kidIsAes = kidAlg === 0x02;
 
 	const ciphering = (spi1 & 0x04) !== 0;
-	const hasMac = (spi1 & 0x03) === 0x02;
+	const rcCcDs = spi1 & 0x03;                // 00 none / 01 RC / 10 CC / 11 DS (not offered)
+	const hasRc = rcCcDs === 0x01;
+	const hasMac = rcCcDs === 0x02;
 
 	const resultEl = document.getElementById('sp-result');
 
@@ -4624,13 +4639,13 @@ function _genSpBuild() {
 
 	const apdu = hexToBytes(apduHex);
 
-	const macLen = hasMac ? 8 : 0;
+	const sigLen = hasMac ? 8 : (hasRc ? 4 : 0);
 	// padding aligns CNTR+PCNTR+RC/CC/DS+data to the cipher block size (ciphering only)
 	const cipherBlock = kicIsAes ? 16 : 8;
-	const padCnt = ciphering ? (cipherBlock - ((6 + macLen + apdu.length) % cipherBlock)) % cipherBlock : 0;
+	const padCnt = ciphering ? (cipherBlock - ((6 + sigLen + apdu.length) % cipherBlock)) % cipherBlock : 0;
 
-	const chl = 13 + macLen;
-	const cpl = 14 + macLen + apdu.length + padCnt;
+	const chl = 13 + sigLen;
+	const cpl = 14 + sigLen + apdu.length + padCnt;
 
 	const packetLen = 3 + chl + apdu.length + padCnt;
 	const packet = new Uint8Array(packetLen);
@@ -4652,18 +4667,18 @@ function _genSpBuild() {
 	packet[14] = parseInt(cntrHex.substr(8,2), 16);
 	packet[15] = padCnt;
 	const macOff = 16;
-	const dataOff = macOff + macLen;
+	const dataOff = macOff + sigLen;
 	packet.set(apdu, dataOff);
 	for (let i = 0; i < padCnt; i++) packet[dataOff + apdu.length + i] = padByte;
 
-	if (hasMac && kidKey) {
-		// CC is computed over CPL+CHL+SPI+KIc+KID+TAR+CNTR+PCNTR+data(+padding),
+	if (sigLen) {
+		// RC/CC is computed over CPL+CHL+SPI+KIc+KID+TAR+CNTR+PCNTR+data(+padding),
 		// i.e. everything up to (but excluding) the RC/CC/DS field (TS 31.115 4.2).
-		const macInput = new Uint8Array(packet.length - macLen);
-		macInput.set(packet.subarray(0, macOff));
-		macInput.set(packet.subarray(dataOff), macOff);
-		const mac = kidIsAes ? aesCmac(macInput, kidKey) : cbcMac(macInput, kidKey);
-		packet.set(mac, macOff);
+		const sigInput = new Uint8Array(packet.length - sigLen);
+		sigInput.set(packet.subarray(0, macOff));
+		sigInput.set(packet.subarray(dataOff), macOff);
+		if (hasRc) packet.set(crc32Bytes(sigInput), macOff);
+		else if (kidKey) packet.set(kidIsAes ? aesCmac(sigInput, kidKey) : cbcMac(sigInput, kidKey), macOff);
 	}
 
 	if (ciphering && kicKey) {
@@ -4675,9 +4690,12 @@ function _genSpBuild() {
 		packet.set(encrypted, 10);
 	}
 
-	// pySim encode_cmd parity: the 2-byte CPL prefix is transmitted only when
-	// ciphering is applied; unciphered packets start at CHL (v1.9.5).
-	resultEl.value = bytesToHex(ciphering ? packet : packet.subarray(2));
+	// CPL transmission (TS 31.115 Table 1 NOTE + 4.3): it is transmitted when
+	// the packet is ciphered or carries RC/CC/DS - it is part of their input -
+	// and it is required once the packet needs SMS concatenation.  A single
+	// unprotected SM keeps pySim's CHL-first form ("not absolutely necessary").
+	const withCpl = ciphering || rcCcDs !== 0 || (packet.length - 2) > SCP80_SINGLE_BYTES;
+	resultEl.value = bytesToHex(withCpl ? packet : packet.subarray(2));
 }
 
 // ===== BER-TLV =====
@@ -13017,13 +13035,17 @@ function fcpFileDescriptor(v) {
 function fcpLifeCycle(v) {
 	if (v.length !== 2) return v;
 	const b = parseInt(v, 16);
+	// TS 102 221 Table 11.7b: the state rows all keep b8-b5 clear; b8 set is
+	// proprietary, any other unlisted value is RFU.
+	if (b & 0x80) return 'proprietary (' + v + ')';
+	if (b & 0x70) return 'RFU (' + v + ')';
 	if (b === 0x00) return 'no information';
 	if (b === 0x01) return 'creation';
 	if (b === 0x03) return 'initialization';
 	if ((b & 0x0C) === 0x0C) return 'termination';
 	if ((b & 0x05) === 0x05) return 'operational, activated';
 	if ((b & 0x05) === 0x04) return 'operational, deactivated';
-	return 'proprietary (' + v + ')';
+	return 'RFU (' + v + ')';
 }
 
 // TS 102 221 11.1.1.4.8: SFI in b8-b4, b3-b1 zero; length 0 = no short id.
@@ -13031,6 +13053,35 @@ function fcpSfi(v) {
 	if (!v) return 'not supported';
 	if (v.length === 2 && (parseInt(v, 16) & 0x07) === 0) return String(parseInt(v, 16) >> 3);
 	return v;
+}
+
+// TS 102 221 11.1.1.4.10 / 9.5.2: PS template DO 'C6' = PS_DO ('90') + optional
+// usage qualifier ('95') + key reference ('83', repeatable).  The PS_DO is a
+// bitmap over the key references in order, MSB first; a set bit = PIN enabled.
+function fcpPsTemplate(v) {
+	const parsed = fcpParseTlvs(v);
+	let psDo = null, uq = null;
+	const pins = [];
+	for (const t of parsed.tlvs) {
+		if (t.tag === '90') psDo = t.value;
+		else if (t.tag === '95') uq = t.value.length ? parseInt(t.value, 16) : 0;
+		else if (t.tag === '83' && t.value.length) {
+			const idx = pins.length;
+			let enabled = false;
+			if (psDo && psDo.length) {
+				const byteIdx = idx >> 3, bit = 7 - (idx & 7);
+				if (byteIdx * 2 + 2 <= psDo.length) enabled = ((parseInt(psDo.substr(byteIdx * 2, 2), 16) >> bit) & 1) === 1;
+			}
+			let s = pinKeyRefName(parseInt(t.value, 16)) + ': ' + (enabled ? 'enabled' : 'disabled');
+			if (uq === null) s += ', always verified';
+			else if (uq === 0) s += ', verification not used';
+			else if (uq & 0x08) s += ', verify';
+			else s += ', usage 0x' + uq.toString(16).toUpperCase().padStart(2, '0');
+			pins.push(s);
+			uq = null;
+		}
+	}
+	return pins.length ? pins.join('; ') : (v || '');
 }
 
 function fcpDo(key, value) {
@@ -13053,7 +13104,7 @@ function fcpDo(key, value) {
 		case 'A0': return { name: 'Security attributes (data objects)', decoded: value };
 		case 'A5': return { name: 'Proprietary information', decoded: null };
 		case 'AB': return { name: 'Security attributes (expanded)', decoded: value };
-		case 'C6': return { name: 'PIN status template DO', decoded: null };
+		case 'C6': return { name: 'PIN status template DO', decoded: fcpPsTemplate(value) };
 		case 'A5/80': {
 			const b = fcpInt(value);
 			const parts = [(b & 0x01) ? 'clock stop allowed' : 'clock stop not allowed'];
@@ -13910,10 +13961,100 @@ function efDecDir(b) {
 	return apps.length ? { applications: apps } : { raw: efHex(b) };
 }
 
+// TS 102 221 9.4.1 Table 9.3: PIN key reference names (ordinal + local PINs).
+function pinKeyRefName(v) {
+	const names = {
+		0x01: 'PIN app1', 0x02: 'PIN app2', 0x03: 'PIN app3', 0x04: 'PIN app4',
+		0x05: 'PIN app5', 0x06: 'PIN app6', 0x07: 'PIN app7', 0x08: 'PIN app8',
+		0x0A: 'ADM1', 0x0B: 'ADM2', 0x0C: 'ADM3', 0x0D: 'ADM4', 0x0E: 'ADM5',
+		0x11: 'universal PIN',
+		0x81: 'PIN2 app1', 0x82: 'PIN2 app2', 0x83: 'PIN2 app3', 0x84: 'PIN2 app4',
+		0x85: 'PIN2 app5', 0x86: 'PIN2 app6', 0x87: 'PIN2 app7', 0x88: 'PIN2 app8',
+		0x8A: 'ADM6', 0x8B: 'ADM7', 0x8C: 'ADM8', 0x8D: 'ADM9', 0x8E: 'ADM10'
+	};
+	if (names[v]) return names[v];
+	return 'key ref 0x' + v.toString(16).toUpperCase().padStart(2, '0');
+}
+
+// ISO 7816-4 Tables 16/17: AM byte bit meanings.  A record does not store
+// whether it protects an EF or a DF, so both mappings are shown.
+function efArrAmLabel(am) {
+	const bits = [
+		[0x40, 'DELETE (self)'],
+		[0x20, 'TERMINATE EF / TERMINATE DF'],
+		[0x10, 'ACTIVATE'],
+		[0x08, 'DEACTIVATE'],
+		[0x04, 'WRITE/APPEND (EF) / CREATE FILE DF (DF)'],
+		[0x02, 'UPDATE/ERASE (EF) / CREATE FILE EF (DF)'],
+		[0x01, 'READ/SEARCH (EF) / DELETE FILE child (DF)'],
+	];
+	if (am & 0x80) {
+		const low = bits.filter(b => (b[0] & 0x07) && (am & b[0])).map(b => b[1]);
+		return 'bits 7-4 proprietary' + (low.length ? ' + ' + low.join(' + ') : '');
+	}
+	const ops = bits.filter(b => am & b[0]).map(b => b[1]);
+	return ops.length ? ops.join(' + ') : 'no operations';
+}
+
+// One SC_DO (ISO 7816-4 Table 23; TS 102 221 Annex E.3).
+function efArrSc(tlv) {
+	const tag = tlv.tag, v = tlv.value;
+	if (tag === 0x90) return 'always';
+	if (tag === 0x97) return 'never';
+	if (tag === 0x9E) return 'security condition 0x' + efHex(v);
+	if (tag === 0xA4) {
+		let ref = null, uq = null;
+		for (const t of efTlv(v)) {
+			if (t.tag === 0x83 && t.value.length) ref = t.value[0];
+			else if (t.tag === 0x95 && t.value.length) uq = t.value[0];
+		}
+		let s = ref === null ? 'PIN' : pinKeyRefName(ref);
+		if (uq === null) s += ' (verify)';
+		else if (uq === 0x00) s += ' (verification not used)';
+		else if (uq & 0x08) s += ' (verify)';
+		else s += ' (usage 0x' + uq.toString(16).toUpperCase().padStart(2, '0') + ')';
+		return s;
+	}
+	if (tag === 0xB4 || tag === 0xB6 || tag === 0xB8) return 'SM CRT 0x' + tag.toString(16).toUpperCase();
+	if (tag === 0xA0) return '(' + efTlv(v).map(x => efArrSc(x)).join(' OR ') + ')';
+	if (tag === 0xAF) return '(' + efTlv(v).map(x => efArrSc(x)).join(' AND ') + ')';
+	if (tag === 0xA7) {
+		const inner = efTlv(v)[0];
+		return 'NOT ' + (inner ? efArrSc(inner) : '?');
+	}
+	return '0x' + tag.toString(16).toUpperCase().padStart(2, '0') + ' ' + efHex(v);
+}
+
+// One AM_DO (ISO 7816-4 Table 21; INCREASE/RESIZE per TS 102 221 11.1.8.1 and
+// TS 102 222 6.10).  Returns null for SC_DOs.
+function efArrAmDo(tlv) {
+	const tag = tlv.tag, v = tlv.value;
+	if (tag === 0x80 && v.length) return 'AM 0x' + efHex(v) + ' (' + efArrAmLabel(v[0]) + ')';
+	if (tag === 0x84) {
+		const ins = v.length ? v[v.length - 1] : 0;
+		if (ins === 0x32) return 'INCREASE (AM_DO 0x84, INS 0x32)';
+		if (ins === 0xD4) return 'RESIZE FILE (AM_DO 0x84, INS 0xD4)';
+		return 'AM_DO 0x84 (INS 0x' + ins.toString(16).toUpperCase().padStart(2, '0') + ')';
+	}
+	if (tag >= 0x81 && tag <= 0x8F) return 'command description 0x' + tag.toString(16).toUpperCase() + ' (' + efHex(v) + ')';
+	if (tag === 0x9C) return 'proprietary state machine (' + efHex(v) + ')';
+	return null;
+}
+
+// EF_ARR records: AM_DO + SC_DO sequences in the expanded format
+// (ISO 7816-4 5.4.3.2; TS 102 221 9.2.7/13.4).  SC_DOs after one AM_DO
+// without an OR template all have to be fulfilled (AND).
 function efDecArr(b) {
 	const rules = [];
-	for (const t of efTlv(b)) rules.push({ tag: '0x' + t.tag.toString(16).toUpperCase().padStart(2, '0'), hex: efHex(t.value) });
-	return rules.length ? { rules: rules } : { raw: efHex(b) };
+	for (const t of efTlv(b)) {
+		const am = efArrAmDo(t);
+		if (am !== null) { rules.push({ am: am, scs: [] }); continue; }
+		const sc = efArrSc(t);
+		if (!rules.length) rules.push({ am: '(no AM_DO)', scs: [] });
+		rules[rules.length - 1].scs.push(sc);
+	}
+	if (!rules.length) return { raw: efHex(b) };
+	return { rules: rules.map(r => r.am + (r.scs.length ? ': ' + r.scs.join(' AND ') : '')) };
 }
 
 function efDecPnn(b) {

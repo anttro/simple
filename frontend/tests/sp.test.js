@@ -27,7 +27,7 @@ function extractFunc(src, name) {
 }
 
 const FNS = ['hexToBytes', 'bytesToHex', 'des3Keys', 'des3EncryptBlock', 'des3CbcEncrypt',
-	'xorBytes', 'zeroPad', 'cbcMac', 'aesCbcEncrypt', 'aesShiftLeft1', 'aesCmacSubkeys',
+	'xorBytes', 'zeroPad', 'crc32Bytes', 'cbcMac', 'aesCbcEncrypt', 'aesShiftLeft1', 'aesCmacSubkeys',
 	'aesCmac', '_genSpBuild', 'genSp', 'spNextCntr', 'scp80SegmentInfo', 'spSizeInfoText',
 	'spShowSizeInfo'];
 let code = '';
@@ -95,16 +95,35 @@ test('ciphered + CC SPI 16/01 (counter_must_be_higher, plaintext PoR)', () => {
 		'00201516011515B00000E42573469E68A8462A57A505B0E2B1C09C1928C7A182311F');
 });
 
-test('unciphered + CC SPI 02/09', () => {
-	assert.strictEqual(
-		makeRun({ 'sp-spi1': '02', 'sp-spi2-hex': '09' }),
-		'1502091515B0000000000000010085A8CA1A9828B0BB00A40000023F00');
+test('unciphered + CC SPI 02/09 carries the CPL', () => {
+	const out = makeRun({ 'sp-spi1': '02', 'sp-spi2-hex': '09' });
+	assert.strictEqual(out,
+		'001D1502091515B0000000000000010085A8CA1A9828B0BB00A40000023F00');
+	assert.strictEqual(parseInt(out.slice(0, 4), 16), out.length / 2 - 2);
 });
 
-test('unciphered packet starts at CHL, no CPL prefix (pySim parity)', () => {
-	const out = makeRun({ 'sp-spi1': '02', 'sp-spi2-hex': '09' });
-	assert.strictEqual(out.slice(0, 2), '15');
-	assert.strictEqual(out.length, 58);
+test('unprotected packet (SPI 00) keeps the pySim CHL-first form', () => {
+	assert.strictEqual(
+		makeRun({ 'sp-spi1': '00', 'sp-spi2-hex': '09' }),
+		'0D00091515B0000000000000010000A40000023F00');
+});
+
+test('unprotected concatenated packet gains the CPL (TS 31.115 4.3)', () => {
+	const out = makeRun({ 'sp-spi1': '00', 'sp-spi2-hex': '09', 'sp-apdu': 'A0'.repeat(200) });
+	assert.strictEqual(out.length / 2, 216);
+	assert.strictEqual(parseInt(out.slice(0, 4), 16), 214);
+	assert.strictEqual(out.slice(4, 6), '0D');
+	assert.strictEqual(scp80SegmentInfo(out).segments, 2);
+});
+
+test('RC (SPI 01) computes CRC-32 over the CPL frame', () => {
+	assert.strictEqual(
+		makeRun({ 'sp-spi1': '01', 'sp-spi2-hex': '09' }),
+		'00191101091515B0000000000000010050C942DC00A40000023F00');
+});
+
+test('crc32Bytes known answer (TS 102 225 Annex B)', () => {
+	assert.strictEqual(bytesToHex(crc32Bytes(hexToBytes('0102030405'))), '470B99F4');
 });
 
 test('sysmocom public reference vector (spi1 04 / spi2 19, cntr=0)', () => {
@@ -174,7 +193,7 @@ test('AES unciphered + CC SPI 12/09 (counter higher)', () => {
 			'sp-kic-key': KIC_AES,
 			'sp-kid-key': KID_AES,
 		}),
-		'1512092222B0001100000000110029826122C7A0B79500A40004023F00');
+		'001D1512092222B0001100000000110029826122C7A0B79500A40004023F00');
 });
 
 test('AES ciphered + CC SPI 1E/19 (counter +1)', () => {
