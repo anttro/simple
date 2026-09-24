@@ -14019,6 +14019,9 @@ function efArrSc(tlv) {
 	if (tag === 0x97) return 'never';
 	if (tag === 0x9E) return 'security condition 0x' + efHex(v);
 	if (tag === 0xA4) {
+		// An AT control reference template carries one key reference and one
+		// usage qualifier (ISO 7816-4 6.3.1); if a malformed CRT repeats the
+		// '83' tag, the last one wins here.
 		let ref = null, uq = null;
 		for (const t of efTlv(v)) {
 			if (t.tag === 0x83 && t.value.length) ref = t.value[0];
