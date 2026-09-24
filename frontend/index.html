@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.3';
+const SIMPLE_VERSION = '3.5.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4593,6 +4593,14 @@ function _genSpBuild() {
 	const hasMac = rcCcDs === 0x02;
 
 	const resultEl = document.getElementById('sp-result');
+
+	// Digital Signature is not implemented (pySim has no DS dialect either):
+	// refuse rather than build a packet whose SPI claims a signature that is
+	// not present.  The selector does not offer '11'; this guards the field.
+	if (rcCcDs === 0x03) {
+		resultEl.value = 'Error: SPI1 RC/CC/DS = 11 (Digital Signature) is not supported';
+		return;
+	}
 
 	// Rel-18: AES requires a replay-protected counter (SPI1 b5b4 = 10 or 11)
 	if ((kicIsAes && ciphering) || (kidIsAes && hasMac)) {

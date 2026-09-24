@@ -303,7 +303,7 @@
 		<li><strong>AES-CBC</strong> encryption (zero ICV, zero-padded to 16), 16/24/32-byte keys (TS 102 225 &sect;5.1.2, KIc <code class="font-mono text-sm">x2</code>)</li>
 		<li><strong>Retail MAC</strong> (ISO 9797-1 MAC algorithm 3) for the DES/3DES cryptographic checksum</li>
 		<li><strong>AES-CMAC</strong> (NIST SP 800-38B, truncated to 8 octets) for the AES cryptographic checksum (TS 102 225 &sect;5.1.3.1, KID <code class="font-mono text-sm">x2</code>)</li>
-		<li><strong>Redundancy Check (RC)</strong> &mdash; CRC-32 over the same header frame as the CC (TS 102 225 &sect;5.1.3.2; needs no key, SPI1 b2b1 = <code class="font-mono text-sm">01</code>)</li>
+		<li><strong>Redundancy Check (RC)</strong> &mdash; CRC-32 over the same header frame as the CC (TS 102 225 &sect;5.1.3.2; needs no key, SPI1 b2b1 = <code class="font-mono text-sm">01</code>). Only CRC-32 is implemented, matching pySim; the KID's CRC-16 coding is not offered.</li>
 		<li>AES requires a replay-protected counter: SPI1 bits b5&nbsp;b4 must be <code class="font-mono text-sm">10</code> (counter higher) or <code class="font-mono text-sm">11</code> (counter +1) per TS 102 225 &sect;5.1.2/&sect;5.1.3.1</li>
 		<li>Padding byte configurable (<code class="font-mono text-sm">00</code> default, or <code class="font-mono text-sm">FF</code>)</li>
 	</ul>

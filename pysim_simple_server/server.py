@@ -29,7 +29,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.3'
+VERSION = '3.5.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2670,9 +2670,11 @@ def _is_pcsc_error(exc):
     return getattr(exc, 'hresult', -1) not in (-1, None)
 
 
-# PC/SC hresults describing the card, not the service: the context and the
-# reader are still fine, so a plain reconnect on the same transport recovers.
-_PCSC_CARD_LEVEL = (
+# PC/SC hresults where rebuilding the transport cannot help: card/media states
+# (the next connect() recovers) and a card that another process holds
+# exclusively (a fresh context cannot free someone else's claim).
+_PCSC_RECOVERABLE = (
+    0x8010000B,   # SCARD_E_SHARING_VIOLATION (another process holds the card)
     0x8010000C,   # SCARD_E_NO_SMARTCARD
     0x80100066,   # SCARD_W_UNRESPONSIVE_CARD
     0x80100067,   # SCARD_W_UNPOWERED_CARD
@@ -2686,14 +2688,15 @@ def _is_transport_fatal(exc):
 
     Only service/context failures (pcscd restart, reader re-enumeration, dead
     handle) require a fresh transport.  Card-level states - most importantly
-    ``SCARD_W_REMOVED_CARD`` on a normal card swap - are recoverable by the
-    next ``connect()`` on the existing link; rebuilding the transport there
-    used to hand the new link the removed card's handle (live bug 2026-09-24:
-    auto-equip failed with 0x80100069 until the server was restarted)."""
+    ``SCARD_W_REMOVED_CARD`` on a normal card swap - and a sharing conflict
+    with another process are recoverable on the existing link; rebuilding the
+    transport there used to hand the new link the removed card's handle (live
+    bug 2026-09-24: auto-equip failed with 0x80100069 until the server was
+    restarted)."""
     hr = getattr(exc, 'hresult', -1)
     if hr in (-1, None):
         return False
-    return hr not in _PCSC_CARD_LEVEL
+    return hr not in _PCSC_RECOVERABLE
 
 
 def _clear_app_card_state(app):
@@ -2710,6 +2713,7 @@ def _clear_app_card_state(app):
     if app is None:
         return
     if getattr(app, 'rs', None) is not None and callable(getattr(app, 'equip', None)):
+        had_stdout = hasattr(app, 'stdout')
         old_stdout = getattr(app, 'stdout', None)
         try:
             app.stdout = StringIO()   # mute the 'pySim-shell not equipped!' line
@@ -2717,8 +2721,13 @@ def _clear_app_card_state(app):
         except Exception as e:
             sys.stderr.write('UNEQUIP: pySim unequip failed: %s\n' % e)
         finally:
-            if old_stdout is not None:
+            if had_stdout:
                 app.stdout = old_stdout
+            else:
+                try:
+                    del app.stdout
+                except Exception:
+                    pass
     app.card = None
     app.rs = None
     app.lchan = None
@@ -2974,15 +2983,47 @@ def _auto_equip_rearm(now=None):
     now = time.time() if now is None else now
     if now - _AUTO_EQUIP_LAST < _AUTO_EQUIP_BACKOFF:
         return False
+    if not _auto_equip_trigger():
+        return False     # busy/disabled: leave the window open for the next tick
     _AUTO_EQUIP_LAST = now
-    return _auto_equip_trigger()
+    return True
+
+def _app_equip_complete(app):
+    """True when pySim's shell really ended up equipped after an equip command.
+
+    cmd2 swallows exceptions raised inside the equip command (it prints them,
+    no traceback, and returns normally), and PysimApp.equip() assigns
+    ``card``/``rs`` before it registers the command sets - so ``app.card``
+    alone cannot tell a completed equip from a half-initialized shell (live
+    2026-09-24: an abort at "CommandSet ... is already installed" passed the
+    card check, the worker reported done and /api/tree stayed broken).  The
+    profile's shell command-set *instances* must be installed; those are
+    exactly what PysimApp.equip() registers.  States that cannot be verified
+    (no profile command sets, foreign app objects) are trusted."""
+    if app is None or getattr(app, 'card', None) is None or getattr(app, 'lchan', None) is None:
+        return False
+    rs = getattr(app, 'rs', None)
+    profile = getattr(rs, 'profile', None)
+    sets = list(getattr(profile, 'shell_cmdsets', []) or [])
+    finder = getattr(app, 'find_commandsets', None)
+    if not sets or not callable(finder):
+        return True     # nothing to verify
+    try:
+        for cmd_set in sets:
+            if cmd_set not in finder(type(cmd_set)):
+                return False
+        return True
+    except Exception:
+        return True
+
 
 def _auto_equip_attempt(server):
     """One equip attempt under _CARD_LOCK; True when connected/no-op.
 
-    A failed attempt leaves the previous card state intact (pySim's equip()
-    only swaps the command sets after a successful init), so a retry starts
-    from an explicit state."""
+    cmd2 swallows exceptions raised inside the equip command, so success is
+    only reported when the shell really ended up equipped
+    (_app_equip_complete); a failed attempt unequips the half-initialized
+    shell before the next retry."""
     with _CARD_LOCK:
         if _CARD_CONNECTED or not getattr(server, 'card_present', False):
             return True
@@ -2995,17 +3036,28 @@ def _auto_equip_attempt(server):
             return False
         server.equipping = True
         try:
+            out = StringIO()
             old_stdout, old_stderr = app.stdout, sys.stderr
-            app.stdout = StringIO()
-            sys.stderr = app.stdout
+            old_debug = getattr(app, 'debug', None)
+            app.stdout = out
+            sys.stderr = out
+            if old_debug is not None:
+                app.debug = True     # cmd2 prints a traceback for swallowed errors
             try:
                 app.onecmd_plus_hooks('equip')
             finally:
+                if old_debug is not None:
+                    app.debug = old_debug
                 app.stdout = old_stdout
                 sys.stderr = old_stderr
             if not getattr(server, 'card_present', False) or server.app.card is None:
                 sys.stderr.write('AUTO-EQUIP: card gone during initialization\n')
                 return True
+            if 'Traceback (most recent call last)' in out.getvalue():
+                raise RuntimeError('equip reported an error (see the captured output)')
+            if not _app_equip_complete(app):
+                raise RuntimeError('equip finished with a half-initialized shell '
+                                   '(command sets not registered)')
             _apply_equipped_card(server)
             sys.stderr.write('AUTO-EQUIP: done\n')
             return True
@@ -4274,8 +4326,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
             if is_equip:
                 _tlog('equip: onecmd_plus_hooks %dms' % elapsed)
-            if is_equip and self.server.app and self.server.app.card and self.server.terminal_profile:
+            if is_equip and self.server.app and self.server.terminal_profile and _app_equip_complete(self.server.app):
                 _apply_equipped_card(self.server)
+            elif is_equip:
+                output += ('EQUIP: the shell did not register its command sets - '
+                           'see the output above\n')
             sys.stderr.write("CMD: %s → %s (%dms)\n" % (cmd, status, elapsed))
             resp = {'output': output, 'stop': bool(stop)}
             self._send_json(resp)

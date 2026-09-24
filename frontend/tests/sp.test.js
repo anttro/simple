@@ -122,6 +122,10 @@ test('RC (SPI 01) computes CRC-32 over the CPL frame', () => {
 		'00191101091515B0000000000000010050C942DC00A40000023F00');
 });
 
+test('DS (SPI 03) is refused instead of building an unsigned packet', () => {
+	assert.match(makeRun({ 'sp-spi1': '03' }), /Digital Signature/);
+});
+
 test('crc32Bytes known answer (TS 102 225 Annex B)', () => {
 	assert.strictEqual(bytesToHex(crc32Bytes(hexToBytes('0102030405'))), '470B99F4');
 });

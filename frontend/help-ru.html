@@ -304,7 +304,7 @@
 		<li><strong>AES-CBC</strong> шифрование (нулевой ICV, дополнение нулями до 16), ключи 16/24/32 байта (TS 102 225 &sect;5.1.2, KIc <code class="font-mono text-sm">x2</code>)</li>
 		<li><strong>Retail MAC</strong> (ISO 9797-1, MAC algorithm 3) для контрольной суммы DES/3DES</li>
 		<li><strong>AES-CMAC</strong> (NIST SP 800-38B, усечённый до 8 октетов) для контрольной суммы AES (TS 102 225 &sect;5.1.3.1, KID <code class="font-mono text-sm">x2</code>)</li>
-		<li><strong>Redundancy Check (RC)</strong> &mdash; CRC-32 по тому же кадру заголовка, что и CC (TS 102 225 &sect;5.1.3.2; ключ не нужен, SPI1 b2b1 = <code class="font-mono text-sm">01</code>)</li>
+		<li><strong>Redundancy Check (RC)</strong> &mdash; CRC-32 по тому же кадру заголовка, что и CC (TS 102 225 &sect;5.1.3.2; ключ не нужен, SPI1 b2b1 = <code class="font-mono text-sm">01</code>). Реализована только CRC-32 (как в pySim); кодирование CRC-16 по KID не поддерживается.</li>
 		<li>AES требует счётчик с защитой от повтора: биты SPI1 b5&nbsp;b4 должны быть <code class="font-mono text-sm">10</code> (счётчик больше) или <code class="font-mono text-sm">11</code> (счётчик +1) согласно TS 102 225 &sect;5.1.2/&sect;5.1.3.1</li>
 		<li>Байт паддинга настраивается (<code class="font-mono text-sm">00</code> по умолчанию или <code class="font-mono text-sm">FF</code>)</li>
 	</ul>

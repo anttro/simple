@@ -90,10 +90,14 @@ class MccMncFilterTests(unittest.TestCase):
 
     def test_random_real_list_never_picks_mvno(self):
         data = server._mcc_mnc_load(__main__._default_mcc_mnc_list())
-        by_pair = {(e['mcc'], e['mnc']): e for e in data}
+        # A few (mcc, mnc) pairs exist both as a real network and as an MVNO
+        # entry (e.g. 234/18, 234/28), so a dict keyed by the pair can keep the
+        # wrong entry: assert the picked pair has a non-MVNO entry behind it.
+        real_pairs = {(e['mcc'], e['mnc']) for e in data
+                      if not server._mcc_mnc_is_mvno(e)}
         for _ in range(100):
             r = server._mcc_mnc_random(data)
-            self.assertFalse(server._mcc_mnc_is_mvno(by_pair[(r['mcc'], r['mnc'])]))
+            self.assertIn((r['mcc'], r['mnc']), real_pairs)
 
 
 if __name__ == '__main__':

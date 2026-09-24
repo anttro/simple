@@ -2,6 +2,7 @@
 """Tests for the PC/SC failure recovery: presence-monitor watchdog and
 transport recreation after a service failure (pcscd restart)."""
 
+import sys
 import unittest
 from io import StringIO
 from types import SimpleNamespace
@@ -36,12 +37,47 @@ class TransportFatalTests(unittest.TestCase):
         for hr in (0x80100069, 0x8010000C, 0x80100068, 0x80100066, 0x80100067):
             self.assertFalse(server._is_transport_fatal(self._exc(hr)), hex(hr))
 
+    def test_sharing_violation_is_not_transport_fatal(self):
+        # Another process holds the card: a fresh context cannot free it, so
+        # rebuilding the transport would only burn the retry budget.
+        self.assertFalse(server._is_transport_fatal(self._exc(0x8010000B)))
+
     def test_service_errors_rebuild_the_transport(self):
         for hr in (0x8010001D, 0x8010001E, 0x8010002E, 0x80100003):
             self.assertTrue(server._is_transport_fatal(self._exc(hr)), hex(hr))
 
     def test_non_pcsc_errors_are_not_transport_fatal(self):
         self.assertFalse(server._is_transport_fatal(RuntimeError('SW match failed')))
+
+
+class EquipStateTests(unittest.TestCase):
+    @staticmethod
+    def _app(card='card', lchan='lchan', cmdsets=None, profile_sets=None):
+        rs = None
+        if profile_sets is not None:
+            rs = SimpleNamespace(profile=SimpleNamespace(shell_cmdsets=profile_sets))
+        app = SimpleNamespace(card=card, lchan=lchan, rs=rs)
+        if cmdsets is not None:
+            app.find_commandsets = lambda cls: cmdsets
+        return app
+
+    def test_card_and_channel_are_required(self):
+        self.assertFalse(server._app_equip_complete(None))
+        self.assertFalse(server._app_equip_complete(self._app(card=None)))
+        self.assertFalse(server._app_equip_complete(self._app(lchan=None)))
+
+    def test_profile_command_sets_must_be_installed(self):
+        # PysimApp.equip() sets card/rs before registering the command sets;
+        # an abort during registration must not pass as success.
+        cs = object()
+        app = self._app(cmdsets=[], profile_sets=[cs])
+        self.assertFalse(server._app_equip_complete(app))
+        app.find_commandsets = lambda cls: [cs]
+        self.assertTrue(server._app_equip_complete(app))
+
+    def test_unverifiable_state_is_trusted(self):
+        # No profile command sets / foreign app object: cannot verify.
+        self.assertTrue(server._app_equip_complete(self._app()))
 
 
 class WatchdogTests(unittest.TestCase):
@@ -210,7 +246,7 @@ class AutoEquipTests(unittest.TestCase):
 
     @staticmethod
     def make_server(onecmd):
-        app = SimpleNamespace(stdout=StringIO(), card=None)
+        app = SimpleNamespace(stdout=StringIO(), card=None, lchan='lchan')
         app.onecmd_plus_hooks = onecmd
         return SimpleNamespace(app=app, card=None, scc=None, card_present=True,
                                equipping=False, terminal_profile='tp', card_session=1)
@@ -224,6 +260,7 @@ class AutoEquipTests(unittest.TestCase):
             if state['calls'] == 1:
                 raise RuntimeError('Failed to transmit with protocol T0. Card was removed.')
             srv.app.card = SimpleNamespace(_scc='scc')
+            srv.app.lchan = 'lchan'     # the failed attempt unequipped the shell
 
         srv.app.onecmd_plus_hooks = onecmd
         applied = []
@@ -286,6 +323,61 @@ class AutoEquipTests(unittest.TestCase):
             server._auto_equip_worker()
         self.assertEqual(state['calls'], 1)
         self.assertGreater(server._AUTO_EQUIP_BACKOFF, server._AUTO_EQUIP_REARM_DELAY)
+
+    def test_half_initialized_equip_is_a_failure(self):
+        # cmd2 swallows the equip exception, so a card without the new
+        # profile's command sets must not count as success (it broke
+        # /api/tree on 2026-09-24 while the worker reported done).
+        srv = self.make_server(None)
+        cs = object()
+        srv.app.rs = SimpleNamespace(profile=SimpleNamespace(shell_cmdsets=[cs]))
+        srv.app.find_commandsets = lambda cls: []
+
+        def onecmd(cmd):
+            srv.app.card = SimpleNamespace(_scc='scc')   # set before the abort
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True), \
+             mock.patch.object(server, '_apply_equipped_card',
+                               lambda s: self.fail('_apply_equipped_card must not run')):
+            self.assertFalse(server._auto_equip_attempt(srv))
+        self.assertFalse(server._TRANSPORT_STALE)
+
+    def test_captured_equip_traceback_is_a_failure(self):
+        # cmd2 prints swallowed exceptions (with cmd2 debug: a traceback) to
+        # sys.stderr, which the attempt captures.
+        srv = self.make_server(None)
+
+        def onecmd(cmd):
+            srv.app.card = SimpleNamespace(_scc='scc')
+            sys.stderr.write('Traceback (most recent call last):\nRuntimeError: boom\n')
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True), \
+             mock.patch.object(server, '_apply_equipped_card',
+                               lambda s: self.fail('_apply_equipped_card must not run')):
+            self.assertFalse(server._auto_equip_attempt(srv))
+
+    def test_failed_attempt_unequips_the_half_initialized_shell(self):
+        calls = []
+        srv = self.make_server(None)
+        srv.app.rs = 'rs'
+        srv.app.equip = lambda c, r: calls.append((c, r))
+
+        def onecmd(cmd):
+            raise RuntimeError('CommandSet ShellCommands is already installed')
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True):
+            self.assertFalse(server._auto_equip_attempt(srv))
+        self.assertEqual(calls, [(None, None)])
+        self.assertIsNone(srv.app.card)
+
+    def test_busy_trigger_leaves_the_rearm_window_open(self):
+        server._server_ref = SimpleNamespace(card_present=True, equipping=False)
+        with mock.patch.object(server, '_auto_equip_trigger', lambda: False):
+            self.assertFalse(server._auto_equip_rearm(now=100.0))
+        self.assertEqual(server._AUTO_EQUIP_LAST, 0.0)
 
     def test_rearm_needs_a_present_card_and_no_session(self):
         calls = []
