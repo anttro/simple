@@ -29,7 +29,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.1'
+VERSION = '3.5.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1362,7 +1362,7 @@ def _do_status_poll():
                 _handle_proactive_chain(scc, st_sw)
         except Exception as e:
             sys.stderr.write('AUTO-STATUS error: %s\n' % e)
-            _handle_card_disconnect(stale=_is_pcsc_error(e))
+            _handle_card_disconnect(stale=_is_transport_fatal(e))
     _reset_poll_timer()
 
 def _poll_enable():
@@ -2666,17 +2666,70 @@ def _is_pcsc_error(exc):
     """True for a PC/SC-level failure.
 
     pyscard sets ``hresult`` on its exceptions (card-level errors such as
-    pySim's ``SwMatchError`` do not).  After such a failure the PC/SC context
-    captured when the reader was opened is dead, so the transport has to be
-    recreated before the card can be used again."""
+    pySim's ``SwMatchError`` do not)."""
     return getattr(exc, 'hresult', -1) not in (-1, None)
+
+
+# PC/SC hresults describing the card, not the service: the context and the
+# reader are still fine, so a plain reconnect on the same transport recovers.
+_PCSC_CARD_LEVEL = (
+    0x8010000C,   # SCARD_E_NO_SMARTCARD
+    0x80100066,   # SCARD_W_UNRESPONSIVE_CARD
+    0x80100067,   # SCARD_W_UNPOWERED_CARD
+    0x80100068,   # SCARD_W_RESET_CARD
+    0x80100069,   # SCARD_W_REMOVED_CARD
+)
+
+
+def _is_transport_fatal(exc):
+    """True when a PC/SC failure means the transport itself is unusable.
+
+    Only service/context failures (pcscd restart, reader re-enumeration, dead
+    handle) require a fresh transport.  Card-level states - most importantly
+    ``SCARD_W_REMOVED_CARD`` on a normal card swap - are recoverable by the
+    next ``connect()`` on the existing link; rebuilding the transport there
+    used to hand the new link the removed card's handle (live bug 2026-09-24:
+    auto-equip failed with 0x80100069 until the server was restarted)."""
+    hr = getattr(exc, 'hresult', -1)
+    if hr in (-1, None):
+        return False
+    return hr not in _PCSC_CARD_LEVEL
+
+
+def _clear_app_card_state(app):
+    """Unequip pySim's shell and drop its card/runtime-state references.
+
+    The dead card must not stay referenced through ``app.card``/``app.rs``/
+    ``app.lchan`` (handlers would keep transmitting over the removed card and
+    the old PC/SC link and its exclusive handle would never be released), but
+    the references cannot simply be nulled either: ``PysimApp.equip()``
+    unregisters the previous profile's shell command sets from ``self.rs``, so
+    with ``rs`` already None the next equip aborts with "CommandSet ... is
+    already installed" and the file tree breaks.  Route through pySim's own
+    unequip path (``equip(None, None)``) first, then clear the references."""
+    if app is None:
+        return
+    if getattr(app, 'rs', None) is not None and callable(getattr(app, 'equip', None)):
+        old_stdout = getattr(app, 'stdout', None)
+        try:
+            app.stdout = StringIO()   # mute the 'pySim-shell not equipped!' line
+            app.equip(None, None)
+        except Exception as e:
+            sys.stderr.write('UNEQUIP: pySim unequip failed: %s\n' % e)
+        finally:
+            if old_stdout is not None:
+                app.stdout = old_stdout
+    app.card = None
+    app.rs = None
+    app.lchan = None
 
 
 def _handle_card_disconnect(stale=False):
     """Tear down the card session; ``stale`` marks the transport as dead.
 
-    Called on card removal (no ``stale``) and on PC/SC errors (``stale``, see
-    ``_is_pcsc_error``): the next equip recreates the transport."""
+    Called on card removal (no ``stale``) and on PC/SC errors
+    (``stale=_is_transport_fatal(e)``): the next equip recreates the
+    transport when it is really dead."""
     global _CARD_CONNECTED, _TRANSPORT_STALE
     if stale:
         _TRANSPORT_STALE = True
@@ -2685,6 +2738,7 @@ def _handle_card_disconnect(stale=False):
     _timer_cancel()
     _CARD_CONNECTED = False
     if _server_ref:
+        _clear_app_card_state(getattr(_server_ref, 'app', None))
         _server_ref.card = None
         _server_ref.scc = None
         _server_ref.stk_pending = None
@@ -2713,15 +2767,35 @@ def _ensure_transport(server):
     if factory is None:
         _TRANSPORT_STALE = False
         return True
+    # Release the previous link before building the new one: pyscard keeps the
+    # PC/SC context (and, while connected, an exclusive card handle) in the
+    # connection object.  A second link created while the old one is still
+    # connected inherits the stale card handle and fails with
+    # SCARD_W_REMOVED_CARD on its first APDU.
+    app = getattr(server, 'app', None)
+    old = getattr(server, 'sl', None)
+    _clear_app_card_state(app)
+    server.sl = None
+    if app is not None:
+        app.sl = None
+    if old is not None:
+        try:
+            old.disconnect()
+        except Exception as e:
+            sys.stderr.write('TRANSPORT: releasing the old link failed: %s\n' % e)
     try:
         sl = factory()
     except Exception as e:
         sys.stderr.write('TRANSPORT: PC/SC reconnect failed: %s\n' % e)
+        # Keep the released link installed: a later equip can still reconnect
+        # it (PcscSimLink.connect() re-establishes the connection).
+        server.sl = old
+        if app is not None:
+            app.sl = old
         return False
     server.sl = sl
     server.card = None
     server.scc = None
-    app = getattr(server, 'app', None)
     if app is not None:
         app.sl = sl
     _TRANSPORT_STALE = False
@@ -2865,6 +2939,12 @@ def _esim_verify_switch(app, action, iccid=None, isdp_aid=None):
 
 _AUTO_EQUIP = True
 _AUTO_EQUIP_BUSY = False
+_AUTO_EQUIP_ATTEMPTS = 3
+_AUTO_EQUIP_RETRY_DELAY = 1.0    # seconds between attempts
+_AUTO_EQUIP_REARM_DELAY = 5.0    # min seconds between watchdog re-arms
+_AUTO_EQUIP_REARM_MAX = 60.0     # backoff ceiling after repeated failures
+_AUTO_EQUIP_BACKOFF = _AUTO_EQUIP_REARM_DELAY
+_AUTO_EQUIP_LAST = 0.0
 
 def set_auto_equip(enabled):
     global _AUTO_EQUIP
@@ -2874,44 +2954,104 @@ def _auto_equip_trigger():
     """Spawn a one-shot worker; never run equip in the pyscard monitor thread."""
     global _AUTO_EQUIP_BUSY
     if not _AUTO_EQUIP or _AUTO_EQUIP_BUSY:
-        return
+        return False
     _AUTO_EQUIP_BUSY = True
     threading.Thread(target=_auto_equip_worker, name='auto-equip', daemon=True).start()
+    return True
+
+def _auto_equip_rearm(now=None):
+    """Self-heal: re-arm auto-equip when a card is present but the session is
+    down (failed attempt, missed insertion event).  Rate-limited so a genuinely
+    broken card is not retried in a tight loop."""
+    global _AUTO_EQUIP_LAST
+    if not _AUTO_EQUIP or _AUTO_EQUIP_BUSY:
+        return False
+    server = _server_ref
+    if server is None or _CARD_CONNECTED:
+        return False
+    if not getattr(server, 'card_present', False) or getattr(server, 'equipping', False):
+        return False
+    now = time.time() if now is None else now
+    if now - _AUTO_EQUIP_LAST < _AUTO_EQUIP_BACKOFF:
+        return False
+    _AUTO_EQUIP_LAST = now
+    return _auto_equip_trigger()
+
+def _auto_equip_attempt(server):
+    """One equip attempt under _CARD_LOCK; True when connected/no-op.
+
+    A failed attempt leaves the previous card state intact (pySim's equip()
+    only swaps the command sets after a successful init), so a retry starts
+    from an explicit state."""
+    with _CARD_LOCK:
+        if _CARD_CONNECTED or not getattr(server, 'card_present', False):
+            return True
+        app = server.app
+        if app is None or not getattr(server, 'terminal_profile', None):
+            return True
+        # A pcscd restart kills the PC/SC context: rebuild the transport
+        # before equipping, otherwise the equip can never succeed.
+        if not _ensure_transport(server):
+            return False
+        server.equipping = True
+        try:
+            old_stdout, old_stderr = app.stdout, sys.stderr
+            app.stdout = StringIO()
+            sys.stderr = app.stdout
+            try:
+                app.onecmd_plus_hooks('equip')
+            finally:
+                app.stdout = old_stdout
+                sys.stderr = old_stderr
+            if not getattr(server, 'card_present', False) or server.app.card is None:
+                sys.stderr.write('AUTO-EQUIP: card gone during initialization\n')
+                return True
+            _apply_equipped_card(server)
+            sys.stderr.write('AUTO-EQUIP: done\n')
+            return True
+        except Exception as e:
+            sys.stderr.write('AUTO-EQUIP failed: %s\n' % e)
+            # A dead transport must be rebuilt before the next attempt;
+            # card-level failures reconnect on the existing link.  Unequip the
+            # half-initialized shell as well: a failed init can leave command
+            # sets registered that the next equip would refuse to re-register.
+            if _is_transport_fatal(e):
+                _handle_card_disconnect(stale=True)
+            _clear_app_card_state(app)
+            return False
+        finally:
+            server.equipping = False
+
+def _auto_equip_attempts(server, attempts=None, sleep_fn=None):
+    """Bounded equip retries; returns True once the session is up."""
+    attempts = _AUTO_EQUIP_ATTEMPTS if attempts is None else attempts
+    sleep_fn = time.sleep if sleep_fn is None else sleep_fn
+    if server is None:
+        return False
+    if _CARD_CONNECTED or not getattr(server, 'card_present', False) or getattr(server, 'app', None) is None:
+        return True
+    for attempt in range(1, attempts + 1):
+        if attempt == 1:
+            sys.stderr.write('AUTO-EQUIP: card inserted, initializing\n')
+        else:
+            sys.stderr.write('AUTO-EQUIP: retry %d/%d\n' % (attempt, attempts))
+        if _auto_equip_attempt(server):
+            return True
+        if not _AUTO_EQUIP or _CARD_CONNECTED or not getattr(server, 'card_present', False):
+            return False
+        if attempt < attempts:
+            sleep_fn(_AUTO_EQUIP_RETRY_DELAY)
+    return False
 
 def _auto_equip_worker():
-    global _AUTO_EQUIP_BUSY
+    global _AUTO_EQUIP_BUSY, _AUTO_EQUIP_BACKOFF
     try:
-        with _CARD_LOCK:
-            server = _server_ref
-            if not server or _CARD_CONNECTED or not getattr(server, 'card_present', False):
-                return
-            app = server.app
-            if app is None or not getattr(server, 'terminal_profile', None):
-                return
-            # A pcscd restart kills the PC/SC context: rebuild the transport
-            # before equipping, otherwise the equip can never succeed.
-            if not _ensure_transport(server):
-                return
-            server.equipping = True
-            try:
-                sys.stderr.write('AUTO-EQUIP: card inserted, initializing\n')
-                old_stdout, old_stderr = app.stdout, sys.stderr
-                app.stdout = StringIO()
-                sys.stderr = app.stdout
-                try:
-                    app.onecmd_plus_hooks('equip')
-                finally:
-                    app.stdout = old_stdout
-                    sys.stderr = old_stderr
-                if not getattr(server, 'card_present', False) or server.app.card is None:
-                    sys.stderr.write('AUTO-EQUIP: card gone during initialization\n')
-                    return
-                _apply_equipped_card(server)
-                sys.stderr.write('AUTO-EQUIP: done\n')
-            except Exception as e:
-                sys.stderr.write('AUTO-EQUIP failed: %s\n' % e)
-            finally:
-                server.equipping = False
+        ok = _auto_equip_attempts(_server_ref)
+        # A card that cannot be initialized at all must not be retried every
+        # few seconds forever; the delay doubles up to the ceiling and is
+        # reset by any successful (or no-op) attempt.
+        _AUTO_EQUIP_BACKOFF = (_AUTO_EQUIP_REARM_DELAY if ok
+                               else min(_AUTO_EQUIP_BACKOFF * 2, _AUTO_EQUIP_REARM_MAX))
     finally:
         _AUTO_EQUIP_BUSY = False
 
@@ -3002,6 +3142,12 @@ def _start_card_watchdog(reader_name, interval=5.0):
                 _watchdog_tick(reader_name)
             except Exception as e:
                 sys.stderr.write('CARD-WATCH: monitor restart failed: %s\n' % e)
+            try:
+                # Self-heal: a card may be present while the session is down
+                # (failed auto-equip, missed insertion event).
+                _auto_equip_rearm()
+            except Exception as e:
+                sys.stderr.write('CARD-WATCH: auto-equip re-arm failed: %s\n' % e)
 
     thread = threading.Thread(target=run, name='card-watchdog', daemon=True)
     thread.start()
@@ -3241,7 +3387,7 @@ def _timer_expired(timer_id, elapsed):
                 data, sw = scc._tp.send_apdu(apdu)
             except Exception as e:
                 sys.stderr.write('TIMER-EXPIRATION send error: %s\n' % e)
-                _handle_card_disconnect(stale=_is_pcsc_error(e))
+                _handle_card_disconnect(stale=_is_transport_fatal(e))
                 return
             sys.stderr.write('ENVELOPE(Timer Expiration): timer=%d elapsed=%ds -> %s\n'
                              % (timer_id, elapsed, sw))
@@ -4197,7 +4343,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('STATUS poll error: %s\n' % e)
-                _handle_card_disconnect(stale=_is_pcsc_error(e))
+                _handle_card_disconnect(stale=_is_transport_fatal(e))
                 self._send_json({'sw': None, 'error': 'card disconnected'})
                 self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/net-sim':
@@ -4229,7 +4375,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': str(e)})
             except Exception as e:
                 sys.stderr.write('Net-sim error: %s\n' % e)
-                _handle_card_disconnect(stale=_is_pcsc_error(e))
+                _handle_card_disconnect(stale=_is_transport_fatal(e))
                 self._send_json({'error': 'simulation failed: %s' % e}, 500)
                 self._log_resp({'error': str(e)})
         elif self.path == '/api/net-state-refresh':
@@ -4584,7 +4730,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 sys.stderr.write('Handler error: %s\n' % e)
                 if _is_pcsc_error(e) or 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
-                    _handle_card_disconnect(stale=_is_pcsc_error(e))
+                    _handle_card_disconnect(stale=_is_transport_fatal(e))
                 err = {'success': False, 'error': str(e), 'exists': False}
                 self._send_json(err, 500)
                 self._log_resp(err)
@@ -4663,7 +4809,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('Event send error: %s\n' % e)
-                _handle_card_disconnect(stale=_is_pcsc_error(e))
+                _handle_card_disconnect(stale=_is_transport_fatal(e))
                 self._send_json({'sw': None, 'error': 'card disconnected'})
                 self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/pli-dict':
@@ -4791,7 +4937,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 sys.stderr.write('OTA send error: %s\n' % e)
                 if _is_pcsc_error(e) or 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
-                    _handle_card_disconnect(stale=_is_pcsc_error(e))
+                    _handle_card_disconnect(stale=_is_transport_fatal(e))
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)

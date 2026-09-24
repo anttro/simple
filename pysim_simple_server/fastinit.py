@@ -17,6 +17,8 @@ keep a real reconnect/physical reset.
 import operator
 import sys
 
+from smartcard.Exceptions import CardConnectionException, NoCardException
+
 from pySim.cards import CardBase, SimCardBase, UiccCardBase, card_detect
 from pySim.commands import SimCardCommands
 from pySim.exceptions import ProtocolError, SwMatchError
@@ -105,6 +107,16 @@ def init_card_fast(sl, skip_card_init=False, wait=True):
         sys.stderr.write('FAST-INIT: %s; retrying after physical reset\n' % e)
         sl.reset_card()
         return _init_card_once(sl, skip_card_init, wait=False)
+    except (CardConnectionException, NoCardException) as e:
+        # PC/SC link error during the first exchange (e.g. the card was
+        # swapped a moment ago): release the connection, wait for the card
+        # and retry once.
+        sys.stderr.write('FAST-INIT: link error (%s); retrying after reconnect\n' % e)
+        try:
+            sl.disconnect()
+        except Exception:
+            pass
+        return _init_card_once(sl, skip_card_init, wait=True)
 
 
 def _init_card_once(sl, skip_card_init, wait):

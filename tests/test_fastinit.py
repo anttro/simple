@@ -214,6 +214,30 @@ class TestInitCardFastRetry(unittest.TestCase):
         self.assertEqual((rs, card), ('rs', 'card'))
 
 
+class TestInitCardFastLinkRetry(unittest.TestCase):
+    def test_link_error_retries_after_reconnect(self):
+        from smartcard.Exceptions import CardConnectionException
+        calls = {'once': 0, 'disconnects': 0}
+
+        class FakeLink:
+            def disconnect(self):
+                calls['disconnects'] += 1
+
+        def once(sl, skip, wait):
+            calls['once'] += 1
+            if calls['once'] == 1:
+                raise CardConnectionException(
+                    'Failed to transmit with protocol T0. Card was removed.',
+                    hresult=0x80100069)
+            return ('rs', 'card')
+
+        with mock.patch.object(fastinit, '_init_card_once', side_effect=once):
+            rs, card = fastinit.init_card_fast(FakeLink(), wait=True)
+        self.assertEqual(calls['once'], 2)
+        self.assertEqual(calls['disconnects'], 1)
+        self.assertEqual((rs, card), ('rs', 'card'))
+
+
 class TestDoEquipFastFailure(unittest.TestCase):
     def test_failed_equip_keeps_previous_state(self):
         calls = []

@@ -752,7 +752,8 @@ pysim-simple-server --http-port 8080
 
 - **"Failed to establish context: Access denied"** — `pcscd` isn't running or the user lacks permission: `sudo systemctl enable --now pcscd && sudo usermod -a -G pcscd $USER`.
 - **"device file /dev/ttyUSB0 does not exist"** — no serial reader; connect a USB reader or pass `-d` explicitly. The server still starts without a reader.
-- **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport. No server restart needed.
+- **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport (releasing the old link first). No server restart needed.
+- **"Card was removed" errors / auto-equip fails after a card swap** — a normal card swap reconnects on the existing transport (card-level PC/SC errors no longer force a transport rebuild), a failed auto-equip is retried up to 3 times, and the watchdog re-arms it every 5 s while a card is present. A removed card also clears the card state completely, so handlers answer "no card" instead of transmitting over the dead card.
 
 ### API reference
 
