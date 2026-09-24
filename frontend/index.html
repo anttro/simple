@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.4';
+const SIMPLE_VERSION = '3.5.5';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6707,7 +6707,10 @@ async function pysimRefresh() {
 	const statusEl = document.getElementById('pysim-status');
 	try {
 		const data = await pysimFetch('/api/status');
-		pysimSetConnected(true);
+		// Server reachable is not the same as card equipped: keep the icon in
+		// step with the card state (animated while it is being initialized).
+		const refreshingInit = !!data.equipping || (!!data.card_present && !!data.auto_equip);
+		pysimSetConnected(data.connected ? true : (refreshingInit ? 'spin' : false));
 		let html = 'Reader: <b>' + esc(data.reader || 'none') + '</b>' +
 			' | Card: <b>' + esc(data.card || 'none') + '</b>' +
 			' | Profile: <b>' + esc(data.profile || 'none') + '</b><br>' +
@@ -9782,11 +9785,14 @@ function pysimCardStateUpdate(status) {
 		cardsAutoSelectByIccid(status.iccid);
 		return;
 	}
-	pysimSetConnected(false);
+	// A card being initialized (or waiting for auto-equip) shows the animated
+	// icon, matching the header indicator - not the static no-card one.
+	const initializing = status.equipping || (status.card_present && status.auto_equip);
+	pysimSetConnected(initializing ? 'spin' : false);
 	_cardsAutoIccid = null;
 	const statusEl = document.getElementById('pysim-status');
 	if (statusEl && statusEl.textContent.trim() !== '') {
-		if (status.equipping || (status.card_present && status.auto_equip)) {
+		if (initializing) {
 			statusEl.innerHTML = '<span class="text-gray-500">' + esc(t('Card inserted — initializing...')) + '</span>';
 		} else if (status.card_present) {
 			statusEl.innerHTML = '<span class="text-amber-600">' + esc(t('Card inserted — press Equip')) + '</span>';

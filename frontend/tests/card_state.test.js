@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-function extractFunc(src, name) {
+function extractFunc(src, name, asyncFn) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
 	if (!m) throw new Error('function ' + name + ' not found');
@@ -18,7 +18,7 @@ function extractFunc(src, name) {
 			if (depth === 0) break;
 		}
 	}
-	return src.slice(m.index, i + 1);
+	return (asyncFn ? 'async ' : '') + src.slice(m.index, i + 1);
 }
 
 let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
@@ -31,6 +31,7 @@ let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _pysimHeaderIccid = undefined;\nvar _pysimHeaderScp80 = undefined;\nvar _pysimHeaderScp81 = undefined;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
+code += extractFunc(html, 'pysimRefresh', true) + '\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';
 code += extractFunc(html, 'pysimProactiveSeqChanged') + '\n';
@@ -128,6 +129,35 @@ test('disconnect with auto-equip shows the initializing message', () => {
 	const { el } = setup();
 	pysimCardStateUpdate(status({ card_present: true, auto_equip: true }));
 	assert.ok(el.innerHTML.includes('initializing'), el.innerHTML);
+});
+
+test('initializing states show the animated indicator', () => {
+	for (const extra of [{ card_present: true, equipping: true },
+	                     { card_present: true, auto_equip: true }]) {
+		const { calls } = setup();
+		pysimCardStateUpdate(status(extra));
+		assert.deepStrictEqual(calls.connected, ['spin'], JSON.stringify(extra));
+	}
+});
+
+test('a cardless session without auto-equip shows the static no-card icon', () => {
+	const { calls } = setup();
+	pysimCardStateUpdate(status({}));
+	assert.deepStrictEqual(calls.connected, [false]);
+});
+
+test('Check status keeps the icon in step with the card state', async () => {
+	for (const entry of [
+		[{ connected: true }, true],
+		[{ connected: false, card_present: true, equipping: true }, 'spin'],
+		[{ connected: false, card_present: true, auto_equip: true }, 'spin'],
+		[{ connected: false }, false],
+	]) {
+		const { calls } = setup();
+		globalThis.pysimFetch = async () => entry[0];
+		await pysimRefresh();
+		assert.deepStrictEqual(calls.connected, [entry[1]], JSON.stringify(entry[0]));
+	}
 });
 
 test('unchanged state key does not touch the UI again', () => {
