@@ -28,6 +28,8 @@ from pysim_simple_server.server import (
     _decode_tr,
     _log_proactive,
     _ota_reference,
+    _parse_select_item,
+    _parse_setup_menu_items,
     _record_tr,
     _send_secured_packet,
     _spi_from_bytes,
@@ -431,6 +433,43 @@ class TestProactiveDecode(unittest.TestCase):
     def test_decode_cmd_setup_event_list(self):
         r = _decode_cmd(0x05, bytes.fromhex('d00c810301050082028381990101'), None)
         self.assertEqual(r, [{'label': 'Events', 'value': 'Call connected'}])
+
+    def test_decode_cmd_set_up_menu_with_next_action(self):
+        # TS 102 223 8.24: one NAI byte per item, in item order (UCS2 item text).
+        extras = bytes.fromhex(
+            '8F0A0180004D0065006E0075'      # 1: 'Menu'
+            '8F0A028000430061006C006C'      # 2: 'Call'
+            '18022510')                     # NAI: SET UP MENU, SET UP CALL
+        raw = self._cmd_raw(0x25, 0x00, extras)
+        items = _parse_setup_menu_items(raw)
+        self.assertEqual([it['nai'] for it in items], [0x25, 0x10])
+        self.assertEqual([it['nai_name'] for it in items], ['SET UP MENU', 'SET UP CALL'])
+        self.assertEqual(self._decoded(0x25, raw)['Items'],
+                         '1. Menu \u2192 SET UP MENU, 2. Call \u2192 SET UP CALL')
+
+    def test_decode_cmd_next_action_reserved_is_ignored(self):
+        # '26' (PROVIDE LOCAL INFORMATION) is Type-of-Command only, so it is
+        # reserved for the NAI and shall be ignored (8.24).
+        extras = bytes.fromhex('8F0A0180004D0065006E0075' '180126')
+        raw = self._cmd_raw(0x25, 0x00, extras)
+        items = _parse_setup_menu_items(raw)
+        self.assertNotIn('nai', items[0])
+        self.assertNotIn('nai_name', items[0])
+        self.assertEqual(self._decoded(0x25, raw)['Items'], '1. Menu')
+
+    def test_decode_cmd_select_item_short_next_action_list(self):
+        # A short NAI list leaves the tail without an indicator; extra bytes
+        # beyond the item count are ignored (8.24).
+        extras = bytes.fromhex(
+            '8F0A0180004D0065006E0075'
+            '8F0A028000430061006C006C'
+            '180121')
+        raw = self._cmd_raw(0x24, 0x00, extras)
+        items = _parse_select_item(raw)
+        self.assertEqual(items[0]['nai_name'], 'DISPLAY TEXT')
+        self.assertNotIn('nai_name', items[1])
+        self.assertEqual(self._decoded(0x24, raw)['Items'],
+                         '1. Menu \u2192 DISPLAY TEXT, 2. Call')
 
     def test_decode_cmd_send_short_message(self):
         # SEND SHORT MESSAGE with an SMS-SUBMIT TPDU carrying GSM-7 text.

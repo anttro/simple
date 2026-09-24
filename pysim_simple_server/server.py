@@ -29,7 +29,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.2'
+VERSION = '3.5.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1691,12 +1691,12 @@ def _decode_cmd(cmd_type, raw, qualifier):
     if cmd_type == 0x24:
         items = _parse_select_item(raw)
         if items:
-            return [{'label': 'Items', 'value': ', '.join('%s. %s' % (it['id'], it['text']) for it in items)}]
+            return [{'label': 'Items', 'value': ', '.join(_item_line(it) for it in items)}]
         return []
     if cmd_type == 0x25:
         items = _parse_setup_menu_items(raw)
         if items:
-            return [{'label': 'Items', 'value': ', '.join('%s. %s' % (it['id'], it['text']) for it in items)}]
+            return [{'label': 'Items', 'value': ', '.join(_item_line(it) for it in items)}]
         return []
     if cmd_type in (0x40, 0x42, 0x43):
         return _decode_bip_cmd(cmd_type, raw)
@@ -3567,8 +3567,57 @@ def _parse_display_text(raw):
     return None
 
 
+# TS 102 223 8.24 + Table 9.4: the Items Next Action Indicator reuses the
+# Type of Command coding, but only the values the table marks "Used for Next
+# Action Indicator".  The ToC-only values are reserved there and shall be
+# ignored, as are '00' and any value not listed (8.24).
+NAI_TYPES = frozenset([
+    0x10, 0x11, 0x12, 0x13, 0x15,                 # SET UP CALL / SEND SS / SEND USSD / SEND SM / LAUNCH BROWSER
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x28,     # PLAY TONE .. SET UP IDLE MODE TEXT
+    0x30, 0x31, 0x32, 0x33,                       # PERFORM CARD APDU .. GET READER STATUS
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46,     # BIP commands
+    0x60, 0x61, 0x62,                             # MMS commands
+    0x81,                                         # end of the proactive session
+])
+
+
+def _nai_name(value):
+    """Items Next Action Indicator name (TS 102 223 Table 9.4); None = reserved."""
+    if value in NAI_TYPES:
+        return PROACTIVE_TYPE_NAMES.get(value)
+    if 0xF0 <= value <= 0xFE:
+        return 'Proprietary (0x%02X)' % value
+    return None
+
+
+def _attach_nai(items, nai):
+    """Attach an Items Next Action Indicator list (TS 102 223 8.24) to items.
+
+    One byte per item in list order; a short list leaves the tail without an
+    indicator, extra bytes are ignored, reserved values are skipped (8.24)."""
+    if not items or not nai:
+        return items
+    for i, item in enumerate(items):
+        if i >= len(nai):
+            break
+        name = _nai_name(nai[i])
+        if name:
+            item['nai'] = nai[i]
+            item['nai_name'] = name
+    return items
+
+
+def _item_line(item):
+    """'1. Menu' plus ' -> SET UP MENU' when the item has a next action."""
+    line = '%s. %s' % (item['id'], item['text'])
+    if item.get('nai_name'):
+        line += ' \u2192 ' + item['nai_name']
+    return line
+
+
 def _parse_select_item(raw):
     items = []
+    nai = None
     if raw[0] == 0xD0:
         off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
@@ -3581,11 +3630,14 @@ def _parse_select_item(raw):
                     pass
             elif tag in (0x8F, 0x0F) and tlen >= 2:
                 items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
-    return items
+            elif tag in (0x18, 0x98) and tlen >= 1:
+                nai = val
+    return _attach_nai(items, nai)
 
 
 def _parse_setup_menu_items(raw):
     items = []
+    nai = None
     if not raw or raw[0] != 0xD0:
         return items
     off = _skip_ber_len(raw, 1)
@@ -3594,7 +3646,9 @@ def _parse_setup_menu_items(raw):
         val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
         if tag == 0x8F and tlen >= 2:
             items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
-    return items
+        elif tag in (0x18, 0x98) and tlen >= 1:
+            nai = val
+    return _attach_nai(items, nai)
 
 
 def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
@@ -3676,6 +3730,7 @@ def _send_terminal_profile(scc, tp_hex):
                     off = _skip_ber_len(raw, 1)
                     menu = None
                     items = []
+                    nai = None
                     while off < len(raw) - 1:
                         tag, tlen = raw[off], raw[off + 1]
                         val = raw[off + 2: off + 2 + tlen]
@@ -3697,9 +3752,12 @@ def _send_terminal_profile(scc, tp_hex):
                             except Exception:
                                 txt = val[1:].hex()
                             items.append({'id': val[0], 'text': txt})
+                        elif tag in (0x18, 0x98) and tlen >= 1:
+                            nai = val
                         elif tag in (0x99, 0x19) and tlen >= 1:
                             event_list = [b for b in val]
                     if menu:
+                        _attach_nai(items, nai)
                         sim_menu = menu
             if fdata and cmd_type:
                 entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)

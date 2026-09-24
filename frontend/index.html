@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.2';
+const SIMPLE_VERSION = '3.5.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7693,6 +7693,12 @@ async function stkMenuExit() {
 	stkMenuClose();
 }
 
+// TS 102 223 8.24: the item's next action (coded like the Type of Command);
+// the server only attaches nai_name for values the table marks for the NAI.
+function stkMenuNaiSuffix(item) {
+	return (item && item.nai_name) ? '\u25b8 ' + item.nai_name : '';
+}
+
 function stkMenuRenderItems() {
 	const content = document.getElementById('stk-menu-panel-content');
 	content.innerHTML = '<span class="text-gray-500 text-sm">Loading...</span>';
@@ -7700,7 +7706,9 @@ function stkMenuRenderItems() {
 		if (!data || !data.items) { content.innerHTML = '<span class="text-red-500 text-sm">No menu data</span>'; return; }
 		let html = '<div class="space-y-1">';
 		data.items.forEach(item => {
-			html += '<div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer" onclick="stkMenuItemClick(' + item.id + ')"><span class="w-5 text-xs text-gray-300 dark:text-gray-600 text-right">' + item.id + '</span><span class="text-sm">' + esc(item.text) + '</span></div>';
+			const nai = stkMenuNaiSuffix(item);
+			html += '<div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer" onclick="stkMenuItemClick(' + item.id + ')"><span class="w-5 text-xs text-gray-300 dark:text-gray-600 text-right">' + item.id + '</span><span class="text-sm">' + esc(item.text) + '</span>' +
+				(nai ? '<span class="text-xs text-gray-400 dark:text-slate-500">' + esc(nai) + '</span>' : '') + '</div>';
 		});
 		html += '</div>';
 		content.innerHTML = html;

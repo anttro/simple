@@ -22,6 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 let code = extractFunc(html, 'stkMenuRespond', true) + '\n';
+code += extractFunc(html, 'stkMenuNaiSuffix') + '\n';
 code += 'globalThis.esc = s => s;\n';
 eval(code);
 
@@ -37,6 +38,14 @@ function setup(response) {
 	};
 	return calls;
 }
+
+test('the STK menu item suffix shows the item next action (8.24)', () => {
+	assert.strictEqual(stkMenuNaiSuffix({ id: 1, text: 'Menu', nai: 0x25, nai_name: 'SET UP MENU' }),
+		'\u25b8 SET UP MENU');
+	// no NAI (or a reserved one, which the server drops) -> no suffix
+	assert.strictEqual(stkMenuNaiSuffix({ id: 2, text: 'Info' }), '');
+	assert.strictEqual(stkMenuNaiSuffix(null), '');
+});
 
 test('back with a fetched SELECT ITEM continues the card dialogue', async () => {
 	const data = { type: 'select_item', items: [{ id: 1, text: 'Info' }] };
