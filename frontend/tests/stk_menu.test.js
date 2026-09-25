@@ -23,6 +23,7 @@ function extractFunc(src, name, asyncFn) {
 
 let code = extractFunc(html, 'stkMenuRespond', true) + '\n';
 code += extractFunc(html, 'stkMenuNaiSuffix') + '\n';
+code += extractFunc(html, 'stkMenuItemsHtml') + '\n';
 code += 'globalThis.esc = s => s;\n';
 eval(code);
 
@@ -45,6 +46,27 @@ test('the STK menu item suffix shows the item next action (8.24)', () => {
 	// no NAI (or a reserved one, which the server drops) -> no suffix
 	assert.strictEqual(stkMenuNaiSuffix({ id: 2, text: 'Info' }), '');
 	assert.strictEqual(stkMenuNaiSuffix(null), '');
+});
+
+test('the overlay item list shows the next action and the row handler', () => {
+	const list = stkMenuItemsHtml([
+		{ id: 1, text: 'Menu', nai: 0x25, nai_name: 'SET UP MENU' },
+		{ id: 2, text: 'Info' },
+	], 'stkSubItemClick');
+	assert.match(list, /onclick="stkSubItemClick\(1\)"/);
+	assert.match(list, /onclick="stkSubItemClick\(2\)"/);
+	assert.ok(list.includes('Menu'));
+	assert.ok(list.includes('\u25b8 SET UP MENU'));
+	// the second item has no indicator -> exactly one suffix in the list
+	assert.strictEqual((list.match(/\u25b8/g) || []).length, 1);
+	assert.strictEqual(stkMenuItemsHtml(null, 'stkMenuItemClick'), '<div class="space-y-1"></div>');
+});
+
+test('both overlay lists render through the shared row helper', () => {
+	// the cached top menu and the pending SELECT ITEM items must use the same
+	// renderer, otherwise the latter silently loses the NAI suffix
+	assert.match(html, /stkMenuItemsHtml\(data\.items, 'stkMenuItemClick'\)/);
+	assert.match(html, /stkMenuItemsHtml\(data\.items, 'stkSubItemClick'\)/);
 });
 
 test('back with a fetched SELECT ITEM continues the card dialogue', async () => {

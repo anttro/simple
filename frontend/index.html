@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.5';
+const SIMPLE_VERSION = '3.5.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7710,19 +7710,26 @@ function stkMenuNaiSuffix(item) {
 	return (item && item.nai_name) ? '\u25b8 ' + item.nai_name : '';
 }
 
+// The overlay's item list, shared by the cached top menu and the pending
+// SELECT ITEM items the card returns mid-dialogue: one row per item, each
+// with the card-provided next action suffix.  `handler` is the click callback
+// (stkMenuItemClick / stkSubItemClick).
+function stkMenuItemsHtml(items, handler) {
+	let html = '<div class="space-y-1">';
+	(items || []).forEach(item => {
+		const nai = stkMenuNaiSuffix(item);
+		html += '<div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer" onclick="' + handler + '(' + item.id + ')"><span class="w-5 text-xs text-gray-300 dark:text-gray-600 text-right">' + item.id + '</span><span class="text-sm">' + esc(item.text) + '</span>' +
+			(nai ? '<span class="text-xs text-gray-400 dark:text-slate-500">' + esc(nai) + '</span>' : '') + '</div>';
+	});
+	return html + '</div>';
+}
+
 function stkMenuRenderItems() {
 	const content = document.getElementById('stk-menu-panel-content');
 	content.innerHTML = '<span class="text-gray-500 text-sm">Loading...</span>';
 	pysimFetch('/api/menu').then(data => {
 		if (!data || !data.items) { content.innerHTML = '<span class="text-red-500 text-sm">No menu data</span>'; return; }
-		let html = '<div class="space-y-1">';
-		data.items.forEach(item => {
-			const nai = stkMenuNaiSuffix(item);
-			html += '<div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer" onclick="stkMenuItemClick(' + item.id + ')"><span class="w-5 text-xs text-gray-300 dark:text-gray-600 text-right">' + item.id + '</span><span class="text-sm">' + esc(item.text) + '</span>' +
-				(nai ? '<span class="text-xs text-gray-400 dark:text-slate-500">' + esc(nai) + '</span>' : '') + '</div>';
-		});
-		html += '</div>';
-		content.innerHTML = html;
+		content.innerHTML = stkMenuItemsHtml(data.items, 'stkMenuItemClick');
 	}).catch(() => { content.innerHTML = '<span class="text-red-500 text-sm">Error loading menu</span>'; });
 }
 
@@ -7751,14 +7758,7 @@ function stkMenuHandleResponse(data) {
 		btns.classList.remove('hidden');
 	} else if (data.type === 'select_item') {
 		stkMenuStack.push(data.items);
-		content.innerHTML = '';
-		const items = data.items;
-		let html = '<div class="space-y-1">';
-		items.forEach(item => {
-			html += '<div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer" onclick="stkSubItemClick(' + item.id + ')"><span class="w-5 text-xs text-gray-300 dark:text-gray-600 text-right">' + item.id + '</span><span class="text-sm">' + esc(item.text) + '</span></div>';
-		});
-		html += '</div>';
-		content.innerHTML = html;
+		content.innerHTML = stkMenuItemsHtml(data.items, 'stkSubItemClick');
 		backBtn.style.display = '';
 		document.getElementById('stk-ok-btn').style.display = 'none';
 		btns.classList.remove('hidden');
