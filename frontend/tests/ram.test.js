@@ -23,7 +23,8 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute'];
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
+	'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
 	code += extractFunc(html, f) + '\n';
@@ -32,6 +33,10 @@ const m = html.match(/const _chains = \{\};/);
 if (m) code += m[0].replace(/^const /, 'var ') + '\n';
 const lc = html.match(/const RAM_LIFECYCLE = \{[\s\S]*?\n\};/);
 if (lc) code += lc[0].replace(/^const /, 'var ') + '\n';
+const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
+if (an) code += an[0].replace(/^const /, 'var ') + '\n';
+const ar = html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/);
+if (ar) code += ar[0].replace(/^const /, 'var ') + '\n';
 eval(code);
 code += 'var _ramCardIdx = null;\nvar _ramOpLast = null;\nvar _ramExplorerData = null;\n';
 eval(code);
@@ -192,6 +197,20 @@ test('ramRenderExploreHtml localizes every label and button', () => {
 	assert.ok(seen.includes('Load File AID / Package AID:'));
 	assert.ok(seen.includes('Executable Module AIDs / Applet Class AIDs:'));
 	assert.ok(!out.includes('data-l10n'), out);
+	// the well-known ISD AID is annotated (GP Card Spec v2.3.1 H.1.3)
+	assert.ok(out.includes('A000000151000000 <span class="text-gray-400 dark:text-slate-500">(GlobalPlatform Issuer Security Domain)</span>'), out);
+});
+
+test('ramRenderExploreHtml annotates standard package AIDs, vendor AIDs stay bare', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml(null, [], [], [
+		{ aid: 'A0000000871005FFFFFFFF8913200000', lifecycle: '01', version: '1.0',
+		  moduleAids: ['A000000062010101'], sdAid: 'A0000001515350' },
+	]);
+	delete global.t;
+	assert.ok(out.includes('(uicc.usim.toolkit)'), out);
+	assert.ok(out.includes('(javacard.framework.service)'), out);
+	assert.ok(out.includes('(GlobalPlatform RID)'), out);
 });
 
 test('ramFmtPrivileges uses the translated (none) placeholder', () => {

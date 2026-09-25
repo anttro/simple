@@ -58,6 +58,10 @@ test('scp81LogLine renders script entries', () => {
 		'13 script-memory applets=4 free NV=61600 free vol=2048');
 });
 
+eval(html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/)[0].replace(/^const /, 'var '));
+eval(html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/)[0].replace(/^const /, 'var '));
+eval(extractFunc(html, 'jcAidName'));
+eval(extractFunc(html, 'jcAidSuffix'));
 eval(extractFunc(html, 'scp81DecodeGetStatus'));
 eval(extractFunc(html, 'scp81GroupResults'));
 eval(extractFunc(html, 'scp81ResultLines'));
@@ -103,6 +107,15 @@ test('scp81ResultLines decodes GET STATUS entries', () => {
 	} finally {
 		delete global.decodePrivileges;
 	}
+});
+
+test('scp81ResultLines annotates standard package AIDs and RID hints', () => {
+	const lines = scp81ResultLines({ apdu: '80F24002024F0000', results: [
+		{ rapdu: 'E30E4F08A0000001510000009F70010F', sw: '9000' },
+		{ rapdu: 'E3174F07A00000015153509F7001018408A000000062010101', sw: '9000' },
+	] });
+	assert.strictEqual(lines[0], 'A000000151000000 (GlobalPlatform Issuer Security Domain)  life=0F');
+	assert.strictEqual(lines[1], 'A0000001515350 (GlobalPlatform RID)  life=01  module=A000000062010101 (javacard.framework.service)');
 });
 
 eval(extractFunc(html, 'scp81Ascii'));

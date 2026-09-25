@@ -1559,7 +1559,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.6';
+const SIMPLE_VERSION = '3.5.7';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6221,11 +6221,11 @@ function decodeTlvValue(t) {
 	if (t.tag === 'C5' && t.value.length >= 2) {
 		return decodePrivileges(t.value);
 	}
-	if (t.tag === '4F') {
-		return t.value.replace(/(..)/g, '$1 ').trim();
-	}
-	if (t.tag === 'C4' || t.tag === 'CC' || t.tag === '84') {
-		return t.value.replace(/(..)/g, '$1 ').trim();
+	if (t.tag === '4F' || t.tag === 'C4' || t.tag === 'CC' || t.tag === '84') {
+		// AID-carrying tags: spaced hex plus the standard package name when known.
+		const spaced = t.value.replace(/(..)/g, '$1 ').trim();
+		const name = jcAidName(t.value);
+		return name ? spaced + ' (' + name + ')' : spaced;
 	}
 	if (t.tag === 'CE' && t.value.length === 4) {
 		return 'v' + parseInt(t.value.substr(0,2),16) + '.' + parseInt(t.value.substr(2,2),16);
@@ -7147,6 +7147,101 @@ async function ramSendOta(apduHex, sp) {
 	return await pysimFetch('/api/send-ota', body);
 }
 
+// ===== Standard package AIDs (JavaCard / ETSI / 3GPP / GlobalPlatform) =====
+// Package AIDs of the standard libraries applets can link against, mapped to
+// the library package name.  Source: the workspace research note
+// `docs/JAVACARD.md` (2026-09-26 - parsed from the JavaCard export files in
+// the project corpus: 59 unique package AIDs; its standard-library subset plus
+// the recognisable non-library entries of its section 5), and GP Card Spec
+// v2.3.1 H.1.3 for the default Issuer Security Domain AID.  Matching is exact;
+// JC_AID_RIDS only gives a weak owner hint for otherwise unknown AIDs
+// (JAVACARD.md section 6).  Hand-maintained - update from the note, never from
+// a card registry (vendor/applet AIDs stay unnamed).
+const JC_AID_NAMES = {
+	// Oracle / Sun JavaCard (RID A000000062)
+	'A0000000620001': 'java.lang',
+	'A0000000620002': 'java.io',
+	'A0000000620003': 'java.rmi',
+	'A0000000620101': 'javacard.framework',
+	'A000000062010101': 'javacard.framework.service',
+	'A0000000620102': 'javacard.security',
+	'A0000000620201': 'javacardx.crypto',
+	'A0000000620202': 'javacardx.biometry',
+	'A0000000620203': 'javacardx.external',
+	'A0000000620204': 'javacardx.biometry1toN',
+	'A0000000620205': 'javacardx.security',
+	'A000000062020501': 'javacardx.security.cert',
+	'A000000062020502': 'javacardx.security.derivation',
+	'A000000062020503': 'javacardx.security.util',
+	'A000000062020801': 'javacardx.framework.util',
+	'A00000006202080101': 'javacardx.framework.util.intx',
+	'A000000062020802': 'javacardx.framework.math',
+	'A000000062020803': 'javacardx.framework.tlv',
+	'A000000062020804': 'javacardx.framework.string',
+	'A000000062020805': 'javacardx.framework.event',
+	'A000000062020806': 'javacardx.framework.nio',
+	'A000000062020807': 'javacardx.framework.time',
+	'A0000000620209': 'javacardx.apdu',
+	'A000000062020901': 'javacardx.apdu.util',
+	// JavaCard runtime internals (recognisable, not linkable libraries)
+	'A0000000620301': 'com.sun.javacard.impl',
+	'A000000062030108': 'com.sun.javacard.installer',
+	'A00000006203010E': 'com.sun.javacard.implBiometry',
+	'A00000006203010F': 'com.sun.javacard.crypto',
+	// ETSI SIM / UICC (RID A000000009)
+	'A0000000090003FFFFFFFF8910710001': 'sim.access',
+	'A0000000090003FFFFFFFF8910710002': 'sim.toolkit',
+	'A0000000090005FFFFFFFF8911000000': 'uicc.access',
+	'A0000000090005FFFFFFFF8911010000': 'uicc.access.fileadministration',
+	'A0000000090005FFFFFFFF8911020000': 'uicc.access.bertlvfile',
+	'A0000000090005FFFFFFFF8912000000': 'uicc.toolkit',
+	'A0000000090005FFFFFFFF8913000000': 'uicc.system',
+	'A0000000090005FFFFFFFF8917000000': 'uicc.suspendresume',
+	'A0000000090005FFFFFFFF8918010000': 'uicc.services.highupdatearray',
+	// 3GPP USIM / ISIM (RID A000000087)
+	'A0000000871005FFFFFFFF8913100000': 'uicc.usim.access',
+	'A0000000871005FFFFFFFF8913200000': 'uicc.usim.toolkit',
+	'A0000000871005FFFFFFFF8913300000': 'uicc.usim.geolocation',
+	'A0000000871005FFFFFFFF8913400000': 'uicc.usim.suci',
+	'A0000000871005FFFFFFFF8914100000': 'uicc.isim.access',
+	// GlobalPlatform
+	'A00000015100': 'org.globalplatform',
+	'A000000151000000': 'GlobalPlatform Issuer Security Domain',   // default ISD AID, GPC v2.3.1 H.1.3
+	// Legacy / test packages (recognisable, not linkable libraries)
+	'A0000000030000': 'visa/openplatform',
+	'123456654011': 'com.denis',
+};
+const JC_AID_RIDS = {
+	'A000000062': 'Oracle JavaCard RID',
+	'A000000009': 'ETSI RID',
+	'A000000087': '3GPP RID',
+	'A000000151': 'GlobalPlatform RID',
+};
+
+// Resolve an AID (any hex case/spacing) to a standard package name, a
+// well-known AID name or a RID owner hint; '' when nothing is known.
+function jcAidName(aid) {
+	const s = (aid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (s.length < 10 || s.length > 32 || s.length % 2) return '';
+	if (JC_AID_NAMES[s]) return JC_AID_NAMES[s];
+	for (const rid in JC_AID_RIDS) {
+		if (s.startsWith(rid)) return JC_AID_RIDS[rid];
+	}
+	return '';
+}
+
+// ' (name)' for plain-text listings; '' when the AID is unknown.
+function jcAidSuffix(aid) {
+	const name = jcAidName(aid);
+	return name ? ' (' + name + ')' : '';
+}
+
+// Escaped AID plus a muted parenthesised name, for HTML listings.
+function jcAidHtml(aid) {
+	const name = jcAidName(aid);
+	return esc(aid) + (name ? ' <span class="text-gray-400 dark:text-slate-500">(' + esc(name) + ')</span>' : '');
+}
+
 // ===== TLV parsers for GET STATUS responses (P2=02 format) =====
 // P2=02 wraps each entry in an 'E3' GP Registry Data template containing TLV tags.
 // Fallback: if the card only supports P2=00 (raw format), raw parsers are used.
@@ -7359,10 +7454,10 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('ISD (Issuer Security Domain)')) + '</div>';
 		isd.forEach(o => {
 			html += '<div class="mb-1 pl-2 border-l-2 border-blue-400">';
-			html += '<div>' + esc(t('AID:')) + ' ' + (o.aid || '?') + '</div>';
+			html += '<div>' + esc(t('AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
-			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + o.sdAid + '</div>';
+			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
 		});
 		html += '</div>';
@@ -7372,7 +7467,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Applications / Applet Instances')) + '</div>';
 		apps.forEach(o => {
 			html += '<div class="mb-1 pl-2 border-l-2 border-green-400">';
-			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid || '?');
+			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?');
 			if (o.aid) {
 				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', false)" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete')) + '</button>';
 			}
@@ -7380,8 +7475,8 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.implicitSel) html += '<div>' + esc(t('Implicit sel:')) + ' ' + o.implicitSel + '</div>';
-			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + o.elfAid + '</div>';
-			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + o.sdAid + '</div>';
+			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
+			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
 		});
 		html += '</div>';
@@ -7391,7 +7486,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + '</div>';
 		elfs.forEach(o => {
 			html += '<div class="mb-1 pl-2 border-l-2 border-purple-400">';
-			html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + (o.aid || '?');
+			html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?');
 			if (o.aid) {
 				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', false)" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete')) + '</button>';
 				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', true)" data-needs="card" class="ml-1 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete All')) + '</button>';
@@ -7401,9 +7496,9 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + o.version + '</div>';
 			if (o.moduleAids && o.moduleAids.length) {
 				html += '<div>' + esc(t('Executable Module AIDs / Applet Class AIDs:')) + '</div>';
-				o.moduleAids.forEach(m => { html += '<div class="pl-4">- ' + m + '</div>'; });
+				o.moduleAids.forEach(m => { html += '<div class="pl-4">- ' + jcAidHtml(m) + '</div>'; });
 			}
-			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + o.sdAid + '</div>';
+			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
 		});
 		html += '</div>';
@@ -10391,9 +10486,10 @@ function scp81ResultLines(group) {
 		});
 		unique.forEach(e => {
 			const priv = (typeof decodePrivileges === 'function' && e.privileges) ? decodePrivileges(e.privileges) : (e.privileges || '');
-			lines.push(e.aid + (e.lifecycle ? '  life=' + e.lifecycle : '') + (priv ? '  [' + priv + ']' : '') +
-				(e.elf ? '  elf=' + e.elf : '') + (e.modules.length ? '  module=' + e.modules.join(',') : '') +
-				(e.sd ? '  sd=' + e.sd : ''));
+			lines.push(e.aid + jcAidSuffix(e.aid) + (e.lifecycle ? '  life=' + e.lifecycle : '') + (priv ? '  [' + priv + ']' : '') +
+				(e.elf ? '  elf=' + e.elf + jcAidSuffix(e.elf) : '') +
+				(e.modules.length ? '  module=' + e.modules.map(m => m + jcAidSuffix(m)).join(',') : '') +
+				(e.sd ? '  sd=' + e.sd + jcAidSuffix(e.sd) : ''));
 		});
 		const bad = group.results.filter(r => r.sw && r.sw !== '9000' && r.sw !== 'CAFE');
 		bad.forEach(r => lines.push('SW ' + r.sw));
