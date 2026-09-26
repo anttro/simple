@@ -117,7 +117,7 @@ test('testCommandOptions covers the proactive names and keeps custom values', ()
 	assert.ok(custom.some(o => o.v === '0x74'));
 });
 
-test('the Phone simulator hosts the Test script pill and its wiring', () => {
+test('the Simulator hosts the Test script pill and its wiring', () => {
 	assert.match(html, /data-phone-sub="test"[^>]*data-l10n="Test script"/);
 	assert.match(html, /id="phone-sub-test"/);
 	assert.match(html, /\['phone', 'tr', 'esim', 'test'\]/);

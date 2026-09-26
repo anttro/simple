@@ -233,7 +233,7 @@ test('the chip view groups the sections into a grid', () => {
 	assert.match(fn, /esimChipSectionRows/);
 });
 
-test('the eSIM pill is wired into the Phone simulator tab', () => {
+test('the eSIM LPA pill is wired into the Simulator tab', () => {
 	assert.ok(html.includes('data-phone-sub="esim"'));
 	assert.ok(html.includes('id="phone-sub-esim"'));
 	assert.ok(html.includes("'phone', 'tr', 'esim'"));

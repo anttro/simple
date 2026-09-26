@@ -150,12 +150,12 @@ test('the document and its inline script are complete', () => {
     assert.ok(inline[1].includes('function cApduSwitchSubtab'), 'key function missing');
 });
 
-test('profiler and phone simulator are top-level tab contents', () => {
+test('profiler and simulator are top-level tab contents', () => {
     assert.ok(html.includes('id="tab-profiler" class="tab-content hidden"'));
     assert.ok(html.includes('id="tab-phone" class="tab-content hidden"'));
 });
 
-test('phone simulator has Phone / TR Config pills', () => {
+test('simulator has Phone / TR Config pills', () => {
     assert.match(html, /data-phone-sub="phone" onclick="phoneSwitchSubtab\('phone'\)"/);
     assert.match(html, /data-phone-sub="tr" onclick="phoneSwitchSubtab\('tr'\)"/);
     assert.ok(html.includes('id="phone-sub-phone"'));
@@ -267,7 +267,7 @@ test('every help anchor used by the UI exists in help.html', () => {
     assert.ok(html.includes("? 'scp81-scripts' : 'scp81-listener'"));
 });
 
-test('phone simulator has the network-simulation fieldset', () => {
+test('simulator has the network-simulation fieldset', () => {
     assert.ok(html.includes('data-l10n="Network simulation"'));
     for (const s of ['cold_boot', 'attach_eps', 'attach_2g', 'service_lost',
         'limited_service', 'roaming_denied', 'churn', 'sms_received',
@@ -283,7 +283,7 @@ test('phone simulator has the network-simulation fieldset', () => {
     assert.match(html, /data-needs="card" onclick="netSimRun\('service_lost'\)"/);
 });
 
-test('phone simulator action buttons are green and the TP status sits below them', () => {
+test('simulator action buttons are green and the TP status sits below them', () => {
     assert.match(html, /id="tp-send-btn"[^>]*bg-emerald-600/);
     assert.match(html, /id="pli-status-btn"[^>]*bg-emerald-600/);
     // #tp-status is outside the button row (the row's </div> comes after

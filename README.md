@@ -38,7 +38,7 @@ npm run build
 
 ## Interface
 
-Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profiler**, **Card reader**, and **Phone simulator**. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills; the Card reader tab has three sub-tabs: **File manager**, **pySim command line**, and **Raw APDU**; the Profiler tab lists **Profiles**, **Card snapshots**, and **Custom files**.
+Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profiler**, **Card reader**, and **Simulator**. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills; the Card reader tab has three sub-tabs: **File manager**, **pySim command line**, and **Raw APDU**; the Profiler tab lists **Profiles**, **Card snapshots**, and **Custom files**.
 
 ---
 
@@ -608,9 +608,9 @@ Files not in pysim's model can be added manually from the **Custom files** tab i
 
 The canonical path removes the old ambiguity where the same file could be described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
 
-## Phone simulator
+## Simulator
 
-The **Phone simulator** tab provides real-time CAT session interaction. It has three pills: **Phone** (STK menu, STATUS and polling, subscribed events, proactive command log), **TR Config** (response data injected into TERMINAL RESPONSEs for proactive commands) and **eSIM** (local eUICC operations).
+The **Simulator** tab provides real-time CAT session interaction. It has four pills: **Phone** (STK menu, STATUS and polling, subscribed events, proactive command log), **TR Config** (response data injected into TERMINAL RESPONSEs for proactive commands), **eSIM LPA** (local eUICC operations) and **Test script** (form-based scripts of card actions and proactive-command expectations).
 
 **Subscribed Events** — the card's SET UP EVENT LIST is displayed with per-event **Send** buttons. Clicking opens a form specific to the event type:
 
@@ -650,7 +650,7 @@ Values persist on the server until restart. Apply → hex updates; Save → POST
 
 **Network state monitor** — a compact **Network state** panel next to the simulation buttons shows what the card currently holds and what was last simulated. Its header carries the **simulated service state** (*Undefined* until a scenario or a Location status event sets it, then *Normal service* / *Limited service* / *No service*) with a *PLMN not allowed* marker when the location files or EF.FPLMN show a rejection, plus the current location: PLMN, country and operator, the LAI/RAI/TAI, and the **roaming class** (*Home* when the PLMN equals the HPLMN, *Home equivalent* when it is in EF.EHPLMN, otherwise *Guest*). Below it, one compact line per monitored file (IMSI, EHPLMN, SPDI, HPLMNwAcT, LOCI, PSLOCI, EPSLOCI, EPSNSC, CBMI, CBMIR, SMSstatus, FPLMN) with its decoded summary and how it was last updated (`init`, `write`, `read`, `refresh`); hover for the full decoded fields — long PLMN lists are abbreviated (EF.HPLMNwAcT shows only the first network plus a `… +N` counter). The panel reads the files once at equip (only when the ICCID was readable), updates them in place from the bytes the simulator wrote, re-reads EF.IMSI after every scenario and Location-status event, and never polls the card — **Refresh** re-reads all files on demand.
 
-**eSIM** — for an eUICC (SGP.22/SGP.32) the **eSIM** pill reads the chip and manages the installed profiles through the local ES10 interface (via pySim, no SM-DP+ contact): **Chip** (EID, EUICCInfo1/2 with decoded capability bit lists, card resources, CI PKI identifiers, category, forbidden PPRs, certification data; configured default SM-DP+ / root DS addresses; the rules authorisation table from ES10b GetRat), **Profiles** (state, nickname, provider, ICCID, ISD-P AID, class, owner, and the icon image at its natural size with its type/byte size; **Enable**/**Disable** switches a profile — the card usually sends REFRESH first and the card session is then re-initialized like an equip, so the ICCID, network state and every cached card view are re-read, and the requested state is verified against the re-read profile list) and **Notifications** (read-only pending list). No profile downloads, no notification handling and no SM-DP+ interaction — only the local ES10a/b/c functions are used; a non-eUICC card is reported as such.
+**eSIM LPA** — for an eUICC (SGP.22/SGP.32) the **eSIM LPA** pill reads the chip and manages the installed profiles through the local ES10 interface (via pySim, no SM-DP+ contact): **Chip** (EID, EUICCInfo1/2 with decoded capability bit lists, card resources, CI PKI identifiers, category, forbidden PPRs, certification data; configured default SM-DP+ / root DS addresses; the rules authorisation table from ES10b GetRat), **Profiles** (state, nickname, provider, ICCID, ISD-P AID, class, owner, and the icon image at its natural size with its type/byte size; **Enable**/**Disable** switches a profile — the card usually sends REFRESH first and the card session is then re-initialized like an equip, so the ICCID, network state and every cached card view are re-read, and the requested state is verified against the re-read profile list) and **Notifications** (read-only pending list). No profile downloads, no notification handling and no SM-DP+ interaction — only the local ES10a/b/c functions are used; a non-eUICC card is reported as such.
 
 ## SCP81
 

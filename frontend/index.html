@@ -43,7 +43,7 @@
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="cards" data-l10n="Cards">Cards</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="profiler" data-l10n="Profiler">Profiler</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Card reader">Card reader</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Phone simulator">Phone simulator</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Simulator">Simulator</button>
 	</div>
 
 	<div id="tab-c-apdu" class="tab-content">
@@ -1029,7 +1029,7 @@
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-phone-sub="phone" onclick="phoneSwitchSubtab('phone')" data-l10n="Phone">Phone</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="tr" onclick="phoneSwitchSubtab('tr')" data-l10n="TR Config">TR Config</button>
-			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="esim" onclick="phoneSwitchSubtab('esim')" data-l10n="eSIM">eSIM</button>
+			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="esim" onclick="phoneSwitchSubtab('esim')" data-l10n="eSIM LPA">eSIM LPA</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="test" onclick="phoneSwitchSubtab('test')" data-l10n="Test script">Test script</button>
 		</div>
 		<div id="phone-sub-phone">
@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.11';
+const SIMPLE_VERSION = '3.5.12';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6402,7 +6402,7 @@ function decodeResponse() {
 	out.innerHTML = html;
 }
 
-// ===== Test scripts (Phone simulator pill) =====
+// ===== Test scripts (Simulator pill) =====
 // Scripts are stored locally (simple_tests) and executed server-side
 // (/api/test/run): the server owns the card while a run is active (other
 // card endpoints answer 409) and reports the steps through
@@ -16062,7 +16062,7 @@ const LANG_RU = {
 	'Verifying against pySim reference...': 'Сверка с эталоном pySim...',
 	'Verify vs pySim': 'Проверить в pySim',
 	'Send to Card': 'Отправить на карту',
-	'Phone simulator': 'Симулятор телефона',
+	'Simulator': 'Симулятор',
 	'HTTP OTA listener': 'HTTP OTA слушатель',
 	'Mode': 'Режим',
 	'Capture (dump)': 'Захват (dump)',
@@ -16156,7 +16156,7 @@ const LANG_RU = {
 	'from EF.HPLMNwAcT': 'из EF.HPLMNwAcT',
 	'from IMSI': 'из IMSI',
 	'Home PLMN not available (no HPLMNwAcT/IMSI)': 'Домашняя сеть недоступна (нет HPLMNwAcT/IMSI)',
-	'eSIM': 'eSIM',
+	'eSIM LPA': 'eSIM LPA',
 	'The equipped card is not an eUICC': 'Подключённая карта — не eUICC',
 	'Chip': 'Чип',
 	'Profiles': 'Профили',
