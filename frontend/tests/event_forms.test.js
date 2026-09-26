@@ -31,6 +31,7 @@ function extractFunc(src, name) {
 // Rewrite top-level const -> var so the maps leak out of sloppy-mode eval.
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'cmdQualifierShort'));
+eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
 
@@ -62,6 +63,27 @@ test('cmdQualifierShort decodes OPEN CHANNEL qualifier flags', () => {
 
 test('cmdQualifierShort returns empty for unknown types', () => {
 	assert.strictEqual(cmdQualifierShort('99', 0x01), '');
+});
+
+test('EVENT_NAMES follows the pinned CAT spec and names the 3GPP events', () => {
+	assert.strictEqual(EVENT_NAMES[0x0B], 'Access technology change (single)');
+	assert.strictEqual(EVENT_NAMES[0x14], 'Access technology change (multiple)');
+	assert.strictEqual(EVENT_NAMES[0x19], 'Profile container');
+	assert.strictEqual(EVENT_NAMES[0x1C], 'Poll interval negotiation');
+	for (const [v, frag] of [[0x11, '(I-)WLAN access status'], [0x12, 'Network rejection'],
+		[0x15, 'CSG cell selection'], [0x17, 'IMS registration'], [0x18, 'Incoming IMS data'],
+		[0x1D, 'Data connection status change'], [0x1E, 'CAG cell selection'],
+		[0x1F, 'Slices status change']]) {
+		assert.ok(EVENT_NAMES[v].includes(frag), '0x' + v.toString(16) + ': ' + EVENT_NAMES[v]);
+	}
+});
+
+test('the poll interval negotiation event builds a Duration TLV', () => {
+	const build = EVENT_FORMS[0x1C].build;
+	assert.strictEqual(build({ unit: '1', interval: '45' }), '0402012D');
+	assert.strictEqual(build({ unit: '0', interval: '2' }), '04020002');
+	assert.strictEqual(build({ unit: '2', interval: '5' }), '04020205');
+	assert.strictEqual(build({ unit: '1', interval: '' }), '0402011E');   // default 30 s
 });
 
 test('channel status event builds the B8 channel status TLV', () => {

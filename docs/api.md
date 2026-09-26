@@ -616,6 +616,21 @@ optional hex for events that carry data. Returns the SW and any response data:
 {"sw": "9000", "data": "..."}
 ```
 
+For **Poll Interval Negotiation** (event `0x1C`, TS 102 223 §7.5.22) the
+proposal rides in `event_data` as the Duration TLV `04 02 <unit> <interval>`
+(unit `00` minutes / `01` seconds / `02` tenths of seconds) and the UICC's
+response is decoded into `negotiation`:
+
+```json
+{"sw": "9000", "data": "1101020402011E",
+ "negotiation": {"result": 2, "result_name": "modified",
+                 "unit": 1, "interval": 30, "seconds": 30}}
+```
+
+`result` is `00` accepted / `01` rejected / `02` modified (§8.97); no response
+data means *accepted*. A *modified* answer sets the background poll interval,
+and a *rejected* answer may carry the closest acceptable duration.
+
 Channel status (event `0x0A`, TS 102 223 §8.56) carries the Channel status TLV
 `B8 02 <status> <info>`, where the status byte is the channel id (1–7) OR-ed
 with the state bits (0x00 link not established / 0x40 TCP LISTEN / 0x80 link
@@ -755,10 +770,12 @@ Hex, even number of digits, 1–255 bytes. Response is the same shape as
 
 ### `GET /api/poll-status`
 
-Background STATUS polling state.
+Background STATUS polling state. `card_disabled` is true after the card sent
+POLLING OFF (TS 102 223 §6.4.14): proactive polling stays suspended until a
+POLL INTERVAL arrives, independent of the operator's `enabled` switch.
 
 ```json
-{"enabled": true, "interval": 300}
+{"enabled": true, "interval": 30, "card_disabled": false}
 ```
 
 ### `POST /api/poll-toggle`
@@ -769,7 +786,9 @@ Turns background STATUS polling on or off.
 {"enabled": true}
 ```
 
-Returns the new state (`{"enabled": ..., "interval": ...}`).
+Returns the new state (`{"enabled": ..., "interval": ..., "card_disabled": ...}`);
+while the card has disabled polling, enabling adds a `warning` explaining
+that the timer stays suspended until the card sends a new POLL INTERVAL.
 
 ### `GET /api/pli-qualifiers`
 

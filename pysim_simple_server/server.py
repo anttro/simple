@@ -30,7 +30,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.8'
+VERSION = '3.5.9'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1327,6 +1327,10 @@ _SCP81_PSK_LEGACY = None
 _POLL_ENABLED = False
 _POLL_INTERVAL = 30
 _POLL_TIMER = None
+# Set when the card sent POLLING OFF (TS 102 223 6.4.14): proactive polling
+# stays suspended until a POLL INTERVAL re-enables it.  Presence detection and
+# the manual "Send STATUS" button are not affected.
+_POLL_DISABLED_BY_CARD = False
 _CARD_LOCK = threading.RLock()
 _CARD_CONNECTED = False
 # True when the current PC/SC transport is unusable (service failure): the
@@ -1337,12 +1341,71 @@ def _set_poll_interval(seconds):
     global _POLL_INTERVAL
     _POLL_INTERVAL = max(0, min(255, int(seconds)))
 
+def _duration_seconds(unit, interval):
+    """Duration TLV value (TS 102 223 8.8) as seconds for the background poll,
+    clamped to 1..255 s (the TERMINAL RESPONSE Duration carries seconds)."""
+    if unit == 0x00:        # minutes
+        secs = interval * 60
+    elif unit == 0x02:      # tenths of seconds
+        secs = int(round(interval / 10.0))
+    else:                   # seconds
+        secs = interval
+    return max(1, min(255, secs))
+
+
+def _duration_text(unit, interval):
+    if unit == 0x00:
+        return '%d min' % interval
+    if unit == 0x02:
+        return '%.1f s' % (interval / 10.0)
+    return '%d s' % interval
+
+
+def _find_duration(raw):
+    """(unit, interval) of the Duration TLV in a proactive command (tag '04'
+    or its CR-set variant '84', TS 102 223 8.8), or None."""
+    if not raw:
+        return None
+    off = _skip_ber_len(raw, 1) if raw[0] == 0xD0 else 0
+    while off + 1 < len(raw):
+        tag, tlen = raw[off], raw[off + 1]
+        val = raw[off + 2: off + 2 + tlen]
+        if tag in (0x04, 0x84) and len(val) >= 2:
+            return val[0], val[1]
+        off += 2 + tlen
+    return None
+
+
+def _handle_card_poll_command(cmd_type, raw):
+    """Adopt the card's polling wishes before its TERMINAL RESPONSE is built
+    (TS 102 223 6.4.6 POLL INTERVAL / 6.4.14 POLLING OFF)."""
+    global _POLL_DISABLED_BY_CARD, _POLL_TIMER
+    if cmd_type == 0x03:
+        dur = _find_duration(raw)
+        if dur:
+            unit, interval = dur
+            secs = _duration_seconds(unit, interval)
+            _set_poll_interval(secs)
+            sys.stderr.write('POLL INTERVAL: card requests %s -> background poll %d s\n'
+                             % (_duration_text(unit, interval), secs))
+        _POLL_DISABLED_BY_CARD = False
+        if _POLL_ENABLED:
+            _reset_poll_timer()
+    elif cmd_type == 0x04:
+        if not _POLL_DISABLED_BY_CARD:
+            sys.stderr.write('POLLING OFF: card disabled proactive polling\n')
+        _POLL_DISABLED_BY_CARD = True
+        if _POLL_TIMER is not None:
+            _POLL_TIMER.cancel()
+            _POLL_TIMER = None
+
+
 def _reset_poll_timer():
     global _POLL_TIMER
     if _POLL_TIMER is not None:
         _POLL_TIMER.cancel()
         _POLL_TIMER = None
-    if _POLL_ENABLED and _POLL_INTERVAL > 0:
+    if _POLL_ENABLED and _POLL_INTERVAL > 0 and not _POLL_DISABLED_BY_CARD:
         _POLL_TIMER = threading.Timer(_POLL_INTERVAL, _do_status_poll)
         _POLL_TIMER.daemon = True
         _POLL_TIMER.start()
@@ -1350,7 +1413,7 @@ def _reset_poll_timer():
 def _do_status_poll():
     global _POLL_TIMER
     _POLL_TIMER = None
-    if not _POLL_ENABLED:
+    if not _POLL_ENABLED or _POLL_DISABLED_BY_CARD:
         return
     with _CARD_LOCK:
         try:
@@ -1420,6 +1483,53 @@ def _poll_disable():
         _POLL_TIMER.cancel()
         _POLL_TIMER = None
 
+
+POLL_NEGOTIATION_RESULTS = {0: 'accepted', 1: 'rejected', 2: 'modified'}
+
+
+def _decode_poll_negotiation(data_hex):
+    """Decode the ENVELOPE response data of a Poll Interval Negotiation event
+    (TS 102 223 7.5.22.2 / 8.97).  No response data means 'accepted'."""
+    s = re.sub(r'\s', '', data_hex or '')
+    if not s:
+        return {'result': 0, 'result_name': 'accepted', 'unit': None,
+                'interval': None, 'seconds': None}
+    try:
+        data = bytes.fromhex(s)
+    except ValueError:
+        return None
+    result = None
+    unit = interval = None
+    off = 0
+    while off + 1 < len(data):
+        tag, tlen = data[off], data[off + 1]
+        val = data[off + 2: off + 2 + tlen]
+        off += 2 + tlen
+        if tag in (0x11, 0x91) and len(val) >= 1:
+            result = val[0]
+        elif tag in (0x04, 0x84) and len(val) >= 2:
+            unit, interval = val[0], val[1]
+    if result is None:
+        return None
+    out = {'result': result, 'result_name': POLL_NEGOTIATION_RESULTS.get(result, 'unknown'),
+           'unit': unit, 'interval': interval, 'seconds': None}
+    if unit is not None:
+        out['seconds'] = _duration_seconds(unit, interval)
+    return out
+
+
+def _apply_poll_negotiation(neg):
+    """Act on the card's answer to our poll interval proposal: a 'modified'
+    result carries the duration the terminal shall use from now on."""
+    global _POLL_DISABLED_BY_CARD
+    if not neg or neg.get('result') != 2 or not neg.get('seconds'):
+        return
+    _set_poll_interval(neg['seconds'])
+    _POLL_DISABLED_BY_CARD = False
+    sys.stderr.write('POLL NEGOTIATION: modified -> background poll %d s\n' % neg['seconds'])
+    if _POLL_ENABLED:
+        _reset_poll_timer()
+
 _server_ref = None
 
 
@@ -1438,23 +1548,34 @@ def _tr_data_only(tr_tlv):
     return bytes(data)
 
 
+# Event list codings (TS 102 223 v18.3.0 8.25).  Values the CAT spec leaves
+# "Reserved for 3GPP" carry the concrete 3GPP event name where TS 31.111
+# defines one (clauses in parentheses), so the list stays informative.
 EVENT_NAMES = {
     0x00: 'MT call', 0x01: 'Call connected', 0x02: 'Call disconnected',
     0x03: 'Location status', 0x04: 'User activity', 0x05: 'Idle screen available',
     0x06: 'Card reader status', 0x07: 'Language selection',
     0x08: 'Browser termination', 0x09: 'Data available',
-    0x0A: 'Channel status', 0x0B: 'Access Technology Change',
+    0x0A: 'Channel status', 0x0B: 'Access technology change (single)',
     0x0C: 'Display parameters changed', 0x0D: 'Local connection',
-    0x0E: 'Network Search Mode Change', 0x0F: 'Browsing status',
-    0x10: 'Frames Information Change', 0x11: 'I-WLAN Access Status',
-    0x12: 'Network Rejection', 0x13: 'HCI Connectivity',
-    0x14: 'Change of UICC Access', 0x15: 'CSG Cell Change',
-    0x16: 'Contactless state request', 0x17: 'Profile Container',
-    0x18: 'LTE D2D Discovery Monitoring', 0x19: 'LTE D2D Communication Monitoring',
-    0x1A: 'LTE D2D Announcement Response', 0x1B: 'LTE D2D Revocation',
-    0x1C: 'LTE D2D Application Port', 0x1D: 'LTE D2D Security Recovery',
-    0x1E: 'Off-net Emergency Call', 0x1F: 'ECall Over IMS',
-    0x20: 'EARFCN Update', 0x21: 'SCEF Channel Status',
+    0x0E: 'Network search mode change', 0x0F: 'Browsing status',
+    0x10: 'Frames information change',
+    0x11: 'Reserved for 3GPP \u2014 (I-)WLAN access status (TS 31.111 7.5.1)',
+    0x12: 'Reserved for 3GPP \u2014 Network rejection (TS 31.111 7.5.2)',
+    0x13: 'HCI connectivity',
+    0x14: 'Access technology change (multiple)',
+    0x15: 'Reserved for 3GPP \u2014 CSG cell selection (TS 31.111 7.5.3)',
+    0x16: 'Contactless state request',
+    0x17: 'Reserved for 3GPP \u2014 IMS registration (TS 31.111 7.5.21)',
+    0x18: 'Reserved for 3GPP \u2014 Incoming IMS data (TS 31.111 7.5.20)',
+    0x19: 'Profile container', 0x1A: 'Void', 0x1B: 'Secured profile container',
+    0x1C: 'Poll interval negotiation',
+    0x1D: 'Reserved for 3GPP \u2014 Data connection status change (TS 31.111 7.5.25)',
+    0x1E: 'Reserved for 3GPP \u2014 CAG cell selection (TS 31.111 7.5.26)',
+    0x1F: 'Reserved for 3GPP \u2014 Slices status change (TS 31.111 7.5.27)',
+    0x20: 'Reserved for 3GPP (future usage)',
+    0x21: 'Reserved for 3GPP (future usage)',
+    0x22: 'Reserved for 3GPP (future usage)',
 }
 
 ACCESSTECH_NAMES = {
@@ -1672,9 +1793,12 @@ def _decode_cmd(cmd_type, raw, qualifier):
     if not raw:
         return []
     if cmd_type == 0x03:
-        idx = raw.find(b'\x84\x02\x01')
-        if idx >= 0 and idx + 3 < len(raw):
-            return [{'label': 'Interval', 'value': '%d s' % raw[idx + 3]}]
+        dur = _find_duration(raw)
+        if dur:
+            text = _duration_text(dur[0], dur[1])
+            if dur[0] != 0x01:
+                text += ' (%d s)' % _duration_seconds(dur[0], dur[1])
+            return [{'label': 'Interval', 'value': text}]
         return []
     if cmd_type == 0x05:
         for tag in (0x99, 0x19):
@@ -3758,6 +3882,8 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
         else:
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
             entry = None
+        if raw and cmd_type in (0x03, 0x04):
+            _handle_card_poll_command(cmd_type, raw)
         if on_fetch:
             action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
         paused = action == 'pause'
@@ -3836,6 +3962,8 @@ def _send_terminal_profile(scc, tp_hex):
                     if menu:
                         _attach_nai(items, nai)
                         sim_menu = menu
+            if fdata and cmd_type in (0x03, 0x04):
+                _handle_card_poll_command(cmd_type, raw)
             if fdata and cmd_type:
                 entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
             else:
@@ -4267,7 +4395,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/poll-status':
-            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL}
+            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL,
+                    'card_disabled': _POLL_DISABLED_BY_CARD}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/proactive-log':
@@ -4933,14 +5062,20 @@ class PysimHandler(BaseHTTPRequestHandler):
             try:
                 data, sw = _send_event_download(scc, event_type, event_data)
                 try:
-                    is_location = int(event_type) == netsim.EVENT_LOCATION_STATUS
+                    ev_type = int(event_type)
                 except (TypeError, ValueError):
-                    is_location = False
+                    ev_type = -1
+                is_location = ev_type == netsim.EVENT_LOCATION_STATUS
                 if is_location:
                     _netstate_after_event(self.server, event_type, event_data)
                 resp = {'sw': sw}
                 if data:
                     resp['data'] = data
+                if ev_type == 0x1C:
+                    negotiation = _decode_poll_negotiation(data)
+                    if negotiation:
+                        resp['negotiation'] = negotiation
+                        _apply_poll_negotiation(negotiation)
                 if getattr(self.server, 'net_state', None) is not None:
                     resp['net_state'] = self.server.net_state
                 self._send_json(resp)
@@ -4973,7 +5108,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                 _poll_enable()
             else:
                 _poll_disable()
-            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL}
+            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL,
+                    'card_disabled': _POLL_DISABLED_BY_CARD}
+            if _POLL_ENABLED and _POLL_DISABLED_BY_CARD:
+                resp['warning'] = ('card disabled proactive polling with POLLING OFF '
+                                   '(TS 102 223 6.4.14); it resumes after a POLL INTERVAL')
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/send-ota':

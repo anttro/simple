@@ -1560,7 +1560,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.8';
+const SIMPLE_VERSION = '3.5.9';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9208,23 +9208,34 @@ function pysimFsResetEdit() {
 }
 
 // ===== proactive UICC events =====
+// Event list codings (TS 102 223 v18.3.0 8.25).  Values the CAT spec leaves
+// "Reserved for 3GPP" carry the concrete 3GPP event name where TS 31.111
+// defines one (clause in parentheses), so the list stays informative.
 const EVENT_NAMES = {
 	0x00: 'MT call', 0x01: 'Call connected', 0x02: 'Call disconnected',
 	0x03: 'Location status', 0x04: 'User activity', 0x05: 'Idle screen available',
 	0x06: 'Card reader status', 0x07: 'Language selection',
 	0x08: 'Browser termination', 0x09: 'Data available',
-	0x0A: 'Channel status', 0x0B: 'Access Technology Change',
+	0x0A: 'Channel status', 0x0B: 'Access technology change (single)',
 	0x0C: 'Display parameters changed', 0x0D: 'Local connection',
-	0x0E: 'Network Search Mode Change', 0x0F: 'Browsing status',
-	0x10: 'Frames Information Change', 0x11: 'I-WLAN Access Status',
-	0x12: 'Network Rejection', 0x13: 'HCI Connectivity',
-	0x14: 'Change of UICC Access', 0x15: 'CSG Cell Change',
-	0x16: 'Contactless state request', 0x17: 'Profile Container',
-	0x18: 'LTE D2D Discovery Monitoring', 0x19: 'LTE D2D Communication Monitoring',
-	0x1A: 'LTE D2D Announcement Response', 0x1B: 'LTE D2D Revocation',
-	0x1C: 'LTE D2D Application Port', 0x1D: 'LTE D2D Security Recovery',
-	0x1E: 'Off-net Emergency Call', 0x1F: 'ECall Over IMS',
-	0x20: 'EARFCN Update', 0x21: 'SCEF Channel Status',
+	0x0E: 'Network search mode change', 0x0F: 'Browsing status',
+	0x10: 'Frames information change',
+	0x11: 'Reserved for 3GPP — (I-)WLAN access status (TS 31.111 7.5.1)',
+	0x12: 'Reserved for 3GPP — Network rejection (TS 31.111 7.5.2)',
+	0x13: 'HCI connectivity',
+	0x14: 'Access technology change (multiple)',
+	0x15: 'Reserved for 3GPP — CSG cell selection (TS 31.111 7.5.3)',
+	0x16: 'Contactless state request',
+	0x17: 'Reserved for 3GPP — IMS registration (TS 31.111 7.5.21)',
+	0x18: 'Reserved for 3GPP — Incoming IMS data (TS 31.111 7.5.20)',
+	0x19: 'Profile container', 0x1A: 'Void', 0x1B: 'Secured profile container',
+	0x1C: 'Poll interval negotiation',
+	0x1D: 'Reserved for 3GPP — Data connection status change (TS 31.111 7.5.25)',
+	0x1E: 'Reserved for 3GPP — CAG cell selection (TS 31.111 7.5.26)',
+	0x1F: 'Reserved for 3GPP — Slices status change (TS 31.111 7.5.27)',
+	0x20: 'Reserved for 3GPP (future usage)',
+	0x21: 'Reserved for 3GPP (future usage)',
+	0x22: 'Reserved for 3GPP (future usage)',
 };
 
 const REJECTION_CAUSES = [
@@ -9380,14 +9391,27 @@ const EVENT_FORMS = {
 		}
 	},
 	0x13: null,
-	0x14: { title: 'Change of UICC Access',
+	0x14: { title: 'Access technology change (multiple)',
 		fields: [{ id: 'tech', label: 'Access Technology', type: 'select',
 		           opts: [{v:0,l:'GSM'},{v:3,l:'UTRAN'},{v:8,l:'E-UTRAN'},{v:10,l:'NG-RAN'}] }],
 		build(v) { return 'BF01' + (v.tech|0).toString(16).padStart(2,'0'); }
 	},
-	0x15: { title: 'CSG Cell Change', note: 'not_yet' },
+	0x15: { title: 'CSG cell selection', note: 'not_yet' },
 	0x16: null,
 	0x17: null,
+	0x1C: { title: 'Poll interval negotiation',
+		fields: [
+			{ id: 'unit', label: 'Time unit', type: 'select',
+			  opts: [{v:1,l:'Seconds'},{v:0,l:'Minutes'},{v:2,l:'Tenths of seconds'}] },
+			{ id: 'interval', label: 'Time interval', type: 'number', min: '1', max: '255', placeholder: '1–255 (default 30 s)' },
+		],
+		build(v) {
+			const unit = parseInt(v.unit, 10) || 0;
+			let iv = parseInt(v.interval, 10);
+			if (!(iv >= 1 && iv <= 255)) iv = 30;
+			return ('0402' + unit.toString(16).padStart(2, '0') + iv.toString(16).padStart(2, '0')).toUpperCase();
+		}
+	},
 };
 
 const PLI_QUALIFIERS = [
@@ -9899,6 +9923,11 @@ async function pysimEventSend() {
 		const resp = await pysimFetch('/api/event-send', { event_type: _eventFormType, event_data: eventData });
 		if (resp.sw === '9000') {
 			result.textContent = (eventData ? t('Event data sent.') : t('Event sent.')) + ' SW: ' + resp.sw;
+			if (resp.negotiation) {
+				let neg = t('Poll interval negotiation:') + ' ' + t(resp.negotiation.result_name);
+				if (resp.negotiation.seconds) neg += ' (' + resp.negotiation.seconds + ' s)';
+				result.textContent += ' · ' + neg;
+			}
 			result.classList.remove('hidden');
 		} else {
 			result.textContent = 'SW: ' + resp.sw;
@@ -9949,11 +9978,11 @@ async function pysimPollToggle() {
 		const status = await pysimFetch('/api/poll-status');
 		const newEnabled = !status.enabled;
 		const resp = await pysimFetch('/api/poll-toggle', { enabled: newEnabled });
-		pysimUpdatePollUI(resp.enabled, resp.interval);
+		pysimUpdatePollUI(resp.enabled, resp.interval, resp.card_disabled, resp.warning);
 	} catch (e) { /* ignore */ }
 }
 
-function pysimUpdatePollUI(enabled, interval) {
+function pysimUpdatePollUI(enabled, interval, cardDisabled, warning) {
 	const btn = document.getElementById('pli-pause-btn');
 	const stat = document.getElementById('pli-poll-stat');
 	if (!btn) return;
@@ -9966,13 +9995,18 @@ function pysimUpdatePollUI(enabled, interval) {
 		btn.classList.remove('bg-emerald-600', 'text-white');
 		btn.classList.add('bg-gray-200', 'dark:bg-slate-700', 'text-gray-700', 'dark:text-slate-300');
 	}
-	if (stat) stat.textContent = enabled ? '(' + interval + 's)' : '';
+	if (stat) {
+		stat.className = 'text-xs ' + (cardDisabled ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400');
+		if (cardDisabled) stat.textContent = t('card disabled polling (POLLING OFF)');
+		else if (warning) stat.textContent = warning;
+		else stat.textContent = enabled ? '(' + interval + 's)' : '';
+	}
 }
 
 async function pysimPollStatusInit() {
 	try {
 		const status = await pysimFetch('/api/poll-status');
-		pysimUpdatePollUI(status.enabled, status.interval);
+		pysimUpdatePollUI(status.enabled, status.interval, status.card_disabled);
 	} catch (e) { /* ignore */ }
 }
 
@@ -15387,6 +15421,13 @@ const LANG_RU = {
 	'STK menu': 'Меню STK',
 	'No menu set by the card': 'Меню не задано картой',
 	'Polling': 'Опрос',
+	'card disabled polling (POLLING OFF)': 'карта отключила опрос (POLLING OFF)',
+	'Time unit': 'Единица времени',
+	'Time interval': 'Интервал времени',
+	'Poll interval negotiation:': 'Согласование интервала опроса:',
+	'accepted': 'принято',
+	'rejected': 'отклонено',
+	'modified': 'изменено',
 	'STATUS...': 'STATUS...',
 	'Saving...': 'Сохранение...',
 	'Saved': 'Сохранено',
