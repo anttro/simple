@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.13';
+const SIMPLE_VERSION = '3.5.14';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6479,7 +6479,11 @@ function testScriptProblem(script) {
 			if (TEST_ACTION_KINDS.indexOf(s.kind) < 0) return at + t('unknown action kind');
 			const p = s.params || {};
 			if (s.kind === 'apdu' && !String(p.apdu || '').trim()) return at + t('APDU is empty');
-			if (s.kind === 'scp80' && !String(p.apdu || p.sp || '').trim()) return at + t('SCP80 needs an APDU or a secured packet');
+			if (s.kind === 'scp80') {
+				const src = p.source || (p.sp ? 'sp' : 'apdu');
+				const value = src === 'sp' ? p.sp : p.apdu;
+				if (!String(value || '').trim()) return at + t('SCP80 needs an APDU or a secured packet');
+			}
 			if (s.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return at + t('item id must be 1..255');
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
 		} else if (s.type === 'expect') {
@@ -6928,33 +6932,34 @@ function testStepCollect() {
 	if (!step) return;
 	const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
 	const hex = id => val(id).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+	const hexNoMask = id => val(id).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	const num = (id, dflt) => { const v = parseInt(val(id), 10); return isNaN(v) ? dflt : v; };
 	if (step.type === 'action') {
 		const kind = val('test-step-kind') || step.kind;
 		step.kind = kind;
 		const p = {};
-		if (kind === 'envelope') { p.event = num('test-f-event', 3); p.data = hex('test-f-data'); }
+		if (kind === 'envelope') { p.event = num('test-f-event', 3); p.data = hexNoMask('test-f-data'); }
 		else if (kind === 'menu-select') { p.item_id = num('test-f-item', 1); }
 		else if (kind === 'file-write' || kind === 'file-read') {
 			p.path = val('test-f-path');
 			p.mode = val('test-f-mode') || 'auto';
 			const rec = num('test-f-record', 0);
 			if (rec) p.record = rec;
-			if (kind === 'file-write') p.data = hex('test-f-fdata');
+			if (kind === 'file-write') p.data = hexNoMask('test-f-fdata');
 		}
-		else if (kind === 'apdu') { p.apdu = hex('test-f-apdu'); }
+		else if (kind === 'apdu') { p.apdu = hexNoMask('test-f-apdu'); }
 		else if (kind === 'scp80') {
 			// the source is stored explicitly: switching it must not drop the
 			// value of the other source (and must stick when the field is empty)
 			const prev = step.params || {};
 			const src = val('test-f-src') || prev.source || (prev.sp ? 'sp' : 'apdu');
 			// keep both values: the field of the inactive source is not rendered
-			if (document.getElementById('test-f-sp')) p.sp = hex('test-f-sp');
+			if (document.getElementById('test-f-sp')) p.sp = hexNoMask('test-f-sp');
 			else p.sp = prev.sp || '';
-			if (document.getElementById('test-f-apdu')) p.apdu = hex('test-f-apdu');
+			if (document.getElementById('test-f-apdu')) p.apdu = hexNoMask('test-f-apdu');
 			else p.apdu = prev.apdu || '';
 			p.source = src;
-			['tar', 'spi1', 'spi2'].forEach(k => { const v = hex('test-f-' + k); if (v) p[k] = v; });
+			['tar', 'spi1', 'spi2'].forEach(k => { const v = hexNoMask('test-f-' + k); if (v) p[k] = v; });
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
 		step.params = p;
@@ -6984,8 +6989,8 @@ function testStepCollect() {
 		const ri = num('test-f-ritem', 0);
 		if (ri) r.item_id = ri;
 		const text = val('test-f-rtext');
-		if (text) { r.text = text; r.dcs = hex('test-f-rdcs') || '00'; }
-		const raw = hex('test-f-rraw');
+		if (text) { r.text = text; r.dcs = hexNoMask('test-f-rdcs') || '00'; }
+		const raw = hexNoMask('test-f-rraw');
 		if (raw) r.raw = raw;
 		step.respond = r;
 		step.on_fail = val('test-f-fail') || 'error';
@@ -7176,10 +7181,14 @@ function testWriteBackCounter() {
 	const next = String(st.scp80_counter).toUpperCase();
 	let idx = _testLastPresetIdx;
 	if (idx < 0 && st.preset) {
-		// a run started elsewhere (or observed after a page reload): find the
-		// preset the snapshot names, by ICCID or by name
-		const norm = cardsNormIccid(st.preset);
-		idx = norm ? cardsFindByIccid(norm) : cards.findIndex(c => (c.name || '') === st.preset);
+		// A run started elsewhere (or observed after a page reload): the run
+		// snapshot prefers the preset name, so look that up first and only
+		// fall back to an ICCID-looking value.
+		idx = cards.findIndex(c => (c.name || '') === st.preset);
+		if (idx < 0) {
+			const norm = cardsNormIccid(st.preset);
+			if (norm && norm.length >= 5) idx = cardsFindByIccid(norm);
+		}
 	}
 	if (idx < 0) return;
 	const preset = cards[idx];
@@ -10962,7 +10971,8 @@ function pysimStartBackendPoll() {
 				_testRunState = ts;
 				if (wasRunning !== !!ts.running) pysimApplyAvailability();
 				if (isViewVisible('phone-sub-test')) testRenderRun(ts);
-				if (wasRunning && !ts.running) testWriteBackCounter();
+				// idempotent: saves the counter of a run finished elsewhere
+				if (!ts.running) testWriteBackCounter();
 			}
 		} catch (e) { /* ignore */ }
 	}, 5000);

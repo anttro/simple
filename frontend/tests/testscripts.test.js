@@ -43,9 +43,11 @@ eval(extractFunc(html, 'testFormSelect'));
 eval(extractFunc(html, 'testStepRender'));
 eval(extractFunc(html, 'testRenderChecks'));
 eval(extractFunc(html, 'testStepCollect'));
+eval(extractFunc(html, 'testWriteBackCounter'));
 eval(extractFunc(html, 'testChecksCollect'));
 eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
-	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;');
+	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;'
+	+ ' var _testLastPresetIdx = -1;');
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 function fakeForm(values) {
@@ -82,6 +84,13 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'file-read', params: {} }] }), /file path/);
 	assert.match(testScriptProblem({ steps: [{ type: 'expect' }] }), /command is required/);
+	// the selected SCP80 source decides which value is required
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { source: 'apdu', sp: 'AA' } }] }), /SCP80/);
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { source: 'apdu', apdu: '80E2' } }] }), '');
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { source: 'sp', sp: 'AA', apdu: '80E2' } }] }), '');
 });
 
 test('testStepSummary renders actions', () => {
@@ -183,6 +192,49 @@ test('the step form renders the chosen source and no pre-filled SW', () => {
 	assert.match(body, /id="test-f-sp" value="AABB"/);
 	assert.match(body, /<option value="sp" selected>/);
 	assert.match(body, /id="test-f-sw" value=""/);
+});
+
+test('hex fields strip mask wildcards, check values keep them', () => {
+	_testEditStep = { type: 'action', kind: 'apdu', params: {} };
+	fakeForm({ 'test-step-kind': 'apdu', 'test-f-apdu': '80E2??',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.apdu, '80E2');
+	fakeForm({ 'test-step-kind': 'apdu', 'test-f-apdu': '80E2', 'test-f-sw': '91??',
+		'test-f-sw-mode': 'mask', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.check.sw, { mode: 'mask', value: '91??' });
+});
+
+test('the counter write-back finds the preset by name after a reload', () => {
+	let saved = 0;
+	globalThis.cards = [{ name: 'Card 1', iccid: '8970119000004600098', cntr: '0000000A' }];
+	globalThis.cardsSave = () => { saved++; };
+	globalThis.ioStatus = () => {};
+	// the name lookup must win: the ICCID helpers are not even called
+	globalThis.cardsNormIccid = () => { throw new Error('ICCID lookup for a name'); };
+	globalThis.cardsFindByIccid = () => { throw new Error('ICCID lookup for a name'); };
+	_testLastPresetIdx = -1;
+	_testRunState = { running: false, scp80_counter: '0000000B', preset: 'Card 1' };
+	testWriteBackCounter();
+	assert.strictEqual(cards[0].cntr, '0000000B');
+	assert.strictEqual(saved, 1);
+	testWriteBackCounter();                       // idempotent
+	assert.strictEqual(saved, 1);
+});
+
+test('the counter write-back falls back to an ICCID snapshot', () => {
+	let saved = 0;
+	globalThis.cards = [{ name: 'Other', iccid: '8970119000004600098', cntr: '0000000A' }];
+	globalThis.cardsSave = () => { saved++; };
+	globalThis.ioStatus = () => {};
+	globalThis.cardsNormIccid = v => String(v).replace(/\D/g, '');
+	globalThis.cardsFindByIccid = v => (globalThis.cardsNormIccid(v) === '8970119000004600098' ? 0 : -1);
+	_testLastPresetIdx = -1;
+	_testRunState = { running: false, scp80_counter: '0000000C', preset: '8970119000004600098' };
+	testWriteBackCounter();
+	assert.strictEqual(cards[0].cntr, '0000000C');
+	assert.strictEqual(saved, 1);
 });
 
 test('the item text check offers contains/exact only', () => {

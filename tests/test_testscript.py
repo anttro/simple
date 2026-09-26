@@ -316,6 +316,17 @@ class TestRunnerDialogue(RunnerTestCase):
         self.assertEqual(sum(1 for a in scc.sent if a.startswith('80F2')), 3)
         self.assertEqual(run['steps'][0]['sent'], 'STATUS x3')
 
+    def test_failed_thread_start_unblocks_the_card(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'status', 'params': {}}]}, S._test_command_type)
+        server = FakeServer(FakeScc())
+        with mock.patch.object(S.threading, 'Thread', side_effect=RuntimeError('no threads')):
+            with self.assertRaises(RuntimeError):
+                S._test_run_start(server, script, {})
+        self.assertFalse(S._TEST_RUNNING)
+        self.assertFalse(S._TEST_RUN['running'])
+        self.assertEqual(S._TEST_RUN['status'], 'error')
+
     def test_stop_before_the_first_step(self):
         run = self.run_script(FakeServer(FakeScc()), [
             {'type': 'action', 'kind': 'status', 'params': {}},

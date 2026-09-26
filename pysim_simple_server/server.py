@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.13'
+VERSION = '3.5.14'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4598,10 +4598,22 @@ def _test_run_start(server, script, preset):
             _finish_pending_menu(server, server.scc)
         except Exception as e:
             sys.stderr.write('TEST-RUN: finishing pending menu failed: %s\n' % e)
-    _TEST_THREAD = threading.Thread(target=_test_run_worker,
-                                    args=(server, script, preset),
-                                    name='test-script', daemon=True)
-    _TEST_THREAD.start()
+    try:
+        _TEST_THREAD = threading.Thread(target=_test_run_worker,
+                                        args=(server, script, preset),
+                                        name='test-script', daemon=True)
+        _TEST_THREAD.start()
+    except Exception:
+        # A run that never starts must not leave the card blocked (the 409
+        # guard keys off _TEST_RUNNING, and no worker would ever clear it).
+        _TEST_THREAD = None
+        _TEST_RUNNING = False
+        with _TEST_LOCK:
+            _TEST_RUN['running'] = False
+            _TEST_RUN['status'] = 'error'
+            _TEST_RUN['error'] = 'could not start the run worker'
+            _TEST_RUN['finished'] = time.time()
+        raise
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -4931,7 +4943,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
-            _test_run_start(self.server, script, preset)
+            try:
+                _test_run_start(self.server, script, preset)
+            except Exception as e:
+                resp = {'error': 'could not start the test run: %s' % e}
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+                return
             resp = _test_state_snapshot()
             self._send_json(resp)
             self._log_resp(resp)
