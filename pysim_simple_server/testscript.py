@@ -60,7 +60,8 @@ def _fail_level(value, default='error'):
 
 def _int(value, what, lo, hi):
     try:
-        v = int(str(value).strip(), 0)
+        text = str(value).strip()
+        v = int(text, 16 if text.lower().startswith('0x') else 10)
     except (TypeError, ValueError):
         raise ScriptError('%s must be an integer' % what)
     if not lo <= v <= hi:
@@ -233,12 +234,17 @@ def _normalise_params(kind, p):
         return {'apdu': _data_hex(p.get('apdu'), 'apdu')}
     if kind == 'scp80':
         out = {}
-        if p.get('sp'):
+        source = str(p.get('source') or '').lower()
+        if source not in ('', 'apdu', 'sp'):
+            raise ScriptError('scp80: source must be apdu or sp')
+        if source == 'sp' or (not source and p.get('sp')):
+            if not p.get('sp'):
+                raise ScriptError('scp80: secured packet is required')
             out['sp'] = _data_hex(p.get('sp'), 'secured packet')
-        elif p.get('apdu'):
-            out['apdu'] = _data_hex(p.get('apdu'), 'scp80 apdu')
         else:
-            raise ScriptError('scp80: apdu or sp is required')
+            if not p.get('apdu'):
+                raise ScriptError('scp80: apdu is required')
+            out['apdu'] = _data_hex(p.get('apdu'), 'scp80 apdu')
         for key in ('tar', 'spi1', 'spi2'):
             if p.get(key) not in (None, ''):
                 out[key] = _data_hex(p[key], 'scp80 %s' % key)
@@ -402,6 +408,6 @@ def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond):
     if respond.get('text') is not None:
         dcs = int(respond.get('dcs', 0x00))
         body = _encode_text(respond['text'], dcs)
-        out += bytes([0x0D, len(body) + 1, dcs]) + body
+        out += bytes([0x8D, len(body) + 1, dcs]) + body
     out += bytes([0x83, 0x02, result & 0xFF, 0x00])
     return bytes(out)

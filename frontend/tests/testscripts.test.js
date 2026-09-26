@@ -36,6 +36,21 @@ eval(extractFunc(html, 'testCheckSummary'));
 eval(extractFunc(html, 'testStepSummary'));
 eval(extractFunc(html, 'testCommandOptions'));
 globalThis.t = s => s;
+globalThis.esc = s => String(s);
+eval(extractFunc(html, 'testFormRow'));
+eval(extractFunc(html, 'testFormInput'));
+eval(extractFunc(html, 'testFormSelect'));
+eval(extractFunc(html, 'testStepRender'));
+eval(extractFunc(html, 'testRenderChecks'));
+eval(extractFunc(html, 'testStepCollect'));
+eval(extractFunc(html, 'testChecksCollect'));
+eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
+	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;');
+globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
+function fakeForm(values) {
+	globalThis.document = { getElementById: id => (id in values ? { value: values[id] } : null) };
+}
 
 test('the templates contain usable steps', () => {
 	const menu = testTemplate('menu');
@@ -115,6 +130,77 @@ test('testCommandOptions covers the proactive names and keeps custom values', ()
 	assert.ok(opts.some(o => o.v === 'SELECT ITEM'));
 	const custom = testCommandOptions('0x74');
 	assert.ok(custom.some(o => o.v === '0x74'));
+});
+
+test('the SCP80 source switch sticks and preserves the other value', () => {
+	_testEditStep = { type: 'action', kind: 'scp80', params: { apdu: '80E2900000' } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	// switch to the pre-built packet: the packet field is not rendered yet
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'sp', 'test-f-apdu': '80E2900000',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'any', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.source, 'sp');
+	assert.strictEqual(_testEditStep.params.sp, '');
+	assert.strictEqual(_testEditStep.params.apdu, '80E2900000');   // preserved
+	assert.ok(!('sw' in _testEditStep.check));                     // server default
+	// the packet field is rendered now and gets a value
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'sp', 'test-f-sp': 'aabbcc',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'none', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.sp, 'AABBCC');
+	assert.strictEqual(_testEditStep.params.source, 'sp');
+	assert.strictEqual(_testEditStep.check.por, 'none');
+	// switching back keeps both values
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'apdu', 'test-f-apdu': '80E2900000',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'any', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.source, 'apdu');
+	assert.strictEqual(_testEditStep.params.sp, 'AABBCC');
+});
+
+test('the STATUS step leaves the SW check to the server default', () => {
+	_testEditStep = { type: 'action', kind: 'status', params: { attempts: 5, interval_ms: 200 } };
+	fakeForm({ 'test-step-kind': 'status', 'test-f-attempts': '5', 'test-f-interval': '200',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { attempts: 5, interval_ms: 200 });
+	assert.deepStrictEqual(_testEditStep.check, {});
+});
+
+test('the step form renders the chosen source and no pre-filled SW', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'action', kind: 'scp80', params: { source: 'sp', sp: 'AABB', apdu: '80E2' } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const body = els['test-step-body'].innerHTML;
+	assert.match(body, /id="test-f-sp" value="AABB"/);
+	assert.match(body, /<option value="sp" selected>/);
+	assert.match(body, /id="test-f-sw" value=""/);
+});
+
+test('the item text check offers contains/exact only', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+		'test-checks': {},
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'expect', command: 'SELECT ITEM',
+		checks: [{ kind: 'item', text: 'test', mode: 'contains' }], respond: { result: 'ok' } };
+	_testEditChecks = [{ kind: 'item', text: 'test', mode: 'contains' }];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const checks = els['test-checks'].innerHTML;
+	assert.match(checks, /<option value="contains" selected>/);
+	assert.ok(!checks.includes('value="mask"'), checks);
 });
 
 test('the Simulator hosts the Test script pill and its wiring', () => {

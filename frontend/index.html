@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.12';
+const SIMPLE_VERSION = '3.5.13';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6525,7 +6525,7 @@ function testStepSummary(step) {
 	if (step.kind === 'envelope') s = 'ENVELOPE event=0x' + Number(p.event || 0).toString(16).toUpperCase().padStart(2, '0') + (p.data ? ' data=' + p.data : '');
 	else if (step.kind === 'menu-select') s = 'ENVELOPE(Menu Selection) item=' + p.item_id;
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
-	else if (step.kind === 'scp80') s = 'SCP80 ' + (p.sp ? 'sp' : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
+	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
 	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
 	else if (step.kind === 'file-read') s = 'READ ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '');
 	else if (step.kind === 'status') s = 'STATUS' + ((p.attempts || 1) > 1 ? ' x' + p.attempts + ' (poll)' : '');
@@ -6743,10 +6743,6 @@ function testFormSelect(id, value, options, onchange) {
 	return html + '</select>';
 }
 
-function testCheckModes(value) {
-	return [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}, {v: 'contains', l: t('Contains')}];
-}
-
 function testStepRender() {
 	const modal = document.getElementById('test-step-modal');
 	const title = document.getElementById('test-step-title');
@@ -6776,9 +6772,10 @@ function testStepRender() {
 		} else if (step.kind === 'apdu') {
 			html += testFormRow('APDU (hex)', testFormInput('test-f-apdu', p.apdu, '00A4040008A000000151000000'));
 		} else if (step.kind === 'scp80') {
-			html += testFormRow('Source', testFormSelect('test-f-src', p.sp ? 'sp' : 'apdu', [
+			const src = p.source || (p.sp ? 'sp' : 'apdu');
+			html += testFormRow('Source', testFormSelect('test-f-src', src, [
 				{v: 'apdu', l: t('C-APDU (built with the preset)')}, {v: 'sp', l: t('Pre-built secured packet')}], 'testStepKindChanged()'));
-			if (p.sp) html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
+			if (src === 'sp') html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
 			else html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
 			html += testFormRow('TAR override (hex, optional)', testFormInput('test-f-tar', p.tar, 'B00000'));
 			html += testFormRow('SPI1 override (hex, optional)', testFormInput('test-f-spi1', p.spi1, '16'));
@@ -6791,7 +6788,7 @@ function testStepRender() {
 		const sw = c.sw || {};
 		html += testFormRow('Expected SW', '<div class="flex gap-2">'
 			+ testFormSelect('test-f-sw-mode', sw.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
-			+ testFormInput('test-f-sw', sw.value === undefined ? '9000' : sw.value, '9000 or 91??') + '</div>');
+			+ testFormInput('test-f-sw', sw.value === undefined ? '' : sw.value, t('default: 9000 (91?? when polling)')) + '</div>');
 		const cd = c.data || {};
 		html += testFormRow('Expected data (hex, optional)', '<div class="flex gap-2">'
 			+ testFormSelect('test-f-cdata-mode', cd.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
@@ -6868,7 +6865,8 @@ function testRenderChecks() {
 		if (c.kind === 'item') {
 			html += testFormInput('test-check-id-' + i, c.id, t('id'));
 			html += testFormInput('test-check-text-' + i, c.text, t('text'));
-			html += testFormSelect('test-check-mode-' + i, c.mode || 'contains', testCheckModes());
+			html += testFormSelect('test-check-mode-' + i, c.mode || 'contains',
+				[{v: 'contains', l: t('Contains')}, {v: 'exact', l: t('Exact')}]);
 		} else if (c.kind === 'raw') {
 			html += testFormSelect('test-check-mode-' + i, c.mode || 'mask', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}]);
 			html += testFormInput('test-check-value-' + i, c.value, 'AA??');
@@ -6946,9 +6944,16 @@ function testStepCollect() {
 		}
 		else if (kind === 'apdu') { p.apdu = hex('test-f-apdu'); }
 		else if (kind === 'scp80') {
-			const src = val('test-f-src') || 'apdu';
-			if (src === 'sp') p.sp = hex('test-f-sp');
-			else p.apdu = hex('test-f-apdu');
+			// the source is stored explicitly: switching it must not drop the
+			// value of the other source (and must stick when the field is empty)
+			const prev = step.params || {};
+			const src = val('test-f-src') || prev.source || (prev.sp ? 'sp' : 'apdu');
+			// keep both values: the field of the inactive source is not rendered
+			if (document.getElementById('test-f-sp')) p.sp = hex('test-f-sp');
+			else p.sp = prev.sp || '';
+			if (document.getElementById('test-f-apdu')) p.apdu = hex('test-f-apdu');
+			else p.apdu = prev.apdu || '';
+			p.source = src;
 			['tar', 'spi1', 'spi2'].forEach(k => { const v = hex('test-f-' + k); if (v) p[k] = v; });
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
@@ -6993,7 +6998,10 @@ function testStepFormError() {
 	if (step.type === 'action') {
 		const p = step.params || {};
 		if (step.kind === 'apdu' && !p.apdu) return t('APDU is empty');
-		if (step.kind === 'scp80' && !p.apdu && !p.sp) return t('SCP80 needs an APDU or a secured packet');
+		if (step.kind === 'scp80') {
+			const src = p.source || (p.sp ? 'sp' : 'apdu');
+			if (src === 'sp' ? !p.sp : !p.apdu) return t('SCP80 needs an APDU or a secured packet');
+		}
 		if (step.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return t('item id must be 1..255');
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
@@ -7164,10 +7172,19 @@ async function testPollRun() {
 
 function testWriteBackCounter() {
 	const st = _testRunState;
-	if (!st || st.running || !st.scp80_counter || _testLastPresetIdx < 0) return;
-	const preset = cards[_testLastPresetIdx];
-	if (!preset) return;
+	if (!st || st.running || !st.scp80_counter) return;
 	const next = String(st.scp80_counter).toUpperCase();
+	let idx = _testLastPresetIdx;
+	if (idx < 0 && st.preset) {
+		// a run started elsewhere (or observed after a page reload): find the
+		// preset the snapshot names, by ICCID or by name
+		const norm = cardsNormIccid(st.preset);
+		idx = norm ? cardsFindByIccid(norm) : cards.findIndex(c => (c.name || '') === st.preset);
+	}
+	if (idx < 0) return;
+	const preset = cards[idx];
+	if (!preset) return;
+	_testLastPresetIdx = idx;
 	if (String(preset.cntr || '').toUpperCase() === next) return;
 	preset.cntr = next;
 	cardsSave();
@@ -7181,6 +7198,7 @@ async function testInit() {
 		const st = await pysimFetch('/api/test/status');
 		testRenderRun(st);
 		if (st && st.running) testStartRunTimer();
+		else testWriteBackCounter();
 	} catch (e) { /* server optional */ }
 }
 
@@ -16324,6 +16342,7 @@ const LANG_RU = {
 	'Interval (ms, when polling)': 'Интервал (мс, при опросе)',
 	'attempts must be at least 1': 'число попыток должно быть ≥ 1',
 	'Expected SW': 'Ожидаемое SW',
+	'default: 9000 (91?? when polling)': 'по умолчанию: 9000 (91?? при опросе)',
 	'Expected data (hex, optional)': 'Ожидаемые данные (hex, опционально)',
 	'PoR check': 'Проверка PoR',
 	'Any': 'Любой',

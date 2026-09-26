@@ -76,6 +76,17 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(check['sw'], {'mode': 'mask', 'value': '91??'})
         self.assertEqual(check['data'], {'mode': 'mask', 'value': 'AA??'})
 
+    def test_integer_fields_accept_decimals_with_leading_zeros_and_hex(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'status',
+             'params': {'attempts': '08', 'interval_ms': '0x10'}},
+        ]}, _resolver)
+        self.assertEqual(script['steps'][0]['params']['attempts'], 8)
+        self.assertEqual(script['steps'][0]['params']['interval_ms'], 16)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 'x'}}]}, _resolver)
+
     def test_respond_text_and_raw(self):
         respond = T.normalise_respond({'result': 'ok', 'text': 'hello', 'dcs': '00',
                                        'raw': 'aa01bb'})
@@ -83,7 +94,7 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(respond['raw'], 'AA01BB')
         tr = T.build_tr(4, 0x23, 0x81, 0x82, respond)
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + 'AA01BB' + '0D0600' + '68656C6C6F'
+                         '8103042300' + '82028182' + 'AA01BB' + '8D0600' + '68656C6C6F'
                          + '83020000')
 
 
@@ -314,6 +325,21 @@ class TestRunnerDialogue(RunnerTestCase):
 
 
 class TestRunnerActions(RunnerTestCase):
+    def test_script_menu_select_mirrors_menu_active(self):
+        # 9000 -> the menu dialogue is over
+        server = FakeServer(FakeScc().push('80C2', '', '9000'))
+        self.run_script(server, [{'type': 'action', 'kind': 'menu-select', 'params': {'item_id': 1}}])
+        self.assertFalse(server.menu_active)
+        # 91XX -> a menu dialogue is pending (drained at the end)
+        scc = FakeScc()
+        scc.push('80C2', '', '9103')
+        scc.push('8012', SELECT_ITEM_CMD, '9000')
+        scc.push('8014', '', '9000')
+        server = FakeServer(scc)
+        self.run_script(server, [{'type': 'action', 'kind': 'menu-select',
+                                  'params': {'item_id': 1}, 'check': {'sw': '91??'}}])
+        self.assertTrue(server.menu_active)
+
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()
         server = FakeServer(scc)
@@ -340,6 +366,26 @@ class TestRunnerActions(RunnerTestCase):
         self.assertEqual(build.call_args[0][4], 'B00000')
         self.assertEqual(build.call_args[0][5], '0000000A')
         self.assertFalse(send.call_args.kwargs.get('handle_proactive', True))
+
+    def test_scp80_source_selects_between_apdu_and_packet(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'source': 'apdu', 'apdu': '80E2900000', 'sp': 'AABB'}},
+        ]}, _resolver)
+        params = script['steps'][0]['params']
+        self.assertIn('apdu', params)
+        self.assertNotIn('sp', params)
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80', 'params': {'source': 'sp', 'sp': 'AABB', 'apdu': '80E2'}},
+        ]}, _resolver)
+        self.assertIn('sp', script['steps'][0]['params'])
+        self.assertNotIn('apdu', script['steps'][0]['params'])
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80', 'params': {'source': 'sp', 'apdu': '80E2'}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80', 'params': {'source': 'nope', 'apdu': '80E2'}}]}, _resolver)
 
     def test_scp80_step_overrides_tar_and_spi_only(self):
         scc = FakeScc()

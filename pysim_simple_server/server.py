@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.12'
+VERSION = '3.5.13'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4217,24 +4217,22 @@ def _test_entry(step, index):
             'sw': None, 'data': None, 'ms': None, 'started': time.time()}
 
 
+def _test_entry_update(entry, fields):
+    """Mutate a step entry under _TEST_LOCK: the status endpoint serializes
+    the whole run state with json.dumps, so entries must not change while it
+    iterates them."""
+    with _TEST_LOCK:
+        entry.update(fields)
+
+
 def _test_finish_entry(entry, result):
-    entry['status'] = result.get('status', 'ok')
-    entry['checks'] = result.get('checks', [])
-    if result.get('sent') is not None:
-        entry['sent'] = result['sent']
-    if result.get('sw') is not None:
-        entry['sw'] = result['sw']
-    if result.get('data') is not None:
-        entry['data'] = result['data']
-    if result.get('note'):
-        entry['note'] = result['note']
-    if result.get('por') is not None:
-        entry['por'] = result['por']
-    if result.get('counter'):
-        entry['counter'] = result['counter']
-    if result.get('command'):
-        entry['command'] = result['command']
-    entry['ms'] = int((time.time() - (entry.get('started') or time.time())) * 1000)
+    fields = {'status': result.get('status', 'ok'),
+              'checks': result.get('checks', []),
+              'ms': int((time.time() - (entry.get('started') or time.time())) * 1000)}
+    for key in ('sent', 'sw', 'data', 'note', 'por', 'counter', 'command'):
+        if result.get(key) is not None:
+            fields[key] = result[key]
+    _test_entry_update(entry, fields)
 
 
 def _test_action_checks(step, sw, data, por, kind):
@@ -4356,7 +4354,10 @@ def _test_run_action(server, step, ctx):
     elif kind == 'menu-select':
         tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, p['item_id']])
         sent = '%sc20000%02x%s' % (scc.cat_cla, len(tlv), tlv.hex())
+        server.menu_active = True
         data, sw = scc._tp.send_apdu(sent)
+        if not (sw or '').startswith('91'):
+            server.menu_active = False
     elif kind == 'apdu':
         sent = p['apdu']
         data, sw = scc._tp.send_apdu(sent)
@@ -4469,6 +4470,7 @@ def _test_drain_pending(scc, fetch_len):
 
 
 def _test_run_execute(server, script, preset):
+    global _TEST_RUNNING
     scc = server.scc
     ctx = {'preset': dict(preset or {}),
            'counter': str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper(),
@@ -4491,18 +4493,22 @@ def _test_run_execute(server, script, preset):
         with _TEST_LOCK:
             _TEST_RUN['steps'].append(entry)
         if pending is not None and step['type'] != 'expect':
-            entry['status'] = 'error'
-            entry['note'] = ('unexpected proactive command pending (SW 91XX) - '
-                             'add an expect step or a status action')
-            drained = _test_drain_pending(scc, pending)
-            entry.update({k: v for k, v in drained.items() if k != 'note'})
-            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            _test_entry_update(entry, {
+                'status': 'error',
+                'note': 'unexpected proactive command pending (SW 91XX) - '
+                        'add an expect step or a status action'})
+            with _CARD_LOCK:
+                drained = _test_drain_pending(scc, pending)
+            fields = {k: v for k, v in drained.items() if k != 'note'}
+            fields['ms'] = int((time.time() - entry['started']) * 1000)
+            _test_entry_update(entry, fields)
             pending = None
             break
         if getattr(server, 'card_session', 0) != session:
-            entry['status'] = 'error'
-            entry['note'] = 'card session changed (card removed or re-equipped)'
-            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            _test_entry_update(entry, {
+                'status': 'error',
+                'note': 'card session changed (card removed or re-equipped)',
+                'ms': int((time.time() - entry['started']) * 1000)})
             break
         try:
             with _CARD_LOCK:
@@ -4515,17 +4521,19 @@ def _test_run_execute(server, script, preset):
                 # Error terminates the script; Warning and OK continue.
                 break
         except Exception as e:
-            entry['status'] = 'error'
-            entry['note'] = str(e)
-            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            _test_entry_update(entry, {
+                'status': 'error', 'note': str(e),
+                'ms': int((time.time() - entry['started']) * 1000)})
             sys.stderr.write('TEST-RUN step %d failed: %s\n' % (index + 1, e))
             if pending is not None:
-                drained = _test_drain_pending(scc, pending)
-                entry.update({k: v for k, v in drained.items() if k != 'note'})
+                with _CARD_LOCK:
+                    drained = _test_drain_pending(scc, pending)
+                _test_entry_update(entry, {k: v for k, v in drained.items() if k != 'note'})
                 pending = None
             break
     if pending is not None:
-        drained = _test_drain_pending(scc, pending)
+        with _CARD_LOCK:
+            drained = _test_drain_pending(scc, pending)
         with _TEST_LOCK:
             _TEST_RUN['steps'].append(dict(
                 {'index': len(script['steps']), 'type': 'cleanup', 'kind': 'cleanup',
@@ -4547,18 +4555,17 @@ def _test_run_execute(server, script, preset):
                 _TEST_RUN['status'] = 'warning'
             else:
                 _TEST_RUN['status'] = 'ok'
-    global _TEST_RUNNING
     _TEST_RUNNING = False
     if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
         _reset_poll_timer()
 
 
 def _test_run_worker(server, script, preset):
+    global _TEST_RUNNING
     try:
         _test_run_execute(server, script, preset)
     except Exception as e:
         traceback.print_exc()
-        global _TEST_RUNNING
         _TEST_RUNNING = False
         with _TEST_LOCK:
             _TEST_RUN['error'] = str(e)

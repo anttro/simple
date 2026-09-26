@@ -394,9 +394,10 @@ suspended; only `/api/test/*`, `/api/status`, `/api/poll-status`,
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
 `menu-select` (`item_id` 1-255), `file-write` (`path`, `data`, `mode`
 `auto`/`binary`/`record`, `record`), `file-read` (same, verifies `check.data`),
-`apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, optional
-`tar`/`spi1`/`spi2` overrides - KIc/KID and the counter always come from the
-`preset`, which must match the equipped card and be complete) or `status`
+`apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, selected by
+the optional `source` field when both are present; optional `tar`/`spi1`/`spi2`
+overrides - KIc/KID and the counter always come from the `preset`, which must
+match the equipped card and be complete) or `status`
 (`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
 mask `91??`, i.e. poll until the card announces a command).
 
