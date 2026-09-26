@@ -695,12 +695,12 @@
 						<option value="install-cap" data-l10n="Install Package (.cap file)">Install Package (.cap file)</option>
 					</select>
 				</div>
-				<button data-needs="card" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 
 			<div id="ram-install-params" class="hidden mb-3">
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
-				<input type="file" id="ram-cap-file" accept=".cap,.zip" class="w-full text-sm text-gray-600 dark:text-slate-300">
+				<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
 				<div id="ram-cap-info" class="text-xs text-gray-500 mt-1 hidden"></div>
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
 				<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
@@ -1315,7 +1315,7 @@
 					<div class="flex flex-wrap items-end gap-3">
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="CAP file">CAP file</label>
-							<input type="file" id="scripts-cap-file" accept=".cap,.zip" class="text-xs text-gray-600 dark:text-slate-300">
+							<input type="file" id="scripts-cap-file" accept=".cap,.zip" onchange="scriptsCapFileChanged()" class="text-xs text-gray-600 dark:text-slate-300">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
@@ -1330,8 +1330,9 @@
 							<input id="scripts-cap-stk" placeholder="CA TLV" class="w-40 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-400"><input type="checkbox" id="scripts-cap-makesel" checked> <span data-l10n="Make selectable">Make selectable</span></label>
-						<button data-needs="server" onclick="scriptsGenerateInstall()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Generate">Generate</button>
+						<button data-needs="server" data-cap-gate="scripts" onclick="scriptsGenerateInstall()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Generate">Generate</button>
 					</div>
+					<div id="scripts-cap-info" class="text-xs text-gray-500 mt-1 hidden"></div>
 					<div class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="The .cap is only used to generate the APDUs: the script stores the APDU list, not the file.">The .cap is only used to generate the APDUs: the script stores the APDU list, not the file.</div>
 				</div>
 				<div id="scripts-delete-params" class="hidden mt-3 border-t border-gray-200 dark:border-slate-700 pt-3">
@@ -1559,7 +1560,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.7';
+const SIMPLE_VERSION = '3.5.8';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6463,6 +6464,12 @@ function pysimApplyAvailability() {
 			disabled = true;
 			if (!hint) hint = t('No decoder for this file');
 		}
+		const capGate = el.getAttribute('data-cap-gate');
+		if (capGate && !capGateOk(capGate)) {
+			// A .cap must be analyzed successfully before its action runs.
+			disabled = true;
+			if (!hint) hint = t('Analyze the CAP file first');
+		}
 		el.disabled = disabled;
 		if (hint) el.setAttribute('title', hint);
 		else el.removeAttribute('title');
@@ -7108,6 +7115,131 @@ function ramReadFileHex(file) {
 	});
 }
 
+// ===== CAP file analysis (memory estimate) =====
+// A .cap selected in the RAM installer or in the SCP81 "Install from .cap"
+// template is analyzed server-side before any APDU is built: /api/cap-info
+// validates the archive (a corrupt/wrong file fails here) and estimates the
+// code size, persistent (NVRAM) and volatile (RAM) requirements.  A
+// successful analysis is required before the form's action button
+// (data-cap-gate, checked in pysimApplyAvailability); the estimate itself is
+// informational and is never used for installation.
+const _capAnalysis = {
+	ram: { key: null, status: 'idle', memory: null, error: null, token: 0 },
+	scripts: { key: null, status: 'idle', memory: null, error: null, token: 0 },
+};
+
+function capFileKey(file) {
+	return file ? (file.name + ':' + file.size + ':' + file.lastModified) : '';
+}
+
+function capGateOk(kind) {
+	if (kind === 'ram') {
+		const op = document.getElementById('ram-op');
+		if (op && op.value !== 'install-cap') return true;   // only the install op is gated
+	}
+	const st = _capAnalysis[kind];
+	return !!(st && st.status === 'ok');
+}
+
+function capMemBytes(n) {
+	const v = Number(n) || 0;
+	if (v < 1024) return v + ' B';
+	return (v / 1024).toFixed(1) + ' kB';
+}
+
+// Estimate box body; pure apart from esc()/t().  `mem` is the server's
+// memory object (pysim_simple_server.capmem.memory_json).
+function capMemHtml(mem) {
+	if (!mem) return '';
+	const nv = mem.nvram || {}, ram = mem.ram || {}, code = mem.code || {}, sug = mem.suggested || {};
+	const hex2 = v => (Number(v) || 0).toString(16).toUpperCase().padStart(4, '0');
+	let html = '<div class="font-medium text-gray-700 dark:text-slate-300">' + esc(t('CAP requirements (estimate)')) + '</div>';
+	html += '<div>' + esc(t('Code (Method.cap):')) + ' ' + esc(capMemBytes(code.method_component)) +
+		' · ' + esc(t('Persistent (NVRAM):')) + ' ' + esc(capMemBytes(nv.total)) +
+		' · ' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) + '</div>';
+	html += '<details class="mt-1"><summary class="cursor-pointer text-gray-400">' + esc(t('Details')) + '</summary>';
+	html += '<div>' + esc(t('Static image:')) + ' ' + esc(capMemBytes(nv.static_image)) +
+		' · ' + esc(t('Static array init:')) + ' ' + esc(capMemBytes(nv.array_init)) +
+		' · ' + esc(t('Install-time objects:')) + ' ' + esc(capMemBytes(nv.install_objects)) +
+		' · ' + esc(t('Object headers:')) + ' ' + esc(capMemBytes(nv.header_overhead)) +
+		' · ' + esc(t('Reference storage:')) + ' ' + esc(capMemBytes(nv.ref_storage)) + '</div>';
+	html += '<div>' + esc(t('Transient arrays:')) + ' ' + esc(capMemBytes(ram.transient_arrays)) +
+		' · ' + esc(t('Runtime transient:')) + ' ' + esc(capMemBytes(ram.runtime_transient)) +
+		' · ' + esc(t('Peak method frame:')) + ' ' + esc(capMemBytes(ram.peak_frame)) + '</div>';
+	html += '<div>' + esc(t('Suggested install quotas (informational):')) +
+		' C6=' + esc(String(Number(sug.c6) || 0)) + ' C7=0x' + esc(hex2(sug.c7)) + ' C8=0x' + esc(hex2(sug.c8)) + '</div>';
+	html += '<div class="text-gray-400">' + esc(t('Estimate only — memory values are not used for installation')) + '</div>';
+	html += '</details>';
+	(mem.warnings || []).forEach(w => {
+		html += '<div class="text-amber-600 dark:text-amber-400">\u26a0 ' + esc(w) + '</div>';
+	});
+	return html;
+}
+
+function capRenderAnalysis(kind) {
+	const box = document.getElementById(kind === 'ram' ? 'ram-cap-info' : 'scripts-cap-info');
+	if (!box) return;
+	const st = _capAnalysis[kind];
+	if (!st || st.status === 'idle') {
+		box.classList.add('hidden');
+		box.innerHTML = '';
+		return;
+	}
+	box.classList.remove('hidden');
+	if (st.status === 'analyzing') {
+		box.innerHTML = '<span class="text-gray-400">' + esc(t('Analyzing CAP file...')) + '</span>';
+	} else if (st.status === 'error') {
+		box.innerHTML = '<span class="text-red-500">' + esc(t('Analysis failed:')) + ' ' + esc(st.error || '') + '</span>' +
+			' <button class="underline text-gray-500 hover:text-gray-700 dark:text-slate-400" onclick="' +
+			(kind === 'ram' ? 'ramCapFileChanged()' : 'scriptsCapFileChanged()') + '">' + esc(t('Retry')) + '</button>';
+	} else {
+		box.innerHTML = capMemHtml(st.memory);
+	}
+}
+
+// Read the selected file, validate + estimate it on the server and update the
+// form.  The token guards against out-of-order responses on re-selection.
+async function capAnalyzeFile(file, kind) {
+	const st = _capAnalysis[kind];
+	st.token++;
+	const token = st.token;
+	st.key = capFileKey(file);
+	st.memory = null;
+	st.error = null;
+	st.status = file ? 'analyzing' : 'idle';
+	capRenderAnalysis(kind);
+	pysimApplyAvailability();
+	if (!file) return;
+	try {
+		const hex = await ramReadFileHex(file);
+		const resp = await pysimFetch('/api/cap-info', { cap_hex: hex });
+		if (token !== st.token) return;
+		if (resp && resp.ok) {
+			st.status = 'ok';
+			st.memory = resp.memory || {};
+		} else {
+			st.status = 'error';
+			st.error = (resp && resp.error) || t('Analysis failed');
+		}
+	} catch (e) {
+		if (token !== st.token) return;
+		st.status = 'error';
+		st.error = String(e && e.message ? e.message : e);
+	}
+	capRenderAnalysis(kind);
+	pysimApplyAvailability();
+}
+
+function ramCapFileChanged() {
+	const input = document.getElementById('ram-cap-file');
+	capAnalyzeFile(input && input.files ? input.files[0] : null, 'ram');
+}
+
+function scriptsCapFileChanged() {
+	const input = document.getElementById('scripts-cap-file');
+	capAnalyzeFile(input && input.files ? input.files[0] : null, 'scripts');
+}
+
 // Collect SP params from the SP form (populated by ramApplyCard -> cardsApply)
 function getRamSpParams() {
 	return {
@@ -7729,10 +7861,14 @@ async function ramInstallCap(sp) {
 }
 
 async function ramExecute() {
+	const op = document.getElementById('ram-op').value;
+	if (op === 'install-cap' && !capGateOk('ram')) {
+		alert(t('Analyze the CAP file first'));
+		return;
+	}
 	ramClearResults();
 	const cardIdx = parseInt(document.getElementById('ram-card-sel').value, 10);
 	if (!isNaN(cardIdx) && cards[cardIdx]) _ramCardIdx = cardIdx;
-	const op = document.getElementById('ram-op').value;
 	const sp = getRamSpParams();
 	if (!sp.kicKey || !sp.kidKey) {
 		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
@@ -10871,6 +11007,7 @@ async function scriptsGenerateInstall() {
 	const fileInput = document.getElementById('scripts-cap-file');
 	const file = fileInput.files[0];
 	if (!file) { scriptsMsg(t('Select a .cap file'), 'text-red-500'); return; }
+	if (!capGateOk('scripts')) { scriptsMsg(t('Analyze the CAP file first'), 'text-red-500'); return; }
 	if (file.size > 48 * 1024) { scriptsMsg(t('CAP file exceeds 48 kB limit'), 'text-red-500'); return; }
 	scriptsMsg(t('Reading CAP file...'), 'text-gray-500');
 	try {
@@ -14950,6 +15087,25 @@ const LANG_RU = {
 	'CAP file exceeds 48 kB limit': 'Файл CAP превышает лимит 48 кБ',
 	'Reading CAP file...': 'Чтение файла CAP...',
 	'Sending to server for install...': 'Отправка на сервер для установки...',
+	'Analyzing CAP file...': 'Анализ CAP-файла...',
+	'Analysis failed:': 'Ошибка анализа:',
+	'Retry': 'Повторить',
+	'Analyze the CAP file first': 'Сначала проанализируйте CAP-файл',
+	'CAP requirements (estimate)': 'Требования CAP (оценка)',
+	'Code (Method.cap):': 'Код (Method.cap):',
+	'Persistent (NVRAM):': 'Энергонезависимая память (NVRAM):',
+	'RAM (volatile):': 'ОЗУ (volatile):',
+	'Details': 'Подробнее',
+	'Static image:': 'Образ статических полей:',
+	'Static array init:': 'Инициализация статических массивов:',
+	'Install-time objects:': 'Объекты при установке:',
+	'Object headers:': 'Заголовки объектов:',
+	'Reference storage:': 'Хранение ссылок:',
+	'Transient arrays:': 'Transient-массивы:',
+	'Runtime transient:': 'Transient во время работы:',
+	'Peak method frame:': 'Пиковый кадр метода:',
+	'Suggested install quotas (informational):': 'Рекомендуемые квоты установки (справочно):',
+	'Estimate only — memory values are not used for installation': 'Только оценка — значения памяти не используются при установке',
 	'Step': 'Шаг',
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',

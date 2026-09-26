@@ -19,6 +19,7 @@ from pysim_simple_server import netsim
 from pysim_simple_server import netstate
 from pysim_simple_server import scp81
 from pysim_simple_server import esim
+from pysim_simple_server import capmem
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
 
@@ -29,7 +30,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.7'
+VERSION = '3.5.8'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2410,6 +2411,30 @@ def _scp81_gen_install(body):
              module_aid=module_aid)
     return {'ok': True, 'apdus': seq, 'load_file_aid': loadfile_aid,
             'module_aid': module_aid}
+
+
+def _cap_info_body(body):
+    """Validate a .cap archive and estimate its memory requirements.
+
+    Read-only: runs the same structural parse as the install paths (so a
+    corrupt/wrong file fails here first) plus the capmem analyzer.  Never
+    touches the card, the SCP81 listener or the scripts; the estimate is
+    informational - the install paths stay self-sufficient."""
+    body = body or {}
+    cap_hex = re.sub(r'\s', '', body.get('cap_hex') or '')
+    if not cap_hex:
+        return {'ok': False, 'error': 'No cap_hex provided'}
+    try:
+        loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
+    except Exception as e:
+        return {'ok': False, 'error': 'cap parse failed: %s' % e}
+    try:
+        report, memory = capmem.analyze_bytes(bytes.fromhex(cap_hex))
+        info = capmem.memory_json(report, memory)
+    except Exception as e:
+        return {'ok': False, 'error': 'cap analysis failed: %s' % e}
+    return {'ok': True, 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
+            'load_file_bytes': len(loadfile_data) // 2, 'memory': info}
 
 
 def _scp81_bip_control(body):
@@ -5281,6 +5306,15 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req(body)
             try:
                 resp = _scp81_gen_install(body)
+            except Exception as e:
+                resp = {'ok': False, 'error': str(e)}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/cap-info':
+            body = self._read_body()
+            self._log_req(body)
+            try:
+                resp = _cap_info_body(body)
             except Exception as e:
                 resp = {'ok': False, 'error': str(e)}
             self._send_json(resp)

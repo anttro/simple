@@ -38,6 +38,7 @@ a 3.x PWA).
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
+| `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/sp-verify` | POST | Verify secured packet against pySim reference |
 | `/api/menu` | GET | Current STK menu (title + items + active) |
 | `/api/menu-select` | POST | ENVELOPE(Menu Selection) with item_id |
@@ -318,6 +319,48 @@ fetched via a proactive command (FETCH). The response contains the
 same `por` structure if decoding succeeds.
 
 The SPI2 `por_in_submit` bit (0x20) selects submit-mode PoR.
+
+### `POST /api/cap-info`
+
+Validate a Java Card `.cap` archive and estimate its memory requirements.
+Read-only: it runs the same structural parse as the install paths (so a
+corrupt or wrong-format file fails here first) plus the bundled CAP analyzer
+(`pysim_simple_server/capmem.py` — component parsers and a method-bytecode
+allocation scan).  It never touches the card, the SCP81 listener or the
+scripts; the install endpoints stay self-sufficient and the estimate is not
+used for installation.
+
+```json
+{"cap_hex": "504B0304..."}
+```
+
+**Response (ok):**
+
+```json
+{
+  "ok": true,
+  "load_file_aid": "AA1902BC226001", "module_aid": "AA1902BC226001",
+  "load_file_bytes": 1234,
+  "memory": {
+    "package_aid": "AA1902BC226001",
+    "applet_count": 1, "applets": ["AA1902BC226001"],
+    "class_count": 3, "method_count": 12,
+    "code": {"method_component": 850},
+    "nvram": {"static_image": 12, "array_init": 4, "install_objects": 100,
+              "header_overhead": 24, "ref_storage": 8, "total": 148, "runtime": 0},
+    "ram": {"transient_arrays": 16, "runtime_transient": 0, "peak_frame": 8, "total": 24},
+    "suggested": {"c6": 850, "c7": 272, "c8": 148},
+    "warnings": []
+  }
+}
+```
+
+**Errors** (HTTP 200 with `ok: false`, like `/api/scp81/gen-install`):
+`{"ok": false, "error": "cap parse failed: File is not a zip file"}` for a
+corrupt/wrong archive, or `cap analysis failed: …` when a component passes
+the structural parse but not the analyzer.  The numbers are an estimate:
+the model assumes 2-byte references, a 6-byte object header and NVM cell
+rounding, and does not include applet-created runtime objects/arrays.
 
 ### `POST /api/ram-install`
 
