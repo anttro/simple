@@ -31,8 +31,10 @@ function extractFunc(src, name) {
 // Rewrite top-level const -> var so the tables leak out of sloppy-mode eval.
 eval(extractBlock('const JC_AID_NAMES = {', 'const JC_AID_RIDS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const JC_AID_RIDS = {', 'function jcAidName').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'jcAidNorm'));
 eval(extractFunc(html, 'jcAidName'));
 eval(extractFunc(html, 'jcAidSuffix'));
+eval(extractFunc(html, 'jcAidFamily'));
 eval(extractFunc(html, 'jcAidHtml'));
 globalThis.esc = s => s;
 
@@ -79,6 +81,24 @@ test('the plain-text and HTML suffixes name known AIDs only', () => {
 		'E(A0000000620101) <span class="text-gray-400 dark:text-slate-500">(E(javacard.framework))</span>');
 	assert.strictEqual(jcAidHtml('D276000005AAFFCAFE0010'), 'E(D276000005AAFFCAFE0010)');
 	globalThis.esc = s => s;
+});
+
+test('the AID family follows the RID groups (JAVACARD.md section 6)', () => {
+	assert.strictEqual(jcAidFamily('A0000000620101'), 'Oracle JavaCard API');
+	assert.strictEqual(jcAidFamily('A0000000090003FFFFFFFF8910710002'), 'ETSI SIM (2G) API');
+	assert.strictEqual(jcAidFamily('A0000000090005FFFFFFFF8912000000'), 'ETSI UICC API');
+	assert.strictEqual(jcAidFamily('A0000000871005FFFFFFFF8913200000'), '3GPP USIM/ISIM API');
+	assert.strictEqual(jcAidFamily('A00000015100'), 'GlobalPlatform API');
+	// vendor/applet AIDs stay unlabelled
+	assert.strictEqual(jcAidFamily('D276000005AAFFCAFE0010'), '');
+	assert.strictEqual(jcAidFamily(''), '');
+});
+
+test('jcAidNorm validates and normalises', () => {
+	assert.strictEqual(jcAidNorm('a0 00 00 00 62 01 01'), 'A0000000620101');
+	assert.strictEqual(jcAidNorm('AB'), '');
+	assert.strictEqual(jcAidNorm('A000000062010'), '');   // odd hex length
+	assert.strictEqual(jcAidNorm(null), '');
 });
 
 test('the package table is well-formed', () => {

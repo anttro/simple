@@ -32,6 +32,12 @@ function extractFunc(src, name, asyncFn) {
 eval(extractBlock('const _capAnalysis = {', 'function capFileKey').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'capFileKey'));
 eval(extractFunc(html, 'capGateOk'));
+eval(extractBlock('const JC_AID_NAMES = {', 'const JC_AID_RIDS = {').replace(/^const /gm, 'var '));
+eval(extractBlock('const JC_AID_RIDS = {', '// Normalise an AID').replace(/^const /gm, 'var '));
+eval(extractBlock('const JC_FRAMEWORK_SDK = {', '// ===== TLV parsers for GET STATUS').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'jcAidNorm'));
+eval(extractFunc(html, 'jcAidName'));
+eval(extractFunc(html, 'jcAidFamily'));
 eval(extractFunc(html, 'capMemBytes'));
 eval(extractFunc(html, 'capMemHtml'));
 eval(extractFunc(html, 'capAnalyzeFile', true));
@@ -48,6 +54,15 @@ function resetState() {
 
 function memFixture() {
 	return {
+		cap_version: '2.1',
+		package_aid: 'A0000000620101',
+		package_version: '1.0',
+		package_name: null,
+		flags: { raw: 4, int: false, export: false, applet: true },
+		applets: ['A0000000620101'],
+		imports: [{ aid: 'A0000000620101', minor: 0, major: 1, refs: 6 }],
+		components: [{ name: 'Header', size: 20 }, { name: 'Method', size: 2800 },
+		             { name: 'ConstantPool', size: 180 }],
 		code: { method_component: 2048, load_file: 3000 },
 		nvram: { static_image: 12, array_init: 4, install_objects: 100, header_overhead: 12, ref_storage: 8, total: 136, runtime: 0, requirement: 3136 },
 		ram: { transient_arrays: 16, runtime_transient: 0, peak_frame: 8, total: 24 },
@@ -83,7 +98,34 @@ test('capMemHtml renders the NVRAM requirement, breakdown and warnings', () => {
 	assert.ok(out.includes('Table 11-48'), out);
 	assert.ok(out.includes('Estimate only'), out);
 	assert.ok(out.includes('unknown opcode 0xAA'), out);
+	// the required libraries with the family, reference count and the
+	// compiled-against hint derived from the framework version
+	assert.ok(out.includes('Requires: javacard.framework \u2265 1.0'), out);
+	assert.ok(out.includes('Compiled against: Java Card 2.1.1/2.1.2 \u00b7 CAP format 2.1'), out);
+	assert.ok(out.includes('javacard.framework 1.0 — Oracle JavaCard API — 6 refs — A0000000620101'), out);
+	assert.ok(out.includes('Package: A0000000620101 v1.0 (applet package)'), out);
+	assert.ok(out.includes('Applets: A0000000620101 (javacard.framework)'), out);
+	assert.ok(out.includes('Components: Header 20 B (1%) \u00b7 Method 2.7 kB (93%) \u00b7 ConstantPool 180 B (6%)'), out);
 	assert.strictEqual(capMemHtml(null), '');
+});
+
+test('capMemHtml skips the import section on a response without imports', () => {
+	const mem = memFixture();
+	delete mem.imports;
+	mem.code = { method_component: 2048 };
+	delete mem.nvram.requirement;
+	const out = capMemHtml(mem);
+	assert.ok(!out.includes('Requires:'), out);
+	assert.ok(out.includes('NVRAM requirement \u2248 2.1 kB'), out);
+});
+
+test('capMemHtml keeps unknown import AIDs bare and labels the family only when known', () => {
+	const mem = memFixture();
+	mem.imports = [{ aid: 'A1130001180001', minor: 0, major: 1, refs: 2 }];
+	const out = capMemHtml(mem);
+	assert.ok(out.includes('Requires: A1130001180001 \u2265 1.0'), out);
+	assert.ok(out.includes('A1130001180001 1.0 — 2 refs'), out);
+	assert.ok(!out.includes('Compiled against: Java Card'), out);   // no framework import
 });
 
 test('capMemHtml falls back to the bytecode size on older server responses', () => {

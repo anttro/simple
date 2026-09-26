@@ -291,6 +291,18 @@ class Header(CapComponent):
         self.package_major = self.stream.read_u1()
         aid_len = self.stream.read_u1()
         self.aid = self.stream.read_bytes(aid_len)
+        # JC VM spec 2.2.2 6.3: JC 2.2+ headers carry the package name as
+        # package_name_info { u1 name_length; u1 name[name_length] } (UTF-8,
+        # internal form, e.g. "javacard/framework").  CAP 2.1 files have no
+        # bytes left after the AID.
+        self.package_name = None
+        if self.stream.available() >= 1:
+            name_len = self.stream.read_u1()
+            if 0 < name_len <= self.stream.available():
+                try:
+                    self.package_name = self.stream.read_bytes(name_len).decode('utf-8')
+                except UnicodeDecodeError:
+                    self.package_name = None
 
     def package_version_str(self):
         return f"{self.package_major}.{self.package_minor}"
@@ -763,14 +775,17 @@ class CAP:
         """`data` is the .cap archive (a ZIP) as bytes."""
         self.data = data
         self.components = {}
+        self.files = []          # [(component name, byte size)] in ZIP order
         self._read_cap()
 
     def _read_cap(self):
         # ZIP archive of nested *.cap components
         with zipfile.ZipFile(io.BytesIO(self.data), 'r') as z:
             for name in z.namelist():
-                if name.endswith('.cap'):
-                    self._add_component(z.read(name))
+                if name.endswith('.cap') and not name.lower().endswith('.capx'):
+                    data = z.read(name)
+                    self.files.append((name.split('/')[-1][:-4], len(data)))
+                    self._add_component(data)
 
     def _add_component(self, data):
         tag = data[0]
@@ -1407,6 +1422,28 @@ def scan_method_bytecode(ms, cap, resolver, warnings=None):
 # Main Analysis
 # ═══════════════════════════════════════════════════════════════════
 
+def _external_ref_counts(cap):
+    """Distinct constant-pool references per imported package token (6.7):
+    ClassRef/MethodRef/FieldRef/StaticRef entries whose package token points
+    into the Import table.  A package linked against but never referenced
+    stays at 0."""
+    counts = {}
+    cp = cap.components.get('constant_pool')
+    if not cp:
+        return counts
+    for e in cp.entries:
+        ref = None
+        if isinstance(e, (CPClassRef, CPMethodOrFieldRef)):
+            ref = e.class_ref
+        elif isinstance(e, CPStaticFieldRef):
+            ref = e.static_field_ref
+        elif isinstance(e, CPStaticMethodRef):
+            ref = e.static_method_ref
+        if ref is not None and not ref.is_internal:
+            counts[ref.package_token] = counts.get(ref.package_token, 0) + 1
+    return counts
+
+
 def analyze_bytes(cap_bytes, verbose=False):
     """Analyze a CAP archive (bytes) and return (report, memory)."""
     cap = CAP(cap_bytes)
@@ -1419,16 +1456,25 @@ def analyze_bytes(cap_bytes, verbose=False):
         report['package_version'] = h.package_version_str()
         report['package_aid'] = h.aid.hex().upper()
 
-    # Import packages
+    # Import packages (JC VM spec 6.6): the libraries the package is linked
+    # against, with the export-file versions recorded in the CAP
     if cap.has('import'):
         pkgs = cap.components['import'].packages
+        refs = _external_ref_counts(cap)
         report['import_count'] = len(pkgs)
-        report['packages'] = []
-        for p in pkgs:
-            report['packages'].append({
-                'version': f'{p.major}.{p.minor}',
-                'aid': p.aid_hex,
-            })
+        report['imports'] = [
+            {'aid': p.aid_hex, 'minor': p.minor, 'major': p.major,
+             'refs': refs.get(0x80 + i, 0)}
+            for i, p in enumerate(pkgs)]
+
+    # Header package flags (Table 6-4) and the optional package name
+    if cap.has('header'):
+        h = cap.components['header']
+        report['flags'] = h.flags
+        report['package_name'] = h.package_name
+
+    # Component sizes (the load file order) for the breakdown display
+    report['components'] = [{'name': name, 'size': size} for name, size in cap.files]
 
     # Applets
     if cap.has('applet'):
@@ -1653,6 +1699,18 @@ def memory_json(report, memory, load_file_bytes=None):
         'package_aid': report.get('package_aid'),
         'applet_count': report.get('applet_count', 0),
         'applets': [a.get('aid') for a in report.get('applets', [])],
+        # libraries the CAP is linked against (JC VM spec 6.6) with the
+        # distinct constant-pool reference counts (6.7)
+        'imports': report.get('imports', []),
+        # header package flags (Table 6-4: 0x01 int, 0x02 exports, 0x04 applet)
+        'flags': {
+            'raw': report.get('flags', 0),
+            'int': bool(report.get('flags', 0) & 0x01),
+            'export': bool(report.get('flags', 0) & 0x02),
+            'applet': bool(report.get('flags', 0) & 0x04),
+        },
+        'package_name': report.get('package_name'),
+        'components': report.get('components', []),
         'class_count': report.get('class_count', 0),
         'method_count': report.get('method_count', 0),
         'code': {

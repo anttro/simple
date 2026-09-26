@@ -60,6 +60,7 @@ test('scp81LogLine renders script entries', () => {
 
 eval(html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/)[0].replace(/^const /, 'var '));
 eval(html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/)[0].replace(/^const /, 'var '));
+eval(extractFunc(html, 'jcAidNorm'));
 eval(extractFunc(html, 'jcAidName'));
 eval(extractFunc(html, 'jcAidSuffix'));
 eval(extractFunc(html, 'scp81DecodeGetStatus'));

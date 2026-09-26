@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.15';
+const SIMPLE_VERSION = '3.5.16';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8031,7 +8031,17 @@ function capMemHtml(mem) {
 	const nvramData = Number(nv.total) || 0;
 	const requirement = Number(nv.requirement) || (loadFile + nvramData);
 	const otherComponents = Math.max(0, loadFile - methodBytes);
+	const imports = mem.imports || [];
 	let html = '<div class="font-medium text-gray-700 dark:text-slate-300">' + esc(t('CAP requirements (estimate)')) + '</div>';
+	// the libraries the CAP is linked against (JC VM spec 6.6), shown as
+	// ">=" requirements: same major, minor >= the export version (4.5.2)
+	if (imports.length) {
+		const req = imports.map(im => {
+			const name = jcAidName(im.aid) || im.aid;
+			return name + ' \u2265 ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0);
+		}).join(' \u00b7 ');
+		html += '<div>' + esc(t('Requires:')) + ' ' + esc(req) + '</div>';
+	}
 	// the NVRAM requirement is a C6+C8-style total (GP Card Spec v2.3.1
 	// Table 11-48): the package image (load file) plus the persistent data
 	html += '<div>' + esc(t('NVRAM requirement ≈')) + ' ' + esc(capMemBytes(requirement)) +
@@ -8039,6 +8049,48 @@ function capMemHtml(mem) {
 		' + ' + esc(t('data')) + ' ' + esc(capMemBytes(nvramData)) + ')' +
 		' · ' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) + '</div>';
 	html += '<details class="mt-1"><summary class="cursor-pointer text-gray-400">' + esc(t('Details')) + '</summary>';
+	// compiled-against hint from the javacard.framework version + CAP format
+	const fw = imports.find(im => (im.aid || '').toUpperCase() === 'A0000000620101');
+	const sdk = fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '';
+	let against = sdk ? 'Java Card ' + sdk : '';
+	if (mem.cap_version) against += (against ? ' · ' : '') + t('CAP format') + ' ' + mem.cap_version;
+	if (against) html += '<div>' + esc(t('Compiled against:')) + ' ' + esc(against) + '</div>';
+	if (imports.length) {
+		imports.forEach(im => {
+			const name = jcAidName(im.aid);
+			const fam = jcAidFamily(im.aid);
+			let line = (name || im.aid) + ' ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0);
+			if (fam) line += ' — ' + fam;
+			line += ' — ' + (Number(im.refs) || 0) + ' ' + t('refs');
+			if (name) line += ' — ' + im.aid;
+			html += '<div>' + esc(line) + '</div>';
+		});
+	}
+	// package identity + header flags (Table 6-4) + applets
+	let pkg = esc(mem.package_aid || '?') + (mem.package_version ? ' v' + esc(mem.package_version) : '');
+	const fl = mem.flags || {};
+	const fls = [];
+	if (fl.applet) fls.push(t('applet package'));
+	if (fl.export) fls.push(t('exports an API'));
+	if (fl.int) fls.push(t('uses int'));
+	if (fls.length) pkg += ' (' + fls.join(', ') + ')';
+	if (mem.package_name) pkg += ' — ' + esc(mem.package_name);
+	html += '<div>' + esc(t('Package:')) + ' ' + pkg + '</div>';
+	if ((mem.applets || []).length) {
+		html += '<div>' + esc(t('Applets:')) + ' ' + esc((mem.applets || []).map(a => {
+			const n = jcAidName(a);
+			return n ? a + ' (' + n + ')' : a;
+		}).join(', ')) + '</div>';
+	}
+	const comps = mem.components || [];
+	if (comps.length) {
+		const ctotal = loadFile || comps.reduce((sum, c) => sum + (Number(c.size) || 0), 0);
+		html += '<div>' + esc(t('Components:')) + ' ' + comps.map(c => {
+			const sz = Number(c.size) || 0;
+			const pct = ctotal ? ' (' + Math.round(sz * 100 / ctotal) + '%)' : '';
+			return esc(c.name + ' ' + capMemBytes(sz) + pct);
+		}).join(' · ') + '</div>';
+	}
 	html += '<div>' + esc(t('Code image (load file):')) + ' ' + esc(capMemBytes(loadFile)) +
 		' · ' + esc(t('bytecode (Method.cap):')) + ' ' + esc(capMemBytes(methodBytes)) +
 		' · ' + esc(t('other components:')) + ' ' + esc(capMemBytes(otherComponents)) + '</div>';
@@ -8237,17 +8289,46 @@ const JC_AID_RIDS = {
 	'A000000151': 'GlobalPlatform RID',
 };
 
-// Resolve an AID (any hex case/spacing) to a standard package name, a
-// well-known AID name or a RID owner hint; '' when nothing is known.
-function jcAidName(aid) {
+// Normalise an AID (strip spacing, uppercase) and reject malformed input;
+// '' when it cannot be an AID (5-16 bytes).
+function jcAidNorm(aid) {
 	const s = (aid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	if (s.length < 10 || s.length > 32 || s.length % 2) return '';
+	return (s.length >= 10 && s.length <= 32 && s.length % 2 === 0) ? s : '';
+}
+
+// Resolve an AID to a standard package name, a well-known AID name or a RID
+// owner hint; '' when nothing is known.
+function jcAidName(aid) {
+	const s = jcAidNorm(aid);
+	if (!s) return '';
 	if (JC_AID_NAMES[s]) return JC_AID_NAMES[s];
 	for (const rid in JC_AID_RIDS) {
 		if (s.startsWith(rid)) return JC_AID_RIDS[rid];
 	}
 	return '';
 }
+
+// Library family of a standard package AID (JAVACARD.md section 6); '' for
+// applet/vendor AIDs so the UI never guesses.
+function jcAidFamily(aid) {
+	const s = jcAidNorm(aid);
+	if (!s) return '';
+	if (s.startsWith('A000000062')) return 'Oracle JavaCard API';
+	if (s.startsWith('A000000009')) {
+		return s.indexOf('0003FFFFFFFF') >= 0 ? 'ETSI SIM (2G) API' : 'ETSI UICC API';
+	}
+	if (s.startsWith('A000000087')) return '3GPP USIM/ISIM API';
+	if (s.startsWith('A000000151')) return 'GlobalPlatform API';
+	return '';
+}
+
+// javacard.framework version -> Oracle SDK release family.  Derived from the
+// local Oracle SDK kit corpus (jc211_kit .. jc305u4_kit exports, 2026-09-27);
+// versions not present there get no hint rather than a guess.
+const JC_FRAMEWORK_SDK = {
+	'1.0': '2.1.1/2.1.2', '1.2': '2.2.1', '1.3': '2.2.2',
+	'1.4': '3.0.3', '1.5': '3.0.4', '1.6': '3.0.5',
+};
 
 // ' (name)' for plain-text listings; '' when the AID is unknown.
 function jcAidSuffix(aid) {
@@ -16028,6 +16109,16 @@ const LANG_RU = {
 	'Analyze the CAP file first': 'Сначала проанализируйте CAP-файл',
 	'CAP requirements (estimate)': 'Требования CAP (оценка)',
 	'NVRAM requirement ≈': 'Требование NVRAM ≈',
+	'Requires:': 'Требуются:',
+	'Compiled against:': 'Собрано под:',
+	'CAP format': 'формат CAP',
+	'Package:': 'Пакет:',
+	'Applets:': 'Апплеты:',
+	'Components:': 'Компоненты:',
+	'applet package': 'пакет-апплет',
+	'exports an API': 'экспортирует API',
+	'uses int': 'использует int',
+	'refs': 'ссылок',
 	'code image': 'образ кода',
 	'data': 'данные',
 	'Code image (load file):': 'Образ кода (load-файл):',

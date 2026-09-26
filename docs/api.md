@@ -348,6 +348,11 @@ used for installation.
   "memory": {
     "package_aid": "AA1902BC226001",
     "applet_count": 1, "applets": ["AA1902BC226001"],
+    "imports": [{"aid": "A0000000620101", "minor": 0, "major": 1, "refs": 6},
+                {"aid": "A0000000090005FFFFFFFF8912000000", "minor": 11, "major": 1, "refs": 7}],
+    "flags": {"raw": 4, "int": false, "export": false, "applet": true},
+    "package_name": null,
+    "components": [{"name": "Header", "size": 20}, {"name": "Method", "size": 433}],
     "class_count": 3, "method_count": 12,
     "code": {"method_component": 850, "load_file": 1234},
     "nvram": {"static_image": 12, "array_init": 4, "install_objects": 100,
@@ -359,6 +364,18 @@ used for installation.
   }
 }
 ```
+
+`imports` are the libraries the CAP is linked against (JC VM spec §6.6,
+the Import component), each with the export-file version recorded in the CAP
+and the number of distinct constant-pool references to it (§6.7; a linked but
+unreferenced package is 0).  A card resolves an import only when the resident
+package has the **same major** version and a **minor ≥** the recorded one
+(§4.5.2), hence the `name >= version` display.  `flags` decodes the Header
+package flags (Table 6-4: `0x01` uses `int`, `0x02` exports an API, `0x04`
+applet package); `package_name` is only present in JC 2.2+ headers (CAP 2.1
+files have none); `components` lists the archive entries in load-file order
+(each size includes the component's tag and size header, so the sizes sum to
+`load_file_bytes`).
 
 `code.load_file` is the concatenated load file (all components) - the
 package image the card stores, our proxy for the GlobalPlatform Card Spec

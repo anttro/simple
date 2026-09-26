@@ -27,9 +27,13 @@ def _component(tag, payload):
     return bytes([tag]) + _u2(len(payload) + 3) + payload
 
 
-def _header(aid):
+def _header(aid, flags=0, name=None):
     # magic, cap minor/major, flags, package minor/major, aid (LV)
-    return _component(0x01, _u4(0xDECAFFED) + bytes([1, 2, 0, 1, 2]) + _u1(len(aid)) + aid)
+    payload = _u4(0xDECAFFED) + bytes([1, 2, flags, 1, 2]) + _u1(len(aid)) + aid
+    if name is not None:                      # JC 2.2+ package_name_info
+        raw = name.encode('utf-8')
+        payload += _u1(len(raw)) + raw
+    return _component(0x01, payload)
 
 
 def _applet(aid, install_offset):
@@ -107,8 +111,9 @@ def _static_field(image_size, ref_count, array_inits=()):
 
 def build_cap(header_aid=b'\x01\x02\x03\x04\x05', applet_aid=b'\x01\x02\x03\x04\x05',
               imports=(), cp_entries=(), classes=(), descriptor=None, method_bytecode=None,
-              static=None):
-    components = {'Header': _header(header_aid), 'Applet': _applet(applet_aid, 1)}
+              static=None, header_flags=0, header_name=None):
+    components = {'Header': _header(header_aid, header_flags, header_name),
+                  'Applet': _applet(applet_aid, 1)}
     if imports:
         components['Import'] = _import(imports)
     if cp_entries:
@@ -145,7 +150,7 @@ def rich_cap(with_static=True):
             b'\x7a')                   # return
     bytecode = _method_header(2, 0, 0) + body
     return build_cap(
-        imports=[(1, 2, JAVACARD_FRAMEWORK)],
+        imports=[(0, 1, JAVACARD_FRAMEWORK)],
         cp_entries=[_cp_class_ref_internal(1), _cp_static_method_external(0x80, 8, 13)],
         classes=[_class_record(instance_size=6, ref_count=2)],
         descriptor=_descriptor(0, 1, [(0, 0, 1, len(body))]),
@@ -202,6 +207,26 @@ class TestCapAnalyzer(unittest.TestCase):
         # C6+C8-style total is reported
         self.assertEqual(info['code']['load_file'], 0)
         self.assertIsNone(info['nvram']['requirement'])
+        # the imported library (with the distinct CP reference count), the
+        # header flags and the component list (ZIP order, load file order)
+        self.assertEqual(info['imports'],
+                         [{'aid': 'A0000000620101', 'minor': 0, 'major': 1, 'refs': 1}])
+        self.assertEqual(info['flags'], {'raw': 0, 'int': False, 'export': False, 'applet': False})
+        self.assertIsNone(info['package_name'])
+        names = [c['name'] for c in info['components']]
+        self.assertIn('Header', names)
+        self.assertIn('Import', names)
+        self.assertIn('Method', names)
+
+    def test_header_flags_and_package_name(self):
+        cap = build_cap(header_flags=0x05, header_name='com/example/applet')
+        report, _ = capmem.analyze_bytes(cap)
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertEqual(info['flags'], {'raw': 5, 'int': True, 'export': False, 'applet': True})
+        self.assertEqual(info['package_name'], 'com/example/applet')
+        # a CAP 2.1 header (no name bytes) reports no name
+        report, _ = capmem.analyze_bytes(build_cap())
+        self.assertIsNone(report['package_name'])
 
     def test_memory_json_nvram_requirement_uses_the_load_file(self):
         report, memory = capmem.analyze_bytes(rich_cap())
@@ -242,6 +267,9 @@ class TestCapInfoBody(unittest.TestCase):
         self.assertEqual(resp['memory']['suggested']['c6'], resp['load_file_bytes'])
         self.assertEqual(resp['memory']['nvram']['requirement'],
                          resp['load_file_bytes'] + resp['memory']['nvram']['total'])
+        # the component sizes are the load file parts
+        self.assertEqual(sum(c['size'] for c in resp['memory']['components']),
+                         resp['load_file_bytes'])
 
     def test_bad_hex_and_corrupt_archives_are_rejected(self):
         self.assertFalse(_cap_info_body({})['ok'])
