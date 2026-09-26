@@ -20,6 +20,7 @@ from pysim_simple_server import netstate
 from pysim_simple_server import scp81
 from pysim_simple_server import esim
 from pysim_simple_server import capmem
+from pysim_simple_server import testscript
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
 
@@ -843,7 +844,8 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     return tpdu.hex()
 
 
-def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
+def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
+                   handle_proactive=True):
     from pySim.ts_31_102 import SMSPPDownload
     from pySim.cat import DeviceIdentities, Address
     from osmocom.tlv import COMPR_TLV_IE
@@ -869,7 +871,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
     if sw.startswith('61'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
-    elif sw.startswith('91'):
+    elif handle_proactive and sw.startswith('91'):
         def _capture_sms_tpdu(raw, cmd_num, cmd_type, dev_src, dev_dst):
             if submit_handler:
                 tpdu_hex = _find_sms_tpdu(raw)
@@ -887,7 +889,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
                         submit_handler.submit_tpdu_hex = tpdu_hex
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
-    if sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
+    if handle_proactive and sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
         sys.stderr.write('STATUS poll (PoR not captured)\n')
         st_data, st_sw = _send_status(scc)
         sys.stderr.write('STATUS -> %s\n' % st_sw)
@@ -1047,7 +1049,8 @@ def _build_secured_packet(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex,
 
 
 def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
-                         submit_handler=None, max_segments=SCP80_MAX_SEGMENTS):
+                         submit_handler=None, max_segments=SCP80_MAX_SEGMENTS,
+                         handle_proactive=True):
     """Send a secured packet as SMS-PP download ENVELOPEs, one per segment.
 
     TS 31.115 4.3: the whole command packet is split into SMS user-data
@@ -1082,7 +1085,8 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
             sys.stderr.write('OTA SEND: ENVELOPE %d/%d (%d B)%s\n' % (
                 i + 1, total, len(part), ' + CPI' if i == 0 and include_cpi else ''))
         data, sw = _send_envelope(tpdu, scc, sm_sc=sm_sc or '12345678912',
-                                  submit_handler=submit_handler)
+                                  submit_handler=submit_handler,
+                                  handle_proactive=handle_proactive)
         if sw != '9000' and not sw.startswith('91'):
             return {'success': False, 'sw': sw, 'bytes': len(pkt),
                     'segments': total,
@@ -1417,7 +1421,7 @@ def _reset_poll_timer():
 def _do_status_poll():
     global _POLL_TIMER
     _POLL_TIMER = None
-    if not _POLL_ENABLED or _POLL_DISABLED_BY_CARD:
+    if not _POLL_ENABLED or _POLL_DISABLED_BY_CARD or _TEST_RUNNING:
         return
     with _CARD_LOCK:
         try:
@@ -3458,7 +3462,7 @@ def _verify_adm(scc, app, adm_hex):
             'error': 'Security status not satisfied' if sw == '6982' else 'Error'}
 
 
-def _send_event_download(scc, event_type, event_data=None):
+def _send_event_download(scc, event_type, event_data=None, drain=True):
     """Send ENVELOPE(Event Download) for the given event type.
     Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 82 81 [extra])"""
     inner = bytearray()
@@ -3470,8 +3474,11 @@ def _send_event_download(scc, event_type, event_data=None):
     env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(d6_tlv), d6_tlv.hex())
     sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
     data, sw = scc._tp.send_apdu(env_hex)
+    if sw.startswith('61'):
+        get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
+        data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     sys.stderr.write('ENVELOPE SW: %s\n' % sw)
-    if sw.startswith('91'):
+    if drain and sw.startswith('91'):
         _handle_proactive_chain(scc, sw)
         sw = '9000'
     return data, sw
@@ -3772,7 +3779,7 @@ def _parse_display_text(raw):
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-            if tag == 0x8D and tlen >= 1:
+            if tag in (0x8D, 0x0D) and tlen >= 1:
                 return _decode_dcs_text(val)
     return None
 
@@ -4109,6 +4116,487 @@ def _finish_pending_menu(server, scc):
         _handle_proactive_chain(scc, sw)
 
 
+# ===== Test scripts (scripted card dialogue) =====
+# A script runs server-side in a worker thread and owns the card while it
+# runs: other card endpoints answer 409 (_TEST_BLOCKED_PATHS) and background
+# STATUS polling is suspended until the run finishes.  Steps and results live
+# in _TEST_RUN (polled by the PWA via GET /api/test/status); the pure engine
+# (validation, checks, TERMINAL RESPONSE building) is in testscript.py.
+
+_TEST_RUNNING = False
+_TEST_RUN = {
+    'running': False, 'stop': False, 'name': None, 'status': None,
+    'session': None, 'index': 0, 'total': 0, 'steps': [],
+    'preset': None, 'scp80_counter': None,
+    'started': None, 'finished': None, 'error': None,
+}
+_TEST_LOCK = threading.Lock()
+_TEST_THREAD = None
+_TEST_KIND_LABELS = {
+    'envelope': 'ENVELOPE(Event Download)', 'menu-select': 'ENVELOPE(Menu Selection)',
+    'file-write': 'UPDATE FILE', 'file-read': 'READ FILE', 'apdu': 'APDU',
+    'scp80': 'SCP80', 'status': 'STATUS', 'cleanup': 'CLEANUP',
+}
+# Card-touching endpoints refused while a script owns the card.
+_TEST_BLOCKED_PATHS = frozenset([
+    '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
+    '/api/write', '/api/apdu', '/api/verify-adm', '/api/send-ota',
+    '/api/ram-install', '/api/sp-verify', '/api/menu-select',
+    '/api/menu-respond', '/api/event-send', '/api/net-sim',
+    '/api/net-state-refresh', '/api/status-poll', '/api/rescue',
+    '/api/terminal-profile', '/api/poll-toggle', '/api/esim/chip',
+    '/api/esim/profiles', '/api/esim/notifications', '/api/esim/profile',
+    '/api/scp81/bip', '/api/scp81/queue', '/api/scp81/psk-map',
+    '/api/scp81/gen-install', '/api/scp81/log-clear',
+])
+_TEST_COMMAND_TYPES = {name.upper(): code for code, name in PROACTIVE_TYPE_NAMES.items()}
+
+
+def _test_command_type(name):
+    return _TEST_COMMAND_TYPES.get((name or '').upper())
+
+
+def _test_state_snapshot():
+    with _TEST_LOCK:
+        return json.loads(json.dumps(_TEST_RUN))
+
+
+def _test_request_blocked(path):
+    if not _TEST_RUNNING:
+        return False
+    return path.split('?', 1)[0] in _TEST_BLOCKED_PATHS
+
+
+def _increment_counter_hex(counter_hex):
+    """SCP80 counter + 1, keeping the pattern's width (hex string)."""
+    c = re.sub(r'\s', '', str(counter_hex or '')).upper()
+    if not c or not re.fullmatch(r'[0-9A-F]+', c):
+        return counter_hex
+    width = len(c)
+    return '%0*X' % (width, (int(c, 16) + 1) & ((1 << (4 * width)) - 1))
+
+
+def _test_preset_error(script, preset):
+    """The SCP80 steps need a complete card preset; steps may override
+    TAR/SPI1/SPI2 only (KIc/KID and the counter stay preset-owned)."""
+    preset = preset or {}
+    for key in ('kic', 'kid', 'kicKey', 'kidKey'):
+        if not preset.get(key):
+            return 'SCP80 preset is incomplete: %s is missing' % key
+    if not (preset.get('counter') or preset.get('cntr')):
+        return 'SCP80 preset has no counter'
+    for i, step in enumerate(script['steps']):
+        if step['type'] != 'action' or step['kind'] != 'scp80':
+            continue
+        p = step['params']
+        if not (p.get('tar') or preset.get('tar')):
+            return 'step %d: no TAR (neither in the step nor in the preset)' % (i + 1)
+        if not (p.get('spi1') or preset.get('spi1')) or not (p.get('spi2') or preset.get('spi2')):
+            return 'step %d: no SPI1/SPI2 (neither in the step nor in the preset)' % (i + 1)
+    return None
+
+
+def _test_check_result(label, ok, expected, actual, level, detail=None):
+    res = {'label': label, 'ok': bool(ok), 'expected': str(expected),
+           'actual': str(actual), 'level': level}
+    if detail:
+        res['detail'] = detail
+    return res
+
+
+def _test_entry(step, index):
+    if step['type'] == 'expect':
+        ctype = step['command'].get('type')
+        kind = step['command'].get('name') or (('0x%02X' % ctype) if ctype is not None else 'ANY')
+        label = 'EXPECT ' + kind
+    else:
+        kind = step['kind']
+        label = step.get('label') or _TEST_KIND_LABELS.get(kind, kind)
+    return {'index': index, 'type': step['type'], 'kind': kind, 'label': label,
+            'status': 'running', 'checks': [], 'note': None, 'sent': None,
+            'sw': None, 'data': None, 'ms': None, 'started': time.time()}
+
+
+def _test_finish_entry(entry, result):
+    entry['status'] = result.get('status', 'ok')
+    entry['checks'] = result.get('checks', [])
+    if result.get('sent') is not None:
+        entry['sent'] = result['sent']
+    if result.get('sw') is not None:
+        entry['sw'] = result['sw']
+    if result.get('data') is not None:
+        entry['data'] = result['data']
+    if result.get('note'):
+        entry['note'] = result['note']
+    if result.get('por') is not None:
+        entry['por'] = result['por']
+    if result.get('counter'):
+        entry['counter'] = result['counter']
+    if result.get('command'):
+        entry['command'] = result['command']
+    entry['ms'] = int((time.time() - (entry.get('started') or time.time())) * 1000)
+
+
+def _test_action_checks(step, sw, data, por, kind):
+    check = step['check']
+    level = step['on_fail']
+    checks = []
+    sw_ok = testscript.match_value(check['sw'], sw)
+    checks.append(_test_check_result('SW', sw_ok, check['sw']['value'], sw or '(none)', level))
+    if check.get('data'):
+        if sw_ok:
+            checks.append(_test_check_result('Data', testscript.match_value(check['data'], data),
+                                             check['data']['value'], data or '(none)', level))
+        else:
+            checks.append(_test_check_result('Data', True, check['data']['value'],
+                                             '(not checked - SW mismatch)', 'ok'))
+    if kind == 'scp80' and check.get('por') != 'any':
+        want = check['por']
+        if want == 'none':
+            ok = por is None
+            actual = 'none' if por is None else 'present'
+        else:
+            ok = bool(por) and por.get('response_status') == 'por_ok'
+            actual = (por or {}).get('response_status') or 'none'
+        checks.append(_test_check_result('PoR', ok, want, actual, level))
+    return checks
+
+
+def _test_run_status(scc, step):
+    p = step['params']
+    data, sw = '', ''
+    used = 0
+    for n in range(p['attempts']):
+        data, sw = _send_status(scc)
+        used = n + 1
+        if testscript.match_value(step['check']['sw'], sw):
+            break
+        if n + 1 < p['attempts'] and p['interval_ms']:
+            time.sleep(p['interval_ms'] / 1000.0)
+    return data or '', sw, ('STATUS x%d' % used if used > 1 else 'STATUS')
+
+
+def _test_run_file(server, step):
+    """UPDATE/READ a file by path (extends the network simulator's writes to
+    arbitrary files); returns (data, sw, sent)."""
+    app = server.app
+    lchan = app.rs.lchan[0]
+    p = step['params']
+    cleanup = None
+    try:
+        _, cleanup = _select_path(lchan, p['path'], app)
+        is_record = _get_file_type(lchan, lchan.selected_file) in ('linear_fixed', 'cyclic')
+        use_record = p['mode'] == 'record' or (p['mode'] == 'auto' and is_record)
+        record = p.get('record') or 1
+        if step['kind'] == 'file-write':
+            if use_record:
+                _out, sw = lchan.update_record(record, p['data'])
+                sent = 'UPDATE RECORD %d %s' % (record, p['path'])
+            else:
+                _out, sw = lchan.update_binary(p['data'])
+                sent = 'UPDATE BINARY %s' % p['path']
+            return _out or '', sw, sent
+        if use_record:
+            data, sw = lchan.read_record(record)
+            return data or '', sw, 'READ RECORD %d %s' % (record, p['path'])
+        data, sw = lchan.read_binary()
+        return data or '', sw, 'READ BINARY %s' % p['path']
+    finally:
+        if cleanup:
+            try:
+                cleanup()
+            except Exception:
+                pass
+
+
+def _test_run_scp80(server, step, ctx):
+    scc = server.scc
+    preset = ctx['preset']
+    p = step['params']
+    spi1 = p.get('spi1') or preset.get('spi1') or '16'
+    spi2 = p.get('spi2') or preset.get('spi2') or '01'
+    tar = p.get('tar') or preset.get('tar') or ''
+    counter = ctx['counter'] or '00000000'
+    if p.get('sp'):
+        sp_hex = p['sp']
+        source = 'sp'
+    else:
+        sp_hex, _ = _build_secured_packet(spi1, spi2, preset.get('kic', ''), preset.get('kid', ''),
+                                          tar, counter, p['apdu'],
+                                          preset.get('kicKey', ''), preset.get('kidKey', ''))
+        source = 'apdu'
+    result = _send_secured_packet(scc, sp_hex, server.sms_oa, sm_sc=server.sms_sc,
+                                  handle_proactive=False)
+    sw = result.get('sw') or ''
+    data = result.get('response_data') or ''
+    por = None
+    if data:
+        por = _decode_por(spi1, spi2, preset.get('kic', ''), preset.get('kid', ''),
+                          counter, preset.get('kicKey', ''), preset.get('kidKey', ''), data)
+    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s' % (
+        source, tar or '-', spi1, spi2, counter)
+    if sw:
+        # The card answered, so the SCP80 counter was consumed: advance the
+        # working value (the PWA writes the final one back to the preset).
+        ctx['counter'] = _increment_counter_hex(counter)
+    return data, sw, sent, por, counter
+
+
+def _test_run_action(server, step, ctx):
+    scc = server.scc
+    kind = step['kind']
+    p = step['params']
+    por = None
+    counter = None
+    if kind == 'envelope':
+        data, sw = _send_event_download(scc, p['event'],
+                                        bytes.fromhex(p['data']) if p['data'] else None,
+                                        drain=False)
+        sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
+    elif kind == 'menu-select':
+        tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, p['item_id']])
+        sent = '%sc20000%02x%s' % (scc.cat_cla, len(tlv), tlv.hex())
+        data, sw = scc._tp.send_apdu(sent)
+    elif kind == 'apdu':
+        sent = p['apdu']
+        data, sw = scc._tp.send_apdu(sent)
+    elif kind == 'status':
+        data, sw, sent = _test_run_status(scc, step)
+    elif kind in ('file-write', 'file-read'):
+        data, sw, sent = _test_run_file(server, step)
+    elif kind == 'scp80':
+        data, sw, sent, por, counter = _test_run_scp80(server, step, ctx)
+    else:
+        raise testscript.ScriptError('unknown action kind %r' % kind)
+    checks = _test_action_checks(step, sw, data, por, kind)
+    status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
+    result = {'status': status, 'sw': sw or '', 'data': data or '', 'sent': sent,
+              'checks': checks, 'por': por}
+    if counter:
+        result['counter'] = counter
+    pending = int(sw[2:], 16) if (sw or '').startswith('91') else None
+    return result, pending
+
+
+def _test_run_expect(server, step, pending):
+    scc = server.scc
+    if not pending:
+        raise testscript.ScriptError(
+            'no proactive command pending - the previous step must end with SW 91XX '
+            '(or add a status action); the UICC announces pending commands in the '
+            'response to a command (TS 102 221 7.4.2.1)')
+    fdata, fetch_sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, pending))
+    if not fdata:
+        raise testscript.ScriptError('FETCH returned no data (SW %s)' % fetch_sw)
+    raw = bytes.fromhex(fdata)
+    cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+    log_entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
+    type_name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
+    checks = []
+    want_type = step['command'].get('type')
+    type_ok = want_type is None or cmd_type == want_type
+    if type_ok:
+        checks.append(_test_check_result('Command', True, step['command'].get('name') or type_name,
+                                         '%s (0x%02X)' % (type_name, cmd_type), 'ok'))
+    else:
+        checks.append(_test_check_result(
+            'Command', False, step['command'].get('name') or '0x%02X' % want_type,
+            '%s (0x%02X)' % (type_name, cmd_type), 'error'))
+    if step.get('qualifier'):
+        actual_q = '%02X' % cmd_qual if cmd_qual is not None else None
+        checks.append(_test_check_result('Qualifier',
+                                         testscript.match_value(step['qualifier'], actual_q),
+                                         step['qualifier']['value'], actual_q or '(none)',
+                                         step['on_fail']))
+    for c in step['checks']:
+        if c['kind'] == 'text':
+            text = _parse_display_text(raw)
+            ok = testscript.match_text(c, text)
+            checks.append(_test_check_result('Text', ok, c['value'],
+                                             text if text is not None else '(none)',
+                                             c['on_fail']))
+        elif c['kind'] == 'item':
+            items = None
+            if cmd_type == 0x24:
+                items = _parse_select_item(raw)
+            elif cmd_type == 0x25:
+                items = _parse_setup_menu_items(raw)
+            if items is None:
+                checks.append(_test_check_result('Item', False,
+                                                 'id=%s text=%r' % (c.get('id'), c.get('text')),
+                                                 'command carries no items', c['on_fail']))
+            else:
+                ok, detail = testscript.match_item(items, c)
+                checks.append(_test_check_result('Item', ok,
+                                                 'id=%s text=%r' % (c.get('id'), c.get('text')),
+                                                 detail, c['on_fail']))
+        elif c['kind'] == 'raw':
+            actual = raw.hex().upper()
+            checks.append(_test_check_result('Raw',
+                                             testscript.match_value({'mode': c['mode'], 'value': c['value']}, actual),
+                                             c['value'], actual, c['on_fail']))
+    tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, step['respond'])
+    tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
+    tr_sw = tr_rv[1]
+    _record_tr(log_entry, tr, tr_sw)
+    status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
+    result = {'status': status, 'sw': tr_sw, 'data': raw.hex().upper(),
+              'sent': 'TR ' + tr.hex().upper(), 'checks': checks,
+              'command': {'type_hex': '%02X' % cmd_type, 'type_name': type_name,
+                          'qualifier': '%02X' % cmd_qual if cmd_qual is not None else None,
+                          'raw': raw.hex().upper()}}
+    pending_next = int(tr_sw[2:], 16) if tr_sw.startswith('91') else None
+    return result, pending_next
+
+
+def _test_drain_pending(scc, fetch_len):
+    """Fetch an announced command the script did not expect and answer it
+    with a cancel TR, so the card is not left re-announcing it (6.3)."""
+    try:
+        fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len or 0x100))
+        if not fdata:
+            return {'note': 'nothing to drain (FETCH SW %s)' % sw}
+        raw = bytes.fromhex(fdata)
+        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+        tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, {'result': 0x10})
+        rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
+        return {'sent': 'TR cancel ' + tr.hex().upper(), 'sw': rv[1],
+                'data': raw.hex().upper(),
+                'note': 'pending %s (0x%02X) answered with cancel'
+                        % (PROACTIVE_TYPE_NAMES.get(cmd_type, '?'), cmd_type)}
+    except Exception as e:
+        return {'note': 'drain failed: %s' % e}
+
+
+def _test_run_execute(server, script, preset):
+    scc = server.scc
+    ctx = {'preset': dict(preset or {}),
+           'counter': str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper(),
+           'uses_scp80': any(s['type'] == 'action' and s['kind'] == 'scp80'
+                             for s in script['steps'])}
+    if ctx['uses_scp80']:
+        with _TEST_LOCK:
+            _TEST_RUN['scp80_counter'] = ctx['counter']
+    pending = None
+    stopped = False
+    session = getattr(server, 'card_session', 0)
+    for index, step in enumerate(script['steps']):
+        with _TEST_LOCK:
+            if _TEST_RUN['stop']:
+                stopped = True
+            _TEST_RUN['index'] = index
+        if stopped:
+            break
+        entry = _test_entry(step, index)
+        with _TEST_LOCK:
+            _TEST_RUN['steps'].append(entry)
+        if pending is not None and step['type'] != 'expect':
+            entry['status'] = 'error'
+            entry['note'] = ('unexpected proactive command pending (SW 91XX) - '
+                             'add an expect step or a status action')
+            drained = _test_drain_pending(scc, pending)
+            entry.update({k: v for k, v in drained.items() if k != 'note'})
+            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            pending = None
+            break
+        if getattr(server, 'card_session', 0) != session:
+            entry['status'] = 'error'
+            entry['note'] = 'card session changed (card removed or re-equipped)'
+            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            break
+        try:
+            with _CARD_LOCK:
+                if step['type'] == 'action':
+                    result, pending = _test_run_action(server, step, ctx)
+                else:
+                    result, pending = _test_run_expect(server, step, pending)
+            _test_finish_entry(entry, result)
+            if entry['status'] == 'error':
+                # Error terminates the script; Warning and OK continue.
+                break
+        except Exception as e:
+            entry['status'] = 'error'
+            entry['note'] = str(e)
+            entry['ms'] = int((time.time() - entry['started']) * 1000)
+            sys.stderr.write('TEST-RUN step %d failed: %s\n' % (index + 1, e))
+            if pending is not None:
+                drained = _test_drain_pending(scc, pending)
+                entry.update({k: v for k, v in drained.items() if k != 'note'})
+                pending = None
+            break
+    if pending is not None:
+        drained = _test_drain_pending(scc, pending)
+        with _TEST_LOCK:
+            _TEST_RUN['steps'].append(dict(
+                {'index': len(script['steps']), 'type': 'cleanup', 'kind': 'cleanup',
+                 'label': _TEST_KIND_LABELS['cleanup'], 'status': 'error' if not stopped else 'warning',
+                 'checks': [], 'started': time.time(), 'ms': 0, 'note': None,
+                 'sent': None, 'sw': None, 'data': None}, **drained))
+    with _TEST_LOCK:
+        _TEST_RUN['running'] = False
+        _TEST_RUN['finished'] = time.time()
+        if ctx['uses_scp80']:
+            _TEST_RUN['scp80_counter'] = ctx['counter']
+        if _TEST_RUN['status'] is None:
+            levels = [s.get('status') for s in _TEST_RUN['steps']]
+            if stopped:
+                _TEST_RUN['status'] = 'stopped'
+            elif 'error' in levels:
+                _TEST_RUN['status'] = 'error'
+            elif 'warning' in levels:
+                _TEST_RUN['status'] = 'warning'
+            else:
+                _TEST_RUN['status'] = 'ok'
+    global _TEST_RUNNING
+    _TEST_RUNNING = False
+    if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
+        _reset_poll_timer()
+
+
+def _test_run_worker(server, script, preset):
+    try:
+        _test_run_execute(server, script, preset)
+    except Exception as e:
+        traceback.print_exc()
+        global _TEST_RUNNING
+        _TEST_RUNNING = False
+        with _TEST_LOCK:
+            _TEST_RUN['error'] = str(e)
+            _TEST_RUN['running'] = False
+            _TEST_RUN['finished'] = time.time()
+            if not _TEST_RUN['status']:
+                _TEST_RUN['status'] = 'error'
+        if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
+            _reset_poll_timer()
+
+
+def _test_run_start(server, script, preset):
+    """Start a run: suspend background polling, answer a paused interactive
+    command, own the card via the worker thread."""
+    global _TEST_THREAD, _TEST_RUNNING, _POLL_TIMER
+    with _TEST_LOCK:
+        _TEST_RUN.update({
+            'running': True, 'stop': False, 'name': script['name'], 'status': None,
+            'session': getattr(server, 'card_session', 0), 'index': 0,
+            'total': len(script['steps']), 'steps': [], 'started': time.time(),
+            'finished': None, 'error': None, 'scp80_counter': None,
+            'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
+        })
+    _TEST_RUNNING = True
+    if _POLL_TIMER is not None:
+        _POLL_TIMER.cancel()
+        _POLL_TIMER = None
+    with _CARD_LOCK:
+        try:
+            _finish_pending_menu(server, server.scc)
+        except Exception as e:
+            sys.stderr.write('TEST-RUN: finishing pending menu failed: %s\n' % e)
+    _TEST_THREAD = threading.Thread(target=_test_run_worker,
+                                    args=(server, script, preset),
+                                    name='test-script', daemon=True)
+    _TEST_THREAD.start()
+
+
 class PysimHandler(BaseHTTPRequestHandler):
     def _send_json(self, data, status=200):
         self.send_response(status)
@@ -4172,11 +4660,15 @@ class PysimHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        # /api/status is pure cached state (no card I/O); keeping it out of the
-        # lock lets the UI report 'initializing' while a long equip holds the
-        # card lock. Result-shaping masks everything card-derived when the
-        # session is not connected.
-        if self.path == '/api/status':
+        if _test_request_blocked(self.path):
+            self._send_json({'error': 'test script running - card commands are '
+                                      'blocked until it finishes'}, 409)
+            return
+        # /api/status and /api/test/status are pure cached state (no card I/O);
+        # keeping them out of the lock lets the UI report 'initializing' while a
+        # long equip (or a test script step) holds the card lock.  Result-shaping
+        # masks everything card-derived when the session is not connected.
+        if self.path in ('/api/status', '/api/test/status'):
             self._do_GET()
             return
         # Serialize all card access: the background STATUS poll runs in its own
@@ -4190,6 +4682,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req()
             self._send_json({'version': VERSION})
             self._log_resp({'version': VERSION})
+        elif self.path == '/api/test/status':
+            self._log_req()
+            resp = _test_state_snapshot()
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path.startswith('/api/mcc-mnc'):
             self._log_req()
             q = ''
@@ -4403,6 +4900,60 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {('%02X' % q): v for q, v in _PLI_DATA.items()}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/test/run':
+            body = self._read_body()
+            self._log_req(body)
+            if _TEST_RUNNING:
+                resp = {'error': 'a test script is already running'}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            try:
+                script = testscript.normalise_script(body.get('script'), _test_command_type)
+            except testscript.ScriptError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            preset = body.get('preset') or {}
+            needs_scp80 = any(s['type'] == 'action' and s['kind'] == 'scp80'
+                              for s in script['steps'])
+            err = _test_preset_error(script, preset) if needs_scp80 else None
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            _test_run_start(self.server, script, preset)
+            resp = _test_state_snapshot()
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/stop':
+            self._log_req()
+            with _TEST_LOCK:
+                if _TEST_RUN['running']:
+                    _TEST_RUN['stop'] = True
+            resp = _test_state_snapshot()
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/clear':
+            self._log_req()
+            with _TEST_LOCK:
+                busy = bool(_TEST_RUN['running'])
+                if not busy:
+                    _TEST_RUN.update({
+                        'running': False, 'stop': False, 'name': None, 'status': None,
+                        'session': None, 'index': 0, 'total': 0, 'steps': [],
+                        'preset': None, 'scp80_counter': None,
+                        'started': None, 'finished': None, 'error': None,
+                    })
+            if busy:
+                resp = {'error': 'test script is running'}
+                self._send_json(resp, 409)
+            else:
+                resp = _test_state_snapshot()
+                self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/poll-status':
             resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL,
                     'card_disabled': _POLL_DISABLED_BY_CARD}
@@ -4449,6 +5000,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._serve_static()
 
     def do_POST(self):
+        if _test_request_blocked(self.path):
+            self._send_json({'error': 'test script running - card commands are '
+                                      'blocked until it finishes'}, 409)
+            return
         # Serialize all card access: the background STATUS poll runs in its own
         # thread and must never interleave with a FETCH/TERMINAL RESPONSE pair.
         with _CARD_LOCK:

@@ -273,7 +273,7 @@ class TestSmsConcatenation(unittest.TestCase):
                                           '0000000001', apdu, K, K)
         sent = []
 
-        def fake_envelope(tpdu_hex, scc, sm_sc=None, submit_handler=None):
+        def fake_envelope(tpdu_hex, scc, sm_sc=None, submit_handler=None, **kwargs):
             sent.append(tpdu_hex.upper())
             return '', '9000'
 

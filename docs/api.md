@@ -39,6 +39,10 @@ a 3.x PWA).
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
+| `/api/test/run` | POST | Start a test script (actions + proactive expectations) |
+| `/api/test/status` | GET | Test script run state and per-step results |
+| `/api/test/stop` | POST | Request a running test script to stop |
+| `/api/test/clear` | POST | Clear the finished run report |
 | `/api/sp-verify` | POST | Verify secured packet against pySim reference |
 | `/api/menu` | GET | Current STK menu (title + items + active) |
 | `/api/menu-select` | POST | ENVELOPE(Menu Selection) with item_id |
@@ -361,6 +365,82 @@ corrupt/wrong archive, or `cap analysis failed: …` when a component passes
 the structural parse but not the analyzer.  The numbers are an estimate:
 the model assumes 2-byte references, a 6-byte object header and NVM cell
 rounding, and does not include applet-created runtime objects/arrays.
+
+### `POST /api/test/run`
+
+Runs a **test script**: an ordered list of actions and proactive-command
+expectations, executed server-side on the equipped card.  While a run is
+active the card is owned by the script - other card endpoints answer
+`409 {"error": "test script running ..."}` and background STATUS polling is
+suspended; only `/api/test/*`, `/api/status`, `/api/poll-status`,
+`/api/version` and static files stay available.
+
+```json
+{"script": {"name": "STK menu browsing", "steps": [
+   {"type": "action", "kind": "menu-select", "params": {"item_id": 128},
+    "check": {"sw": "91??"}},
+   {"type": "expect", "command": "SELECT ITEM",
+    "checks": [{"kind": "item", "id": 1, "text": "test"}],
+    "respond": {"result": "ok", "item_id": 1}},
+   {"type": "expect", "command": "DISPLAY TEXT",
+    "checks": [{"kind": "text", "value": "hello"}],
+    "respond": {"result": "ok"}}
+ ]},
+ "preset": {"name": "lab card", "kic": "15", "kid": "15", "kicKey": "...",
+            "kidKey": "...", "counter": "0000000A", "tar": "B00000",
+            "spi1": "16", "spi2": "01"}}
+```
+
+**Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
+`menu-select` (`item_id` 1-255), `file-write` (`path`, `data`, `mode`
+`auto`/`binary`/`record`, `record`), `file-read` (same, verifies `check.data`),
+`apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, optional
+`tar`/`spi1`/`spi2` overrides - KIc/KID and the counter always come from the
+`preset`, which must match the equipped card and be complete) or `status`
+(`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
+mask `91??`, i.e. poll until the card announces a command).
+
+`check` is `{"sw": ..., "data": ...}` (exact or `{"mode": "mask", "value":
+"91??"}`, `?` = per-nibble wildcard) plus `"por": "none"|"ok"|"any"` for
+SCP80.  `on_fail` is `error` (terminates the script) or `warning` (continues).
+
+**Expectation steps** (`type: "expect"`) require a command pending from the
+previous step (`91XX`); they never poll - a `9000` response means no command
+and is an error (TS 102 221 7.4.2.1 / TS 102 223 6.3; add a `status` action
+if the card delivers on poll).  `command` is a name or type code; `checks`
+may be `text` (contains/exact), `item` (`id`/`text` for SELECT ITEM / SET UP
+MENU) or `raw` (mask); `respond` is the TERMINAL RESPONSE (`result` name or
+value, `item_id`, `text`+`dcs`, raw TLVs).
+
+The response is the initial state (`running: true`), the final counter
+(`scp80_counter`) and the step list; poll `/api/test/status`.  The PWA writes
+`scp80_counter` back to the card preset after the run.
+
+### `GET /api/test/status`
+
+The current (or last) run:
+
+```json
+{"running": true, "name": "STK menu browsing", "status": null,
+ "index": 1, "total": 3, "scp80_counter": null,
+ "steps": [{"index": 0, "type": "action", "label": "ENVELOPE(Menu Selection)",
+            "status": "ok", "sw": "9103", "sent": "80C2000009...",
+            "checks": [{"label": "SW", "ok": true, "expected": "91??",
+                        "actual": "9103", "level": "error"}], "ms": 4}]}
+```
+
+`status` becomes `ok`/`warning`/`error`/`stopped` when the run finishes;
+expected/actual pairs are reported per check.
+
+### `POST /api/test/stop`
+
+Requests a stop (`{"stop": true}` is set on the run); the runner finishes the
+current step, answers any pending proactive command with a cancel TERMINAL
+RESPONSE and reports the run as `stopped`.
+
+### `POST /api/test/clear`
+
+Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
