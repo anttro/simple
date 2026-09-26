@@ -35,6 +35,7 @@ code += extractFunc(html, 'cardsScp80Complete') + '\n';
 code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'cardsMatchedPreset') + '\n';
 code += 'globalThis.t = s => s;\n';
+code += 'globalThis.testRunActive = () => false;\n';
 eval(code);
 
 function fakeEl() {

@@ -1030,6 +1030,7 @@
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-phone-sub="phone" onclick="phoneSwitchSubtab('phone')" data-l10n="Phone">Phone</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="tr" onclick="phoneSwitchSubtab('tr')" data-l10n="TR Config">TR Config</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="esim" onclick="phoneSwitchSubtab('esim')" data-l10n="eSIM">eSIM</button>
+			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="test" onclick="phoneSwitchSubtab('test')" data-l10n="Test script">Test script</button>
 		</div>
 		<div id="phone-sub-phone">
 			<div class="flex flex-wrap items-start gap-4 mb-4">
@@ -1197,6 +1198,49 @@
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Notifications">Notifications</legend>
 					<div id="esim-notifications" class="text-xs"></div>
+				</fieldset>
+			</div>
+			<div id="phone-sub-test" class="hidden">
+				<div id="test-run-banner" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
+				<div class="flex flex-wrap items-end gap-2 mb-3">
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Test script">Test script</label>
+						<select id="test-script-sel" onchange="testSelectChanged()" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></select>
+					</div>
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Template">Template</label>
+						<select id="test-template" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+							<option value="empty" data-l10n="Empty">Empty</option>
+							<option value="menu" data-l10n="STK menu browsing">STK menu browsing</option>
+							<option value="scp80" data-l10n="Applet via SCP80">Applet via SCP80</option>
+						</select>
+					</div>
+					<button onclick="testNew()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New">New</button>
+					<button onclick="testClone()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clone">Clone</button>
+					<button onclick="testDelete()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Delete">Delete</button>
+					<button onclick="testExport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export">Export</button>
+					<button onclick="testImportOpen()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Import">Import</button>
+					<input type="file" id="test-import-file" accept=".json,application/json" class="hidden" onchange="testImportFile(this)">
+					<span id="test-io-status" class="text-xs text-gray-500 dark:text-slate-400 hidden"></span>
+				</div>
+				<div class="flex flex-wrap items-end gap-2 mb-3">
+					<div class="flex-1 min-w-[16rem]">
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Name">Name</label>
+						<input id="test-name" oninput="testNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+					</div>
+					<button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
+					<button id="test-stop-btn" onclick="testStop()" class="hidden px-4 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" data-l10n="Stop">Stop</button>
+					<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
+				</div>
+				<div id="test-steps" class="mb-2 text-sm"></div>
+				<div class="flex gap-2 mb-3">
+					<button onclick="testAddStep('action')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add action">Add action</button>
+					<button onclick="testAddStep('expect')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add expectation">Add expectation</button>
+				</div>
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Run report">Run report</legend>
+					<div id="test-run-status" class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="No run yet.">No run yet.</div>
+					<div id="test-run-steps" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[45vh] overflow-auto"></div>
 				</fieldset>
 			</div>
 		</div>
@@ -1460,6 +1504,18 @@
 		</div>
 	</div>
 
+	<div id="test-step-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
+		<div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-auto">
+			<h3 id="test-step-title" class="text-lg font-semibold mb-4 text-gray-800 dark:text-slate-200"></h3>
+			<div id="test-step-body" class="space-y-3"></div>
+			<div id="test-step-error" class="text-xs text-red-500 hidden mt-2"></div>
+			<div class="flex gap-2 mt-4 justify-end">
+				<button onclick="testStepCancel()" class="px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Cancel">Cancel</button>
+				<button onclick="testStepSave()" class="px-4 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Save">Save</button>
+			</div>
+		</div>
+	</div>
+
 	<div id="tp-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
 		<div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[85vh] overflow-auto">
 			<h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-slate-200" data-l10n="TERMINAL PROFILE">TERMINAL PROFILE</h3>
@@ -1560,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.10';
+const SIMPLE_VERSION = '3.5.11';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -1657,13 +1713,15 @@ function phoneSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !active);
 		btn.classList.toggle('dark:text-slate-300', !active);
 	});
-	['phone', 'tr', 'esim'].forEach(s => {
+	['phone', 'tr', 'esim', 'test'].forEach(s => {
 		document.getElementById('phone-sub-' + s).classList.toggle('hidden', s !== name);
 	});
 	if (name === 'tr') {
 		pysimPliRender();
 	} else if (name === 'esim') {
 		esimFetchAll();
+	} else if (name === 'test') {
+		testInit();
 	} else {
 		stkCheckMenu();
 		pysimEventsRender();
@@ -1672,7 +1730,7 @@ function phoneSwitchSubtab(name) {
 		pysimPollStatusInit();
 		tpRefresh();
 	}
-	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', esim: 'esim' }[name] || 'stk-menu');
+	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', esim: 'esim', test: 'test-script' }[name] || 'stk-menu');
 }
 
 // ===== eSIM / LPA (local ES10a/b/c operations) =====
@@ -6344,6 +6402,788 @@ function decodeResponse() {
 	out.innerHTML = html;
 }
 
+// ===== Test scripts (Phone simulator pill) =====
+// Scripts are stored locally (simple_tests) and executed server-side
+// (/api/test/run): the server owns the card while a run is active (other
+// card endpoints answer 409) and reports the steps through
+// /api/test/status.  This UI edits the script and monitors the run; the
+// SCP80 steps use the card preset matched by the equipped card's ICCID, and
+// the final SCP80 counter is written back to it.
+const TEST_SCRIPT_STORAGE = 'simple_tests';
+const TEST_ACTION_KINDS = ['envelope', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status'];
+let _testScripts = null;
+let _testCurrentIdx = -1;
+let _testRunState = null;
+let _testRunTimer = null;
+let _testEditStep = null;
+let _testEditChecks = [];
+let _testLastPresetIdx = -1;
+
+function testTemplate(kind) {
+	if (kind === 'menu') {
+		return {name: t('STK menu browsing'), steps: [
+			{type: 'action', kind: 'menu-select', params: {item_id: 1},
+			 check: {sw: {mode: 'mask', value: '91??'}}},
+			{type: 'expect', command: 'SELECT ITEM',
+			 checks: [{kind: 'item', id: 1, text: 'test'}],
+			 respond: {result: 'ok', item_id: 1}},
+			{type: 'expect', command: 'DISPLAY TEXT',
+			 checks: [{kind: 'text', mode: 'contains', value: 'hello'}],
+			 respond: {result: 'ok'}},
+		]};
+	}
+	if (kind === 'scp80') {
+		return {name: t('Applet via SCP80'), steps: [
+			{type: 'action', kind: 'scp80', params: {apdu: '80E2900000', tar: 'B00000'},
+			 check: {sw: {mode: 'mask', value: '91??'}, por: 'none'}},
+			{type: 'expect', command: 'DISPLAY TEXT',
+			 checks: [{kind: 'text', mode: 'contains', value: 'hello'}],
+			 respond: {result: 'ok'}},
+		]};
+	}
+	return {name: t('New test script'), steps: []};
+}
+
+function testScriptsLoad() {
+	if (_testScripts) return _testScripts;
+	try {
+		const raw = JSON.parse(localStorage.getItem(TEST_SCRIPT_STORAGE) || '[]');
+		_testScripts = Array.isArray(raw) ? raw.filter(s => s && typeof s === 'object') : [];
+	} catch (e) {
+		_testScripts = [];
+	}
+	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
+	if (_testCurrentIdx < 0 || _testCurrentIdx >= _testScripts.length) _testCurrentIdx = 0;
+	return _testScripts;
+}
+
+function testScriptsSave() {
+	localStorage.setItem(TEST_SCRIPT_STORAGE, JSON.stringify(_testScripts || []));
+}
+
+function testCurrent() {
+	const scripts = testScriptsLoad();
+	return scripts[_testCurrentIdx] || null;
+}
+
+// Local sanity check (the server validates again); '' when the script looks good.
+function testScriptProblem(script) {
+	if (!script || typeof script !== 'object') return t('Script must be an object');
+	if (!Array.isArray(script.steps)) return t('Script steps must be a list');
+	if (!script.steps.length) return t('Script has no steps');
+	for (let i = 0; i < script.steps.length; i++) {
+		const s = script.steps[i];
+		const at = t('Step') + ' ' + (i + 1) + ': ';
+		if (!s || typeof s !== 'object') return at + t('step must be an object');
+		if (s.type === 'action') {
+			if (TEST_ACTION_KINDS.indexOf(s.kind) < 0) return at + t('unknown action kind');
+			const p = s.params || {};
+			if (s.kind === 'apdu' && !String(p.apdu || '').trim()) return at + t('APDU is empty');
+			if (s.kind === 'scp80' && !String(p.apdu || p.sp || '').trim()) return at + t('SCP80 needs an APDU or a secured packet');
+			if (s.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return at + t('item id must be 1..255');
+			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
+		} else if (s.type === 'expect') {
+			if (!String(s.command || '').trim()) return at + t('command is required');
+		} else {
+			return at + t('step must be an action or an expectation');
+		}
+	}
+	return '';
+}
+
+function testCheckSummary(c) {
+	if (!c || !c.kind) return '';
+	if (c.kind === 'text') return 'text ' + (c.mode === 'exact' ? '=' : '~') + JSON.stringify(c.value || '');
+	if (c.kind === 'item') {
+		let s = 'item';
+		if (c.id) s += ' #' + c.id;
+		if (c.text) s += ' ' + (c.mode === 'exact' ? '=' : '~') + JSON.stringify(c.text);
+		return s;
+	}
+	if (c.kind === 'raw') return 'raw ' + (c.mode === 'mask' ? '~' : '=') + (c.value || '');
+	return '';
+}
+
+function testStepSummary(step) {
+	if (!step) return '';
+	if (step.type === 'expect') {
+		const parts = ['EXPECT ' + (step.command || '?')];
+		const checks = (step.checks || []).map(testCheckSummary).filter(Boolean);
+		if (checks.length) parts.push(checks.join(', '));
+		const tr = [];
+		if (step.respond && step.respond.result && step.respond.result !== 'ok' && step.respond.result !== 0) {
+			tr.push(String(step.respond.result));
+		}
+		if (step.respond && step.respond.item_id) tr.push('item=' + step.respond.item_id);
+		if (step.respond && step.respond.text !== undefined && step.respond.text !== '') tr.push('text=' + JSON.stringify(step.respond.text));
+		parts.push('TR ' + (tr.join(' ') || 'ok'));
+		if (step.on_fail === 'warning') parts.push('⚠');
+		return parts.join(' · ');
+	}
+	const p = step.params || {};
+	let s = '';
+	if (step.kind === 'envelope') s = 'ENVELOPE event=0x' + Number(p.event || 0).toString(16).toUpperCase().padStart(2, '0') + (p.data ? ' data=' + p.data : '');
+	else if (step.kind === 'menu-select') s = 'ENVELOPE(Menu Selection) item=' + p.item_id;
+	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
+	else if (step.kind === 'scp80') s = 'SCP80 ' + (p.sp ? 'sp' : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
+	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
+	else if (step.kind === 'file-read') s = 'READ ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '');
+	else if (step.kind === 'status') s = 'STATUS' + ((p.attempts || 1) > 1 ? ' x' + p.attempts + ' (poll)' : '');
+	else s = String(step.kind || '?');
+	const c = step.check || {};
+	const ck = [];
+	if (c.sw && c.sw.value && !(c.sw.mode !== 'mask' && c.sw.value === '9000')) ck.push('SW ' + (c.sw.mode === 'mask' ? '~' : '') + c.sw.value);
+	if (c.data && c.data.value) ck.push('data ' + (c.data.mode === 'mask' ? '~' : '') + c.data.value);
+	if (c.por && c.por !== 'any') ck.push('PoR ' + c.por);
+	if (step.on_fail === 'warning') ck.push('⚠');
+	return s + (ck.length ? ' · ' + ck.join(', ') : '');
+}
+
+function testRender() {
+	const sel = document.getElementById('test-script-sel');
+	if (!sel) return;
+	const scripts = testScriptsLoad();
+	sel.innerHTML = scripts.map((s, i) =>
+		'<option value="' + i + '"' + (i === _testCurrentIdx ? ' selected' : '') + '>' +
+		esc(s.name || (t('Script') + ' ' + (i + 1))) + '</option>').join('');
+	const cur = testCurrent();
+	const nameEl = document.getElementById('test-name');
+	if (nameEl && cur) nameEl.value = cur.name || '';
+	testRenderSteps();
+	testRenderRun(_testRunState);
+}
+
+function testRenderSteps() {
+	const el = document.getElementById('test-steps');
+	if (!el) return;
+	const cur = testCurrent();
+	if (!cur || !cur.steps || !cur.steps.length) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No steps yet - add an action or an expectation.')) + '</span>';
+		return;
+	}
+	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded divide-y divide-gray-100 dark:divide-slate-700">';
+	cur.steps.forEach((s, i) => {
+		const kindCls = s.type === 'action'
+			? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+			: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+		html += '<div class="flex items-center gap-2 px-2 py-1">'
+			+ '<span class="w-5 text-right text-xs text-gray-400">' + (i + 1) + '</span>'
+			+ '<span class="text-xs px-1.5 py-0.5 rounded ' + kindCls + '">' + esc(s.type === 'action' ? t('Action') : t('Expectation')) + '</span>'
+			+ '<span class="flex-1 truncate font-mono text-xs" title="' + esc(testStepSummary(s)) + '">' + esc(testStepSummary(s)) + '</span>'
+			+ '<button onclick="testMoveStep(' + i + ',-1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === 0 ? 'disabled' : '') + '>&uarr;</button>'
+			+ '<button onclick="testMoveStep(' + i + ',1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === cur.steps.length - 1 ? 'disabled' : '') + '>&darr;</button>'
+			+ '<button onclick="testEditStep(' + i + ')" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300">' + esc(t('Edit')) + '</button>'
+			+ '<button onclick="testDeleteStep(' + i + ')" class="px-2 py-0.5 text-xs rounded border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400">' + esc(t('Delete')) + '</button>'
+			+ '</div>';
+	});
+	el.innerHTML = html + '</div>';
+}
+
+function testSelectChanged() {
+	const sel = document.getElementById('test-script-sel');
+	_testCurrentIdx = parseInt(sel.value, 10) || 0;
+	testRender();
+}
+
+function testNameChanged() {
+	const cur = testCurrent();
+	const el = document.getElementById('test-name');
+	if (!cur || !el) return;
+	cur.name = el.value;
+	testScriptsSave();
+	const sel = document.getElementById('test-script-sel');
+	if (sel && sel.options[_testCurrentIdx]) sel.options[_testCurrentIdx].textContent = cur.name || (t('Script') + ' ' + (_testCurrentIdx + 1));
+}
+
+function testNew() {
+	const kind = (document.getElementById('test-template') || {}).value || 'empty';
+	_testScripts.push(testTemplate(kind));
+	_testCurrentIdx = _testScripts.length - 1;
+	testScriptsSave();
+	testRender();
+}
+
+function testClone() {
+	const cur = testCurrent();
+	if (!cur) return;
+	const copy = JSON.parse(JSON.stringify(cur));
+	copy.name = (copy.name || t('Script')) + ' (2)';
+	_testScripts.push(copy);
+	_testCurrentIdx = _testScripts.length - 1;
+	testScriptsSave();
+	testRender();
+}
+
+function testDelete() {
+	const cur = testCurrent();
+	if (!cur) return;
+	if (!confirm(t('Delete this test script?'))) return;
+	_testScripts.splice(_testCurrentIdx, 1);
+	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
+	_testCurrentIdx = Math.max(0, _testCurrentIdx - 1);
+	testScriptsSave();
+	testRender();
+}
+
+function testExport() {
+	const cur = testCurrent();
+	if (!cur) return;
+	downloadJson((cur.name || 'test-script').replace(/[^\w.-]+/g, '_') + '.json', cur);
+}
+
+function testImportOpen() {
+	const el = document.getElementById('test-import-file');
+	if (el) el.click();
+}
+
+function testImportFile(input) {
+	const file = input && input.files ? input.files[0] : null;
+	if (input) input.value = '';
+	if (!file) return;
+	const reader = new FileReader();
+	reader.onload = () => {
+		let obj = null;
+		try {
+			obj = JSON.parse(String(reader.result || ''));
+		} catch (e) {
+			ioStatus('test-io-status', t('Import failed:') + ' ' + e.message);
+			return;
+		}
+		const problem = testScriptProblem(obj);
+		if (problem) {
+			ioStatus('test-io-status', t('Import failed:') + ' ' + problem);
+			return;
+		}
+		obj.name = obj.name || file.name.replace(/\.json$/i, '');
+		_testScripts.push(obj);
+		_testCurrentIdx = _testScripts.length - 1;
+		testScriptsSave();
+		testRender();
+		ioStatus('test-io-status', t('Imported:') + ' ' + obj.name);
+	};
+	reader.readAsText(file);
+}
+
+function testAddStep(type) {
+	const step = type === 'expect'
+		? {type: 'expect', command: 'DISPLAY TEXT', checks: [{kind: 'text', mode: 'contains', value: ''}], respond: {result: 'ok'}}
+		: {type: 'action', kind: 'status', params: {attempts: 1, interval_ms: 200}};
+	testEditStep(-1, step);
+}
+
+function testEditStep(index, presetStep) {
+	const cur = testCurrent();
+	if (!cur) return;
+	const step = presetStep ? JSON.parse(JSON.stringify(presetStep)) : JSON.parse(JSON.stringify(cur.steps[index]));
+	_testEditStep = step;
+	_testEditChecks = (step.checks || []).map(c => JSON.parse(JSON.stringify(c)));
+	_testEditStepIndex = index;
+	testStepRender();
+	document.getElementById('test-step-modal').classList.remove('hidden');
+}
+let _testEditStepIndex = -1;
+
+function testStepCancel() {
+	document.getElementById('test-step-modal').classList.add('hidden');
+	_testEditStep = null;
+	_testEditChecks = [];
+}
+
+function testStepSave() {
+	const err = testStepFormError();
+	if (err) {
+		const el = document.getElementById('test-step-error');
+		el.textContent = err;
+		el.classList.remove('hidden');
+		return;
+	}
+	const cur = testCurrent();
+	const step = _testEditStep;
+	if (_testEditStepIndex >= 0) cur.steps[_testEditStepIndex] = step;
+	else cur.steps.push(step);
+	testScriptsSave();
+	document.getElementById('test-step-modal').classList.add('hidden');
+	_testEditStep = null;
+	_testEditChecks = [];
+	testRenderSteps();
+}
+
+function testMoveStep(i, delta) {
+	const cur = testCurrent();
+	const j = i + delta;
+	if (!cur || j < 0 || j >= cur.steps.length) return;
+	const tmp = cur.steps[i];
+	cur.steps[i] = cur.steps[j];
+	cur.steps[j] = tmp;
+	testScriptsSave();
+	testRenderSteps();
+}
+
+function testDeleteStep(i) {
+	const cur = testCurrent();
+	if (!cur) return;
+	cur.steps.splice(i, 1);
+	testScriptsSave();
+	testRenderSteps();
+}
+
+function testFormRow(label, inner) {
+	return '<div><label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' + esc(t(label)) + '</label>' + inner + '</div>';
+}
+
+function testFormInput(id, value, placeholder, extra) {
+	return '<input id="' + id + '" value="' + esc(value === undefined || value === null ? '' : String(value)) + '" placeholder="' + esc(placeholder || '') + '" ' + (extra || '') + ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">';
+}
+
+function testFormSelect(id, value, options, onchange) {
+	let html = '<select id="' + id + '"' + (onchange ? ' onchange="' + onchange + '"' : '') + ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">';
+	options.forEach(o => {
+		html += '<option value="' + esc(String(o.v)) + '"' + (String(o.v) === String(value) ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+	});
+	return html + '</select>';
+}
+
+function testCheckModes(value) {
+	return [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}, {v: 'contains', l: t('Contains')}];
+}
+
+function testStepRender() {
+	const modal = document.getElementById('test-step-modal');
+	const title = document.getElementById('test-step-title');
+	const body = document.getElementById('test-step-body');
+	const err = document.getElementById('test-step-error');
+	const step = _testEditStep;
+	if (!step) return;
+	err.classList.add('hidden');
+	const isAction = step.type === 'action';
+	title.textContent = (isAction ? t('Action') : t('Expectation')) + ' · ' + t('Step') + ' ' + (_testEditStepIndex >= 0 ? (_testEditStepIndex + 1) : (_testScriptSteps() + 1));
+	let html = '';
+	if (isAction) {
+		const kinds = TEST_ACTION_KINDS.map(k => ({v: k, l: k}));
+		html += testFormRow('Action kind', testFormSelect('test-step-kind', step.kind, kinds, 'testStepKindChanged()'));
+		const p = step.params || {};
+		if (step.kind === 'envelope') {
+			html += testFormRow('Event type', testFormInput('test-f-event', p.event === undefined ? 3 : p.event, '0..255'));
+			html += testFormRow('Event data (hex, optional)', testFormInput('test-f-data', p.data, '9B0100'));
+		} else if (step.kind === 'menu-select') {
+			html += testFormRow('Item id (1-255)', testFormInput('test-f-item', p.item_id === undefined ? 1 : p.item_id, '1..255'));
+		} else if (step.kind === 'file-write' || step.kind === 'file-read') {
+			html += testFormRow('File path', testFormInput('test-f-path', p.path, 'ADF.USIM/EF.EST or MF/2FE2'));
+			html += testFormRow('Mode', testFormSelect('test-f-mode', p.mode || 'auto', [
+				{v: 'auto', l: t('Auto (by file type)')}, {v: 'binary', l: t('Transparent (binary)')}, {v: 'record', l: t('Record')}]));
+			html += testFormRow('Record number (record mode)', testFormInput('test-f-record', p.record, '1..255'));
+			if (step.kind === 'file-write') html += testFormRow('Data (hex)', testFormInput('test-f-fdata', p.data, 'FF...'));
+		} else if (step.kind === 'apdu') {
+			html += testFormRow('APDU (hex)', testFormInput('test-f-apdu', p.apdu, '00A4040008A000000151000000'));
+		} else if (step.kind === 'scp80') {
+			html += testFormRow('Source', testFormSelect('test-f-src', p.sp ? 'sp' : 'apdu', [
+				{v: 'apdu', l: t('C-APDU (built with the preset)')}, {v: 'sp', l: t('Pre-built secured packet')}], 'testStepKindChanged()'));
+			if (p.sp) html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
+			else html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
+			html += testFormRow('TAR override (hex, optional)', testFormInput('test-f-tar', p.tar, 'B00000'));
+			html += testFormRow('SPI1 override (hex, optional)', testFormInput('test-f-spi1', p.spi1, '16'));
+			html += testFormRow('SPI2 override (hex, optional)', testFormInput('test-f-spi2', p.spi2, '01'));
+		} else if (step.kind === 'status') {
+			html += testFormRow('Attempts (1 = single STATUS)', testFormInput('test-f-attempts', p.attempts === undefined ? 1 : p.attempts, '1..1000'));
+			html += testFormRow('Interval (ms, when polling)', testFormInput('test-f-interval', p.interval_ms === undefined ? 200 : p.interval_ms, '0..10000'));
+		}
+		const c = step.check || {};
+		const sw = c.sw || {};
+		html += testFormRow('Expected SW', '<div class="flex gap-2">'
+			+ testFormSelect('test-f-sw-mode', sw.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
+			+ testFormInput('test-f-sw', sw.value === undefined ? '9000' : sw.value, '9000 or 91??') + '</div>');
+		const cd = c.data || {};
+		html += testFormRow('Expected data (hex, optional)', '<div class="flex gap-2">'
+			+ testFormSelect('test-f-cdata-mode', cd.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
+			+ testFormInput('test-f-cdata', cd.value, 'AA??') + '</div>');
+		if (step.kind === 'scp80') {
+			html += testFormRow('PoR check', testFormSelect('test-f-por', c.por || 'any', [
+				{v: 'any', l: t('Any')}, {v: 'none', l: t('No PoR expected')}, {v: 'ok', l: t('PoR = por_ok')}]));
+		}
+		html += testFormRow('On mismatch', testFormSelect('test-f-fail', step.on_fail || 'error', [
+			{v: 'error', l: t('Error (stop the script)')}, {v: 'warning', l: t('Warning (continue)')}]));
+		html += testFormRow('Message / label (optional)', testFormInput('test-f-label', step.label, ''));
+	} else {
+		html += testFormRow('Command', testFormSelect('test-f-command', step.command || 'ANY', testCommandOptions(step.command), 'testStepKindChanged()'));
+		const q = step.qualifier || {};
+		html += testFormRow('Qualifier (optional)', '<div class="flex gap-2">'
+			+ testFormSelect('test-f-qual-mode', q.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
+			+ testFormInput('test-f-qual', q.value, '00 or ?0') + '</div>');
+		html += '<div><div class="flex items-center gap-2 mb-1"><label class="text-xs font-medium text-gray-700 dark:text-slate-300">' + esc(t('Content checks')) + '</label>'
+			+ '<button onclick="testAddCheck()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600">' + esc(t('Add check')) + '</button></div>'
+			+ '<div id="test-checks"></div></div>';
+		const r = step.respond || {};
+		html += testFormRow('TERMINAL RESPONSE result', testFormSelect('test-f-result', r.result === undefined ? 'ok' : String(r.result), [
+			{v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')}, {v: 'back', l: t('back')},
+			{v: 'timeout', l: t('timeout')}, {v: 'no_response', l: t('no response')}]));
+		html += testFormRow('Item identifier (SELECT ITEM / SET UP MENU)', testFormInput('test-f-ritem', r.item_id, '1..255'));
+		html += testFormRow('Text (GET INKEY / GET INPUT)', '<div class="flex gap-2">'
+			+ testFormInput('test-f-rtext', r.text, 'text')
+			+ testFormInput('test-f-rdcs', r.dcs, 'DCS') + '</div>');
+		html += testFormRow('Extra TLVs (hex, optional)', testFormInput('test-f-rraw', r.raw, ''));
+		html += testFormRow('On mismatch', testFormSelect('test-f-fail', step.on_fail || 'error', [
+			{v: 'error', l: t('Error (stop the script)')}, {v: 'warning', l: t('Warning (continue)')}]));
+	}
+	body.innerHTML = html;
+	if (!isAction) testRenderChecks();
+}
+
+function _testScriptSteps() {
+	const cur = testCurrent();
+	return cur && cur.steps ? cur.steps.length : 0;
+}
+
+function testCommandOptions(selected) {
+	const seen = {};
+	const names = [];
+	for (const k in CMD_NAMES) {
+		const v = CMD_NAMES[k];
+		if (v && !seen[v]) { seen[v] = 1; names.push(v); }
+	}
+	names.sort();
+	let out = [{v: 'ANY', l: 'ANY'}].concat(names.map(n => ({v: n, l: n})));
+	if (selected && !out.some(o => o.v === selected)) out.push({v: selected, l: selected});
+	return out;
+}
+
+function testStepKindChanged() {
+	if (!_testEditStep) return;
+	testStepCollect();
+	if (_testEditStep.type === 'expect') _testEditChecks = (_testEditStep.checks || []).slice();
+	testStepRender();
+}
+
+function testRenderChecks() {
+	const el = document.getElementById('test-checks');
+	if (!el) return;
+	if (!_testEditChecks.length) {
+		el.innerHTML = '<span class="text-xs text-gray-400">' + esc(t('No content checks.')) + '</span>';
+		return;
+	}
+	let html = '';
+	_testEditChecks.forEach((c, i) => {
+		html += '<div class="flex items-start gap-2 mb-1">'
+			+ testFormSelect('test-check-kind-' + i, c.kind || 'text', [
+				{v: 'text', l: t('Text')}, {v: 'item', l: t('Item')}, {v: 'raw', l: t('Raw')}], 'testCheckKindChanged()');
+		if (c.kind === 'item') {
+			html += testFormInput('test-check-id-' + i, c.id, t('id'));
+			html += testFormInput('test-check-text-' + i, c.text, t('text'));
+			html += testFormSelect('test-check-mode-' + i, c.mode || 'contains', testCheckModes());
+		} else if (c.kind === 'raw') {
+			html += testFormSelect('test-check-mode-' + i, c.mode || 'mask', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}]);
+			html += testFormInput('test-check-value-' + i, c.value, 'AA??');
+		} else {
+			html += testFormSelect('test-check-mode-' + i, c.mode || 'contains', [{v: 'contains', l: t('Contains')}, {v: 'exact', l: t('Exact')}]);
+			html += testFormInput('test-check-value-' + i, c.value, t('text'));
+		}
+		html += testFormSelect('test-check-fail-' + i, c.on_fail || 'error', [
+			{v: 'error', l: t('Error')}, {v: 'warning', l: t('Warning')}]);
+		html += '<button onclick="testRemoveCheck(' + i + ')" class="px-2 py-1 text-xs rounded border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400">&times;</button>'
+			+ '</div>';
+	});
+	el.innerHTML = html;
+}
+
+function testCheckKindChanged() {
+	testChecksCollect();
+	testRenderChecks();
+}
+
+function testAddCheck() {
+	testChecksCollect();
+	_testEditChecks.push({kind: 'text', mode: 'contains', value: '', on_fail: 'error'});
+	testRenderChecks();
+}
+
+function testRemoveCheck(i) {
+	testChecksCollect();
+	_testEditChecks.splice(i, 1);
+	testRenderChecks();
+}
+
+function testChecksCollect() {
+	const out = [];
+	_testEditChecks.forEach((c, i) => {
+		const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+		const kind = val('test-check-kind-' + i) || c.kind || 'text';
+		const row = {kind: kind, on_fail: val('test-check-fail-' + i) || 'error'};
+		if (kind === 'item') {
+			const id = parseInt(val('test-check-id-' + i), 10);
+			const text = val('test-check-text-' + i);
+			if (!isNaN(id)) row.id = id;
+			if (text) row.text = text;
+			row.mode = val('test-check-mode-' + i) || 'contains';
+		} else if (kind === 'raw') {
+			row.mode = val('test-check-mode-' + i) || 'mask';
+			row.value = val('test-check-value-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+		} else {
+			row.mode = val('test-check-mode-' + i) || 'contains';
+			row.value = val('test-check-value-' + i);
+		}
+		out.push(row);
+	});
+	_testEditChecks = out;
+}
+
+function testStepCollect() {
+	const step = _testEditStep;
+	if (!step) return;
+	const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+	const hex = id => val(id).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+	const num = (id, dflt) => { const v = parseInt(val(id), 10); return isNaN(v) ? dflt : v; };
+	if (step.type === 'action') {
+		const kind = val('test-step-kind') || step.kind;
+		step.kind = kind;
+		const p = {};
+		if (kind === 'envelope') { p.event = num('test-f-event', 3); p.data = hex('test-f-data'); }
+		else if (kind === 'menu-select') { p.item_id = num('test-f-item', 1); }
+		else if (kind === 'file-write' || kind === 'file-read') {
+			p.path = val('test-f-path');
+			p.mode = val('test-f-mode') || 'auto';
+			const rec = num('test-f-record', 0);
+			if (rec) p.record = rec;
+			if (kind === 'file-write') p.data = hex('test-f-fdata');
+		}
+		else if (kind === 'apdu') { p.apdu = hex('test-f-apdu'); }
+		else if (kind === 'scp80') {
+			const src = val('test-f-src') || 'apdu';
+			if (src === 'sp') p.sp = hex('test-f-sp');
+			else p.apdu = hex('test-f-apdu');
+			['tar', 'spi1', 'spi2'].forEach(k => { const v = hex('test-f-' + k); if (v) p[k] = v; });
+		}
+		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
+		step.params = p;
+		const check = {};
+		const swVal = hex('test-f-sw');
+		if (swVal) check.sw = {mode: val('test-f-sw-mode') || 'exact', value: swVal};
+		const dataVal = hex('test-f-cdata');
+		if (dataVal) check.data = {mode: val('test-f-cdata-mode') || 'exact', value: dataVal};
+		const por = val('test-f-por');
+		if (kind === 'scp80' && por && por !== 'any') check.por = por;
+		step.check = check;
+		step.on_fail = val('test-f-fail') || 'error';
+		const label = val('test-f-label');
+		if (label) step.label = label; else delete step.label;
+	} else {
+		step.command = val('test-f-command') || step.command || 'ANY';
+		const qVal = hex('test-f-qual');
+		if (qVal) step.qualifier = {mode: val('test-f-qual-mode') || 'exact', value: qVal};
+		else delete step.qualifier;
+		testChecksCollect();
+		step.checks = JSON.parse(JSON.stringify(_testEditChecks)).filter(c => {
+			if (c.kind === 'text') return !!(c.value || '').trim();
+			if (c.kind === 'item') return c.id || (c.text || '').trim();
+			return !!(c.value || '').trim();
+		});
+		const r = {result: val('test-f-result') || 'ok'};
+		const ri = num('test-f-ritem', 0);
+		if (ri) r.item_id = ri;
+		const text = val('test-f-rtext');
+		if (text) { r.text = text; r.dcs = hex('test-f-rdcs') || '00'; }
+		const raw = hex('test-f-rraw');
+		if (raw) r.raw = raw;
+		step.respond = r;
+		step.on_fail = val('test-f-fail') || 'error';
+	}
+}
+
+function testStepFormError() {
+	testStepCollect();
+	const step = _testEditStep;
+	if (step.type === 'action') {
+		const p = step.params || {};
+		if (step.kind === 'apdu' && !p.apdu) return t('APDU is empty');
+		if (step.kind === 'scp80' && !p.apdu && !p.sp) return t('SCP80 needs an APDU or a secured packet');
+		if (step.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return t('item id must be 1..255');
+		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
+		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
+	} else if (!step.command) {
+		return t('command is required');
+	}
+	return '';
+}
+
+// ── run panel ──
+
+function testRunActive() {
+	return !!(_testRunState && _testRunState.running);
+}
+
+function testRunMessage(text, kind) {
+	const el = document.getElementById('test-run-status');
+	if (!el) return;
+	el.textContent = text;
+	el.className = 'text-xs mb-2 ' + (kind === 'error' ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400');
+}
+
+function testRenderRun(snapshot) {
+	_testRunState = snapshot || null;
+	const running = testRunActive();
+	const banner = document.getElementById('test-run-banner');
+	if (banner) {
+		if (running) {
+			banner.textContent = '\u26a0 ' + t('Test script running:') + ' ' + (snapshot.name || '') + ' (' + (snapshot.index + 1) + '/' + snapshot.total + ')';
+			banner.classList.remove('hidden');
+		} else {
+			banner.classList.add('hidden');
+		}
+	}
+	const runBtn = document.getElementById('test-run-btn');
+	const stopBtn = document.getElementById('test-stop-btn');
+	if (runBtn) runBtn.classList.toggle('hidden', running);
+	if (stopBtn) stopBtn.classList.toggle('hidden', !running);
+	const pill = document.querySelector('[data-phone-sub="test"]');
+	if (pill) pill.textContent = running ? t('Test script') + ' \u2022' : t('Test script');
+	const statusEl = document.getElementById('test-run-status');
+	const stepsEl = document.getElementById('test-run-steps');
+	if (!statusEl || !stepsEl) return;
+	if (!snapshot || (!running && !snapshot.status && !(snapshot.steps || []).length)) {
+		statusEl.textContent = t('No run yet.');
+		statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-2';
+		stepsEl.innerHTML = '';
+		return;
+	}
+	let head = esc(snapshot.name || '');
+	if (snapshot.status) head += ' · ' + testStatusBadge(snapshot.status);
+	else if (running) head += ' · ' + esc(t('running'));
+	if (snapshot.preset) head += ' · ' + esc(t('Preset')) + ': ' + esc(snapshot.preset);
+	if (snapshot.scp80_counter) head += ' · counter ' + esc(snapshot.scp80_counter);
+	if (snapshot.error) head += ' · ' + esc(snapshot.error);
+	statusEl.innerHTML = head;
+	statusEl.className = 'text-xs mb-2 text-gray-600 dark:text-slate-300';
+	stepsEl.innerHTML = (snapshot.steps || []).map(testRunStepHtml).join('');
+}
+
+function testStatusBadge(status) {
+	const cls = status === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
+		: status === 'warning' ? 'text-amber-600 dark:text-amber-400'
+		: status === 'error' ? 'text-red-500'
+		: 'text-gray-500';
+	return '<span class="' + cls + '">' + esc(status) + '</span>';
+}
+
+function testRunStepHtml(step) {
+	let html = '<div class="border-b border-gray-100 dark:border-slate-700/50 py-1">'
+		+ '<div class="flex items-center gap-2">'
+		+ '<span class="w-5 text-right text-gray-400">' + (step.index + 1) + '</span>'
+		+ '<span class="text-xs text-gray-400">' + esc(step.type === 'expect' ? t('Expectation') : t('Action')) + '</span>'
+		+ '<span class="flex-1 truncate">' + esc(step.label || '') + '</span>'
+		+ (step.ms !== null && step.ms !== undefined ? '<span class="text-xs text-gray-400">' + step.ms + ' ms</span>' : '')
+		+ testStatusBadge(step.status)
+		+ '</div>';
+	if (step.note) html += '<div class="ml-7 text-xs text-red-500">' + esc(step.note) + '</div>';
+	if (step.sent) html += '<div class="ml-7 text-xs break-all text-gray-500 dark:text-slate-400">' + esc(t('Sent')) + ': ' + esc(step.sent) + '</div>';
+	if (step.sw) html += '<div class="ml-7 text-xs text-gray-500 dark:text-slate-400">SW: ' + esc(step.sw) + (step.counter ? ' · ' + esc(t('Counter')) + ': ' + esc(step.counter) : '') + '</div>';
+	if (step.data) html += '<div class="ml-7 text-xs break-all text-gray-500 dark:text-slate-400">' + esc(t('Received')) + ': ' + esc(step.data) + '</div>';
+	(step.checks || []).forEach(c => {
+		html += '<div class="ml-7 text-xs ' + (c.ok ? 'text-gray-500 dark:text-slate-400' : (c.level === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-red-500')) + '">'
+			+ (c.ok ? '\u2713' : (c.level === 'warning' ? '\u26a0' : '\u2717')) + ' ' + esc(c.label) + ': '
+			+ esc(t('expected')) + ' ' + esc(c.expected) + ', ' + esc(t('actual')) + ' ' + esc(c.actual)
+			+ (c.detail ? ' (' + esc(c.detail) + ')' : '') + '</div>';
+	});
+	return html + '</div>';
+}
+
+function testRunPreset() {
+	const preset = cardsMatchedPreset();
+	if (!preset) return {error: t('No card preset matches the equipped card - SCP80 steps need one')};
+	if (!cardsScp80Complete(preset)) return {error: t('The matched card preset has incomplete SCP80 data (KIc/KID, SPI1/SPI2, counter, keys)')};
+	_testLastPresetIdx = cards.indexOf(preset);
+	return {preset: {
+		name: preset.name || '',
+		iccid: preset.iccid || '',
+		kic: String(preset.kic || '').toUpperCase(),
+		kid: String(preset.kid || '').toUpperCase(),
+		kicKey: String(preset.kicKey || '').replace(/\s/g, '').toUpperCase(),
+		kidKey: String(preset.kidKey || '').replace(/\s/g, '').toUpperCase(),
+		counter: String(preset.cntr || '').replace(/\s/g, '').toUpperCase(),
+		tar: String(preset.tar || '').replace(/\s/g, '').toUpperCase(),
+		spi1: String(preset.spi1 || '').replace(/\s/g, '').toUpperCase(),
+		spi2: String(preset.spi2 || '').replace(/\s/g, '').toUpperCase(),
+	}};
+}
+
+async function testRunStart() {
+	const cur = testCurrent();
+	const problem = testScriptProblem(cur);
+	if (problem) { testRunMessage(problem, 'error'); return; }
+	let preset = null;
+	if (cur.steps.some(s => s.type === 'action' && s.kind === 'scp80')) {
+		const found = testRunPreset();
+		if (found.error) { testRunMessage(found.error, 'error'); return; }
+		preset = found.preset;
+	}
+	try {
+		const resp = await pysimFetch('/api/test/run', {script: cur, preset: preset});
+		if (resp.error) { testRunMessage(resp.error, 'error'); return; }
+		testRenderRun(resp);
+		testStartRunTimer();
+		pysimApplyAvailability();
+	} catch (e) {
+		testRunMessage(String(e.message || e), 'error');
+	}
+}
+
+async function testStop() {
+	try {
+		const resp = await pysimFetch('/api/test/stop', {});
+		if (resp && !resp.error) testRenderRun(resp);
+	} catch (e) { /* ignore */ }
+}
+
+async function testClearReport() {
+	try {
+		const resp = await pysimFetch('/api/test/clear', {});
+		if (resp && !resp.error) { testRenderRun(resp); testStopRunTimer(); }
+	} catch (e) { /* ignore */ }
+}
+
+function testStartRunTimer() {
+	if (_testRunTimer) return;
+	_testRunTimer = setInterval(testPollRun, 500);
+}
+
+function testStopRunTimer() {
+	if (_testRunTimer) { clearInterval(_testRunTimer); _testRunTimer = null; }
+}
+
+async function testPollRun() {
+	try {
+		const st = await pysimFetch('/api/test/status');
+		const wasRunning = testRunActive();
+		const visible = isViewVisible('phone-sub-test');
+		_testRunState = st;
+		if (visible) testRenderRun(st);
+		if (!st.running) {
+			testStopRunTimer();
+			if (wasRunning) testWriteBackCounter();
+			pysimApplyAvailability();
+		}
+	} catch (e) { /* keep polling */ }
+}
+
+function testWriteBackCounter() {
+	const st = _testRunState;
+	if (!st || st.running || !st.scp80_counter || _testLastPresetIdx < 0) return;
+	const preset = cards[_testLastPresetIdx];
+	if (!preset) return;
+	const next = String(st.scp80_counter).toUpperCase();
+	if (String(preset.cntr || '').toUpperCase() === next) return;
+	preset.cntr = next;
+	cardsSave();
+	ioStatus('test-io-status', t('SCP80 counter saved to the preset:') + ' ' + next);
+}
+
+async function testInit() {
+	testScriptsLoad();
+	testRender();
+	try {
+		const st = await pysimFetch('/api/test/status');
+		testRenderRun(st);
+		if (st && st.running) testStartRunTimer();
+	} catch (e) { /* server optional */ }
+}
+
 // ===== pysim integration =====
 // Default to a local server on 127.0.0.1:8080. If this PWA is served by
 // pysim-simple-server itself (same origin), detect the co-located API once
@@ -6469,6 +7309,11 @@ function pysimApplyAvailability() {
 			// A .cap must be analyzed successfully before its action runs.
 			disabled = true;
 			if (!hint) hint = t('Analyze the CAP file first');
+		}
+		if (testRunActive() && el.closest && !el.closest('#phone-sub-test')) {
+			// A running test script owns the card: other controls wait.
+			disabled = true;
+			if (!hint) hint = t('Test script running');
 		}
 		el.disabled = disabled;
 		if (hint) el.setAttribute('title', hint);
@@ -10087,12 +10932,20 @@ function pysimStartBackendPoll() {
 	}, 2000);
 	_pysimPollTimer = setInterval(async () => {
 		try {
-			const [stk, ps] = await Promise.all([
+			const [stk, ps, ts] = await Promise.all([
 				pysimFetch('/api/stk-status'),
 				pysimFetch('/api/poll-status'),
+				pysimFetch('/api/test/status').catch(() => null),
 			]);
 			pysimUpdatePollUI(ps.enabled, ps.interval, ps.card_disabled, ps.warning);
 			if (pysimStkStatusChanged(stk) && isViewVisible('tab-phone')) stkCheckMenu();
+			if (ts) {
+				const wasRunning = testRunActive();
+				_testRunState = ts;
+				if (wasRunning !== !!ts.running) pysimApplyAvailability();
+				if (isViewVisible('phone-sub-test')) testRenderRun(ts);
+				if (wasRunning && !ts.running) testWriteBackCounter();
+			}
 		} catch (e) { /* ignore */ }
 	}, 5000);
 }
@@ -15423,6 +16276,82 @@ const LANG_RU = {
 	'Send STATUS': 'Отправить STATUS',
 	'help': 'справка',
 	'STATUS and Polling': 'STATUS и опрос',
+	'Test script': 'Тест-скрипт',
+	'New test script': 'Новый тест-скрипт',
+	'STK menu browsing': 'Обзор меню STK',
+	'Applet via SCP80': 'Апплет через SCP80',
+	'Script must be an object': 'Скрипт должен быть объектом',
+	'Script steps must be a list': 'Шаги скрипта должны быть списком',
+	'Script has no steps': 'В скрипте нет шагов',
+	'step must be an object': 'шаг должен быть объектом',
+	'unknown action kind': 'неизвестный тип действия',
+	'APDU is empty': 'APDU пуст',
+	'SCP80 needs an APDU or a secured packet': 'SCP80 требует APDU или готовый защищённый пакет',
+	'item id must be 1..255': 'item id должен быть 1..255',
+	'file path is empty': 'путь к файлу пуст',
+	'command is required': 'команда обязательна',
+	'step must be an action or an expectation': 'шаг должен быть действием или ожиданием',
+	'No steps yet - add an action or an expectation.': 'Шагов пока нет — добавьте действие или ожидание.',
+	'No content checks.': 'Нет проверок содержимого.',
+	'Delete this test script?': 'Удалить этот тест-скрипт?',
+	'Import failed:': 'Импорт не удался:',
+	'Imported:': 'Импортировано:',
+	'Import': 'Импорт',
+	'Action': 'Действие',
+	'Expectation': 'Ожидание',
+	'Action kind': 'Тип действия',
+	'Template': 'Шаблон',
+	'Run report': 'Отчёт о запуске',
+	'Clear report': 'Очистить отчёт',
+	'Add action': 'Добавить действие',
+	'Add expectation': 'Добавить ожидание',
+	'Event type': 'Тип события',
+	'Event data (hex, optional)': 'Данные события (hex, опционально)',
+	'Item id (1-255)': 'Item id (1–255)',
+	'File path': 'Путь к файлу',
+	'Auto (by file type)': 'Авто (по типу файла)',
+	'Transparent (binary)': 'Прозрачный (binary)',
+	'Record number (record mode)': 'Номер записи (режим record)',
+	'APDU (hex)': 'APDU (hex)',
+	'Source': 'Источник',
+	'C-APDU (built with the preset)': 'C-APDU (собирается с пресетом)',
+	'Pre-built secured packet': 'Готовый защищённый пакет',
+	'Secured packet (hex)': 'Защищённый пакет (hex)',
+	'TAR override (hex, optional)': 'Переопределение TAR (hex, опционально)',
+	'SPI1 override (hex, optional)': 'Переопределение SPI1 (hex, опционально)',
+	'SPI2 override (hex, optional)': 'Переопределение SPI2 (hex, опционально)',
+	'Attempts (1 = single STATUS)': 'Попытки (1 = один STATUS)',
+	'Interval (ms, when polling)': 'Интервал (мс, при опросе)',
+	'attempts must be at least 1': 'число попыток должно быть ≥ 1',
+	'Expected SW': 'Ожидаемое SW',
+	'Expected data (hex, optional)': 'Ожидаемые данные (hex, опционально)',
+	'PoR check': 'Проверка PoR',
+	'Any': 'Любой',
+	'No PoR expected': 'PoR не ожидается',
+	'On mismatch': 'При несовпадении',
+	'Error (stop the script)': 'Ошибка (остановить скрипт)',
+	'Warning (continue)': 'Предупреждение (продолжить)',
+	'Message / label (optional)': 'Сообщение / метка (опционально)',
+	'Qualifier (optional)': 'Квалификатор (опционально)',
+	'Content checks': 'Проверки содержимого',
+	'Add check': 'Добавить проверку',
+	'TERMINAL RESPONSE result': 'Результат TERMINAL RESPONSE',
+	'Item identifier (SELECT ITEM / SET UP MENU)': 'Идентификатор пункта (SELECT ITEM / SET UP MENU)',
+	'Text (GET INKEY / GET INPUT)': 'Текст (GET INKEY / GET INPUT)',
+	'Mask ("?" = wildcard)': 'Маска («?» — подстановка)',
+	'Contains': 'Содержит',
+	'Item': 'Пункт',
+	'Raw': 'Raw',
+	'Test script running:': 'Выполняется тест-скрипт:',
+	'Test script running': 'Выполняется тест-скрипт',
+	'Preset': 'Пресет',
+	'Counter': 'Счётчик',
+	'No run yet.': 'Запусков пока нет.',
+	'running': 'выполняется',
+	'Received': 'Получено',
+	'No card preset matches the equipped card - SCP80 steps need one': 'Ни один пресет карты не соответствует подключённой карте — для шагов SCP80 он нужен',
+	'The matched card preset has incomplete SCP80 data (KIc/KID, SPI1/SPI2, counter, keys)': 'У подобранного пресета неполные данные SCP80 (KIc/KID, SPI1/SPI2, счётчик, ключи)',
+	'SCP80 counter saved to the preset:': 'Счётчик SCP80 сохранён в пресет:',
 	'STK menu': 'Меню STK',
 	'No menu set by the card': 'Меню не задано картой',
 	'Polling': 'Опрос',

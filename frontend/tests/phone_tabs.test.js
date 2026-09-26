@@ -30,6 +30,7 @@ const code = extractFunc(html, 'phoneSwitchSubtab') + '\n' +
 	'globalThis.pysimPliRender = () => { globalThis._pli = (globalThis._pli || 0) + 1; };\n' +
 	'globalThis.tpRefresh = () => { globalThis._tp = (globalThis._tp || 0) + 1; };\n' +
 	'globalThis.esimFetchAll = () => { globalThis._esim = (globalThis._esim || 0) + 1; };\n' +
+	'globalThis.testInit = () => { globalThis._test = (globalThis._test || 0) + 1; };\n' +
 	'globalThis.netStateFetch = () => { globalThis._netstate = (globalThis._netstate || 0) + 1; };\n';
 eval(code);
 
@@ -46,11 +47,13 @@ function setup() {
 		{ dataset: { phoneSub: 'phone' }, classList: makeClassList() },
 		{ dataset: { phoneSub: 'tr' }, classList: makeClassList() },
 		{ dataset: { phoneSub: 'esim' }, classList: makeClassList() },
+		{ dataset: { phoneSub: 'test' }, classList: makeClassList() },
 	];
 	const panels = {
 		'phone-sub-phone': { classList: makeClassList() },
 		'phone-sub-tr': { classList: makeClassList() },
 		'phone-sub-esim': { classList: makeClassList() },
+		'phone-sub-test': { classList: makeClassList() },
 	};
 	globalThis.document = {
 		querySelectorAll: sel => (sel === '.phone-subtab' ? buttons : []),
@@ -59,6 +62,7 @@ function setup() {
 	globalThis._anchor = null;
 	globalThis._stk = globalThis._events = globalThis._log = globalThis._poll = globalThis._pli = globalThis._tp = 0;
 	globalThis._esim = globalThis._netstate = 0;
+	globalThis._test = 0;
 	return { buttons, panels };
 }
 
