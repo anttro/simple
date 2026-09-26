@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.14';
+const SIMPLE_VERSION = '3.5.15';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8025,21 +8025,36 @@ function capMemHtml(mem) {
 	if (!mem) return '';
 	const nv = mem.nvram || {}, ram = mem.ram || {}, code = mem.code || {}, sug = mem.suggested || {};
 	const hex2 = v => (Number(v) || 0).toString(16).toUpperCase().padStart(4, '0');
+	const methodBytes = Number(code.method_component) || 0;
+	// older server responses carry only the bytecode size: fall back to it
+	const loadFile = Number(code.load_file) || methodBytes;
+	const nvramData = Number(nv.total) || 0;
+	const requirement = Number(nv.requirement) || (loadFile + nvramData);
+	const otherComponents = Math.max(0, loadFile - methodBytes);
 	let html = '<div class="font-medium text-gray-700 dark:text-slate-300">' + esc(t('CAP requirements (estimate)')) + '</div>';
-	html += '<div>' + esc(t('Code (Method.cap):')) + ' ' + esc(capMemBytes(code.method_component)) +
-		' · ' + esc(t('Persistent (NVRAM):')) + ' ' + esc(capMemBytes(nv.total)) +
+	// the NVRAM requirement is a C6+C8-style total (GP Card Spec v2.3.1
+	// Table 11-48): the package image (load file) plus the persistent data
+	html += '<div>' + esc(t('NVRAM requirement ≈')) + ' ' + esc(capMemBytes(requirement)) +
+		' (' + esc(t('code image')) + ' ' + esc(capMemBytes(loadFile)) +
+		' + ' + esc(t('data')) + ' ' + esc(capMemBytes(nvramData)) + ')' +
 		' · ' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) + '</div>';
 	html += '<details class="mt-1"><summary class="cursor-pointer text-gray-400">' + esc(t('Details')) + '</summary>';
-	html += '<div>' + esc(t('Static image:')) + ' ' + esc(capMemBytes(nv.static_image)) +
+	html += '<div>' + esc(t('Code image (load file):')) + ' ' + esc(capMemBytes(loadFile)) +
+		' · ' + esc(t('bytecode (Method.cap):')) + ' ' + esc(capMemBytes(methodBytes)) +
+		' · ' + esc(t('other components:')) + ' ' + esc(capMemBytes(otherComponents)) + '</div>';
+	html += '<div>' + esc(t('Persistent data (NVRAM):')) + ' ' + esc(capMemBytes(nvramData)) +
+		' · ' + esc(t('Static image:')) + ' ' + esc(capMemBytes(nv.static_image)) +
 		' · ' + esc(t('Static array init:')) + ' ' + esc(capMemBytes(nv.array_init)) +
 		' · ' + esc(t('Install-time objects:')) + ' ' + esc(capMemBytes(nv.install_objects)) +
 		' · ' + esc(t('Object headers:')) + ' ' + esc(capMemBytes(nv.header_overhead)) +
 		' · ' + esc(t('Reference storage:')) + ' ' + esc(capMemBytes(nv.ref_storage)) + '</div>';
-	html += '<div>' + esc(t('Transient arrays:')) + ' ' + esc(capMemBytes(ram.transient_arrays)) +
+	html += '<div>' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) +
+		' · ' + esc(t('Transient arrays:')) + ' ' + esc(capMemBytes(ram.transient_arrays)) +
 		' · ' + esc(t('Runtime transient:')) + ' ' + esc(capMemBytes(ram.runtime_transient)) +
 		' · ' + esc(t('Peak method frame:')) + ' ' + esc(capMemBytes(ram.peak_frame)) + '</div>';
 	html += '<div>' + esc(t('Suggested install quotas (informational):')) +
 		' C6=' + esc(String(Number(sug.c6) || 0)) + ' C7=0x' + esc(hex2(sug.c7)) + ' C8=0x' + esc(hex2(sug.c8)) + '</div>';
+	html += '<div class="text-gray-400">' + esc(t('NVRAM = code image + persistent data (GP Card Spec v2.3.1 Table 11-48, C6+C8 style); card memory management, rounding and the registry entry are not included, and the static field image appears in both parts.')) + '</div>';
 	html += '<div class="text-gray-400">' + esc(t('Estimate only — memory values are not used for installation')) + '</div>';
 	html += '</details>';
 	(mem.warnings || []).forEach(w => {
@@ -16012,6 +16027,14 @@ const LANG_RU = {
 	'Retry': 'Повторить',
 	'Analyze the CAP file first': 'Сначала проанализируйте CAP-файл',
 	'CAP requirements (estimate)': 'Требования CAP (оценка)',
+	'NVRAM requirement ≈': 'Требование NVRAM ≈',
+	'code image': 'образ кода',
+	'data': 'данные',
+	'Code image (load file):': 'Образ кода (load-файл):',
+	'bytecode (Method.cap):': 'байткод (Method.cap):',
+	'other components:': 'прочие компоненты:',
+	'Persistent data (NVRAM):': 'Постоянные данные (NVRAM):',
+	'NVRAM = code image + persistent data (GP Card Spec v2.3.1 Table 11-48, C6+C8 style); card memory management, rounding and the registry entry are not included, and the static field image appears in both parts.': 'NVRAM = образ кода + постоянные данные (GP Card Spec v2.3.1 Table 11-48, стиль C6+C8); управление памятью карты, округление и запись в реестре не учтены, а образ статических полей входит в обе части.',
 	'Code (Method.cap):': 'Код (Method.cap):',
 	'Persistent (NVRAM):': 'Энергонезависимая память (NVRAM):',
 	'RAM (volatile):': 'ОЗУ (volatile):',

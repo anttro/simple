@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.14'
+VERSION = '3.5.15'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2564,7 +2564,9 @@ def _cap_info_body(body):
         return {'ok': False, 'error': 'cap parse failed: %s' % e}
     try:
         report, memory = capmem.analyze_bytes(bytes.fromhex(cap_hex))
-        info = capmem.memory_json(report, memory)
+        # the load file (all components) is our proxy for the GP "non-volatile
+        # code" requirement, so the JSON can report the C6+C8-style total
+        info = capmem.memory_json(report, memory, load_file_bytes=len(loadfile_data) // 2)
     except Exception as e:
         return {'ok': False, 'error': 'cap analysis failed: %s' % e}
     return {'ok': True, 'load_file_aid': loadfile_aid, 'module_aid': module_aid,

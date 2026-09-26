@@ -349,15 +349,26 @@ used for installation.
     "package_aid": "AA1902BC226001",
     "applet_count": 1, "applets": ["AA1902BC226001"],
     "class_count": 3, "method_count": 12,
-    "code": {"method_component": 850},
+    "code": {"method_component": 850, "load_file": 1234},
     "nvram": {"static_image": 12, "array_init": 4, "install_objects": 100,
-              "header_overhead": 24, "ref_storage": 8, "total": 148, "runtime": 0},
+              "header_overhead": 24, "ref_storage": 8, "total": 148, "runtime": 0,
+              "requirement": 1382},
     "ram": {"transient_arrays": 16, "runtime_transient": 0, "peak_frame": 8, "total": 24},
     "suggested": {"c6": 850, "c7": 272, "c8": 148},
     "warnings": []
   }
 }
 ```
+
+`code.load_file` is the concatenated load file (all components) - the
+package image the card stores, our proxy for the GlobalPlatform Card Spec
+v2.3.1 Table 11-48 "non-volatile code" minimum memory requirement; the
+tool's bytecode-only figure stays in `code.method_component`.  The suggested
+`C6` follows the load file, and `nvram.requirement` = `code.load_file` +
+`nvram.total` (the C6+C8-style total per §11.5.2.3.7: with no code/data
+split in the card's memory the required minimum is the sum of both).  The
+estimate excludes card-specific memory management, allocation rounding and
+the GP registry entry.
 
 **Errors** (HTTP 200 with `ok: false`, like `/api/scp81/gen-install`):
 `{"ok": false, "error": "cap parse failed: File is not a zip file"}` for a

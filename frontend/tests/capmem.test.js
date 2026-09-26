@@ -48,10 +48,10 @@ function resetState() {
 
 function memFixture() {
 	return {
-		code: { method_component: 2048 },
-		nvram: { static_image: 12, array_init: 4, install_objects: 100, header_overhead: 12, ref_storage: 8, total: 136, runtime: 0 },
+		code: { method_component: 2048, load_file: 3000 },
+		nvram: { static_image: 12, array_init: 4, install_objects: 100, header_overhead: 12, ref_storage: 8, total: 136, runtime: 0, requirement: 3136 },
 		ram: { transient_arrays: 16, runtime_transient: 0, peak_frame: 8, total: 24 },
-		suggested: { c6: 2048, c7: 272, c8: 136 },
+		suggested: { c6: 3000, c7: 272, c8: 136 },
 		warnings: [],
 	};
 }
@@ -64,21 +64,34 @@ test('capMemBytes formats bytes and kilobytes', () => {
 	assert.strictEqual(capMemBytes(null), '0 B');
 });
 
-test('capMemHtml renders the summary, breakdown and warnings', () => {
+test('capMemHtml renders the NVRAM requirement, breakdown and warnings', () => {
 	const mem = memFixture();
 	mem.warnings = ['method class[0].token[1]: unknown opcode 0xAA, scan stopped'];
 	const out = capMemHtml(mem);
 	assert.ok(out.includes('CAP requirements (estimate)'), out);
-	assert.ok(out.includes('Code (Method.cap): 2.0 kB'), out);
-	assert.ok(out.includes('Persistent (NVRAM): 136 B'), out);
+	// C6+C8-style total: load file + persistent data
+	assert.ok(out.includes('NVRAM requirement ≈ 3.1 kB (code image 2.9 kB + data 136 B)'), out);
 	assert.ok(out.includes('RAM (volatile): 24 B'), out);
+	assert.ok(out.includes('Code image (load file): 2.9 kB'), out);
+	assert.ok(out.includes('bytecode (Method.cap): 2.0 kB'), out);
+	assert.ok(out.includes('other components: 952 B'), out);
+	assert.ok(out.includes('Persistent data (NVRAM): 136 B'), out);
 	assert.ok(out.includes('Static image: 12 B'), out);
 	assert.ok(out.includes('Reference storage: 8 B'), out);
 	assert.ok(out.includes('Peak method frame: 8 B'), out);
-	assert.ok(out.includes('C6=2048 C7=0x0110 C8=0x0088'), out);
+	assert.ok(out.includes('C6=3000 C7=0x0110 C8=0x0088'), out);
+	assert.ok(out.includes('Table 11-48'), out);
 	assert.ok(out.includes('Estimate only'), out);
 	assert.ok(out.includes('unknown opcode 0xAA'), out);
 	assert.strictEqual(capMemHtml(null), '');
+});
+
+test('capMemHtml falls back to the bytecode size on older server responses', () => {
+	const mem = memFixture();
+	delete mem.code.load_file;
+	delete mem.nvram.requirement;
+	const out = capMemHtml(mem);
+	assert.ok(out.includes('NVRAM requirement ≈ 2.1 kB (code image 2.0 kB + data 136 B)'), out);
 });
 
 test('capGateOk gates the RAM install op and the scripts form', () => {

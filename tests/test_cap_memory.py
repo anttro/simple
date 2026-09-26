@@ -198,6 +198,18 @@ class TestCapAnalyzer(unittest.TestCase):
         self.assertEqual(info['suggested']['c8'], memory['nvram_with_ref_storage'])
         self.assertEqual(info['warnings'], [])
         self.assertIn('applets', info)
+        # without the load file the tool's bytecode-only C6 is kept and no
+        # C6+C8-style total is reported
+        self.assertEqual(info['code']['load_file'], 0)
+        self.assertIsNone(info['nvram']['requirement'])
+
+    def test_memory_json_nvram_requirement_uses_the_load_file(self):
+        report, memory = capmem.analyze_bytes(rich_cap())
+        info = capmem.memory_json(report, memory, load_file_bytes=1000)
+        self.assertEqual(info['code']['load_file'], 1000)
+        self.assertEqual(info['suggested']['c6'], 1000)
+        self.assertEqual(info['nvram']['requirement'],
+                         1000 + memory['nvram_with_ref_storage'])
 
     def test_unknown_opcode_stops_the_scan_with_a_warning(self):
         bytecode = _method_header(1, 0, 0) + b'\xee'   # 0xEE is not a JC 2.1 opcode
@@ -224,6 +236,12 @@ class TestCapInfoBody(unittest.TestCase):
         self.assertTrue(resp['load_file_bytes'] > 0)
         self.assertEqual(resp['memory']['package_aid'], '0102030405')
         self.assertTrue(resp['memory']['nvram']['total'] > 0)
+        # the endpoint feeds the load file size in: C6 = package image and
+        # nvram.requirement = code image + persistent data (GP C6+C8 style)
+        self.assertEqual(resp['memory']['code']['load_file'], resp['load_file_bytes'])
+        self.assertEqual(resp['memory']['suggested']['c6'], resp['load_file_bytes'])
+        self.assertEqual(resp['memory']['nvram']['requirement'],
+                         resp['load_file_bytes'] + resp['memory']['nvram']['total'])
 
     def test_bad_hex_and_corrupt_archives_are_rejected(self):
         self.assertFalse(_cap_info_body({})['ok'])

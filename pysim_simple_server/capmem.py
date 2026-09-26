@@ -1629,11 +1629,24 @@ def compute_memory(report):
     return result
 
 
-def memory_json(report, memory):
-    """Compact, stable JSON shape for the API/PWA (all byte counts)."""
+def memory_json(report, memory, load_file_bytes=None):
+    """Compact, stable JSON shape for the API/PWA (all byte counts).
+
+    ``load_file_bytes`` is the concatenated CAP load file (all components) -
+    the package image the card stores, our proxy for the GP Card Spec v2.3.1
+    Table 11-48 "non-volatile code" minimum memory requirement.  With it the
+    suggested C6 becomes the load file and ``nvram.requirement`` reports the
+    C6+C8-style total (code image + persistent data, per 11.5.2.3.7: "If both
+    tags 'C6' and 'C8' are present and the implementation does not make any
+    distinction between Non-Volatile Code and Non-Volatile Data Memory then
+    the required minimum shall be the sum of both values"); without it the
+    tool's bytecode-only C6 is kept."""
     ram_transient = memory.get('ram_transient_arrays', 0)
     ram_runtime = memory.get('runtime_transient_bytes', 0)
     ram_frame = memory.get('ram_frame_bytes', 0)
+    nvram_total = memory.get('nvram_with_ref_storage', 0)
+    load_file = max(0, int(load_file_bytes or 0))
+    method_component = report.get('method_component_size', 0)
     return {
         'cap_version': report.get('cap_version'),
         'package_version': report.get('package_version'),
@@ -1643,7 +1656,8 @@ def memory_json(report, memory):
         'class_count': report.get('class_count', 0),
         'method_count': report.get('method_count', 0),
         'code': {
-            'method_component': report.get('method_component_size', 0),
+            'method_component': method_component,
+            'load_file': load_file,
         },
         'nvram': {
             'static_image': memory.get('nvram_static_image', 0),
@@ -1651,8 +1665,11 @@ def memory_json(report, memory):
             'install_objects': memory.get('nvram_persistent_objects', 0),
             'header_overhead': memory.get('nvram_object_header_overhead', 0),
             'ref_storage': memory.get('reference_storage', 0),
-            'total': memory.get('nvram_with_ref_storage', 0),
+            'total': nvram_total,
             'runtime': memory.get('runtime_persistent_bytes', 0),
+            # C6+C8-style total: package image + persistent data (None when
+            # the caller did not provide the load file size)
+            'requirement': (load_file + nvram_total) if load_file else None,
         },
         'ram': {
             'transient_arrays': ram_transient,
@@ -1661,9 +1678,9 @@ def memory_json(report, memory):
             'total': ram_transient + ram_runtime + ram_frame,
         },
         'suggested': {
-            'c6': report.get('method_component_size', 0),
+            'c6': load_file or method_component,
             'c7': ram_transient + 256,
-            'c8': memory.get('nvram_with_ref_storage', 0),
+            'c8': nvram_total,
         },
         'warnings': list(report.get('warnings', [])),
     }
