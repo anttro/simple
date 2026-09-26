@@ -129,6 +129,26 @@ class TestCardDrivenPolling(unittest.TestCase):
         S._apply_poll_negotiation(S._decode_poll_negotiation('11010104020102'))
         self.assertEqual(S._POLL_INTERVAL, 30)
 
+    def test_poll_keeps_ticking_without_a_card(self):
+        S._POLL_ENABLED = True
+        S._POLL_DISABLED_BY_CARD = False
+        S._set_poll_interval(30)
+        saved_ref = S._server_ref
+        S._server_ref = None
+        try:
+            with mock.patch.object(S.threading, 'Timer') as timer:
+                S._do_status_poll()
+                timer.assert_called_once_with(30, S._do_status_poll)
+        finally:
+            S._server_ref = saved_ref
+
+    def test_polling_is_enabled_by_default(self):
+        import subprocess
+        code = 'import pysim_simple_server.server as s; print(s._POLL_ENABLED)'
+        rv = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
+                            cwd=str(PROJECTS / 'simple'))
+        self.assertEqual(rv.stdout.strip(), 'True', rv.stderr)
+
     def test_poll_interval_decoded_in_the_proactive_log(self):
         fields = S._decode_cmd(0x03, bytes.fromhex(MIN_2_TLV), 0)
         self.assertEqual(fields[0]['value'], '2 min (120 s)')

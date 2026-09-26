@@ -41,16 +41,18 @@ test('pysimUpdatePollUI shows the interval while polling is on', () => {
 	assert.ok(!els['pli-poll-stat'].className.includes('amber'));
 });
 
-test('pysimUpdatePollUI shows the card-disabled state in amber', () => {
+test('pysimUpdatePollUI shows the card-disabled state as OFF in amber', () => {
 	const els = setup();
 	pysimUpdatePollUI(true, 30, true);
+	assert.strictEqual(els['pli-pause-btn'].textContent, 'OFF');
 	assert.ok(els['pli-poll-stat'].textContent.includes('POLLING OFF'), els['pli-poll-stat'].textContent);
 	assert.ok(els['pli-poll-stat'].className.includes('text-amber-600'));
 });
 
-test('pysimUpdatePollUI shows a server warning', () => {
+test('pysimUpdatePollUI shows the server warning while suspended', () => {
 	const els = setup();
-	pysimUpdatePollUI(true, 30, false, 'card disabled proactive polling');
+	pysimUpdatePollUI(true, 30, true, 'card disabled proactive polling');
+	assert.strictEqual(els['pli-pause-btn'].textContent, 'OFF');
 	assert.strictEqual(els['pli-poll-stat'].textContent, 'card disabled proactive polling');
 });
 

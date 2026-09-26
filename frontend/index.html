@@ -1560,7 +1560,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.9';
+const SIMPLE_VERSION = '3.5.10';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9986,7 +9986,12 @@ function pysimUpdatePollUI(enabled, interval, cardDisabled, warning) {
 	const btn = document.getElementById('pli-pause-btn');
 	const stat = document.getElementById('pli-poll-stat');
 	if (!btn) return;
-	if (enabled) {
+	// The button shows whether STATUS is actually being polled: while the card
+	// has disabled proactive polling (POLLING OFF, TS 102 223 6.4.14) it shows
+	// OFF even though the operator's switch is still on - polling resumes
+	// automatically on the next POLL INTERVAL.
+	const effective = !!enabled && !cardDisabled;
+	if (effective) {
 		btn.textContent = 'ON';
 		btn.classList.remove('bg-gray-200', 'dark:bg-slate-700', 'text-gray-700', 'dark:text-slate-300');
 		btn.classList.add('bg-emerald-600', 'text-white');
@@ -9997,9 +10002,9 @@ function pysimUpdatePollUI(enabled, interval, cardDisabled, warning) {
 	}
 	if (stat) {
 		stat.className = 'text-xs ' + (cardDisabled ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400');
-		if (cardDisabled) stat.textContent = t('card disabled polling (POLLING OFF)');
+		if (cardDisabled) stat.textContent = warning || t('card disabled polling (POLLING OFF)');
 		else if (warning) stat.textContent = warning;
-		else stat.textContent = enabled ? '(' + interval + 's)' : '';
+		else stat.textContent = effective ? '(' + interval + 's)' : '';
 	}
 }
 
@@ -10086,7 +10091,7 @@ function pysimStartBackendPoll() {
 				pysimFetch('/api/stk-status'),
 				pysimFetch('/api/poll-status'),
 			]);
-			pysimUpdatePollUI(ps.enabled, ps.interval);
+			pysimUpdatePollUI(ps.enabled, ps.interval, ps.card_disabled, ps.warning);
 			if (pysimStkStatusChanged(stk) && isViewVisible('tab-phone')) stkCheckMenu();
 		} catch (e) { /* ignore */ }
 	}, 5000);

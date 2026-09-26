@@ -770,9 +770,12 @@ Hex, even number of digits, 1–255 bytes. Response is the same shape as
 
 ### `GET /api/poll-status`
 
-Background STATUS polling state. `card_disabled` is true after the card sent
-POLLING OFF (TS 102 223 §6.4.14): proactive polling stays suspended until a
-POLL INTERVAL arrives, independent of the operator's `enabled` switch.
+Background STATUS polling state. Polling is enabled by default (a CAT
+terminal polls during idle, TS 102 221 §14.6.2; `--poll-interval 0` disables
+it at startup) and `enabled` is the operator's switch. `card_disabled` is true
+after the card sent POLLING OFF (TS 102 223 §6.4.14): proactive polling stays
+suspended until a POLL INTERVAL arrives, independent of `enabled` - the PWA
+shows the effective state (OFF while suspended).
 
 ```json
 {"enabled": true, "interval": 30, "card_disabled": false}

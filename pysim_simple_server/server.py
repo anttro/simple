@@ -30,7 +30,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.9'
+VERSION = '3.5.10'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1324,7 +1324,11 @@ _SCP81_TARGET = None
 _SCP81_PSKS = {}
 _SCP81_PSK_LEGACY = None
 
-_POLL_ENABLED = False
+# Background STATUS polling is on by default: a CAT terminal shall poll
+# during idle at the negotiated (or default) interval (TS 102 221 14.6.2).
+# The operator can turn it off, --poll-interval 0 disables it and a card can
+# suspend it with POLLING OFF (see _POLL_DISABLED_BY_CARD).
+_POLL_ENABLED = True
 _POLL_INTERVAL = 30
 _POLL_TIMER = None
 # Set when the card sent POLLING OFF (TS 102 223 6.4.14): proactive polling
@@ -1418,15 +1422,17 @@ def _do_status_poll():
     with _CARD_LOCK:
         try:
             scc = getattr(_server_ref, 'scc', None) if _server_ref else None
-            if not scc:
-                return
-            st_data, st_sw = _send_status(scc)
-            sys.stderr.write('AUTO-STATUS -> %s\n' % st_sw)
-            if st_sw.startswith('91'):
-                _handle_proactive_chain(scc, st_sw)
+            if scc:
+                st_data, st_sw = _send_status(scc)
+                sys.stderr.write('AUTO-STATUS -> %s\n' % st_sw)
+                if st_sw.startswith('91'):
+                    _handle_proactive_chain(scc, st_sw)
         except Exception as e:
             sys.stderr.write('AUTO-STATUS error: %s\n' % e)
             _handle_card_disconnect(stale=_is_transport_fatal(e))
+    # Keep ticking while enabled even without a session (a cardless start or
+    # the window between removal and the next equip); _handle_card_disconnect
+    # disables polling, which stops the chain.
     _reset_poll_timer()
 
 def _poll_enable():
@@ -2964,7 +2970,7 @@ def _ensure_transport(server):
 def _apply_equipped_card(server):
     """Common post-equip state refresh + TERMINAL PROFILE, shared by the
     /api/command equip branch and the auto-equip worker."""
-    global _CARD_CONNECTED
+    global _CARD_CONNECTED, _POLL_DISABLED_BY_CARD
     server.stk_pending = None
     server.menu_active = False
     _cancel_menu_timeout()
@@ -2990,6 +2996,9 @@ def _apply_equipped_card(server):
     else:
         server.net_state = None
         _tlog('equip: ICCID not readable - network state skipped')
+    # A new card session starts with polling allowed; a POLLING OFF from the
+    # previous card does not survive the swap.
+    _POLL_DISABLED_BY_CARD = False
     _poll_enable()
     sm, el = _send_terminal_profile(server.scc, server.terminal_profile)
     server.sim_menu = sm

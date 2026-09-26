@@ -287,8 +287,13 @@ def main():
     pysim_simple_server.server._CARD_CONNECTED = card is not None
     if opts.poll_interval is not None:
         pysim_simple_server.server._set_poll_interval(opts.poll_interval)
-    # Auto-enable polling if card initialized successfully (unless interval is 0)
-    if server.scc and server.card and opts.poll_interval != 0:
+    # Background STATUS polling is on by default: a CAT terminal polls during
+    # idle (TS 102 221 14.6.2).  --poll-interval 0 disables it, and a card
+    # that wants no polling suspends it with POLLING OFF (TS 102 223 6.4.14)
+    # until a new POLL INTERVAL.
+    if opts.poll_interval == 0:
+        pysim_simple_server.server._poll_disable()
+    else:
         pysim_simple_server.server._poll_enable()
     # Start presence monitoring only after the startup init: pyscard reports an
     # already-present card as "added" on the first pass, and we must not
