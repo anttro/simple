@@ -4,11 +4,115 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const opens = (html.match(/<div\b/g) || []).length;
-const closes = (html.match(/<\/div>/g) || []).length;
+// The help pages are HTML too: the same structural walk validates them.
+const helpPages = ['help.html', 'help-ru.html'].map(f => ({
+    name: f, text: fs.readFileSync(path.join(__dirname, '..', f), 'utf8'),
+}));
 
-test('HTML <div> tags are balanced', () => {
+// Tags that never take an end tag.
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img',
+    'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+// End tags HTML allows to be omitted: a close tag may legally skip these.
+const OPTIONAL_END = new Set(['p', 'li', 'dt', 'dd', 'option', 'optgroup',
+    'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'rt', 'rp', 'colgroup', 'caption']);
+// Start tags that implicitly close the listed open element (the subset used here).
+const IMPLIED_END = {
+    li: ['li'], dt: ['dt', 'dd'], dd: ['dt', 'dd'], p: ['p'],
+    option: ['option'], optgroup: ['optgroup'],
+    tr: ['tr'], td: ['td', 'th'], th: ['td', 'th'],
+    thead: ['thead', 'tbody', 'tfoot'], tbody: ['thead', 'tbody', 'tfoot'],
+    tfoot: ['thead', 'tbody', 'tfoot'],
+};
+
+// The markup without comments and embedded script/style bodies: only this
+// participates in tag nesting. JavaScript template strings may hold
+// unbalanced <div> fragments, which is exactly how a missing </div> stayed
+// invisible to the old whole-file count (the Simulator panels were nested
+// from v3.5.11 to v3.6.0 while the total stayed balanced).
+function htmlOnly(src) {
+    return src.replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+}
+
+// Walk the tag stream and report cross-nesting, stray end tags and unclosed
+// elements. Run on every HTML page for every change. HTML optional end tags
+// are honoured so a legitimately omitted </p>/</li> is not an error.
+function htmlStructureProblems(src) {
+    const markup = htmlOnly(src);
+    const problems = [];
+    const stack = [];
+    const re = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*?(\/?)>/g;
+    let m;
+    while ((m = re.exec(markup))) {
+        const closing = m[1] === '/';
+        const tag = m[2].toLowerCase();
+        const selfClosing = m[3] === '/';
+        if (VOID_TAGS.has(tag) || selfClosing) continue;
+        if (!closing) {
+            for (const t of (IMPLIED_END[tag] || [])) {
+                while (stack.length && stack[stack.length - 1].tag === t) stack.pop();
+            }
+            stack.push({ tag, at: m.index });
+            continue;
+        }
+        if (!stack.length) { problems.push(`stray </${tag}> at offset ${m.index}`); continue; }
+        if (stack[stack.length - 1].tag === tag) { stack.pop(); continue; }
+        let i = stack.length - 1;
+        while (i >= 0 && stack[i].tag !== tag) i--;
+        if (i < 0) { problems.push(`stray </${tag}> at offset ${m.index}`); continue; }
+        const between = stack.slice(i + 1);
+        if (between.every(e => OPTIONAL_END.has(e.tag))) stack.length = i;
+        else {
+            problems.push(`cross-nesting: </${tag}> at offset ${m.index} closes over ` +
+                between.map(e => `<${e.tag}>`).join(' '));
+        }
+    }
+    for (const e of stack) {
+        if (!OPTIONAL_END.has(e.tag)) problems.push(`unclosed <${e.tag}> at offset ${e.at}`);
+    }
+    return problems;
+}
+
+// Depth of a <div id="..."> in the parsed div stream: sibling panels share
+// one depth, a nested panel sits one level deeper.
+function divDepthOf(src, id) {
+    const markup = htmlOnly(src);
+    const re = /<(\/?)div\b[^>]*>/g;
+    let depth = 0, m;
+    while ((m = re.exec(markup))) {
+        if (m[1] === '/') { depth -= 1; continue; }
+        depth += 1;
+        if (m[0].includes('id="' + id + '"')) return depth;
+    }
+    return -1;
+}
+
+test('HTML <div> tags are balanced in the markup (scripts excluded)', () => {
+    const markup = htmlOnly(html);
+    const opens = (markup.match(/<div\b/g) || []).length;
+    const closes = (markup.match(/<\/div>/g) || []).length;
     assert.strictEqual(opens, closes, `Unbalanced divs: ${opens} opens vs ${closes} closes`);
+});
+
+test('HTML tag nesting is well-formed on every page', () => {
+    for (const page of [{ name: 'index.html', text: html }, ...helpPages]) {
+        assert.deepStrictEqual(htmlStructureProblems(page.text), [],
+            page.name + ' has structure problems');
+    }
+});
+
+test('the Simulator panels are siblings of the tab container, never nested', () => {
+    const ids = ['phone-sub-phone', 'phone-sub-tr', 'phone-sub-bip',
+        'phone-sub-esim', 'phone-sub-test'];
+    const depths = ids.map(id => {
+        const d = divDepthOf(html, id);
+        assert.ok(d > 0, 'panel missing: ' + id);
+        return d;
+    });
+    assert.strictEqual(new Set(depths).size, 1,
+        'Simulator panels are nested at different depths: ' +
+        ids.map((id, i) => id + '=' + depths[i]).join(', '));
 });
 
 test('top-level tabs match the rearranged views', () => {

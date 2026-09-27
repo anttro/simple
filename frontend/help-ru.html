@@ -49,6 +49,7 @@
 	</ul>
 
 
+</section>
 <section class="mb-10">
 	<h2 id="c-apdu" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">2. Вкладка Remote APDU</h2>
 	<p class="mb-3">Построение командных APDU (C-APDU). Шесть подвкладок охватывают разные поколения карт, наборы команд и инструменты разбора: <strong>SIM RFM</strong>, <strong>USIM RFM</strong>, <strong>RAM/GP</strong>, <strong>Expanded Script</strong>, <strong>&laquo;Пуш/триггер&raquo;</strong> и <strong>&laquo;Разбор&raquo;</strong> &mdash; последняя содержит подвкладки <strong>«Разбор C-APDU»</strong> и <strong>«Разбор R-APDU»</strong>.</p>
@@ -275,6 +276,7 @@
 	</ul>
 
 
+</section>
 <section class="mb-10">
 	<h2 id="scp80" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">3. Вкладка SCP80</h2>
 	<p class="mb-3">Верхнеуровневая вкладка <strong>SCP80</strong> объединяет разделы, связанные с SCP80. Переключение — двумя переключателями: <strong>Secured Packet</strong> и <strong>RAM</strong>. Собирает защищённые пакеты SCP80 по ETSI TS 102 225. При подключении карты сервер читает её <strong>EF.ICCID</strong> (2FE2); если в предустановке указан тот же номер (цифрами или сырым hex из EF), она автоматически выбирается в обоих представлениях.</p>
@@ -334,6 +336,7 @@
 	<p class="text-sm mb-3">Удаление подтверждается через диалог браузера перед отправкой команды GP <code class="font-mono text-sm">DELETE</code> через SCP80. Обзор автоматически обновляется после успешного удаления.</p>
 
 
+</section>
 <section class="mb-10">
 	<h2 id="cards" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">4. Вкладка &laquo;Карты&raquo;</h2>
 	<p class="mb-2">Хранит предустановки карт локально в браузере (<code class="font-mono text-sm">localStorage</code>), чтобы представление Secured Packet могло автоматически подставлять ключи и параметры, а слушатель SCP81 HTTP OTA — находить PSK-ключи. &laquo;Карты&raquo; — верхнеуровневая вкладка. При подключении карты читается её EF.ICCID, и предустановка с тем же ICCID автоматически выбирается в обоих представлениях SCP80. Поля формы сгруппированы в два блока с рамкой: <strong>SCP80 (GSM 03.48, ETSI TS 102 225)</strong> (KIc/KID, SPI1/SPI2, TAR-ы ISD/UICC RFM/ADF RFM, счётчик и ключи) и <strong>SCP81 (HTTP OTA)</strong> (пара PSK identity/ключ с пояснением о выборе ключа). Необязательное поле <strong>ADM</strong> находится в верхней строке и сохраняется для последующего использования файловым менеджером. В шапке отображаются серые маркеры <strong>SCP80</strong>/<strong>SCP81</strong> и значок ключа на бейдже ADM, когда в предустановке с ICCID подключённой карты эти поля заполнены.</p>
@@ -439,6 +442,7 @@
 
 
 
+</section>
 <section class="mb-10">
 	<h2 id="profiler" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">7. Профайлер</h2>
 	<p class="text-sm mb-2">Проверяет соответствие карты именованному <strong>профилю</strong> — упорядоченному набору правил, описывающих ожидаемую файловую систему и (опционально) содержимое файлов. Профили хранятся в <code class="font-mono text-sm">localStorage</code>.</p>
@@ -622,6 +626,7 @@ pysim-simple-server --http-port 8080</pre>
 	<p class="text-sm mb-3">Если PWA раздаётся с публичного HTTPS-хоста (например, <code class="font-mono text-sm">https://simple.example.com</code>), для доступа к локальному серверу карт нужны два условия: (1) сервер отвечает на preflight заголовком <code class="font-mono text-sm">Access-Control-Allow-Private-Network: true</code> (pysim-simple-server &ge; 1.6.1 делает это автоматически), и (2) браузеру должно быть разрешено обращаться к локальной сети &mdash; в Chrome/Edge/Vivaldi: Настройки сайта &rarr; Доступ к локальной сети &rarr; разрешить сайт (или подтвердить запрос). Без разрешения браузера запрос к <code class="font-mono text-sm">127.0.0.1</code> блокируется ещё до отправки preflight.</p>
 
 
+</section>
 <section class="mb-10">
 	<h2 id="compatibility" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">10. Совместимость версий</h2>
 	<table class="w-full text-sm mb-3 border-collapse">
@@ -634,6 +639,8 @@ pysim-simple-server --http-port 8080</pre>
 	</table>
 	<p class="text-sm">PWA проверяет версию сервера при подключении через <code class="font-mono text-sm">GET /api/version</code> и сравнивает мажорную версию (например, PWA 3.x с сервером 3.x; сервер 2.x помечается как устаревший).</p>
 
+
+</section>
 
 </main>
 </div>
