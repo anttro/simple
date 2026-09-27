@@ -820,6 +820,8 @@
 								<input id="rc-tk-adfaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
 								<span data-l10n="ADF.USIM access (full)">ADF.USIM access (full)</span>
 							</label>
+							<label class="block mb-1 mt-1 text-xs text-gray-500 dark:text-slate-400" data-l10n="ADF AID (hex)">ADF AID (hex)</label>
+							<input id="rc-tk-adfaid" oninput="updateStkParamsHex()" value="A0000000871002" maxlength="32" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
 						</div>
 					</div>
 				</div>
@@ -1677,7 +1679,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.11';
+const SIMPLE_VERSION = '3.6.12';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2498,9 +2500,14 @@ function updateRcPriv() {
 	document.querySelectorAll('.rc-priv-b1:checked').forEach(cb => b1 |= parseInt(cb.value, 16));
 	document.querySelectorAll('.rc-priv-b2:checked').forEach(cb => b2 |= parseInt(cb.value, 16));
 	document.querySelectorAll('.rc-priv-b3:checked').forEach(cb => b3 |= parseInt(cb.value, 16));
+	// GP Card Spec Table 11-43: the privileges length is 1 or 3 bytes - a
+	// 2-byte form is invalid, so the third byte is padded when either of the
+	// upper bytes is set.
 	let hex = b1.toString(16).padStart(2, '0').toUpperCase();
-	hex += b2.toString(16).padStart(2, '0').toUpperCase();
-	if (b3) hex += b3.toString(16).padStart(2, '0').toUpperCase();
+	if (b2 || b3) {
+		hex += b2.toString(16).padStart(2, '0').toUpperCase();
+		hex += b3.toString(16).padStart(2, '0').toUpperCase();
+	}
 	document.getElementById('rc-priv').value = hex;
 }
 
@@ -2518,6 +2525,20 @@ function updateRcTkMode() {
 	document.getElementById('rc-tk-adfaccess-row').style.display = isSim ? 'none' : '';
 }
 
+// The install form's checkbox grants (privileges, toolkit enable, file
+// access) are per-session choices: clear anything the browser restored on
+// reload and refresh the aggregates, so a stale grant can never silently
+// apply (live 2026-09-28: an inherited Receipt Generation bit produced 6985).
+function ramResetGrants() {
+	document.querySelectorAll('.rc-priv-b1, .rc-priv-b2, .rc-priv-b3')
+		.forEach(cb => { cb.checked = false; });
+	document.getElementById('rc-toolkit-enable').checked = false;
+	document.getElementById('rc-tk-fsaccess').checked = false;
+	document.getElementById('rc-tk-adfaccess').checked = false;
+	updateRcToolkit();   // hides the toolkit block and refreshes the STK hex
+	updateRcPriv();      // privileges aggregate back to 00
+}
+
 // Pure SIM/UICC toolkit install-parameter builder shared by the RAM install
 // form (buildRcToolkitParams) and the RAM/GP chain rows (buildTkParams).
 // `v` carries the field values; returns the CA/EA TLV hex, or null when a
@@ -2525,8 +2546,8 @@ function updateRcTkMode() {
 // identifiers 128..255 are reserved for the toolkit framework, so only
 // 01..7F may be requested (TS 102 226 8.2.1.3.2.3).  In EA mode `v.fsAccess`
 // adds the UICC file-access parameters (tag '82') and `v.adfAccess` extends
-// them with an ADF.USIM entry; the SIM path grants access via the CA Access
-// Domain field instead.
+// them with an ADF entry (AID from `v.adfAid`, default ADF.USIM); the SIM path
+// grants access via the CA Access Domain field instead.
 function stkParamsBuild(v) {
 	const priority = parseInt(v.priority, 10) || 0;
 	const timers = parseInt(v.timers, 10) || 0;
@@ -2577,11 +2598,19 @@ function stkParamsBuild(v) {
 	let eaValue = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
 	if (v.fsAccess) {
 		// UICC Access Application specific parameters (TS 102 226
-		// 8.2.1.3.2.2.2): [file system AID length 00 = shared file system]
-		// [Access Domain length 01][ADP 00 = full access], optionally with an
-		// ADF entry [AID length 07][ADF.USIM][AD length 01][ADP 00].
-		let acc = '000100';
-		if (v.adfAccess) acc += '07A00000008710020100';
+		// 8.2.1.3.2.2.2): every entry ends with the "Length of Access Domain
+		// DAP" byte (00 = no DAP):
+		//   [file system AID length 00 = shared FS][AD length 01]
+		//   [ADP 00 = full access][DAP length 00]
+		//   [ADF AID length][ADF AID][AD length 01][ADP 00][DAP length 00]
+		// (without the DAP length byte the card rejected the ADF entry with
+		// 6A80; the ADF AID must be 5..16 bytes.)
+		let acc = '000100' + '00';
+		if (v.adfAccess) {
+			const adf = (v.adfAid || 'A0000000871002').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+			if (adf.length < 10 || adf.length > 32) return null;
+			acc += (adf.length / 2).toString(16).padStart(2, '0').toUpperCase() + adf + '0100' + '00';
+		}
 		eaValue += '82' + berLenStr(acc.length / 2) + acc;
 	}
 	return 'EA' + berLenStr(eaValue.length / 2) + eaValue;
@@ -2601,6 +2630,7 @@ function buildRcToolkitParams() {
 		tar: g('rc-tk-tar'), ad: g('rc-tk-ad'), services: g('rc-tk-services'),
 		fsAccess: document.getElementById('rc-tk-fsaccess').checked,
 		adfAccess: document.getElementById('rc-tk-adfaccess').checked,
+		adfAid: g('rc-tk-adfaid'),
 	});
 }
 
@@ -3471,6 +3501,8 @@ function chainRamToolkitHtml(chainId, idx, f, uf) {
 		html += '<div class="col-span-4"><label class="flex items-center gap-1 text-gray-600 dark:text-slate-400">' +
 			'<input type="checkbox"' + (f.tkAdfAccess ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'tkAdfAccess\',this.checked);chainRender(\'' + chainId + '\')" class="rounded">' +
 			'ADF.USIM access (full)</label></div>';
+		html += '<div class="col-span-4"><label class="block text-gray-600 dark:text-slate-400 mb-0.5">ADF AID (hex)</label>' +
+			'<input value="' + escHtml(f.tkAdfAid || 'A0000000871002') + '" oninput="' + uf('tkAdfAid') + '" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800" maxlength="32"></div>';
 	}
 	html += '</div></div>';
 	return html;
@@ -4074,10 +4106,11 @@ function chainRamBuildRowHex(idx, row) {
 		var b1 = parseInt(ph.substring(0, 2), 16) || 0;
 		var b2 = ph.length >= 4 ? parseInt(ph.substring(2, 4), 16) : 0;
 		var b3 = ph.length >= 6 ? parseInt(ph.substring(4, 6), 16) : 0;
+		// Table 11-43: privileges are 1 or 3 bytes (never 2).
 		if (b2 === 0 && b3 === 0) return b1.toString(16).padStart(2, '0').toUpperCase();
-		var r = b1.toString(16).padStart(2, '0').toUpperCase() + b2.toString(16).padStart(2, '0').toUpperCase();
-		if (b3) r += b3.toString(16).padStart(2, '0').toUpperCase();
-		return r;
+		return b1.toString(16).padStart(2, '0').toUpperCase() +
+			b2.toString(16).padStart(2, '0').toUpperCase() +
+			b3.toString(16).padStart(2, '0').toUpperCase();
 	}
 	// The chain row's toolkit fields -> the install parameters hex.
 	function buildTkParams() {
@@ -4089,7 +4122,7 @@ function chainRamBuildRowHex(idx, row) {
 			lastPos: f.tkLastpos, lastId: f.tkLastid, channels: f.tkChannels,
 			msl: f.tkMsl || '16', tar: f.tkTar, ad: f.tkAd,
 			services: f.tkServices,
-			fsAccess: f.tkFsAccess, adfAccess: f.tkAdfAccess,
+			fsAccess: f.tkFsAccess, adfAccess: f.tkAdfAccess, adfAid: f.tkAdfAid,
 		});
 	}
 	// INSTALL/LOAD are case-3 commands (no trailing Le), matching the
@@ -8959,6 +8992,10 @@ async function ramInstallCap(sp) {
 	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
 		updateStkParamsHex();
 	}
+	// The privileges are an aggregate of the checkboxes: derive them now, so a
+	// value restored by the browser or left from an earlier experiment can
+	// never be sent silently.
+	updateRcPriv();
 
 	const body = {
 		cap_hex: capHex,
@@ -16428,6 +16465,7 @@ const LANG_RU = {
 	'Access domain (hex)': 'Домен доступа (hex)',
 	'File system access (full)': 'Доступ к файловой системе (полный)',
 	'ADF.USIM access (full)': 'Доступ к ADF.USIM (полный)',
+	'ADF AID (hex)': 'AID ADF (hex)',
 	'Load data (hex)': 'Данные загрузки (hex)',
 	'Block number': 'Номер блока',
 	'Encryption': 'Шифрование',
@@ -17397,6 +17435,7 @@ updateSpKid();
 chainInit('chain-sim');
 chainInit('chain-usim');
 chainInit('chain-ram');
+ramResetGrants();
 translatePage();
 // PWA
 let deferredPrompt;
