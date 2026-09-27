@@ -23,6 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu',
+	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -378,4 +379,38 @@ test('ramCardIdxAfterRemove keeps the remembered index aligned', () => {
 	assert.strictEqual(ramCardIdxAfterRemove(0, 0), null);
 	assert.strictEqual(ramCardIdxAfterRemove(0, 2), 0);
 	assert.strictEqual(ramCardIdxAfterRemove(null, 1), null);
+});
+
+test('ramParseElfStatus lists the compact ELF and module listings (F0414C46416101)', () => {
+	// Exact bytes from a live RAM Explore: the P1=20 ELF page and the P1=10
+	// (ELF+modules) page.  The old 0x10-scan walk dropped everything after the
+	// first entry; the deterministic AID walk lists them all.
+	const elfPage = '10A0000000090005FFFFFFFF8911000000010010A0000000871005FFFFFFFF8913100000010010A0000000871005FFFFFFFF8914100000010010A0000000090005FFFFFFFF8912000000010010A0000000871005FFFFFFFF8913200000010010A0000000090005FFFFFFFF8913000000010010A0000000090005FFFFFFFF8911010000010010D2760001180002FF49100A89AA060F00010010A1130001180001FFFFFFFF89A1003900010010A1130001180002FFF7100E8904000200010007F0414C464161010100';
+	const elfs = ramParseElfStatus(elfPage);
+	const f041 = elfs.find(r => r.aid === 'F0414C46416101');
+	assert.ok(f041, JSON.stringify(elfs.map(r => r.aid)));
+	assert.strictEqual(f041.lifecycle, '01');
+	assert.ok(elfs.some(r => r.aid === 'A1130001180002FFF7100E8904000200'), 'A113 ELF missing');
+	assert.ok(elfs.some(r => r.aid === 'A0000000090005FFFFFFFF8912000000'), 'uicc.toolkit ELF missing');
+
+	const modulesPage = '10A1130001180001FFFFFFFF89A100390001000110A1130001180001FFFFFFFF89A100390810A1130001180002FFF7100E890400020001000210A1130001180002FFF7100E890400020810A1130001180002FFF7100E89494D450807F0414C4641610101000108F0414C4641610101';
+	const mods = ramParseElfStatus(modulesPage, true);
+	const f041Row = mods.find(r => r.aid === 'F0414C46416101');
+	assert.ok(f041Row, JSON.stringify(mods.map(r => r.aid)));
+	assert.deepStrictEqual(f041Row.moduleAids, ['F0414C4641610101']);
+});
+
+test('ramParseAppStatus keeps 16-byte AIDs (no rawLen-1 truncation)', () => {
+	const page = '08D276000005AA3F010704'
+		+ '0FD276000005AA060200000000B000000700'
+		+ '0FD276000005AA060200000000B00001070010A1130001180001FFFFFFFF89A10039080700'
+		+ '10A1130001180002FFF7100E8904000208070010A1130001180002FFF7100E89494D45080700';
+	const apps = ramParseAppStatus(page);
+	assert.deepStrictEqual(apps.map(r => r.aid), [
+		'D276000005AA3F01', 'D276000005AA060200000000B00000',
+		'D276000005AA060200000000B00001',
+		'A1130001180001FFFFFFFF89A1003908', 'A1130001180002FFF7100E8904000208',
+		'A1130001180002FFF7100E89494D4508',
+	]);
+	assert.strictEqual(apps[3].lifecycle, '07');
 });

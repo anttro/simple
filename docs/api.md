@@ -300,7 +300,10 @@ or more proactive SEND SHORT MESSAGE commands.  The server captures those
 SMS-SUBMIT TPDUs, reassembles the concatenated segments and returns the
 decoded response in `por` (as if it had arrived in the ENVELOPE), so callers
 see a normal `por.response_status == "por_ok"` with the remote status word
-and response data.
+and response data.  Responses wrapped in the TS 102 226 5.2.2 Response
+Scripting template (`AB`/`AF`: executed-count TLV `80` + R-APDU TLV `23`) are
+decoded the same way (`response_type: "scripting"`), with the R-APDU's own
+status word and data.
 
 **Request body:**
 ```json

@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.4';
+const SIMPLE_VERSION = '3.6.5';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8461,42 +8461,48 @@ function _parseE3Entry(hex) {
 
 // Raw format (P2=00): ISD uses pure AID length, Apps use combined length (AID+lifecycle).
 // Heuristic: length > 8 means combined (AID = length-1 bytes, lifecycle inside length).
+// Raw format (P2=00): consecutive <aid_len><AID><lifecycle><privileges>.
+// The length byte is the AID length (16-byte A113/D276 AIDs included - the old
+// "rawLen-1" guess truncated exactly those).
 function _parseRawAppEntry(hex, i) {
-	const rawLen = parseInt(hex.substr(i, 2), 16);
-	if (rawLen < 1 || i + 2 + rawLen * 2 + 2 > hex.length) return null;
-	const aidLen = rawLen > 8 ? rawLen - 1 : rawLen;
+	const aidLen = parseInt(hex.substr(i, 2), 16);
+	if (aidLen < 5 || aidLen > 16 || i + 2 + aidLen * 2 + 4 > hex.length) return null;
 	const aid = hex.substr(i + 2, aidLen * 2).toUpperCase();
-	let j = i + 2 + rawLen * 2;
+	let j = i + 2 + aidLen * 2;
 	const lifecycle = hex.substr(j, 2).toUpperCase(); j += 2;
 	const privileges = hex.substr(j, 2).toUpperCase(); j += 2;
 	return { aid, lifecycle, privileges, next: j };
 }
 
-// Raw format (P2=00): ELF header then trailing bytes with module entries.
-// P1=20: <ELF_header> <00> <module_entries separated by 00>
-// P1=10: <ELF_header> <version(2B)> <SD_AID> <module_entries...>
-// In both, a module entry starts with 0x10 (len=16) followed by 15-byte AID + lifecycle.
-// Scan for 0x10 markers, advance past each full entry to avoid AID-internal false positives.
-function _parseRawElfEntry(hex, i) {
+// Raw format (P2=00) ELF entry: <aid_len><AID><lifecycle><version>; the P1=10
+// (ELF + modules) listing appends module entries (<len><AID>[, lifecycle]).
+// The walk is deterministic on the AID length - the old "scan for 0x10"
+// heuristic derailed whenever a length byte or an AID byte happened to be
+// 0x10 (which silently dropped entries like F0414C46416101).
+function _parseRawElfEntry(hex, i, withModules) {
 	const aidLen = parseInt(hex.substr(i, 2), 16);
-	if (aidLen < 1 || i + 2 + aidLen * 2 + 2 > hex.length) return null;
+	if (aidLen < 5 || aidLen > 16 || i + 2 + aidLen * 2 + 4 > hex.length) return null;
 	const aid = hex.substr(i + 2, aidLen * 2).toUpperCase();
 	let j = i + 2 + aidLen * 2;
 	const lifecycle = hex.substr(j, 2).toUpperCase(); j += 2;
-	// Scan: when 0x10 found, validate 15-byte AID follows, then advance past full entry
+	const version = hex.substr(j + 2, 2).toUpperCase(); j += 2;
+	const out = { aid, lifecycle, version, next: j };
+	if (!withModules) return out;
+	// P1=10 (ELF + modules) entry: ...<lifecycle><version><module_count>
+	// followed by <module_len><module_AID> entries.  Verified against two
+	// live traces (a F0414C46416101 ELF with its F0414C4641610101 module).
+	if (j + 2 > hex.length) return out;
+	const modCount = parseInt(hex.substr(j, 2), 16); j += 2;
 	const moduleAids = [];
-	const seen = new Set();
-	while (j + 32 <= hex.length) {
-		const tag = parseInt(hex.substr(j, 2), 16);
-		if (tag === 0x10) {
-			const modAid = hex.substr(j + 2, 30).toUpperCase();
-			if (!seen.has(modAid)) { seen.add(modAid); moduleAids.push(modAid); }
-			j += 32; // skip marker(1) + AID(15), continue past lifecycle+appCount
-		} else {
-			j += 2;
-		}
+	for (let k = 0; k < modCount && j + 4 <= hex.length; k++) {
+		const len = parseInt(hex.substr(j, 2), 16);
+		if (len < 5 || len > 16 || j + 2 + len * 2 > hex.length) break;
+		moduleAids.push(hex.substr(j + 2, len * 2).toUpperCase());
+		j += 2 + len * 2;
 	}
-	return { aid, lifecycle, moduleAids: moduleAids.length ? moduleAids : undefined, next: j };
+	if (moduleAids.length) out.moduleAids = moduleAids;
+	out.next = j;
+	return out;
 }
 
 function ramParseAppStatus(hex) {
@@ -8523,7 +8529,7 @@ function ramParseAppStatus(hex) {
 	return out;
 }
 
-function ramParseElfStatus(hex) {
+function ramParseElfStatus(hex, withModules) {
 	const s = (hex || '').toUpperCase();
 	if (!s) return [];
 	// TLV format (P2=02): E3 templates with structured tags
@@ -8535,14 +8541,15 @@ function ramParseElfStatus(hex) {
 			return r;
 		}).filter(r => r.aid);
 	}
-	// Raw format (P2=00 fallback): consecutive <aid_len><AID><lifecycle>
+	// Raw format (P2=00 fallback): consecutive <aid_len><AID><lifecycle><version>
+	// entries; P1=10 pages carry the module list (withModules).  Resync one byte
+	// at a time instead of stopping at the first unparsable byte.
 	const out = [];
 	let i = 0;
-	while (i + 6 <= s.length) {
-		const r = _parseRawElfEntry(s, i);
-		if (!r) break;
-		out.push({ type: 'elf', ...r });
-		i = r.next;
+	while (i + 4 <= s.length) {
+		const r = _parseRawElfEntry(s, i, withModules);
+		if (r) { out.push({ type: 'elf', ...r }); i = r.next; continue; }
+		i += 2;
 	}
 	return out;
 }
@@ -8807,7 +8814,7 @@ async function ramExplore(sp) {
 	await paginate('80', isd, ramParseAppStatus, t('ISD'));
 	await paginate('40', apps, ramParseAppStatus, t('Apps'));
 	await paginate('20', elfs, ramParseElfStatus, t('ELFs'));
-	await paginate('10', modules, ramParseElfStatus, t('ELF Modules'));
+	await paginate('10', modules, (hex) => ramParseElfStatus(hex, true), t('ELF Modules'));
 
 	ramMergeElfData(elfs, modules);
 	ramSaveCntr(cntr);

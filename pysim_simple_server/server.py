@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.4'
+VERSION = '3.6.5'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1171,6 +1171,46 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
     return step, error
 
 
+def _parse_response_scripting(data):
+    """Parse a Response Scripting template (TS 102 226 5.2.2, tables
+    5.10/5.10a): `AB <len>` (definite) or `AF 80 ... 00 00` (indefinite),
+    containing the executed-command-count TLV `80` and one or more R-APDU
+    TLVs `23` (COMPREHENSION-TLV; the last two bytes are SW1 SW2).
+
+    Returns (count, sw, rapdu_data_hex) from the last R-APDU, or None when the
+    data is not a scripting template."""
+    if not data:
+        return None
+    if data[0] == 0xAF:
+        if len(data) < 4 or data[1] != 0x80 or data[-2:] != b'\x00\x00':
+            return None
+        body = data[2:-2]
+    elif data[0] == 0xAB:
+        ln, voff = _ber_len_at(data, 1)
+        if ln <= 0 or voff + ln > len(data):
+            return None
+        body = data[voff:voff + ln]
+    else:
+        return None
+    count = None
+    last = None
+    off = 0
+    while off < len(body) - 1:
+        tag = body[off]
+        ln, voff = _ber_len_at(body, off + 1)
+        if ln < 0 or voff + ln > len(body):
+            break
+        val = body[voff:voff + ln]
+        if tag == 0x80 and val:
+            count = int.from_bytes(val, 'big')
+        elif tag == 0x23 and len(val) >= 2:
+            last = (val[-2:].hex().upper(), val[:-2].hex().upper())
+        off = voff + ln
+    if last is None:
+        return None
+    return (count, last[0], last[1])
+
+
 def _sms_submit_por(submit_handler):
     """Response packet carried by an actual-response SMS-SUBMIT, in the
     DELIVER-style form `_decode_por` expects.
@@ -1215,53 +1255,23 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
         'raw': response_hex,
     }
     
-    # Try ExpandedRemoteResponse first (TS 102 226 §5.2.2)
+    # TS 102 226 5.2.2 Response Scripting template (AB/AF): cards wrap the
+    # R-APDU(s) of the executed remote command(s) this way instead of the
+    # plain compact response.  The R-APDU's own SW and data are the useful
+    # result (a bare CompactRemoteResp parse would read `AB` as the command
+    # count and produce garbage).
     if res.response_status == 'por_ok' and len(res['secured_data']):
-        expanded_response_data = ''
-        try:
-            from construct import Struct, Int8ub, Bytes, GreedyBytes, Optional, Array, this
-            ExpandedRemoteResponse = Struct(
-                'response_count'/Int8ub,
-                'responses'/Array(this.response_count, Struct(
-                    'command_number'/Int8ub,
-                    'status_word'/Bytes(2),
-                    'response_data'/GreedyBytes,
-                    'error_details'/Optional(Struct(
-                        'error_code'/Int8ub,
-                        'error_info'/GreedyBytes
-                    )),
-                    'chaining_context'/Optional(Struct(
-                        'script_id'/Bytes(4),
-                        'is_first'/Int8ub,
-                        'is_last'/Int8ub,
-                    ))
-                ))
-            )
-            expanded = ExpandedRemoteResponse.parse(res['secured_data'])
-            out['response_type'] = 'expanded'
-            out['response_count'] = expanded.response_count
-            out['responses'] = []
-            for resp in expanded.responses:
-                response_data = {
-                    'command_number': resp.command_number,
-                    'status_word': resp.status_word.hex().upper(),
-                    'response_data': b2h(resp.response_data).upper() if resp.response_data else '',
-                }
-                if resp.error_details:
-                    response_data['error_code'] = resp.error_details.error_code
-                    response_data['error_info'] = b2h(resp.error_details.error_info).upper()
-                if resp.chaining_context:
-                    response_data['script_id'] = resp.chaining_context.script_id.hex().upper()
-                    response_data['is_first'] = resp.chaining_context.is_first == 0x01
-                    response_data['is_last'] = resp.chaining_context.is_last == 0x01
-                out['responses'].append(response_data)
-            if expanded.response_count > 0 and expanded.responses[0].response_data:
-                expanded_response_data = b2h(expanded.responses[0].response_data).upper()
-        except Exception:
-            pass
-        if dec is not None:
+        scripted = _parse_response_scripting(bytes(res['secured_data']))
+        if scripted is not None:
+            count, sw, data_hex = scripted
+            out['response_type'] = 'scripting'
+            out['decoded'] = {
+                'number_of_commands': count,
+                'last_status_word': sw,
+                'last_response_data': data_hex,
+            }
+        elif dec is not None:
             out['response_type'] = 'compact'
-            # Use compact parser's last_response_data; expanded parser gives wrong results for compact format
             out['decoded'] = {
                 'number_of_commands': dec.number_of_commands,
                 'last_status_word': str(dec.last_status_word),

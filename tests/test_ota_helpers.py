@@ -32,6 +32,7 @@ from pysim_simple_server.server import (
     _parse_setup_menu_items,
     _calc_ud_offset,
     _find_sms_tpdu,
+    _parse_response_scripting,
     _parse_sms_concat,
     _por_remote_sw,
     _ram_next_cntr,
@@ -1380,4 +1381,47 @@ class SmsSubmitCaptureTest(unittest.TestCase):
         # no submit response captured -> empty string, never a bogus packet
         handler.submit_ud_hex = None
         self.assertEqual(_sms_submit_por(handler), '')
+
+
+
+class ResponseScriptingTest(unittest.TestCase):
+    """TS 102 226 5.2.2 Response Scripting template (AB definite / AF
+    indefinite): the card wraps the R-APDU(s) of the executed remote
+    commands.  Real vectors from the live RAM Explore traces - a bare
+    compact parse would read `AB` as the command count and lose the data."""
+
+    def test_definite_template_from_a_live_response(self):
+        # AB 12: count 80 01 01, R-APDU 23 0D 08A0000000030000000F809000
+        pkt = '027100001F0A00000000000002AA0000AB12800101230D08A0000000030000000F8090009000'
+        out = _decode_por('00', '00', '01', '01', '0', '00' * 16, '00' * 16, pkt)
+        self.assertEqual(out['response_type'], 'scripting')
+        self.assertEqual(out['decoded']['number_of_commands'], 1)
+        self.assertEqual(out['decoded']['last_status_word'], '9000')
+        self.assertEqual(out['decoded']['last_response_data'], '08A0000000030000000F80')
+
+    def test_elf_listing_page_from_a_live_response(self):
+        # the F0414C46416101 ELF page (assembled SMS-SUBMIT UD, AB wrapper)
+        ud = ('00E90A000000000000030600000263100BD276000005AAFFCAFE0001010007'
+              'F0414C4641610101' + '00')
+        # build a valid scripting template around the listing tail instead of
+        # trusting the truncated sample above
+        rapdu = bytes.fromhex('10A1130001180002FFF7100E8904000200' '0100' '07F0414C46416101' '0100' + '9000')
+        tmpl = bytes([0xAB, 0x80]) if False else None
+        body = bytes([0x80, 0x01, 0x01, 0x23, len(rapdu)]) + rapdu
+        data = bytes([0xAB, len(body)]) + body
+        scripted = _parse_response_scripting(data)
+        self.assertIsNotNone(scripted)
+        count, sw, listing = scripted
+        self.assertEqual((count, sw), (1, '9000'))
+        self.assertTrue(listing.startswith('10A1130001'), listing[:20])
+        self.assertIn('F0414C46416101', listing)
+
+    def test_indefinite_template_and_plain_data(self):
+        body = bytes([0x80, 0x01, 0x02, 0x23, 0x04, 0xAA, 0xBB, 0x90, 0x00])
+        data = bytes([0xAF, 0x80]) + body + b'\x00\x00'
+        count, sw, listing = _parse_response_scripting(data)
+        self.assertEqual((count, sw, listing), (2, '9000', 'AABB'))
+        # a compact response is not a scripting template
+        self.assertIsNone(_parse_response_scripting(bytes.fromhex('027100000263100BD2')))
+        self.assertIsNone(_parse_response_scripting(b''))
 
