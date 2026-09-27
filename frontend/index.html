@@ -809,6 +809,18 @@
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Max services">Max services</label>
 							<input id="rc-tk-services" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
+						<div id="rc-tk-fsaccess-row" class="col-span-2">
+							<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
+								<input id="rc-tk-fsaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
+								<span data-l10n="File system access (full)">File system access (full)</span>
+							</label>
+						</div>
+						<div id="rc-tk-adfaccess-row" class="col-span-2">
+							<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
+								<input id="rc-tk-adfaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
+								<span data-l10n="ADF.USIM access (full)">ADF.USIM access (full)</span>
+							</label>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -1665,7 +1677,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.10';
+const SIMPLE_VERSION = '3.6.11';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2502,6 +2514,8 @@ function updateRcTkMode() {
 	const isSim = document.getElementById('rc-tk-mode').value === 'ca';
 	document.getElementById('rc-tk-ad-row').style.display = isSim ? '' : 'none';
 	document.getElementById('rc-tk-services-row').style.display = isSim ? 'none' : '';
+	document.getElementById('rc-tk-fsaccess-row').style.display = isSim ? 'none' : '';
+	document.getElementById('rc-tk-adfaccess-row').style.display = isSim ? 'none' : '';
 }
 
 // Pure SIM/UICC toolkit install-parameter builder shared by the RAM install
@@ -2509,7 +2523,10 @@ function updateRcTkMode() {
 // `v` carries the field values; returns the CA/EA TLV hex, or null when a
 // value cannot be coded: each TAR is 3 bytes (6 hex digits), and menu item
 // identifiers 128..255 are reserved for the toolkit framework, so only
-// 01..7F may be requested (TS 102 226 8.2.1.3.2.3).
+// 01..7F may be requested (TS 102 226 8.2.1.3.2.3).  In EA mode `v.fsAccess`
+// adds the UICC file-access parameters (tag '82') and `v.adfAccess` extends
+// them with an ADF.USIM entry; the SIM path grants access via the CA Access
+// Domain field instead.
 function stkParamsBuild(v) {
 	const priority = parseInt(v.priority, 10) || 0;
 	const timers = parseInt(v.timers, 10) || 0;
@@ -2557,8 +2574,17 @@ function stkParamsBuild(v) {
 		mslField +
 		(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00') +
 		services.toString(16).padStart(2, '0');
-	const innerTlv = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
-	return 'EA' + berLenStr(innerTlv.length / 2) + innerTlv;
+	let eaValue = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
+	if (v.fsAccess) {
+		// UICC Access Application specific parameters (TS 102 226
+		// 8.2.1.3.2.2.2): [file system AID length 00 = shared file system]
+		// [Access Domain length 01][ADP 00 = full access], optionally with an
+		// ADF entry [AID length 07][ADF.USIM][AD length 01][ADP 00].
+		let acc = '000100';
+		if (v.adfAccess) acc += '07A00000008710020100';
+		eaValue += '82' + berLenStr(acc.length / 2) + acc;
+	}
+	return 'EA' + berLenStr(eaValue.length / 2) + eaValue;
 }
 
 // The RAM install form's toolkit fields -> the install parameters hex.
@@ -2573,6 +2599,8 @@ function buildRcToolkitParams() {
 		lastPos: g('rc-tk-lastpos'), lastId: g('rc-tk-lastid'),
 		channels: g('rc-tk-channels'), msl: g('rc-tk-msl'),
 		tar: g('rc-tk-tar'), ad: g('rc-tk-ad'), services: g('rc-tk-services'),
+		fsAccess: document.getElementById('rc-tk-fsaccess').checked,
+		adfAccess: document.getElementById('rc-tk-adfaccess').checked,
 	});
 }
 
@@ -3437,6 +3465,12 @@ function chainRamToolkitHtml(chainId, idx, f, uf) {
 	} else {
 		html += '<div><label class="block text-gray-600 dark:text-slate-400 mb-0.5">Max services</label>' +
 			'<input type="number" min="0" max="255" value="' + escHtml(services) + '" oninput="' + uf('tkServices') + '" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800"></div>';
+		html += '<div class="col-span-4"><label class="flex items-center gap-1 text-gray-600 dark:text-slate-400">' +
+			'<input type="checkbox"' + (f.tkFsAccess ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'tkFsAccess\',this.checked);chainRender(\'' + chainId + '\')" class="rounded">' +
+			'File system access (full)</label></div>';
+		html += '<div class="col-span-4"><label class="flex items-center gap-1 text-gray-600 dark:text-slate-400">' +
+			'<input type="checkbox"' + (f.tkAdfAccess ? ' checked' : '') + ' onchange="chainUpdateField(\'' + chainId + '\',' + idx + ',\'tkAdfAccess\',this.checked);chainRender(\'' + chainId + '\')" class="rounded">' +
+			'ADF.USIM access (full)</label></div>';
 	}
 	html += '</div></div>';
 	return html;
@@ -4055,6 +4089,7 @@ function chainRamBuildRowHex(idx, row) {
 			lastPos: f.tkLastpos, lastId: f.tkLastid, channels: f.tkChannels,
 			msl: f.tkMsl || '16', tar: f.tkTar, ad: f.tkAd,
 			services: f.tkServices,
+			fsAccess: f.tkFsAccess, adfAccess: f.tkAdfAccess,
 		});
 	}
 	// INSTALL/LOAD are case-3 commands (no trailing Le), matching the
@@ -16391,6 +16426,8 @@ const LANG_RU = {
 	'Last menu ID (hex)': 'ID последнего пункта меню (hex)',
 	'Channels (max)': 'Каналы (макс)',
 	'Access domain (hex)': 'Домен доступа (hex)',
+	'File system access (full)': 'Доступ к файловой системе (полный)',
+	'ADF.USIM access (full)': 'Доступ к ADF.USIM (полный)',
 	'Load data (hex)': 'Данные загрузки (hex)',
 	'Block number': 'Номер блока',
 	'Encryption': 'Шифрование',

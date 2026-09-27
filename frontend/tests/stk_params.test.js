@@ -102,7 +102,7 @@ test('every toolkit field regenerates the STK parameters hex on edit', () => {
 		assert.ok(/on(?:input|change)="[^"]*updateStkParamsHex/.test(m[0]),
 			m[1] + ' does not refresh the hex: ' + m[0]);
 	}
-	assert.strictEqual(seen.length, 14, 'expected 14 toolkit fields, got ' + seen.join(', '));
+	assert.strictEqual(seen.length, 16, 'expected 16 toolkit fields, got ' + seen.join(', '));
 });
 
 test('the applet TAR field has no B00001 default or placeholder', () => {
@@ -127,11 +127,13 @@ function fakeForm(values) {
 	const ids = ['rc-toolkit-enable', 'rc-tk-mode', 'rc-tk-priority', 'rc-tk-timers',
 		'rc-tk-textlen', 'rc-tk-menus', 'rc-tk-firstpos', 'rc-tk-firstid',
 		'rc-tk-lastpos', 'rc-tk-lastid', 'rc-tk-channels', 'rc-tk-msl',
-		'rc-tk-tar', 'rc-tk-ad', 'rc-tk-services', 'ram-stk-params'];
+		'rc-tk-tar', 'rc-tk-ad', 'rc-tk-services', 'rc-tk-fsaccess',
+		'rc-tk-adfaccess', 'ram-stk-params'];
+	const checks = ['rc-toolkit-enable', 'rc-tk-fsaccess', 'rc-tk-adfaccess'];
 	const els = {};
 	for (const id of ids) els[id] = { value: '', checked: false, dataset: {} };
 	for (const [id, v] of Object.entries(values || {})) {
-		if (id === 'rc-toolkit-enable') els[id].checked = v;
+		if (checks.indexOf(id) >= 0) els[id].checked = !!v;
 		else els[id].value = v;
 	}
 	globalThis.document = { getElementById: id => els[id] || null };
@@ -145,6 +147,34 @@ test('the RAM form fields build the live install parameters end to end', () => {
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1' });
 	assert.strictEqual(buildRcToolkitParams(), 'EA0F800D000000000102011203AF4D0100');
+});
+
+test('UICC file-access parameters (82) are appended in EA mode', () => {
+	// TS 102 226 8.2.1.3.2.2.2: [file system AID len 00 = shared FS]
+	// [Access Domain len 01][ADP 00 = full access]; the SIM path grants the
+	// same rights via the CA Access Domain field.  The ADF entry is an
+	// extension of the file-system entry.
+	const base = vals({ channels: '1', msl: '12', tar: 'AF4D01' });
+	assert.strictEqual(stkParamsBuild(Object.assign({}, base, { fsAccess: true })),
+		'EA14800D000000000102011203AF4D01008203000100');
+	assert.strictEqual(
+		stkParamsBuild(Object.assign({}, base, { fsAccess: true, adfAccess: true })),
+		'EA1E800D000000000102011203AF4D0100820D00010007A00000008710020100');
+	assert.strictEqual(stkParamsBuild(base), 'EA0F800D000000000102011203AF4D0100');
+	assert.strictEqual(stkParamsBuild(Object.assign({}, base, { adfAccess: true })),
+		'EA0F800D000000000102011203AF4D0100');
+});
+
+test('the RAM form emits full file access when the checkbox is ticked', () => {
+	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
+		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true });
+	assert.strictEqual(buildRcToolkitParams(),
+		'EA14800D000000000102011203AF4D01008203000100');
+	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
+		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true,
+		'rc-tk-adfaccess': true });
+	assert.strictEqual(buildRcToolkitParams(),
+		'EA1E800D000000000102011203AF4D0100820D00010007A00000008710020100');
 });
 
 test('updateStkParamsHex refreshes the field and clears the manual flag', () => {
