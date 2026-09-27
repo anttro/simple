@@ -106,15 +106,14 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	assert.ok(out.includes('>24 B</td>'), out);
 	assert.ok(out.includes('peak method frame 8 B'), out);
 	assert.ok(out.includes('C6=3000 C7=0x0110 C8=0x0088'), out);
-	// requires: library name, version, family and refs; the AID is not
-	// repeated when the name resolves (it adds nothing), and the section
-	// carries no package AIDs
-	assert.ok(out.includes('>javacard.framework</td>'), out);
-	assert.ok(out.includes('>\u2265 1.0</td>'), out);
-	assert.ok(out.includes('>Oracle JavaCard API</td>'), out);
-	assert.ok(out.includes('>6</td>'), out);
+	// requires: library name, AID, minimum version, family and refs
 	const req = out.slice(out.indexOf('Requires (1)'), out.indexOf('Memory</div>'));
-	assert.ok(!req.includes('A0000000620101'), req);
+	assert.ok(req.includes('>AID</td>'), req);
+	assert.ok(req.includes('>javacard.framework</td>'), req);
+	assert.ok(req.includes('>A0000000620101</td>'), req);
+	assert.ok(req.includes('>\u2265 1.0</td>'), req);
+	assert.ok(req.includes('>Oracle JavaCard API</td>'), req);
+	assert.ok(req.includes('>6</td>'), req);
 	// package identity + compiled-against hint derived from the framework version
 	assert.ok(out.includes('A0000000620101') && out.includes('>v1.0</td>'), out);
 	assert.ok(out.includes('applet package'), out);
@@ -143,12 +142,13 @@ test('capMemHtml skips the import section on a response without imports', () => 
 	assert.ok(out.includes('>2.1 kB</td>'), out);
 });
 
-test('capMemHtml keeps unknown import AIDs bare and labels the family only when known', () => {
+test('capMemHtml shows a dash for an unresolved import name (the AID column carries it)', () => {
 	const mem = memFixture();
 	mem.imports = [{ aid: 'A1130001180001', minor: 0, major: 1, refs: 2 }];
 	const out = capMemHtml(mem);
 	const req = out.slice(out.indexOf('Requires (1)'), out.indexOf('Memory</div>'));
-	assert.ok(req.includes('A1130001180001'), req);      // unknown AID: shown as the name
+	assert.ok(req.includes('>\u2014</td>'), req);         // no resolved name: a dash
+	assert.ok(req.includes('>A1130001180001</td>'), req); // the AID column carries it
 	assert.ok(req.includes('>\u2265 1.0</td>'), req);
 	assert.ok(req.includes('>2</td>'), req);              // refs
 	assert.ok(!out.includes('Java Card'), out);           // no framework import

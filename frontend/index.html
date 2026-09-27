@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.17';
+const SIMPLE_VERSION = '3.5.18';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8083,12 +8083,15 @@ function capMemHtml(mem) {
 	// ">=" requirements: same major, minor >= the export version (4.5.2);
 	// refs = distinct constant-pool references to the package (6.7) ──
 	if (imports.length) {
-		let reqRows = row(head('', 'text-left') + head(esc(t('Version')), 'pl-4 text-right whitespace-nowrap') +
+		let reqRows = row(head('', 'text-left') + head(esc(t('AID')), 'pl-4 text-left') +
+			head(esc(t('Version')), 'pl-4 text-right whitespace-nowrap') +
 			head(esc(t('Family')), 'pl-4 text-left') + head(esc(t('Refs')), 'pl-4 text-right whitespace-nowrap'));
 		imports.forEach(im => {
 			const name = jcAidName(im.aid);
 			const fam = jcAidFamily(im.aid);
-			reqRows += row(cell(name ? esc(name) : '<span class="font-mono break-all">' + esc(im.aid) + '</span>', 'whitespace-nowrap') +
+			// unresolved names show a dash: the AID column carries the identifier
+			reqRows += row(cell(name ? esc(name) : '\u2014', 'whitespace-nowrap') +
+				cell(esc(im.aid), 'pl-4 font-mono break-all') +
 				num('\u2265 ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0)) +
 				part(esc(fam)) + num(String(Number(im.refs) || 0)));
 		});
@@ -16180,6 +16183,7 @@ const LANG_RU = {
 	'Compiled': 'Собрано',
 	'Requires': 'Требуются',
 	'Family': 'Семейство',
+	'AID': 'AID',
 	'Refs': 'Ссылки',
 	'NVRAM requirement': 'Требование NVRAM',
 	'code image (load file)': 'образ кода (load-файл)',
