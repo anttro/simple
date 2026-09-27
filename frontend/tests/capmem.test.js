@@ -79,33 +79,54 @@ test('capMemBytes formats bytes and kilobytes', () => {
 	assert.strictEqual(capMemBytes(null), '0 B');
 });
 
-test('capMemHtml renders the NVRAM requirement, breakdown and warnings', () => {
+test('capMemHtml renders the grouped report: package, requires, memory, components, warnings', () => {
 	const mem = memFixture();
 	mem.warnings = ['method class[0].token[1]: unknown opcode 0xAA, scan stopped'];
 	const out = capMemHtml(mem);
 	assert.ok(out.includes('CAP requirements (estimate)'), out);
-	// C6+C8-style total: load file + persistent data
-	assert.ok(out.includes('NVRAM requirement ≈ 3.1 kB (code image 2.9 kB + data 136 B)'), out);
-	assert.ok(out.includes('RAM (volatile): 24 B'), out);
-	assert.ok(out.includes('Code image (load file): 2.9 kB'), out);
-	assert.ok(out.includes('bytecode (Method.cap): 2.0 kB'), out);
-	assert.ok(out.includes('other components: 952 B'), out);
-	assert.ok(out.includes('Persistent data (NVRAM): 136 B'), out);
-	assert.ok(out.includes('Static image: 12 B'), out);
-	assert.ok(out.includes('Reference storage: 8 B'), out);
-	assert.ok(out.includes('Peak method frame: 8 B'), out);
-	assert.ok(out.includes('C6=3000 C7=0x0110 C8=0x0088'), out);
+	// grouped, labelled sections (always visible except components/notes)
+	assert.ok(out.includes('>Package</div>'), out);
+	assert.ok(out.includes('>Requires (1)</div>'), out);
+	assert.ok(out.includes('>Memory</div>'), out);
+	assert.ok(out.includes('>Components (3)'), out);
+	assert.ok(out.includes('>Notes'), out);
 	assert.ok(out.includes('Table 11-48'), out);
 	assert.ok(out.includes('Estimate only'), out);
 	assert.ok(out.includes('unknown opcode 0xAA'), out);
-	// the required libraries with the family, reference count and the
-	// compiled-against hint derived from the framework version
-	assert.ok(out.includes('Requires: javacard.framework \u2265 1.0'), out);
-	assert.ok(out.includes('Compiled against: Java Card 2.1.1/2.1.2 \u00b7 CAP format 2.1'), out);
-	assert.ok(out.includes('javacard.framework 1.0 — Oracle JavaCard API — 6 refs — A0000000620101'), out);
-	assert.ok(out.includes('Package: A0000000620101 v1.0 (applet package)'), out);
-	assert.ok(out.includes('Applets: A0000000620101 (javacard.framework)'), out);
-	assert.ok(out.includes('Components: Header 20 B (1%) \u00b7 Method 2.7 kB (93%) \u00b7 ConstantPool 180 B (6%)'), out);
+	// memory: the C6+C8-style total once, with indented children
+	assert.ok(out.includes('NVRAM requirement'), out);
+	assert.ok(out.includes('>3.1 kB</td>'), out);
+	assert.ok(out.includes('code image + data'), out);
+	assert.ok(out.includes('>2.9 kB</td>'), out);
+	assert.ok(out.includes('Method.cap 2.0 kB'), out);
+	assert.ok(out.includes('other components 952 B'), out);
+	assert.ok(out.includes('>136 B</td>'), out);
+	assert.ok(out.includes('static image 12 B'), out);
+	assert.ok(out.includes('reference storage 8 B'), out);
+	assert.ok(out.includes('>24 B</td>'), out);
+	assert.ok(out.includes('peak method frame 8 B'), out);
+	assert.ok(out.includes('C6=3000 C7=0x0110 C8=0x0088'), out);
+	// requires: library name, version, family and refs; the AID is not
+	// repeated when the name resolves (it adds nothing), and the section
+	// carries no package AIDs
+	assert.ok(out.includes('>javacard.framework</td>'), out);
+	assert.ok(out.includes('>\u2265 1.0</td>'), out);
+	assert.ok(out.includes('>Oracle JavaCard API</td>'), out);
+	assert.ok(out.includes('>6</td>'), out);
+	const req = out.slice(out.indexOf('Requires (1)'), out.indexOf('Memory</div>'));
+	assert.ok(!req.includes('A0000000620101'), req);
+	// package identity + compiled-against hint derived from the framework version
+	assert.ok(out.includes('A0000000620101') && out.includes('>v1.0</td>'), out);
+	assert.ok(out.includes('applet package'), out);
+	assert.ok(out.includes('(javacard.framework)</span>'), out);
+	assert.ok(out.includes('Java Card 2.1.1/2.1.2 \u00b7 CAP format 2.1'), out);
+	// components in load-file order with sizes, shares and the total row
+	assert.ok(out.includes('>Header</td>') && out.includes('>20 B</td>') && out.includes('>1%</td>'), out);
+	assert.ok(out.includes('>Method</td>') && out.includes('>2.7 kB</td>') && out.includes('>93%</td>'), out);
+	assert.ok(out.includes('>ConstantPool</td>') && out.includes('>180 B</td>') && out.includes('>6%</td>'), out);
+	assert.ok(out.includes('Load file (total)') && out.includes('>100%</td>'), out);
+	const c1 = out.indexOf('Header</td>'), c2 = out.indexOf('Method</td>'), c3 = out.indexOf('ConstantPool</td>');
+	assert.ok(c1 >= 0 && c1 < c2 && c2 < c3, 'components keep the load-file order');
 	assert.strictEqual(capMemHtml(null), '');
 });
 
@@ -115,17 +136,23 @@ test('capMemHtml skips the import section on a response without imports', () => 
 	mem.code = { method_component: 2048 };
 	delete mem.nvram.requirement;
 	const out = capMemHtml(mem);
-	assert.ok(!out.includes('Requires:'), out);
-	assert.ok(out.includes('NVRAM requirement \u2248 2.1 kB'), out);
+	assert.ok(!out.includes('>Requires'), out);
+	assert.ok(!out.includes('Java Card'), out);          // no framework import -> no SDK hint
+	assert.ok(out.includes('CAP format 2.1'), out);
+	assert.ok(out.includes('NVRAM requirement'), out);
+	assert.ok(out.includes('>2.1 kB</td>'), out);
 });
 
 test('capMemHtml keeps unknown import AIDs bare and labels the family only when known', () => {
 	const mem = memFixture();
 	mem.imports = [{ aid: 'A1130001180001', minor: 0, major: 1, refs: 2 }];
 	const out = capMemHtml(mem);
-	assert.ok(out.includes('Requires: A1130001180001 \u2265 1.0'), out);
-	assert.ok(out.includes('A1130001180001 1.0 — 2 refs'), out);
-	assert.ok(!out.includes('Compiled against: Java Card'), out);   // no framework import
+	const req = out.slice(out.indexOf('Requires (1)'), out.indexOf('Memory</div>'));
+	assert.ok(req.includes('A1130001180001'), req);      // unknown AID: shown as the name
+	assert.ok(req.includes('>\u2265 1.0</td>'), req);
+	assert.ok(req.includes('>2</td>'), req);              // refs
+	assert.ok(!out.includes('Java Card'), out);           // no framework import
+	assert.ok(out.includes('CAP format 2.1'), out);
 });
 
 test('capMemHtml falls back to the bytecode size on older server responses', () => {
@@ -133,7 +160,16 @@ test('capMemHtml falls back to the bytecode size on older server responses', () 
 	delete mem.code.load_file;
 	delete mem.nvram.requirement;
 	const out = capMemHtml(mem);
-	assert.ok(out.includes('NVRAM requirement ≈ 2.1 kB (code image 2.0 kB + data 136 B)'), out);
+	assert.ok(out.includes('NVRAM requirement'), out);
+	assert.ok(out.includes('>2.1 kB</td>'), out);
+});
+
+test('capMemHtml drops the components section without a component list', () => {
+	const mem = memFixture();
+	delete mem.components;
+	const out = capMemHtml(mem);
+	assert.ok(!out.includes('>Components'), out);
+	assert.ok(out.includes('>Notes'), out);
 });
 
 test('capGateOk gates the RAM install op and the scripts form', () => {

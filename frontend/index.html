@@ -1616,7 +1616,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.16';
+const SIMPLE_VERSION = '3.5.17';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8032,83 +8032,116 @@ function capMemHtml(mem) {
 	const requirement = Number(nv.requirement) || (loadFile + nvramData);
 	const otherComponents = Math.max(0, loadFile - methodBytes);
 	const imports = mem.imports || [];
+	const applets = mem.applets || [];
+	const comps = mem.components || [];
+	const bytes = v => esc(capMemBytes(v));
+	// the report is a set of one-heading tables: labels and column heads are
+	// muted, numbers line up right-aligned in a monospace column
+	const cell = (content, cls, span) => '<td' + (span ? ' colspan="' + span + '"' : '') +
+		' class="py-0.5' + (cls ? ' ' + cls : '') + '">' + content + '</td>';
+	const head = (content, cls) => '<td class="pb-0.5 border-b border-gray-200 dark:border-slate-700' + (cls ? ' ' + cls : '') + '">' + content + '</td>';
+	const table = rows => '<table class="w-full border-collapse">' + rows + '</table>';
+	const row = cells => '<tr>' + cells + '</tr>';
+	const label = (content, cls) => cell(content, 'whitespace-nowrap' + (cls ? ' ' + cls : ''));
+	const num = content => cell(content, 'pl-4 text-right whitespace-nowrap font-mono');
+	const part = content => cell(content, 'pl-4 text-gray-400 dark:text-slate-500');
+	const section = content => '<div class="mt-2 font-medium text-gray-500 dark:text-slate-400" style="text-transform:uppercase;letter-spacing:.06em">' + esc(content) + '</div>';
+	const disclosure = content => '<details class="mt-1"><summary class="cursor-pointer mt-2 font-medium text-gray-500 dark:text-slate-400" style="text-transform:uppercase;letter-spacing:.06em">' + esc(content) + '</summary>';
 	let html = '<div class="font-medium text-gray-700 dark:text-slate-300">' + esc(t('CAP requirements (estimate)')) + '</div>';
-	// the libraries the CAP is linked against (JC VM spec 6.6), shown as
-	// ">=" requirements: same major, minor >= the export version (4.5.2)
-	if (imports.length) {
-		const req = imports.map(im => {
-			const name = jcAidName(im.aid) || im.aid;
-			return name + ' \u2265 ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0);
-		}).join(' \u00b7 ');
-		html += '<div>' + esc(t('Requires:')) + ' ' + esc(req) + '</div>';
+
+	// ── package identity: AIDs, header flags (Table 6-4), applets and the
+	// compiled-against hint (javacard.framework version + CAP format) ──
+	let pkgRows = '';
+	if (mem.package_aid) {
+		let val = esc(mem.package_aid);
+		if (mem.package_name) val += '<div class="text-gray-400 break-all">' + esc(mem.package_name) + '</div>';
+		pkgRows += row(label(esc(t('Package'))) + cell(val, 'pl-4 font-mono break-all'));
 	}
-	// the NVRAM requirement is a C6+C8-style total (GP Card Spec v2.3.1
-	// Table 11-48): the package image (load file) plus the persistent data
-	html += '<div>' + esc(t('NVRAM requirement ≈')) + ' ' + esc(capMemBytes(requirement)) +
-		' (' + esc(t('code image')) + ' ' + esc(capMemBytes(loadFile)) +
-		' + ' + esc(t('data')) + ' ' + esc(capMemBytes(nvramData)) + ')' +
-		' · ' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) + '</div>';
-	html += '<details class="mt-1"><summary class="cursor-pointer text-gray-400">' + esc(t('Details')) + '</summary>';
-	// compiled-against hint from the javacard.framework version + CAP format
-	const fw = imports.find(im => (im.aid || '').toUpperCase() === 'A0000000620101');
-	const sdk = fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '';
-	let against = sdk ? 'Java Card ' + sdk : '';
-	if (mem.cap_version) against += (against ? ' · ' : '') + t('CAP format') + ' ' + mem.cap_version;
-	if (against) html += '<div>' + esc(t('Compiled against:')) + ' ' + esc(against) + '</div>';
-	if (imports.length) {
-		imports.forEach(im => {
-			const name = jcAidName(im.aid);
-			const fam = jcAidFamily(im.aid);
-			let line = (name || im.aid) + ' ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0);
-			if (fam) line += ' — ' + fam;
-			line += ' — ' + (Number(im.refs) || 0) + ' ' + t('refs');
-			if (name) line += ' — ' + im.aid;
-			html += '<div>' + esc(line) + '</div>';
-		});
+	if (mem.package_version) {
+		pkgRows += row(label(esc(t('Version'))) + cell(esc('v' + mem.package_version), 'pl-4 font-mono'));
 	}
-	// package identity + header flags (Table 6-4) + applets
-	let pkg = esc(mem.package_aid || '?') + (mem.package_version ? ' v' + esc(mem.package_version) : '');
 	const fl = mem.flags || {};
 	const fls = [];
 	if (fl.applet) fls.push(t('applet package'));
 	if (fl.export) fls.push(t('exports an API'));
 	if (fl.int) fls.push(t('uses int'));
-	if (fls.length) pkg += ' (' + fls.join(', ') + ')';
-	if (mem.package_name) pkg += ' — ' + esc(mem.package_name);
-	html += '<div>' + esc(t('Package:')) + ' ' + pkg + '</div>';
-	if ((mem.applets || []).length) {
-		html += '<div>' + esc(t('Applets:')) + ' ' + esc((mem.applets || []).map(a => {
+	if (fls.length) pkgRows += row(label(esc(t('Type'))) + cell(esc(fls.join(' \u00b7 ')), 'pl-4'));
+	if (applets.length) {
+		pkgRows += row(label(esc(t('Applets'))) + cell(applets.map(a => {
 			const n = jcAidName(a);
-			return n ? a + ' (' + n + ')' : a;
-		}).join(', ')) + '</div>';
+			return esc(a) + (n ? ' <span class="text-gray-400">(' + esc(n) + ')</span>' : '');
+		}).join('<br>'), 'pl-4 font-mono break-all'));
 	}
-	const comps = mem.components || [];
+	const fw = imports.find(im => (im.aid || '').toUpperCase() === 'A0000000620101');
+	const sdk = fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '';
+	let against = sdk ? 'Java Card ' + sdk : '';
+	if (mem.cap_version) against += (against ? ' \u00b7 ' : '') + t('CAP format') + ' ' + mem.cap_version;
+	if (against) pkgRows += row(label(esc(t('Compiled'))) + cell(esc(against), 'pl-4'));
+	if (pkgRows) html += section(t('Package')) + table(pkgRows);
+
+	// ── the libraries the CAP is linked against (JC VM spec 6.6), shown as
+	// ">=" requirements: same major, minor >= the export version (4.5.2);
+	// refs = distinct constant-pool references to the package (6.7) ──
+	if (imports.length) {
+		let reqRows = row(head('', 'text-left') + head(esc(t('Version')), 'pl-4 text-right whitespace-nowrap') +
+			head(esc(t('Family')), 'pl-4 text-left') + head(esc(t('Refs')), 'pl-4 text-right whitespace-nowrap'));
+		imports.forEach(im => {
+			const name = jcAidName(im.aid);
+			const fam = jcAidFamily(im.aid);
+			reqRows += row(cell(name ? esc(name) : '<span class="font-mono break-all">' + esc(im.aid) + '</span>', 'whitespace-nowrap') +
+				num('\u2265 ' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0)) +
+				part(esc(fam)) + num(String(Number(im.refs) || 0)));
+		});
+		html += section(t('Requires') + ' (' + imports.length + ')') + table(reqRows);
+	}
+
+	// ── memory: the NVRAM requirement is the C6+C8-style total (GP Card
+	// Spec v2.3.1 Table 11-48) of the code image (load file) and the
+	// persistent data; children are indented under their total ──
+	const mrows = [];
+	mrows.push(row(label(esc(t('NVRAM requirement'))) + num(bytes(requirement)) +
+		part(esc(t('code image') + ' + ' + t('data')))));
+	mrows.push(row(label(esc(t('code image (load file)')), 'pl-4') + num(bytes(loadFile)) +
+		part(esc('Method.cap ' + capMemBytes(methodBytes) + ' \u00b7 ' + t('other components') + ' ' + capMemBytes(otherComponents)))));
+	mrows.push(row(label(esc(t('persistent data')), 'pl-4') + num(bytes(nvramData)) + part(esc([
+		t('static image') + ' ' + capMemBytes(nv.static_image),
+		t('static array init') + ' ' + capMemBytes(nv.array_init),
+		t('install-time objects') + ' ' + capMemBytes(nv.install_objects),
+		t('object headers') + ' ' + capMemBytes(nv.header_overhead),
+		t('reference storage') + ' ' + capMemBytes(nv.ref_storage),
+	].join(' \u00b7 ')))));
+	mrows.push(row(label(esc(t('RAM (volatile)'))) + num(bytes(ram.total)) + part(esc([
+		t('transient arrays') + ' ' + capMemBytes(ram.transient_arrays),
+		t('runtime transient') + ' ' + capMemBytes(ram.runtime_transient),
+		t('peak method frame') + ' ' + capMemBytes(ram.peak_frame),
+	].join(' \u00b7 ')))));
+	mrows.push(row(label(esc(t('Suggested quotas (informational)'))) + cell(
+		'C6=' + esc(String(Number(sug.c6) || 0)) + ' C7=0x' + esc(hex2(sug.c7)) + ' C8=0x' + esc(hex2(sug.c8)),
+		'pl-4 font-mono', 2)));
+	html += section(t('Memory')) + table(mrows.join(''));
+
+	// ── component sizes in load-file order (incl. the Directory/Export
+	// entries capmem does not parse) with each entry's share of the load file
 	if (comps.length) {
 		const ctotal = loadFile || comps.reduce((sum, c) => sum + (Number(c.size) || 0), 0);
-		html += '<div>' + esc(t('Components:')) + ' ' + comps.map(c => {
+		const tcls = 'border-t border-gray-200 dark:border-slate-700';
+		let crows = row(head(esc(t('Component')), 'text-left') + head(esc(t('Size')), 'pl-4 text-right whitespace-nowrap') +
+			head(esc(t('Share')), 'pl-4 text-right whitespace-nowrap'));
+		comps.forEach(c => {
 			const sz = Number(c.size) || 0;
-			const pct = ctotal ? ' (' + Math.round(sz * 100 / ctotal) + '%)' : '';
-			return esc(c.name + ' ' + capMemBytes(sz) + pct);
-		}).join(' · ') + '</div>';
+			crows += row(label(esc(c.name)) + num(bytes(sz)) +
+				num(ctotal ? Math.round(sz * 100 / ctotal) + '%' : '\u2014'));
+		});
+		crows += row(cell(esc(t('Load file (total)')), tcls) +
+			cell(bytes(loadFile), 'pl-4 text-right whitespace-nowrap font-mono ' + tcls) +
+			cell('100%', 'pl-4 text-right whitespace-nowrap font-mono ' + tcls));
+		html += disclosure(t('Components') + ' (' + comps.length + ')') + table(crows) + '</details>';
 	}
-	html += '<div>' + esc(t('Code image (load file):')) + ' ' + esc(capMemBytes(loadFile)) +
-		' · ' + esc(t('bytecode (Method.cap):')) + ' ' + esc(capMemBytes(methodBytes)) +
-		' · ' + esc(t('other components:')) + ' ' + esc(capMemBytes(otherComponents)) + '</div>';
-	html += '<div>' + esc(t('Persistent data (NVRAM):')) + ' ' + esc(capMemBytes(nvramData)) +
-		' · ' + esc(t('Static image:')) + ' ' + esc(capMemBytes(nv.static_image)) +
-		' · ' + esc(t('Static array init:')) + ' ' + esc(capMemBytes(nv.array_init)) +
-		' · ' + esc(t('Install-time objects:')) + ' ' + esc(capMemBytes(nv.install_objects)) +
-		' · ' + esc(t('Object headers:')) + ' ' + esc(capMemBytes(nv.header_overhead)) +
-		' · ' + esc(t('Reference storage:')) + ' ' + esc(capMemBytes(nv.ref_storage)) + '</div>';
-	html += '<div>' + esc(t('RAM (volatile):')) + ' ' + esc(capMemBytes(ram.total)) +
-		' · ' + esc(t('Transient arrays:')) + ' ' + esc(capMemBytes(ram.transient_arrays)) +
-		' · ' + esc(t('Runtime transient:')) + ' ' + esc(capMemBytes(ram.runtime_transient)) +
-		' · ' + esc(t('Peak method frame:')) + ' ' + esc(capMemBytes(ram.peak_frame)) + '</div>';
-	html += '<div>' + esc(t('Suggested install quotas (informational):')) +
-		' C6=' + esc(String(Number(sug.c6) || 0)) + ' C7=0x' + esc(hex2(sug.c7)) + ' C8=0x' + esc(hex2(sug.c8)) + '</div>';
-	html += '<div class="text-gray-400">' + esc(t('NVRAM = code image + persistent data (GP Card Spec v2.3.1 Table 11-48, C6+C8 style); card memory management, rounding and the registry entry are not included, and the static field image appears in both parts.')) + '</div>';
-	html += '<div class="text-gray-400">' + esc(t('Estimate only — memory values are not used for installation')) + '</div>';
-	html += '</details>';
+
+	html += disclosure(t('Notes')) +
+		'<div class="text-gray-400">' + esc(t('NVRAM = code image + persistent data (GP Card Spec v2.3.1 Table 11-48, C6+C8 style); card memory management, rounding and the registry entry are not included, and the static field image appears in both parts.')) + '</div>' +
+		'<div class="text-gray-400">' + esc(t('Estimate only — memory values are not used for installation')) + '</div>' +
+		'</details>';
 	(mem.warnings || []).forEach(w => {
 		html += '<div class="text-amber-600 dark:text-amber-400">\u26a0 ' + esc(w) + '</div>';
 	});
@@ -16140,6 +16173,33 @@ const LANG_RU = {
 	'Peak method frame:': 'Пиковый кадр метода:',
 	'Suggested install quotas (informational):': 'Рекомендуемые квоты установки (справочно):',
 	'Estimate only — memory values are not used for installation': 'Только оценка — значения памяти не используются при установке',
+	'Package': 'Пакет',
+	'Version': 'Версия',
+	'Type': 'Тип',
+	'Applets': 'Апплеты',
+	'Compiled': 'Собрано',
+	'Requires': 'Требуются',
+	'Family': 'Семейство',
+	'Refs': 'Ссылки',
+	'NVRAM requirement': 'Требование NVRAM',
+	'code image (load file)': 'образ кода (load-файл)',
+	'persistent data': 'постоянные данные',
+	'RAM (volatile)': 'ОЗУ (volatile)',
+	'other components': 'прочие компоненты',
+	'static image': 'статический образ',
+	'static array init': 'инициализация массивов',
+	'install-time objects': 'объекты установки',
+	'object headers': 'заголовки объектов',
+	'reference storage': 'хранение ссылок',
+	'transient arrays': 'transient-массивы',
+	'runtime transient': 'transient во время работы',
+	'peak method frame': 'пиковый кадр',
+	'Suggested quotas (informational)': 'Рекомендуемые квоты (справочно)',
+	'Components': 'Компоненты',
+	'Component': 'Компонент',
+	'Share': 'Доля',
+	'Load file (total)': 'Load-файл (итого)',
+	'Notes': 'Примечания',
 	'Step': 'Шаг',
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
