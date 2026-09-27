@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEdit',
-	'cardsAdd', 'cardsImport', 'cardsApply', 'ramApplyCard',
+	'cardsAdd', 'cardsImport', 'cardsApplyFields', 'cardsApply', 'ramApplyCard',
 	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
 	'spTarKeyForPack', 'spPresetTar', 'packToSp']) {
 	code += extractFunc(html, fn) + '\n';

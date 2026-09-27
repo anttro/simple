@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.2';
+const SIMPLE_VERSION = '3.6.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7896,6 +7896,10 @@ async function pysimSendOta() {
 		alert('Card reader server is not connected');
 		return;
 	}
+	// Re-read the preset (counter and keys) before sending: the Cards tab may
+	// have changed it after the form was filled, and a stale counter is
+	// rejected by the card (cntr_low) and then written back over the preset.
+	spRefreshFromPreset('sp-card-sel');
 	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (!sp) { alert('No secured packet to send. Generate a secure packet first.'); return; }
 	const sendResultEl = document.getElementById('sp-send-result');
@@ -7927,16 +7931,21 @@ async function pysimSendOta() {
 				porStatusEl.classList.remove('hidden', okPor ? 'text-red-600' : 'text-green-600');
 				porStatusEl.classList.add(okPor ? 'text-green-600' : 'text-red-600');
 			}
-			// The counter advances after every successful send, PoR or not: the
-			// card rejects a repeated counter (replay protection) and the same
-			// secured packet must never be sent twice (v1.9.6, revised 2.1.9).
-			const cntrEl = document.getElementById('sp-cntr');
-			cntrEl.value = spNextCntr(cntrEl.value);
-			msg += ' | CNTR -> ' + cntrEl.value;
-			document.getElementById('sp-result').value = '';
-			spShowSizeInfo();
-			// keep the selected card preset in sync with the new counter (v1.9.8)
-			spCntrSyncPreset();
+			// The counter advances only for a packet the card accepted: a
+			// rejected send (cntr_low, PoR error) must leave the preset value
+			// untouched - the card did not consume the packet (v3.6.3; the old
+			// "advance always" rule silently reverted preset edits).
+			if (spPorAccepted(por)) {
+				const cntrEl = document.getElementById('sp-cntr');
+				cntrEl.value = spNextCntr(cntrEl.value);
+				msg += ' | CNTR -> ' + cntrEl.value;
+				document.getElementById('sp-result').value = '';
+				spShowSizeInfo();
+				// keep the selected card preset in sync with the new counter
+				spCntrSyncPreset();
+			} else {
+				msg += ' | CNTR unchanged (' + ((por && por.response_status) || 'PoR error') + ')';
+			}
 			sendResultEl.textContent = msg;
 			if (por && por.raw) {
 				const rawLine = document.createElement('div');
@@ -8741,13 +8750,14 @@ async function ramExplore(sp) {
 				const apdu = '80F2' + p1 + p2 + dataField + 'C0000000';
 				ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
 				const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
-				cntr = ramIncrementCntr(cntr);
 				if (!res.success || !res.por || res.por.response_status !== 'por_ok') {
 					const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
 					errors.push(label + ': ' + errorMsg);
 					tlvFailed = true;
 					break;
 				}
+				// the card consumed the packet: advance for the next step
+				cntr = ramIncrementCntr(cntr);
 			const data = res.por.decoded ? res.por.decoded.last_response_data : '';
 			const sw = (res.por.decoded ? res.por.decoded.last_status_word : '').toUpperCase();
 				// If first attempt with P2=02 gets an unsupported error, retry with P2=00.
@@ -8786,8 +8796,8 @@ async function ramExplore(sp) {
 	 ramShowProgress(t('Memory (GET DATA FF21)') + '...');
 	try {
 		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
-		cntr = ramIncrementCntr(cntr);
 		if (memRes.success && memRes.por && memRes.por.response_status === 'por_ok') {
+			cntr = ramIncrementCntr(cntr);
 			const data = memRes.por.decoded ? memRes.por.decoded.last_response_data : '';
 			if (!data) {
 				errors.push(t('Memory') + ': ' + t('(no data)'));
@@ -8924,8 +8934,11 @@ async function ramInstallCap(sp) {
 	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx) + '\n'; });
 	stepsEl.textContent = txt;
 
+	// Persist the counter the card actually consumed (accepted packets only):
+	// even a failed install leaves the accepted steps behind, and replaying
+	// their counter would make the card reject the next attempt.
+	if (data.final_cntr) ramSaveCntr(data.final_cntr);
 	if (data.success) {
-		ramSaveCntr(data.final_cntr);
 		let sizeInfo = '';
 		if (data.load_block_size) {
 			sizeInfo = ' — ' + t('LOAD blocks') + ': ' + data.load_block_size + ' B';
@@ -8948,6 +8961,9 @@ async function ramExecute() {
 	ramClearResults();
 	const cardIdx = parseInt(document.getElementById('ram-card-sel').value, 10);
 	if (!isNaN(cardIdx) && cards[cardIdx]) _ramCardIdx = cardIdx;
+	// Re-read the preset before the operation: its counter/keys may have
+	// changed in the Cards tab after the RAM form was filled.
+	spRefreshFromPreset('ram-card-sel');
 	const sp = getRamSpParams();
 	if (!sp.kicKey || !sp.kidKey) {
 		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
@@ -9399,9 +9415,11 @@ function cardsAutoSelectByIccid(iccid) {
 	return idx;
 }
 
-function cardsApply(idx) {
+// Fill the SP form from the preset (no packet generation): the form is a
+// working copy, the preset stays the source of truth.
+function cardsApplyFields(idx) {
 	const c = cards[parseInt(idx)];
-	if (!c) return;
+	if (!c) return false;
 	document.getElementById('sp-spi1').value = c.spi1;
 	document.getElementById('sp-spi2-hex').value = c.spi2;
 	const kicByte = parseInt(c.kic, 16);
@@ -9418,7 +9436,33 @@ function cardsApply(idx) {
 	document.getElementById('sp-kid-key').value = c.kidKey;
 	spInvalidate();
 	updateSp();
+	return true;
+}
+
+function cardsApply(idx) {
+	if (!cardsApplyFields(idx)) return;
 	genSp();
+}
+
+// SCP80/RAM operations re-read the selected preset before starting: the
+// Cards tab (or a counter write-back) may have changed it after the form was
+// filled, and a stale counter is rejected by the card (cntr_low) and would
+// then be written back over the preset.  Returns the preset counter ('' when
+// no preset is selected).
+function spRefreshFromPreset(selId) {
+	const sel = document.getElementById(selId || 'sp-card-sel');
+	const idx = sel ? parseInt(sel.value, 10) : NaN;
+	if (isNaN(idx) || !cards[idx]) return '';
+	if (selId === 'ram-card-sel') _spTarKey = 'tar';
+	cardsApply(idx);
+	return cards[idx].cntr;
+}
+
+// A send counts as accepted when there is no PoR to check (the SPI requests
+// none) or the PoR is por_ok; anything else (cntr_low, Por error) must leave
+// the counter untouched.
+function spPorAccepted(por) {
+	return !por || por.response_status === 'por_ok';
 }
 
 function downloadJson(name, obj) {

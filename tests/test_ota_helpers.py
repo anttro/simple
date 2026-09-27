@@ -31,6 +31,7 @@ from pysim_simple_server.server import (
     _parse_select_item,
     _parse_setup_menu_items,
     _por_remote_sw,
+    _ram_next_cntr,
     _ram_remote_sw_ok,
     _ram_step_result,
     _record_tr,
@@ -1299,6 +1300,11 @@ class RamPorStepTest(unittest.TestCase):
         step, err = _ram_step_result('LOAD', '9000', None, 'DEADBEEF', 10, 1)
         self.assertEqual(err, 'PoR undecodable')
         self.assertEqual(step['por_raw'], 'DEADBEEF')
+
+    def test_counter_advances_only_for_accepted_packets(self):
+        self.assertEqual(_ram_next_cntr('0000000010', True), '0000000011')
+        self.assertEqual(_ram_next_cntr('0000000010', False), '0000000010')
+        self.assertEqual(_ram_next_cntr('FFFFFFFF', True), '0000000000')
 
     def test_remote_sw_from_expanded_response(self):
         por = {'response_status': 'por_ok', 'decoded': {},

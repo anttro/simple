@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.2'
+VERSION = '3.6.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1119,6 +1119,16 @@ def _por_remote_sw(por):
         if r.get('status_word'):
             return str(r['status_word']).upper()
     return ''
+
+
+def _ram_next_cntr(cntr, advance):
+    """Advance the SCP80 counter by one only when the card accepted the
+    packet (PoR ok / no PoR expected): a rejected packet (cntr_low,
+    rc_cc_ds_failed, ...) leaves the card's expectation and the preset
+    counter untouched."""
+    if not advance:
+        return cntr
+    return '%010X' % ((int(cntr, 16) + 1) % (2 ** 32))
 
 
 def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
@@ -6105,8 +6115,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                             step.get('por_sw', '-'),
                             (' error=%s' % step_error) if step_error else '',
                             result['bytes'], result['segments']))
-                        # Increment counter
-                        cntr = '%010X' % ((int(cntr, 16) + 1) % (2 ** 32))
+                        # Advance the counter only for an accepted packet
+                        cntr = _ram_next_cntr(
+                            cntr, step.get('por_status') in ('por_ok', 'no_por'))
                         if step_error:
                             failure['error'] = '%s: %s' % (step_name, step_error)
                             return False
@@ -6134,6 +6145,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                                 'error': (encode_error or failure.get('error')
                                           or ('%s failed' % step_name)),
+                                'final_cntr': cntr,
                                 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                 'load_block_size': block_size,
                                 'load_block_size_requested': block_size_req,

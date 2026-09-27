@@ -45,6 +45,12 @@ const els = {};
 const doc = { getElementById: (id) => { if (!els[id]) els[id] = {value:''}; return els[id]; } };
 global.document = doc;
 
+// ramApplyCard/ramExecute delegate to the SP-form helpers; their real
+// behaviour (and the preset re-read before an operation) is covered by
+// cards_counter.test.js, so keep them as global stubs here.
+globalThis.cardsApply = () => {};
+globalThis.spRefreshFromPreset = () => '';
+
 function reset() { for (const id of Object.keys(els)) delete els[id]; }
 
 function genRamResult(fields) {
@@ -330,7 +336,8 @@ test('ramApplyCard remembers a valid picked preset', () => {
 	ramApplyCard('');
 	assert.strictEqual(_ramCardIdx, 1, 'invalid pick must not forget the preset');
 	delete globalThis.cards;
-	delete globalThis.cardsApply;
+	globalThis.cardsApply = () => {};
+	delete globalThis.cards;
 });
 
 test('ramExecute commits the dropdown selection before running', async () => {
