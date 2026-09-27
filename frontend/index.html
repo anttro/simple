@@ -744,7 +744,7 @@
 				<div id="rc-toolkit-body" class="hidden">
 					<div class="mb-3">
 						<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Toolkit mode">Toolkit mode</label>
-						<select id="rc-tk-mode" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						<select id="rc-tk-mode" onchange="updateRcTkMode();updateStkParamsHex()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 							<option value="ca">SIM Toolkit (Tag CA)</option>
 							<option value="ea">UICC Toolkit (Tag EA)</option>
 						</select>
@@ -752,43 +752,43 @@
 					<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Priority">Priority</label>
-							<input id="rc-tk-priority" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-priority" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Timers (max)">Timers (max)</label>
-							<input id="rc-tk-timers" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-timers" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Menu text length">Menu text length</label>
-							<input id="rc-tk-textlen" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-textlen" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Menu items">Menu items</label>
-							<input id="rc-tk-menus" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-menus" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="First menu position">First menu position</label>
-							<input id="rc-tk-firstpos" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-firstpos" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="First menu ID (hex)">First menu ID (hex)</label>
-							<input id="rc-tk-firstid" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
+							<input id="rc-tk-firstid" oninput="updateStkParamsHex()" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Last menu position">Last menu position</label>
-							<input id="rc-tk-lastpos" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-lastpos" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Last menu ID (hex)">Last menu ID (hex)</label>
-							<input id="rc-tk-lastid" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
+							<input id="rc-tk-lastid" oninput="updateStkParamsHex()" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Channels (max)">Channels (max)</label>
-							<input id="rc-tk-channels" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-channels" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">MSL (SPI1, hex)</label>
-							<select id="rc-tk-msl" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<select id="rc-tk-msl" onchange="updateStkParamsHex()" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 								<option value="00">00 — no verification</option>
 								<option value="11">11 — RC/CC/DS</option>
 								<option value="12">12 — RC/DS/CC</option>
@@ -799,15 +799,15 @@
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">TAR (3 bytes)</label>
-							<input id="rc-tk-tar" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="B00001" maxlength="6" value="B00001">
+							<input id="rc-tk-tar" oninput="updateStkParamsHex()" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" maxlength="6">
 						</div>
 						<div id="rc-tk-ad-row">
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Access domain (hex)">Access domain (hex)</label>
-							<input id="rc-tk-ad" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
+							<input id="rc-tk-ad" oninput="updateStkParamsHex()" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800" placeholder="00" maxlength="2" value="00">
 						</div>
 						<div id="rc-tk-services-row">
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Max services">Max services</label>
-							<input id="rc-tk-services" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<input id="rc-tk-services" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 					</div>
 				</div>
@@ -815,7 +815,7 @@
 			<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Install parameters (hex, optional)">Install parameters (hex, optional)</label>
 				<input id="ram-install-params-hex" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="C9 TLV">
 				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400 mt-2" data-l10n="STK parameters (hex, optional)">STK parameters (hex, optional)</label>
-				<input id="ram-stk-params" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="CA TLV">
+				<input id="ram-stk-params" oninput="this.dataset.manual='1'" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="EA / CA TLV">
 				<label class="flex items-center gap-2 mt-2">
 					<input type="checkbox" id="ram-make-sel" checked> <span class="text-sm" data-l10n="Make selectable">Make selectable</span>
 				</label>
@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.8';
+const SIMPLE_VERSION = '3.6.9';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2503,40 +2503,39 @@ function updateRcTkMode() {
 	document.getElementById('rc-tk-ad-row').style.display = isSim ? '' : 'none';
 	document.getElementById('rc-tk-services-row').style.display = isSim ? 'none' : '';
 }
-document.getElementById('rc-tk-mode').addEventListener('change', () => { updateRcTkMode(); updateStkParamsHex(); });
 
-function buildRcToolkitParams() {
-	if (!document.getElementById('rc-toolkit-enable').checked) return '';
-	const tkMode = document.getElementById('rc-tk-mode').value;
-	const priority = parseInt(document.getElementById('rc-tk-priority').value) || 0;
-	const timers = parseInt(document.getElementById('rc-tk-timers').value) || 0;
-	const textLen = parseInt(document.getElementById('rc-tk-textlen').value) || 0;
-	const menus = parseInt(document.getElementById('rc-tk-menus').value) || 0;
-	const firstPos = parseInt(document.getElementById('rc-tk-firstpos').value) || 0;
-	const firstId = (document.getElementById('rc-tk-firstid').value || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
-	const lastPos = parseInt(document.getElementById('rc-tk-lastpos').value) || 0;
-	const lastId = (document.getElementById('rc-tk-lastid').value || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
-	const channels = parseInt(document.getElementById('rc-tk-channels').value) || 0;
-	const msl = document.getElementById('rc-tk-msl').value;
-	const tar = (document.getElementById('rc-tk-tar').value || '').replace(/[^0-9a-fA-F]/g, '');
-	const adRaw = (document.getElementById('rc-tk-ad').value || '').replace(/[^0-9a-fA-F]/g, '');
+// Pure SIM/UICC toolkit install-parameter builder shared by the RAM install
+// form (buildRcToolkitParams) and the RAM/GP chain rows (buildTkParams).
+// `v` carries the field values; returns the CA/EA TLV hex, or null when a
+// value cannot be coded: each TAR is 3 bytes (6 hex digits), and menu item
+// identifiers 128..255 are reserved for the toolkit framework, so only
+// 01..7F may be requested (TS 102 226 8.2.1.3.2.3).
+function stkParamsBuild(v) {
+	const priority = parseInt(v.priority, 10) || 0;
+	const timers = parseInt(v.timers, 10) || 0;
+	const textLen = parseInt(v.textLen, 10) || 0;
+	const menus = parseInt(v.menus, 10) || 0;
+	const firstPos = parseInt(v.firstPos, 10) || 0;
+	const firstId = (v.firstId || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
+	const lastPos = parseInt(v.lastPos, 10) || 0;
+	const lastId = (v.lastId || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
+	const channels = parseInt(v.channels, 10) || 0;
+	const msl = v.msl || '00';
+	const tar = (v.tar || '').replace(/[^0-9a-fA-F]/g, '');
+	const adRaw = (v.ad || '').replace(/[^0-9a-fA-F]/g, '');
 	const ad = adRaw.padStart(2, '0').slice(0, 2);
-	const services = parseInt(document.getElementById('rc-tk-services').value) || 0;
-
+	const services = parseInt(v.services, 10) || 0;
 	if (tar && tar.length % 6 !== 0) return null;
 	if (parseInt(firstId, 16) > 0x7F || parseInt(lastId, 16) > 0x7F) return null;
-
 	let menuPairs = '';
 	for (let i = 1; i <= menus; i++) {
 		if (i === 1) menuPairs += firstPos.toString(16).padStart(2, '0') + firstId;
 		else if (i === menus) menuPairs += lastPos.toString(16).padStart(2, '0') + lastId;
 		else menuPairs += '0000';
 	}
-
 	const mslField = msl === '00' ? '00' : '0201' + msl;
-
 	let tkPayload = '';
-	if (tkMode === 'ca') {
+	if (v.mode === 'ca') {
 		tkPayload = (adRaw ? '01' + ad : '00') +
 			priority.toString(16).padStart(2, '0') +
 			timers.toString(16).padStart(2, '0') +
@@ -2548,24 +2547,42 @@ function buildRcToolkitParams() {
 			(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00');
 		const caTlv = 'CA' + berLenStr(tkPayload.length / 2) + tkPayload;
 		return 'EF' + berLenStr(caTlv.length / 2) + caTlv;
-	} else {
-		tkPayload = priority.toString(16).padStart(2, '0') +
-			timers.toString(16).padStart(2, '0') +
-			textLen.toString(16).padStart(2, '0') +
-			menus.toString(16).padStart(2, '0') +
-			menuPairs +
-			channels.toString(16).padStart(2, '0') +
-			mslField +
-			(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00') +
-			services.toString(16).padStart(2, '0');
-		const innerTlv = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
-		return 'EA' + berLenStr(innerTlv.length / 2) + innerTlv;
 	}
+	tkPayload = priority.toString(16).padStart(2, '0') +
+		timers.toString(16).padStart(2, '0') +
+		textLen.toString(16).padStart(2, '0') +
+		menus.toString(16).padStart(2, '0') +
+		menuPairs +
+		channels.toString(16).padStart(2, '0') +
+		mslField +
+		(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00') +
+		services.toString(16).padStart(2, '0');
+	const innerTlv = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
+	return 'EA' + berLenStr(innerTlv.length / 2) + innerTlv;
+}
+
+// The RAM install form's toolkit fields -> the install parameters hex.
+function buildRcToolkitParams() {
+	if (!document.getElementById('rc-toolkit-enable').checked) return '';
+	const g = id => document.getElementById(id).value;
+	return stkParamsBuild({
+		mode: g('rc-tk-mode'),
+		priority: g('rc-tk-priority'), timers: g('rc-tk-timers'),
+		textLen: g('rc-tk-textlen'), menus: g('rc-tk-menus'),
+		firstPos: g('rc-tk-firstpos'), firstId: g('rc-tk-firstid'),
+		lastPos: g('rc-tk-lastpos'), lastId: g('rc-tk-lastid'),
+		channels: g('rc-tk-channels'), msl: g('rc-tk-msl'),
+		tar: g('rc-tk-tar'), ad: g('rc-tk-ad'), services: g('rc-tk-services'),
+	});
 }
 
 function updateStkParamsHex() {
 	const tk = buildRcToolkitParams();
-	document.getElementById('ram-stk-params').value = tk || '';
+	const el = document.getElementById('ram-stk-params');
+	el.value = tk || '';
+	// A hand-edited hex is an explicit override: keep it until a toolkit
+	// field is edited again (this clears the flag).
+	if (el.dataset) delete el.dataset.manual;
 }
 
 function updateInstallParamsHex() {
@@ -3377,7 +3394,7 @@ function chainRamToolkitHtml(chainId, idx, f, uf) {
 	var lastId = f.tkLastid || '00';
 	var channels = f.tkChannels || '0';
 	var msl = f.tkMsl || '16';
-	var tar = f.tkTar || 'B00001';
+	var tar = f.tkTar || '';
 	var ad = f.tkAd || '';
 	var services = f.tkServices || '0';
 	html += '<div class="p-2 bg-gray-50 dark:bg-slate-900 rounded border border-gray-200 dark:border-slate-700">' +
@@ -4028,57 +4045,22 @@ function chainRamBuildRowHex(idx, row) {
 		if (b3) r += b3.toString(16).padStart(2, '0').toUpperCase();
 		return r;
 	}
+	// The chain row's toolkit fields -> the install parameters hex.
 	function buildTkParams() {
 		if (!f.tkEnabled) return '';
-		var tkMode = f.tkMode || 'ea';
-		var priority = parseInt(f.tkPriority) || 0;
-		var timers = parseInt(f.tkTimers) || 0;
-		var textLen = parseInt(f.tkTextlen) || 0;
-		var menus = parseInt(f.tkMenus) || 0;
-		var firstPos = parseInt(f.tkFirstpos) || 0;
-		var firstId = (f.tkFirstid || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
-		var lastPos = parseInt(f.tkLastpos) || 0;
-		var lastId = (f.tkLastid || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
-		var channels = parseInt(f.tkChannels) || 0;
-		var msl = f.tkMsl || '00';
-		var tar = (f.tkTar || '').replace(/[^0-9a-fA-F]/g, '');
-		var ad = (f.tkAd || '').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
-		var services = parseInt(f.tkServices) || 0;
-		if (tar && tar.length % 6 !== 0) return null;
-		var menuPairs = '';
-		for (var i = 1; i <= menus; i++) {
-			if (i === 1) menuPairs += firstPos.toString(16).padStart(2, '0') + firstId;
-			else if (i === menus) menuPairs += lastPos.toString(16).padStart(2, '0') + lastId;
-			else menuPairs += '0000';
-		}
-		var mslField = msl === '00' ? '00' : '0201' + msl;
-		var tkPayload = '';
-		if (tkMode === 'ca') {
-			tkPayload = (f.tkAd ? '01' + ad : '00') +
-				priority.toString(16).padStart(2, '0') +
-				timers.toString(16).padStart(2, '0') +
-				textLen.toString(16).padStart(2, '0') +
-				menus.toString(16).padStart(2, '0') +
-				menuPairs +
-				channels.toString(16).padStart(2, '0') +
-				mslField +
-				(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00');
-			var caTlv = 'CA' + berLenStr(tkPayload.length / 2) + tkPayload;
-			return 'EF' + berLenStr(caTlv.length / 2) + caTlv;
-		} else {
-			tkPayload = priority.toString(16).padStart(2, '0') +
-				timers.toString(16).padStart(2, '0') +
-				textLen.toString(16).padStart(2, '0') +
-				menus.toString(16).padStart(2, '0') +
-				menuPairs +
-				channels.toString(16).padStart(2, '0') +
-				mslField +
-				(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00') +
-				services.toString(16).padStart(2, '0');
-			var innerTlv = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
-			return 'EA' + berLenStr(innerTlv.length / 2) + innerTlv;
-		}
+		return stkParamsBuild({
+			mode: f.tkMode || 'ea',
+			priority: f.tkPriority, timers: f.tkTimers, textLen: f.tkTextlen,
+			menus: f.tkMenus, firstPos: f.tkFirstpos, firstId: f.tkFirstid,
+			lastPos: f.tkLastpos, lastId: f.tkLastid, channels: f.tkChannels,
+			msl: f.tkMsl || '16', tar: f.tkTar, ad: f.tkAd,
+			services: f.tkServices,
+		});
 	}
+	// INSTALL/LOAD are case-3 commands (no trailing Le), matching the
+	// reference terminal form and the server's _cap_apdu_sequence: a trailing
+	// Le made the card execute a phantom second command whose status word
+	// masked the real result (v3.6.8).  DELETE/GET STATUS/GET DATA keep Le.
 	var INSTALL_P1 = {
 		'install-load': 0x02, 'install-install': 0x0C,
 		'install-make-sel': 0x08, 'install-reg-update': 0x40,
@@ -4092,7 +4074,7 @@ function chainRamBuildRowHex(idx, row) {
 		if (!loadFileAid) return '';
 		var dataField = lv(loadFileAid) + lv(sdAid) + '00' + (loadData ? lv(loadData) : '00') + '00';
 		var dataLen = berLenStr(dataField.length / 2);
-		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dataLen, 16), dataField) + '00';
+		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dataLen, 16), dataField);
 	}
 	if (cmd === 'install-install') {
 		var elfAid = (f.elfAid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
@@ -4105,35 +4087,35 @@ function chainRamBuildRowHex(idx, row) {
 		if (tkParams) installParams += tkParams;
 		var df2 = lv(elfAid) + lv(modAid) + lv(aid) + lv(privBytes) + lv(installParams) + '00';
 		var dl2 = berLenStr(df2.length / 2);
-		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl2, 16), df2) + '00';
+		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl2, 16), df2);
 	}
 	if (cmd === 'install-make-sel') {
 		if (!aid) return '';
 		var privBytes2 = computePriv();
 		var df3 = '00' + '00' + lv(aid) + lv(privBytes2) + '00' + '00';
 		var dl3 = berLenStr(df3.length / 2);
-		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl3, 16), df3) + '00';
+		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl3, 16), df3);
 	}
 	if (cmd === 'install-reg-update') {
 		if (!aid) return '';
 		var privBytes3 = computePriv();
 		var df4 = lv(sdAid) + '00' + lv(aid) + lv(privBytes3) + '00' + '00';
 		var dl4 = berLenStr(df4.length / 2);
-		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl4, 16), df4) + '00';
+		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl4, 16), df4);
 	}
 	if (cmd === 'install-extradition') {
 		if (!sdAid || sdAid.length < 10 || sdAid.length > 20) return '';
 		if (!aid) return '';
 		var df5 = lv(sdAid) + '00' + lv(aid) + '00' + '00' + '00';
 		var dl5 = berLenStr(df5.length / 2);
-		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl5, 16), df5) + '00';
+		return buildApdu(0x80, 0xE6, INSTALL_P1[cmd], 0x00, parseInt(dl5, 16), df5);
 	}
 	if (cmd === 'load') {
 		var ramData = (f.data || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 		var blockNum = parseInt(f.block) || 0;
 		if (!ramData) return '';
 		var dl6 = berLenStr(ramData.length / 2);
-		return buildApdu(0x80, 0xE8, 0x80, blockNum, parseInt(dl6, 16), ramData) + '00';
+		return buildApdu(0x80, 0xE8, 0x80, blockNum, parseInt(dl6, 16), ramData);
 	}
 	if (cmd === 'delete') {
 		if (!aid) return '';
@@ -8930,6 +8912,14 @@ async function ramInstallCap(sp) {
 	ramShowProgress(t('Reading CAP file...'));
 	const capHex = await ramReadFileHex(file);
 	ramShowProgress(t('Sending to server for install...'));
+
+	// The STK hex is regenerated on every toolkit field edit; recompute it
+	// once more at send time unless the user pasted a custom hex directly
+	// (dataset.manual), so the sent parameters always match the fields.
+	const stkEl = document.getElementById('ram-stk-params');
+	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
+		updateStkParamsHex();
+	}
 
 	const body = {
 		cap_hex: capHex,

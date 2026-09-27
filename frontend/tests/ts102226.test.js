@@ -30,7 +30,7 @@ function extractFunc(src, name) {
 //   GlobalPlatform Card Spec 11.8 (PUT KEY)
 const FNS = ['berLenStr', 'buildApdu', 'buildSelect', 'escHtml', 'esc', 'chainInit',
 	'chainKind', 'chainIsEmbedded', 'chainCommands', 'chainBuildRowHex',
-	'chainSimBuildRowHex', 'chainRamBuildRowHex', 'chainPushData', '_hotaAsciiHex',
+	'chainSimBuildRowHex', 'chainRamBuildRowHex', 'stkParamsBuild', 'chainPushData', '_hotaAsciiHex',
 	'chainApduList', 'chainBuildFcp', 'pushSectionApdus', 'pushOpenChannelTlvs'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';

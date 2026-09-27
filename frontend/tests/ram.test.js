@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
-	'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer',
+	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -79,7 +79,7 @@ function genRamApdu() {
 		tkLastid: '02',
 		tkChannels: '0',
 		tkMsl: '16',
-		tkTar: 'B00001',
+		tkTar: 'AF4D01',
 		tkAd: '',
 		tkServices: '0',
 	});
@@ -87,7 +87,7 @@ function genRamApdu() {
 
 test('UICC toolkit nested inside EA (m=2, services 0)', () => {
 	const apdu = genRamApdu();
-	assert.ok(apdu.includes('EA13801100000002010102020002011603B0000100'), apdu);
+	assert.ok(apdu.includes('EA13801100000002010102020002011603AF4D0100'), apdu);
 });
 
 test('UICC m=1 emits single pair', () => {
@@ -95,9 +95,9 @@ test('UICC m=1 emits single pair', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ea', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '1', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '0', tkLastid: '00',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '', tkServices: '0',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '', tkServices: '0',
 	});
-	assert.ok(apdu.includes('EA11800F0000000101010002011603B0000100'), apdu);
+	assert.ok(apdu.includes('EA11800F0000000101010002011603AF4D0100'), apdu);
 });
 
 test('UICC m=3 fills middle pair with 0000', () => {
@@ -105,9 +105,9 @@ test('UICC m=3 fills middle pair with 0000', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ea', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '3', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '3', tkLastid: '03',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '', tkServices: '0',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '', tkServices: '0',
 	});
-	assert.ok(apdu.includes('EA158013000000030101000003030002011603B0000100'), apdu);
+	assert.ok(apdu.includes('EA158013000000030101000003030002011603AF4D0100'), apdu);
 });
 
 test('UICC services 7 appended as final byte', () => {
@@ -115,9 +115,9 @@ test('UICC services 7 appended as final byte', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ea', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '2', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '2', tkLastid: '02',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '', tkServices: '7',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '', tkServices: '7',
 	});
-	assert.ok(apdu.includes('EA13801100000002010102020002011603B0000107'), apdu);
+	assert.ok(apdu.includes('EA13801100000002010102020002011603AF4D0107'), apdu);
 });
 
 test('SIM (CA) access domain FIRST, no services byte', () => {
@@ -125,9 +125,9 @@ test('SIM (CA) access domain FIRST, no services byte', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ca', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '2', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '2', tkLastid: '02',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '5A', tkServices: '0',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '5A', tkServices: '0',
 	});
-	assert.ok(apdu.includes('EF14CA12015A00000002010102020002011603B00001'), apdu);
+	assert.ok(apdu.includes('EF14CA12015A00000002010102020002011603AF4D01'), apdu);
 });
 
 test('SIM (CA) blank access domain emits length byte 00', () => {
@@ -135,9 +135,9 @@ test('SIM (CA) blank access domain emits length byte 00', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ca', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '2', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '2', tkLastid: '02',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '', tkServices: '0',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '', tkServices: '0',
 	});
-	assert.ok(apdu.includes('EF13CA110000000002010102020002011603B00001'), apdu);
+	assert.ok(apdu.includes('EF13CA110000000002010102020002011603AF4D01'), apdu);
 });
 
 test('SIM (CA) m=3, no TAR, blank access domain', () => {
@@ -155,7 +155,7 @@ test('UICC m=60 uses long-form BER lengths (EA 81 87 / inner 81 84)', () => {
 		cmd: 'install-install', aid: 'A000000151000000', priv: '00',
 		tkEnabled: true, tkMode: 'ea', tkPriority: '0', tkTimers: '0', tkTextlen: '0',
 		tkMenus: '60', tkFirstpos: '1', tkFirstid: '01', tkLastpos: '60', tkLastid: '3C',
-		tkChannels: '0', tkMsl: '16', tkTar: 'B00001', tkAd: '', tkServices: '0',
+		tkChannels: '0', tkMsl: '16', tkTar: 'AF4D01', tkAd: '', tkServices: '0',
 	});
 	assert.ok(apdu.includes('EA8188808185'), apdu);
 });
