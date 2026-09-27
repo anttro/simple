@@ -1142,15 +1142,21 @@ class CapApduSequenceTest(unittest.TestCase):
     def test_sequence_install_load_install(self):
         from pysim_simple_server.server import _cap_apdu_sequence
         seq = _cap_apdu_sequence('A00000010001', 'A000000100', 'AABBCCDD')
-        # INSTALL [for load]: lv(pkg aid) + lv(ISD) + 000000
+        # INSTALL [for load]: lv(pkg aid) + empty SD (ISD default) + 000000,
+        # case 3 - the reference terminal form (GP Card Spec 2.3.1 Table 11-42:
+        # the SD AID is conditional; a trailing Le makes the card execute a
+        # phantom second command whose SW 6700 aborts the install).
         self.assertEqual(seq[0],
-            '80E6020013' + '06A00000010001' + '08A000000003000000' + '000000' + '00')
+            '80E602000B' + '06A00000010001' + '00000000')
         # One LOAD block (small payload, last -> P1=0x80, P2=0)
         self.assertEqual(seq[1][:8], '80E88000')
-        self.assertTrue(seq[1].endswith('00'))
         # INSTALL [for install]: C9 00 install params appended to the lv chain
         self.assertTrue(seq[2].startswith('80E60C00'))
         self.assertIn('06A00000010001' + '05A000000100' + '05A000000100' + '0100', seq[2])
+        # every RAM install APDU is case 3: length == header + Lc data, no Le
+        for apdu in seq:
+            lc = int(apdu[8:10], 16)
+            self.assertEqual(len(apdu), 10 + 2 * lc, apdu)
 
     def test_load_blocks_split_and_counter(self):
         from pysim_simple_server.server import _cap_apdu_sequence, _ber_len as _ber_len_lower
@@ -1191,6 +1197,15 @@ class CapApduSequenceTest(unittest.TestCase):
         self.assertTrue(joined.startswith('C482'))
         self.assertEqual(int(loads[0][8:10], 16), 100)
         self.assertEqual(int(loads[-1][8:10], 16), 4)  # 704 = 7*100 + 4
+
+
+    def test_custom_sd_aid_is_included(self):
+        from pysim_simple_server.server import _cap_apdu_sequence
+        seq = _cap_apdu_sequence('A00000010001', 'A000000100', 'AABBCCDD',
+                                 sd_aid='A0000000040000')
+        # lv(pkg aid) + lv(custom SD) + 000000
+        self.assertEqual(seq[0][:10], '80E6020012')
+        self.assertIn('06A00000010001' + '07A0000000040000' + '000000', seq[0])
 
     def test_gen_install_returns_the_apdu_list(self):
         # /api/scp81/gen-install: build the INSTALL/LOAD/INSTALL list for a

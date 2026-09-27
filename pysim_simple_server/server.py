@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.7'
+VERSION = '3.6.8'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -728,9 +728,14 @@ def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
     blocks (240-byte payloads, block counter in P2, last block P1=0x80),
     INSTALL [for install]. Shared by the SCP80 delivery path and the SCP81
     command-script path; keep byte-compatible with /api/ram-install."""
-    sd = sd_aid or 'A000000003000000'
-    ifl_data = _lv(loadfile_aid) + _lv(sd) + '00' + '00' + '00'
-    apdus = ['80E60200%02X%s00' % (len(ifl_data) // 2, ifl_data)]
+    # INSTALL/LOAD APDUs follow the reference terminal form: the Security
+    # Domain AID is conditional (GP Card Spec v2.3.1 Table 11-42) and is only
+    # sent when one was supplied (empty -> '00', the card defaults to the
+    # ISD), and the commands are case 3 (no trailing Le).  A trailing Le made
+    # the card execute an extra (phantom) command whose SW 6700 masked the
+    # real result and, with the remote-SW check, aborted the install.
+    ifl_data = _lv(loadfile_aid) + (_lv(sd_aid) if sd_aid else '00') + '00' + '00' + '00'
+    apdus = ['80E60200%02X%s' % (len(ifl_data) // 2, ifl_data)]
     loadfile_tlv = 'C4' + _ber_len(len(loadfile_data) // 2) + loadfile_data
     # Split the TLV into consecutive 240-byte blocks (char offsets, 2 per
     # byte). The earlier form indexed with the block number ('i * 2'), which
@@ -740,7 +745,7 @@ def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
               for off in range(0, len(loadfile_tlv), block_size * 2)]
     for i, block in enumerate(blocks):
         p1 = 0x80 if i == len(blocks) - 1 else 0x00
-        apdus.append('80E8%02X%02X%02X%s00' % (p1, i % 256, len(block) // 2, block))
+        apdus.append('80E8%02X%02X%02X%s' % (p1, i % 256, len(block) // 2, block))
     instance = instance_aid or module_aid
     params = install_params if install_params else 'C900'
     if stk_params:
@@ -748,7 +753,7 @@ def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
     p1_install = 0x0C if make_selectable else 0x04
     ifi_data = (_lv(loadfile_aid) + _lv(module_aid) + _lv(instance) +
                 _lv(privileges or '00') + _lv(params) + '00')
-    apdus.append('80E6%02X00%02X%s00' % (p1_install, len(ifi_data) // 2, ifi_data))
+    apdus.append('80E6%02X00%02X%s' % (p1_install, len(ifi_data) // 2, ifi_data))
     return apdus
 
 
