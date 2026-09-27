@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
-	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer',
+	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -438,6 +438,14 @@ test('ramRemoteSwOk mirrors the server success set', () => {
 	for (const sw of ['6700', '6F00', '6A88', '', null]) {
 		assert.ok(!ramRemoteSwOk(sw), String(sw));
 	}
+});
+
+test('ramListingSpi2 requests the SMS-submit PoR for the listing queries', () => {
+	// Apps (40) and ELF (20/10) listings can exceed the ENVELOPE response;
+	// with SPI2=0x01 the card answers actual_response_sms_submit and the data
+	// never arrives (the live "Partial - Apps" bug).
+	for (const p1 of ['40', '20', '10']) assert.strictEqual(ramListingSpi2(p1), '21', p1);
+	for (const p1 of ['80', '00', 'FF']) assert.strictEqual(ramListingSpi2(p1), '01', p1);
 });
 
 function stubDeleteEnv(sendResult) {

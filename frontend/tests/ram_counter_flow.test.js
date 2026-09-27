@@ -98,6 +98,17 @@ test('a refused DELETE still advances the counter but does not re-explore', asyn
 	assert.strictEqual(calls.explored, null);
 });
 
+test('a delete accepted via actual_response_sms_submit advances and re-explores', async () => {
+	// The card consumed the packet and will deliver the remote result as an
+	// SMS-SUBMIT; the counter must advance and the re-explore must run (the
+	// remote SW is unknown, so no SW is shown).
+	const { els, calls } = fakeEnv({ response_status: 'actual_response_sms_submit' });
+	await ramDeleteFromExplorer('F0414C46416101', false);
+	assert.strictEqual(cards[0].cntr, '0000000006');
+	assert.strictEqual(calls.explored, '0000000006');
+	assert.strictEqual(els['ram-result'].textContent, 'OK');
+});
+
 test('a send failure leaves the preset untouched', async () => {
 	const { calls } = fakeEnv({ response_status: 'por_ok' }, false);
 	await ramDeleteFromExplorer('F0414C46416101', false);

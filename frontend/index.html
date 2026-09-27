@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.9';
+const SIMPLE_VERSION = '3.6.10';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8721,11 +8721,9 @@ async function ramExplore(sp) {
 	async function paginate(p1, collector, parser, label) {
 		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
 		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
-		// commands, so the PoR carries the listing.  ELF queries (P1=20/10) use
-		// SPI2=0x21 (PoR via SMS-SUBMIT) because the listing won't fit in the
-		// ENVELOPE response.
-		const isElf = (p1 === '20' || p1 === '10');
-		const spi2 = isElf ? '21' : '01';
+		// commands, so the PoR carries the listing; ramListingSpi2() picks the
+		// PoR transport per query.
+		const spi2 = ramListingSpi2(p1);
 		let p2 = '00';
 		let guard = 0;
 		while (guard++ < 32) {
@@ -8736,13 +8734,19 @@ async function ramExplore(sp) {
 			// page itself is incomplete: the card consumed it, and a retry with
 			// the same counter is rejected (cntr_low).
 			if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
-			if (!res.success || !res.por || res.por.response_status !== 'por_ok') {
+			if (!res.success || !res.por || !spPorAccepted(res.por)) {
 				const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
 				errors.push(label + ': ' + errorMsg);
 				break;
 			}
 			const data = res.por.decoded ? res.por.decoded.last_response_data : '';
 			const sw = (res.por.decoded ? res.por.decoded.last_status_word : '').toUpperCase();
+			if (!data && res.por.response_status === 'actual_response_sms_submit') {
+				// Accepted, but the actual-response SMS was not captured: there
+				// is nothing to parse for this page (not a card error).
+				errors.push(label + ': ' + t('response via SMS not captured'));
+				break;
+			}
 			// Defensive: a remote 61XX means the data is still pending (the
 			// chained GET RESPONSE normally prevents this).
 			if (sw && sw.startsWith('61')) {
@@ -8858,7 +8862,7 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
 	const sw = res.por && res.por.decoded ? res.por.decoded.last_status_word : '';
-	if (!res.success || !res.por || res.por.response_status !== 'por_ok' ||
+	if (!res.success || !res.por || !spPorAccepted(res.por) ||
 	    (sw && !ramRemoteSwOk(sw))) {
 		resultEl.textContent = t('Failed') + ': ' +
 			(res.por ? res.por.response_status : (res.error || res.sw)) +
@@ -8867,7 +8871,7 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 		return;
 	}
 	stepsEl.classList.remove('hidden');
-	stepsEl.textContent = label + ' ' + aid + ' -> ' + sw;
+	stepsEl.textContent = label + ' ' + aid + (sw ? ' -> ' + sw : '');
 	resultEl.textContent = t('OK');
 	resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	// Continue from the counter the delete consumed: replaying the old one
@@ -9500,6 +9504,16 @@ function ramRemoteSwOk(sw) {
 // for the compact path.
 function ramGetStatusApdu(p1, p2) {
 	return '80F2' + p1 + p2 + '024F0000' + 'C0000000';
+}
+
+// The ISD (80) and memory responses fit the ENVELOPE; the Apps (40) and ELF
+// (20/10) listings can exceed it, and the card then delivers the actual
+// response as an SMS-SUBMIT - those queries must request the PoR in submit
+// mode (SPI2=0x21).  With SPI2=0x01 the card answers the envelope PoR with
+// actual_response_sms_submit and the data never arrives (live 2026-09-28:
+// "Partial - Apps: actual_response_sms_submit").
+function ramListingSpi2(p1) {
+	return (p1 === '40' || p1 === '20' || p1 === '10') ? '21' : '01';
 }
 
 function downloadJson(name, obj) {
@@ -16447,6 +16461,7 @@ const LANG_RU = {
 	'Memory': 'Память',
 	'no data': 'нет данных',
 	'(no data)': '(нет данных)',
+	'response via SMS not captured': 'ответ по SMS не перехвачен',
 	'free NV': 'свободно NV',
 	'Failed': 'Ошибка',
 	'cascade': 'каскадно',
