@@ -666,7 +666,7 @@ class BipControlTest(unittest.TestCase):
             self.assertTrue(server._SCP81_SCRIPT_CR_TAG)
             self.assertEqual(server._SCP81_TARGETED_APP, '//aid/A000000151000000')
             self.assertEqual(server._SCP81_NEXT_URI, '')
-            self.assertFalse(server._SCP81_LINK_EVENTS)
+            self.assertFalse(server._BIP_LINK_EVENTS)
             self.assertEqual(resp['script_template'], 'definite')
             self.assertTrue(resp['cr_tag'])
             self.assertFalse(resp['link_events'])
@@ -676,7 +676,7 @@ class BipControlTest(unittest.TestCase):
             server._SCP81_SCRIPT_CR_TAG = False
             server._SCP81_TARGETED_APP = None
             server._SCP81_NEXT_URI = None
-            server._SCP81_LINK_EVENTS = True
+            server._BIP_LINK_EVENTS = True
 
     def test_link_events_apply_to_every_mode(self):
         # TS 102 223 7.5.11 events are a BIP-layer feature, not a TLS option.
@@ -684,11 +684,11 @@ class BipControlTest(unittest.TestCase):
                                           'host': '10.11.12.13', 'port': 10174,
                                           'link_events': False})
         self.assertTrue(resp['ok'], resp)
-        self.assertFalse(server._SCP81_LINK_EVENTS)
+        self.assertFalse(server._BIP_LINK_EVENTS)
         resp = server._scp81_bip_control({'action': 'start', 'mode': 'passthru',
                                           'link_events': True})
         self.assertTrue(resp['ok'], resp)
-        self.assertTrue(server._SCP81_LINK_EVENTS)
+        self.assertTrue(server._BIP_LINK_EVENTS)
 
     def test_tls_handshake_failure_is_logged(self):
         resp = server._scp81_bip_control({'action': 'start', 'mode': 'tls',
@@ -770,7 +770,7 @@ class BipControlTest(unittest.TestCase):
         resp = server._scp81_bip_control({'action': 'start', 'mode': 'redirect',
                                           'host': '10.11.12.13', 'port': 10174})
         self.assertTrue(resp['ok'], resp)
-        self.assertIsNone(server._SCP81_LISTENER)       # no local listener
+        self.assertIsNone(server._BIP_LISTENER)       # no local listener
         self.assertEqual(resp['listener']['mode'], 'redirect')
         self.assertEqual(resp['listener']['host'], '10.11.12.13')
         self.assertEqual(resp['listener']['port'], 10174)
@@ -778,10 +778,10 @@ class BipControlTest(unittest.TestCase):
         self.assertTrue(resp['bip']['enabled'])
         self.assertEqual(server._BIP.target, ('10.11.12.13', 10174))
         # the status endpoint sees the redirect mode while it runs ...
-        self.assertEqual(server._scp81_listener_status()['mode'], 'redirect')
+        self.assertEqual(server._bip_listener_status()['mode'], 'redirect')
         # ... and stopping clears it (no stale listener in the status)
         server._scp81_bip_control({'action': 'stop'})
-        self.assertIsNone(server._scp81_listener_status())
+        self.assertIsNone(server._bip_listener_status())
         self.assertFalse(server._BIP.enabled)
 
     def test_redirect_mode_requires_an_explicit_target(self):
@@ -795,7 +795,7 @@ class BipControlTest(unittest.TestCase):
         resp = server._scp81_bip_control({'action': 'start', 'mode': 'redirect',
                                           'port': 1234})
         self.assertFalse(resp['ok'])
-        self.assertIsNone(server._SCP81_LISTENER)
+        self.assertIsNone(server._BIP_LISTENER)
         self.assertFalse(server._BIP.enabled)
 
     def test_passthru_mode_needs_no_target(self):
@@ -803,15 +803,15 @@ class BipControlTest(unittest.TestCase):
         # the destination the card requests in OPEN CHANNEL.
         resp = server._scp81_bip_control({'action': 'start', 'mode': 'passthru'})
         self.assertTrue(resp['ok'], resp)
-        self.assertIsNone(server._SCP81_LISTENER)
+        self.assertIsNone(server._BIP_LISTENER)
         self.assertEqual(resp['listener'], {'mode': 'passthru'})
         self.assertEqual(server._BIP.mode, 'passthru')
         self.assertIsNone(server._BIP.target)
         self.assertTrue(resp['bip']['enabled'])
         self.assertEqual(resp['bip']['mode'], 'passthru')
-        self.assertEqual(server._scp81_listener_status(), {'mode': 'passthru'})
+        self.assertEqual(server._bip_listener_status(), {'mode': 'passthru'})
         server._scp81_bip_control({'action': 'stop'})
-        self.assertIsNone(server._scp81_listener_status())
+        self.assertIsNone(server._bip_listener_status())
         self.assertFalse(server._BIP.enabled)
 
     def test_start_accepts_explicit_script_list(self):

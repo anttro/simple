@@ -423,6 +423,7 @@ class TcpDumpServer:
         self.on_log = on_log
         self.stopped = False
         self.conns = []
+        self.accepted = 0
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((host, int(port)))
@@ -443,11 +444,13 @@ class TcpDumpServer:
             except OSError:
                 break
             self.conns.append(conn)
+            self.accepted += 1
             if self.on_log:
                 self.on_log('conn', peer='%s:%d' % addr[:2])
             threading.Thread(target=self._conn_loop, args=(conn, addr), daemon=True).start()
 
     def _conn_loop(self, conn, addr):
+        total = 0
         try:
             while not self.stopped:
                 conn.settimeout(0.2)
@@ -459,9 +462,12 @@ class TcpDumpServer:
                     break
                 if not data:
                     break
+                total += len(data)
                 if self.on_rx:
                     self.on_rx('%s:%d' % addr[:2], data)
         finally:
+            if self.on_log:
+                self.on_log('conn-close', peer='%s:%d' % addr[:2], bytes=total)
             try:
                 conn.close()
             except OSError:
@@ -481,3 +487,11 @@ class TcpDumpServer:
             except OSError:
                 pass
         self.conns = []
+        # Wait for the accept loop to leave accept(): a thread blocked in
+        # accept() keeps the listening socket alive for up to its poll
+        # timeout, so the port must be released before stop() returns
+        # (restarting a listener on the same port must not race).
+        try:
+            self.thread.join(timeout=2)
+        except RuntimeError:
+            pass

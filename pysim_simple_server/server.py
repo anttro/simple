@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.5.19'
+VERSION = '3.6.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1312,15 +1312,20 @@ PLI_QUALIFIER_NAMES = {
 _PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}
 
 _BIP = httpota.BipTerminal()
-_SCP81_LISTENER = None
-# Active listener mode: 'dump' | 'tls' | 'redirect' | 'passthru'.
-# 'redirect' pins one target and has no listener object - the BIP channels
-# connect straight to the configured external platform (TLS terminated
-# there). 'passthru' has neither listener nor target: each channel dials the
-# destination the card requests in OPEN CHANNEL. Mode/target are tracked here
-# for the status API.
-_SCP81_MODE = None
-_SCP81_TARGET = None
+# Active BIP session, shared by the SCP81 listener and the Simulator's
+# generic BIP pill - only one can run at a time:
+#   'tls' | 'dump'  SCP81 PSK TLS / capture listener
+#   'sink'          generic BIP local sink (accept + log, never answers)
+#   'redirect'      pinned target, no listener object: every channel connects
+#                   to the configured platform (TLS terminated there)
+#   'passthru'      no listener and no target: each channel dials the
+#                   destination the card requests in OPEN CHANNEL
+# _BIP_OWNER records which control started it ('scp81' | 'bip') so both
+# status views can show who owns the terminal.
+_BIP_LISTENER = None
+_BIP_MODE = None
+_BIP_TARGET = None
+_BIP_OWNER = None
 # PSK table of the TLS listener: identity -> key (memory only, never logged or
 # persisted; the PWA sends it from the card presets at listener start).
 # _SCP81_PSK_LEGACY keeps a single-key start (psk_hex [+ psk_identity]) so an
@@ -2057,32 +2062,34 @@ def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
     return None
 
 
-def _scp81_listener_status():
-    if not _SCP81_LISTENER:
-        if _SCP81_MODE == 'redirect' and _SCP81_TARGET:
-            return {'mode': 'redirect', 'host': _SCP81_TARGET[0],
-                    'port': _SCP81_TARGET[1],
-                    'target': '%s:%d' % _SCP81_TARGET}
-        if _SCP81_MODE == 'passthru':
+def _bip_listener_status():
+    if not _BIP_LISTENER:
+        if _BIP_MODE == 'redirect' and _BIP_TARGET:
+            return {'mode': 'redirect', 'host': _BIP_TARGET[0],
+                    'port': _BIP_TARGET[1],
+                    'target': '%s:%d' % _BIP_TARGET}
+        if _BIP_MODE == 'passthru':
             # No listener and no pinned target: every channel dials the
             # destination the card requests (per-channel targets in the
             # BIP status).
             return {'mode': 'passthru'}
         return None
-    if isinstance(_SCP81_LISTENER, scp81.PskTlsServer):
-        return {'mode': 'tls', 'host': _SCP81_LISTENER.host, 'port': _SCP81_LISTENER.port,
-                'psk_identities': _SCP81_LISTENER.psk_identities,
-                'psk_wildcard': _SCP81_LISTENER.wildcard_psk is not None,
-                'identity_seen': _SCP81_LISTENER.identity_seen,
-                'identity_matched': _SCP81_LISTENER.identity_matched,
-                'version_seen': _SCP81_LISTENER.version_seen,
-                'cipher_seen': _SCP81_LISTENER.cipher_seen,
-                'chunked': _SCP81_LISTENER.chunked,
-                'chunk_size': _SCP81_LISTENER.chunk_size,
-                'compact_headers': _SCP81_LISTENER.compact_headers,
-                'tls_version': _SCP81_LISTENER.tls_version,
-                'cipher': _SCP81_LISTENER.cipher}
-    return {'mode': 'dump', 'host': _SCP81_LISTENER.host, 'port': _SCP81_LISTENER.port}
+    if isinstance(_BIP_LISTENER, scp81.PskTlsServer):
+        return {'mode': 'tls', 'host': _BIP_LISTENER.host, 'port': _BIP_LISTENER.port,
+                'psk_identities': _BIP_LISTENER.psk_identities,
+                'psk_wildcard': _BIP_LISTENER.wildcard_psk is not None,
+                'identity_seen': _BIP_LISTENER.identity_seen,
+                'identity_matched': _BIP_LISTENER.identity_matched,
+                'version_seen': _BIP_LISTENER.version_seen,
+                'cipher_seen': _BIP_LISTENER.cipher_seen,
+                'chunked': _BIP_LISTENER.chunked,
+                'chunk_size': _BIP_LISTENER.chunk_size,
+                'compact_headers': _BIP_LISTENER.compact_headers,
+                'tls_version': _BIP_LISTENER.tls_version,
+                'cipher': _BIP_LISTENER.cipher}
+    return {'mode': _BIP_MODE or 'dump', 'host': _BIP_LISTENER.host,
+            'port': _BIP_LISTENER.port,
+            'connections': _BIP_LISTENER.accepted}
 
 
 def _bip_data_available(ch):
@@ -2206,7 +2213,7 @@ _SCP81_CHUNKED = False
 # Send automatic Channel status (link dropped) events to the card. Suppress
 # while testing flows where the terminal closes the connection on purpose:
 # the card must drain the buffered response and resume on a new connection.
-_SCP81_LINK_EVENTS = True
+_BIP_LINK_EVENTS = True
 
 
 def _ber_len_bytes(n):
@@ -2511,14 +2518,14 @@ def _scp81_update_psk_map(body):
         return {'ok': False, 'error': err}
     if not table:
         return {'ok': False, 'error': 'no usable PSK entries (identity + key required)'}
-    if not isinstance(_SCP81_LISTENER, scp81.PskTlsServer):
+    if not isinstance(_BIP_LISTENER, scp81.PskTlsServer):
         return {'ok': False, 'error': 'PSK TLS listener is not running'}
-    _SCP81_LISTENER.set_psk_map(table)
+    _BIP_LISTENER.set_psk_map(table)
     _SCP81_PSKS = dict(table)
     _SCP81_PSK_LEGACY = None
     _BIP.log('tls-psk-map', identities=sorted(table))
     return {'ok': True, 'identities': sorted(table),
-            'listener': _scp81_listener_status()}
+            'listener': _bip_listener_status()}
 
 
 def _scp81_gen_install(body):
@@ -2573,33 +2580,113 @@ def _cap_info_body(body):
             'load_file_bytes': len(loadfile_data) // 2, 'memory': info}
 
 
+def _bip_session_stop():
+    """Stop the active BIP session, whichever control started it."""
+    global _BIP_LISTENER, _BIP_MODE, _BIP_TARGET, _BIP_OWNER
+    replaced = None
+    if _BIP_OWNER:
+        replaced = {'owner': _BIP_OWNER, 'mode': _BIP_MODE}
+    if _BIP_LISTENER:
+        _BIP_LISTENER.stop()
+        _BIP_LISTENER = None
+    _BIP_MODE = None
+    _BIP_TARGET = None
+    _BIP_OWNER = None
+    _BIP.disable()
+    return replaced
+
+
+def _bip_status_body():
+    return {'owner': _BIP_OWNER, 'bip': _BIP.status(),
+            'listener': _bip_listener_status()}
+
+
+def _bip_control(body):
+    """Generic BIP terminal control (Simulator -> BIP pill).
+
+    'sink' (default) accepts the card's channels on a local listener and only
+    logs what arrives; 'redirect' forwards every channel to a fixed target;
+    'passthru' dials the destination from the card's OPEN CHANNEL.  Starting
+    replaces any running BIP session (an SCP81 listener included) - one BIP
+    session at a time; the response reports what was replaced."""
+    global _BIP_LISTENER, _BIP_MODE, _BIP_TARGET, _BIP_OWNER, _BIP_LINK_EVENTS
+    body = body or {}
+    action = body.get('action', 'start')
+    if action == 'stop':
+        replaced = _bip_session_stop()
+        resp = _bip_status_body()
+        resp.update({'ok': True, 'replaced': replaced})
+        return resp
+    mode = body.get('mode', 'sink')
+    if mode not in ('passthru', 'redirect', 'sink'):
+        return {'ok': False, 'error': 'unsupported mode: %s' % mode}
+    host = (body.get('host') or '').strip() or '127.0.0.1'
+    raw_port = body.get('port')
+    if mode == 'redirect':
+        if not body.get('host') or raw_port in (None, ''):
+            return {'ok': False,
+                    'error': 'redirect mode requires the target host and port'}
+        try:
+            port = int(raw_port)
+        except (TypeError, ValueError):
+            return {'ok': False, 'error': 'port is not a number'}
+        if not 0 < port <= 0xFFFF:
+            return {'ok': False, 'error': 'port must be 1-65535'}
+    elif mode == 'sink':
+        try:
+            port = int(raw_port) if raw_port not in (None, '') else 0
+        except (TypeError, ValueError):
+            return {'ok': False, 'error': 'port is not a number'}
+        if not 0 <= port <= 0xFFFF:
+            return {'ok': False, 'error': 'port must be 0-65535 (0 = ephemeral)'}
+    replaced = _bip_session_stop()
+    _BIP_LINK_EVENTS = bool(body.get('link_events', True))
+    _BIP.on_data = _bip_data_available
+    if mode == 'passthru':
+        _BIP_MODE = 'passthru'
+        _BIP_TARGET = None
+        _BIP.enable(mode='passthru')
+    elif mode == 'redirect':
+        _BIP_MODE = 'redirect'
+        _BIP_TARGET = (host, port)
+        _BIP.enable(host, port, mode='redirect')
+    else:
+        _BIP_LISTENER = httpota.TcpDumpServer(
+            host, port,
+            on_rx=lambda peer, data: _BIP.log('sink-rx', peer=peer,
+                                              bytes=len(data),
+                                              hex=data.hex().upper()[:2000]),
+            on_log=lambda kind, **fields: _BIP.log(kind, **fields))
+        _BIP_MODE = 'sink'
+        _BIP_TARGET = (_BIP_LISTENER.host, _BIP_LISTENER.port)
+        _BIP.enable(_BIP_LISTENER.host, _BIP_LISTENER.port, mode='redirect')
+    _BIP_OWNER = 'bip'
+    resp = _bip_status_body()
+    resp.update({'ok': True, 'replaced': replaced})
+    return resp
+
+
 def _scp81_bip_control(body):
-    global _SCP81_LISTENER, _SCP81_PSKS, _SCP81_PSK_LEGACY
-    global _SCP81_MODE, _SCP81_TARGET
+    global _BIP_LISTENER, _SCP81_PSKS, _SCP81_PSK_LEGACY
+    global _BIP_MODE, _BIP_TARGET, _BIP_OWNER
     global _SCP81_SCRIPT_TEMPLATE, _SCP81_SCRIPT_CR_TAG, _SCP81_NEXT_URI
-    global _SCP81_LINK_EVENTS, _SCP81_TARGETED_APP
+    global _BIP_LINK_EVENTS, _SCP81_TARGETED_APP
     global _SCP81_CHUNKED
     body = body or {}
     action = body.get('action', 'start')
     if action == 'stop':
-        if _SCP81_LISTENER:
-            _SCP81_LISTENER.stop()
-            _SCP81_LISTENER = None
-        _SCP81_MODE = None
-        _SCP81_TARGET = None
-        _BIP.disable()
-        return {'ok': True, 'bip': _BIP.status(), 'listener': None}
+        replaced = _bip_session_stop()
+        resp = _bip_status_body()
+        resp.update({'ok': True, 'replaced': replaced})
+        return resp
     host = body.get('host') or '127.0.0.1'
     port = body.get('port')
     port = int(port) if port not in (None, '') else 8443
     mode = body.get('mode', 'dump')
-    if _SCP81_LISTENER:
-        _SCP81_LISTENER.stop()
-        _SCP81_LISTENER = None
-    _BIP.disable()
+    replaced = _bip_session_stop()
     # Channel status events (TS 102 223 7.5.11) apply to every mode: the
     # terminal reports BIP link changes it detects outside proactive commands.
-    _SCP81_LINK_EVENTS = bool(body.get('link_events', True))
+    _BIP_LINK_EVENTS = bool(body.get('link_events', True))
     if mode == 'redirect':
         # No local listener: the card's BIP channels are redirected straight
         # to the configured target (e.g. a production HTTP OTA server), which
@@ -2608,22 +2695,24 @@ def _scp81_bip_control(body):
         if not body.get('host') or body.get('port') in (None, ''):
             return {'ok': False,
                     'error': 'redirect mode requires the target host and port'}
-        _SCP81_MODE = 'redirect'
-        _SCP81_TARGET = (host, port)
+        _BIP_MODE = 'redirect'
+        _BIP_TARGET = (host, port)
+        _BIP_OWNER = 'scp81'
         _BIP.on_data = _bip_data_available
         _BIP.enable(host, port, mode='redirect')
-        return {'ok': True, 'bip': _BIP.status(),
-                'listener': _scp81_listener_status()}
+        return {'ok': True, 'replaced': replaced, 'bip': _BIP.status(),
+                'listener': _bip_listener_status()}
     if mode == 'passthru':
         # No local listener and no pinned target: every BIP channel dials the
         # destination the card requests in OPEN CHANNEL (Other address +
         # Transport level port, TCP client only). Host and port are unused.
-        _SCP81_MODE = 'passthru'
-        _SCP81_TARGET = None
+        _BIP_MODE = 'passthru'
+        _BIP_TARGET = None
+        _BIP_OWNER = 'scp81'
         _BIP.on_data = _bip_data_available
         _BIP.enable(mode='passthru')
-        return {'ok': True, 'bip': _BIP.status(),
-                'listener': _scp81_listener_status()}
+        return {'ok': True, 'replaced': replaced, 'bip': _BIP.status(),
+                'listener': _bip_listener_status()}
     if mode == 'tls':
         raw_map = body.get('psk_map')
         table, err = _parse_psk_map(raw_map)
@@ -2683,7 +2772,7 @@ def _scp81_bip_control(body):
         _SCP81_CHUNKED = bool(body.get('chunked', True))
         cs = body.get('chunk_size')
         chunk_size = int(cs) if cs not in (None, '') else 0
-        _SCP81_LISTENER = scp81.PskTlsServer(
+        _BIP_LISTENER = scp81.PskTlsServer(
             host, port, psk, identity=identity, psk_map=(table or None),
             responder=_scp81_script_responder,
             chunked=bool(body.get('chunked', True)),
@@ -2695,30 +2784,34 @@ def _scp81_bip_control(body):
             conn_header=(body.get('conn_header') or 'none'),
             answer_delay=(body.get('answer_delay') or 0),
             on_log=lambda kind, **fields: _BIP.log(kind, **fields))
-        _SCP81_PSKS = dict(_SCP81_LISTENER.psk_map)
+        _SCP81_PSKS = dict(_BIP_LISTENER.psk_map)
         _SCP81_PSK_LEGACY = None if table else (psk, identity)
-        _SCP81_MODE = 'tls'
-        _SCP81_TARGET = (_SCP81_LISTENER.host, _SCP81_LISTENER.port)
+        _BIP_MODE = 'tls'
+        _BIP_TARGET = (_BIP_LISTENER.host, _BIP_LISTENER.port)
+        _BIP_OWNER = 'scp81'
         _BIP.on_data = _bip_data_available
-        _BIP.enable(host, _SCP81_LISTENER.port, mode='redirect')
-        return {'ok': True, 'bip': _BIP.status(), 'listener': _scp81_listener_status(),
+        _BIP.enable(host, _BIP_LISTENER.port, mode='redirect')
+        return {'ok': True, 'replaced': replaced, 'bip': _BIP.status(),
+                'listener': _bip_listener_status(),
                 'script': list(_SCP81_SCRIPT_BASE),
                 'script_kind': _SCP81_SCRIPT_KIND,
                 'script_template': _SCP81_SCRIPT_TEMPLATE,
-                'cr_tag': _SCP81_SCRIPT_CR_TAG, 'link_events': _SCP81_LINK_EVENTS,
+                'cr_tag': _SCP81_SCRIPT_CR_TAG, 'link_events': _BIP_LINK_EVENTS,
                 'targeted_app': _SCP81_TARGETED_APP,
                 'chunked': _SCP81_CHUNKED}
     if mode != 'dump':
         return {'ok': False, 'error': 'unsupported mode: %s' % mode}
     _BIP.on_data = _bip_data_available
-    _SCP81_LISTENER = httpota.TcpDumpServer(
+    _BIP_LISTENER = httpota.TcpDumpServer(
         host, port,
         on_rx=lambda peer, data: _BIP.log('dump-rx', peer=peer, bytes=len(data), hex=data.hex().upper()[:2000]),
         on_log=lambda kind, **fields: _BIP.log(kind, **fields))
-    _SCP81_MODE = 'dump'
-    _SCP81_TARGET = (_SCP81_LISTENER.host, _SCP81_LISTENER.port)
-    _BIP.enable(host, _SCP81_LISTENER.port, mode='redirect')
-    return {'ok': True, 'bip': _BIP.status(), 'listener': _scp81_listener_status()}
+    _BIP_MODE = 'dump'
+    _BIP_TARGET = (_BIP_LISTENER.host, _BIP_LISTENER.port)
+    _BIP_OWNER = 'scp81'
+    _BIP.enable(host, _BIP_LISTENER.port, mode='redirect')
+    return {'ok': True, 'replaced': replaced, 'bip': _BIP.status(),
+            'listener': _bip_listener_status()}
 
 
 def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual):
@@ -3499,7 +3592,7 @@ def _bip_flush_channel_events(scc):
     global _FLUSHING_CHANNEL_EVENTS
     if _FLUSHING_CHANNEL_EVENTS:
         return
-    if not _SCP81_LINK_EVENTS:
+    if not _BIP_LINK_EVENTS:
         _BIP.take_pending_events()
         return
     ev_list = getattr(_server_ref, 'event_list', None) or []
@@ -4150,6 +4243,7 @@ _TEST_BLOCKED_PATHS = frozenset([
     '/api/esim/profiles', '/api/esim/notifications', '/api/esim/profile',
     '/api/scp81/bip', '/api/scp81/queue', '/api/scp81/psk-map',
     '/api/scp81/gen-install', '/api/scp81/log-clear',
+    '/api/bip/control', '/api/bip/log-clear',
 ])
 _TEST_COMMAND_TYPES = {name.upper(): code for code, name in PROACTIVE_TYPE_NAMES.items()}
 
@@ -4996,12 +5090,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'pending_type': self.server.stk_pending['type'] if self.server.stk_pending else None}
             self._send_json(resp)
             self._log_resp(resp)
-        elif self.path == '/api/scp81/status':
+        elif self.path in ('/api/scp81/status', '/api/bip/status'):
             self._log_req()
-            resp = {'bip': _BIP.status(), 'listener': _scp81_listener_status()}
+            resp = _bip_status_body()
             self._send_json(resp)
             self._log_resp(resp)
-        elif self.path == '/api/scp81/log' or self.path.startswith('/api/scp81/log?'):
+        elif (self.path == '/api/scp81/log' or self.path.startswith('/api/scp81/log?')
+              or self.path == '/api/bip/log' or self.path.startswith('/api/bip/log?')):
             self._log_req()
             after = 0
             if '?' in self.path:
@@ -6003,6 +6098,15 @@ class PysimHandler(BaseHTTPRequestHandler):
                 resp = {'ok': False, 'error': str(e)}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/bip/control':
+            body = self._read_body()
+            self._log_req(body)
+            try:
+                resp = _bip_control(body)
+            except Exception as e:
+                resp = {'ok': False, 'error': str(e)}
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/scp81/psk-map':
             body = self._read_body()
             self._log_req(_redact_psk_fields(body))
@@ -6019,7 +6123,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             apdus = [a for a in apdus if a]
             if not apdus:
                 resp = {'ok': False, 'error': 'no apdus given'}
-            elif _SCP81_LISTENER is None:
+            elif _BIP_LISTENER is None:
                 resp = {'ok': False, 'error': 'SCP81 listener is not running'}
             else:
                 queued = _scp81_queue_script(
@@ -6049,7 +6153,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 resp = {'ok': False, 'error': str(e)}
             self._send_json(resp)
             self._log_resp(resp)
-        elif self.path == '/api/scp81/log-clear':
+        elif self.path in ('/api/scp81/log-clear', '/api/bip/log-clear'):
             body = self._read_body()
             self._log_req(body)
             _BIP.clear_log()

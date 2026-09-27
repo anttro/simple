@@ -552,6 +552,15 @@
 		<li><strong>Templates</strong> &mdash; Empty, <em>STK menu browsing</em>, <em>Applet via SCP80</em>; the step editor is form-based and individual scripts export/import as JSON.</li>
 	</ul>
 
+	<h3 id="bip" class="text-lg font-medium mb-2">8.10 BIP terminal (generic TCP)</h3>
+	<p class="text-sm mb-2">The <strong>BIP</strong> pill runs the terminal side of the Bearer Independent Protocol for cards that use TCP without HTTP OTA (SCP81): an applet or a push trigger can open a channel and exchange raw data. Only one BIP session runs at a time &mdash; starting here stops a running SCP81 listener, and starting the SCP81 listener stops this session (both report what was replaced).</p>
+	<ul class="list-disc list-inside text-sm space-y-1 mb-3">
+		<li><strong>Local sink (log only)</strong> (default) &mdash; accepts the card's channels on a local listener and only logs what arrives; nothing is ever sent back. Leave the port empty for an ephemeral port (the bound address appears in the status). Use it for cards that open a TCP connection just to upload data.</li>
+		<li><strong>Card's destination (OPEN CHANNEL)</strong> &mdash; each channel is connected to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port are not used and the server's network is used (lab only).</li>
+		<li><strong>Fixed target</strong> &mdash; every channel is connected to the configured Host:Port; the address the card requests is only logged.</li>
+	</ul>
+	<p class="text-sm mb-2">The status line shows the active mode, the bound address, the session owner and the open channels; the <strong>Channels</strong> box lists the per-channel byte counts and the <strong>BIP log</strong> records every open / send / receive / close event with a hex preview (the same events the SCP81 tab shows). CAT_TP over UDP is not implemented.</p>
+
 	<h2 id="server" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">9. Server installation</h2>
 	<p class="mb-3">Live card operations (Card reader tab, Simulator, OTA delivery) require the local <a href="https://github.com/anttro/simple" class="text-blue-600 dark:text-blue-400 hover:underline">pysim-simple-server</a> — a small HTTP server bundled with SIMple that wraps pySim, talks to the reader over PC/SC or serial, and also serves the PWA itself (open <code class="font-mono text-sm">http://127.0.0.1:8080</code>).</p>
 

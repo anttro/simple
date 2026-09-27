@@ -65,9 +65,13 @@ a 3.x PWA).
 | `/api/pli-dict` | GET | Current dictionary (hex values per qualifier) |
 | `/api/pli-dict` | POST | Update dictionary entries |
 | `/api/scp81/bip` | POST | Start/stop the HTTP OTA listener (dump capture or PSK TLS server) |
-| `/api/scp81/status` | GET | BIP terminal + listener state (channels, PSK identities, handshake identity) |
+| `/api/scp81/status` | GET | BIP terminal + listener state (channels, PSK identities, handshake identity, `owner`) |
 | `/api/scp81/log` | GET | HTTP OTA event log (`?after=<seq>`) |
 | `/api/scp81/log-clear` | POST | Clear the HTTP OTA event log |
+| `/api/bip/control` | POST | Start/stop the generic BIP session (`sink` / `passthru` / `redirect`) |
+| `/api/bip/status` | GET | BIP session state + owner (same shape as `/api/scp81/status`) |
+| `/api/bip/log` | GET | BIP event log (`?after=<seq>`) |
+| `/api/bip/log-clear` | POST | Clear the BIP event log |
 | `/api/scp81/queue` | POST | Replace the SCP81 command script (optionally force-restart) |
 | `/api/scp81/script` | GET | Active command script + execution state and R-APDUs |
 | `/api/scp81/psk-map` | POST | Replace the PSK table of a running TLS listener |
@@ -985,6 +989,47 @@ its run progress.
 
 Stop either mode with `{"action": "stop"}` (also disables the BIP terminal).
 
+### `POST /api/bip/control`
+
+Generic BIP terminal control for the Simulator's **BIP** pill - the terminal
+side of the Bearer Independent Protocol for cards that use TCP without HTTP
+OTA. The session is shared with the SCP81 listener: only one BIP session runs
+at a time, starting either control stops the other, and the response reports
+what was stopped as `replaced: {"owner": "scp81"|"bip", "mode": ...}` (the
+PWA shows a notice).
+
+```json
+{"action": "start", "mode": "sink", "host": "127.0.0.1", "port": 0}
+```
+
+Modes:
+
+- `sink` (default) - starts a local TCP listener that accepts the card's BIP
+  channels and only logs what arrives (`conn`, `sink-rx`, `conn-close`); it
+  never sends anything back. `port` may be `0`/omitted for an ephemeral port;
+  the bound address is reported in the status. Use it for cards that open a
+  TCP connection just to upload data.
+- `passthru` - no listener and no target: each channel dials the destination
+  the card requests in OPEN CHANNEL (TCP client only, no default port; an
+  incomplete or non-TCP request fails with result `3A`).
+- `redirect` - every channel connects to the required `host`/`port`; the
+  address the card requests is only logged.
+
+`link_events` (default `true`) controls the terminal-side Channel status
+events (TS 102 223 7.5.11). An invalid request never disturbs a running
+session. Stop with `{"action": "stop"}`; the response carries the same body
+as the status endpoints.
+
+### `GET /api/bip/status`
+
+Same shape as `GET /api/scp81/status`: `{"owner": "bip"|"scp81"|null,
+"bip": {...}, "listener": {...}}`. A running sink reports
+`{"mode": "sink", "host": ..., "port": ..., "connections": N}`.
+
+### `GET /api/bip/log` / `POST /api/bip/log-clear`
+
+The shared BIP event log (`?after=<seq>`) - identical to `/api/scp81/log`.
+
 ### `GET /api/scp81/status`
 
 ```json
@@ -994,6 +1039,9 @@ Stop either mode with `{"action": "stop"}` (also disables the BIP terminal).
               "identity_seen": "89012345678901234567", "identity_matched": true,
               "version_seen": "TLSv1.2", "cipher_seen": "PSK-AES128-CBC-SHA256"}}
 ```
+
+`owner` is `scp81` or `bip` (whichever control started the session), `null`
+when idle; it is returned by both this endpoint and `/api/bip/status`.
 
 Listener modes: `tls` (local PSK TLS server), `dump` (capture-only TCP
 listener), `redirect` (no local listener; the BIP channels go straight to the

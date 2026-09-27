@@ -1032,6 +1032,7 @@
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-phone-sub="phone" onclick="phoneSwitchSubtab('phone')" data-l10n="Phone">Phone</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="tr" onclick="phoneSwitchSubtab('tr')" data-l10n="TR Config">TR Config</button>
+			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="bip" onclick="phoneSwitchSubtab('bip')" data-l10n="BIP">BIP</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="esim" onclick="phoneSwitchSubtab('esim')" data-l10n="eSIM LPA">eSIM LPA</button>
 			<button class="phone-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-phone-sub="test" onclick="phoneSwitchSubtab('test')" data-l10n="Test script">Test script</button>
 		</div>
@@ -1182,6 +1183,47 @@
 			<div id="pysim-pli-dict" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[60vh] overflow-auto">
 				<span class="text-gray-400" data-l10n="Loading...">Loading...</span>
 			</div>
+		</div>
+		<div id="phone-sub-bip" class="hidden">
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400"><span data-l10n="BIP terminal">BIP terminal</span> <span id="bip-state" class="text-xs text-gray-400"></span></legend>
+				<div class="flex flex-wrap items-end gap-3">
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Mode">Mode</label>
+						<select id="bip-mode" onchange="bipModeChanged()" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+							<option value="sink" data-l10n="Local sink (log only)" selected>Local sink (log only)</option>
+							<option value="passthru" data-l10n="Card's destination (OPEN CHANNEL)">Card's destination (OPEN CHANNEL)</option>
+							<option value="redirect" data-l10n="Fixed target">Fixed target</option>
+						</select>
+					</div>
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Host">Host</label>
+						<input id="bip-host" value="127.0.0.1" class="w-36 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+					</div>
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Port">Port</label>
+						<input id="bip-port" placeholder="ephemeral" class="w-24 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+					</div>
+					<button id="bip-start-btn" data-needs="server" onclick="bipStart()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
+					<button id="bip-stop-btn" data-needs="server" onclick="bipStop()" class="px-3 py-1.5 text-sm rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Stop">Stop</button>
+				</div>
+				<div id="bip-msg" class="text-xs mt-2 hidden"></div>
+				<div id="bip-sink-note" class="mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="Local sink: accepts the card's BIP channels on this Host and Port, logs everything received and never sends anything back. Leave the port empty for an ephemeral port (the bound one appears in the status). Use it for cards that open a TCP connection just to upload data.">Local sink: accepts the card's BIP channels on this Host and Port, logs everything received and never sends anything back. Leave the port empty for an ephemeral port (the bound one appears in the status). Use it for cards that open a TCP connection just to upload data.</div>
+				<div id="bip-passthru-note" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="Card's destination: each BIP channel is connected to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port are not used and the server's network is used (lab only).">Card's destination: each BIP channel is connected to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port are not used and the server's network is used (lab only).</div>
+				<div id="bip-redirect-note" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="Fixed target: every BIP channel is connected to this Host:Port; the address the card requests is only logged.">Fixed target: every BIP channel is connected to this Host:Port; the address the card requests is only logged.</div>
+				<div class="mt-2 text-xs text-gray-500 dark:text-slate-400" data-l10n="One BIP session at a time: starting here replaces a running SCP81 listener, and starting the SCP81 listener replaces this session.">One BIP session at a time: starting here replaces a running SCP81 listener, and starting the SCP81 listener replaces this session.</div>
+			</fieldset>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Channels">Channels</legend>
+				<div id="bip-channels" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
+			</fieldset>
+			<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+				<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="BIP log">BIP log</legend>
+				<div class="flex justify-end mb-1">
+					<button data-needs="server" onclick="bipLogClear()" class="px-2.5 py-1 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Clear">Clear</button>
+				</div>
+				<div id="bip-log" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[55vh] overflow-auto"></div>
+			</fieldset>
 		</div>
 		<div id="phone-sub-esim" class="hidden">
 			<div id="esim-not-euicc" class="text-sm text-gray-500 dark:text-slate-400 hidden" data-l10n="The equipped card is not an eUICC">The equipped card is not an eUICC</div>
@@ -1622,12 +1664,13 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.19';
+const SIMPLE_VERSION = '3.6.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
 function switchTab(name) {
 	if (_scp81Timer && name !== 'scp81') { clearInterval(_scp81Timer); _scp81Timer = null; }
+	if (_bipTimer && name !== 'phone') { clearInterval(_bipTimer); _bipTimer = null; }
 	document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
 	document.getElementById('tab-' + name).classList.remove('hidden');
 	document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1719,11 +1762,13 @@ function phoneSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !active);
 		btn.classList.toggle('dark:text-slate-300', !active);
 	});
-	['phone', 'tr', 'esim', 'test'].forEach(s => {
+	['phone', 'tr', 'bip', 'esim', 'test'].forEach(s => {
 		document.getElementById('phone-sub-' + s).classList.toggle('hidden', s !== name);
 	});
 	if (name === 'tr') {
 		pysimPliRender();
+	} else if (name === 'bip') {
+		bipEnter();
 	} else if (name === 'esim') {
 		esimFetchAll();
 	} else if (name === 'test') {
@@ -1736,7 +1781,7 @@ function phoneSwitchSubtab(name) {
 		pysimPollStatusInit();
 		tpRefresh();
 	}
-	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', esim: 'esim', test: 'test-script' }[name] || 'stk-menu');
+	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', bip: 'bip', esim: 'esim', test: 'test-script' }[name] || 'stk-menu');
 }
 
 // ===== eSIM / LPA (local ES10a/b/c operations) =====
@@ -11454,6 +11499,7 @@ function scp81LogLine(e) {
 	if (e.free_volatile !== undefined) parts.push('free vol=' + e.free_volatile);
 	if (e.channel) parts.push('ch' + e.channel);
 	if (e.requested) parts.push(e.requested);
+	if (e.peer) parts.push(e.peer);
 	if (e.target) parts.push('-> ' + e.target);
 	if (e.bytes) parts.push(e.bytes + 'B');
 	if (e.identity) parts.push('id=' + e.identity);
@@ -11752,6 +11798,7 @@ async function scp81StatusRefresh() {
 			return st;
 		}
 		let s = l.mode + (l.host && l.port ? ' ' + l.host + ':' + l.port : '');
+		if (st.owner === 'bip') s = t('BIP session:') + ' ' + s;
 		if (l.mode === 'tls') {
 			const ids = l.psk_identities || [];
 			s += ' | PSK: ' + ids.length;
@@ -11841,8 +11888,11 @@ async function scp81Start() {
 	}
 	try {
 		const resp = await pysimFetch('/api/scp81/bip', body);
-		if (resp.ok) scp81Msg(t('Listening.'), 'text-emerald-600 dark:text-emerald-400');
-		else scp81Msg(resp.error || t('Error'), 'text-red-500');
+		if (resp.ok) {
+			const notice = bipReplacedNotice(resp.replaced);
+			scp81Msg(t('Listening.') + (notice ? ' ' + notice : ''),
+				'text-emerald-600 dark:text-emerald-400');
+		} else scp81Msg(resp.error || t('Error'), 'text-red-500');
 		scp81StatusRefresh();
 		scp81LogRefresh();
 		scp81ResultsRefresh();
@@ -12130,6 +12180,175 @@ function scp81Enter() {
 		scp81StatusRefresh();
 		scp81LogRefresh();
 		scp81ResultsRefresh();
+	}, 2000);
+}
+
+// ===== Generic BIP terminal (Simulator -> BIP) =====
+let _bipTimer = null;
+
+function bipModeChanged() {
+	const mode = document.getElementById('bip-mode').value;
+	const notes = { sink: 'bip-sink-note', passthru: 'bip-passthru-note',
+		redirect: 'bip-redirect-note' };
+	for (const key in notes) {
+		const el = document.getElementById(notes[key]);
+		if (el) el.classList.toggle('hidden', key !== mode);
+	}
+	// Host/Port apply to the fixed target and to the sink bind address;
+	// passthru dials the destination from the card's OPEN CHANNEL.
+	for (const id of ['bip-host', 'bip-port']) {
+		const el = document.getElementById(id);
+		if (!el) continue;
+		el.disabled = (mode === 'passthru');
+		el.classList.toggle('opacity-40', mode === 'passthru');
+	}
+	const port = document.getElementById('bip-port');
+	if (port) port.placeholder = (mode === 'sink') ? t('ephemeral') : '8443';
+}
+
+// Build the /api/bip/control start body; {error} for invalid input.
+function bipStartBody(mode, host, port) {
+	const body = { action: 'start', mode: mode };
+	if (mode === 'passthru') return { body: body };
+	const h = String(host || '').trim();
+	const p = String(port || '').trim();
+	if (mode === 'redirect') {
+		const n = parseInt(p, 10);
+		if (!h) return { error: 'Fixed target requires the host' };
+		if (!Number.isInteger(n) || n < 1 || n > 65535) return { error: 'Port must be 1-65535' };
+		body.host = h;
+		body.port = n;
+	} else {
+		if (h) body.host = h;
+		if (p) {
+			const n = parseInt(p, 10);
+			if (!Number.isInteger(n) || n < 0 || n > 65535) return { error: 'Port must be 0-65535' };
+			body.port = n;
+		}
+	}
+	return { body: body };
+}
+
+function bipReplacedNotice(replaced) {
+	if (!replaced || !replaced.owner) return '';
+	return (replaced.owner === 'scp81' ? t('Stopped the SCP81 listener')
+		: t('Stopped the BIP session')) + ' (' + replaced.mode + ')';
+}
+
+function bipChannelLine(c) {
+	const parts = ['ch' + c.id, (c.requested || '?') + ' -> ' + (c.target || '?')];
+	parts.push('in:' + (c.bytes_in || 0) + ' out:' + (c.bytes_out || 0) +
+		' buffer:' + (c.pending || 0));
+	parts.push(c.peer_closed ? t('peer closed') : t('open'));
+	return parts.join(' ');
+}
+
+function bipStatusLine(st) {
+	const bip = (st && st.bip) || {};
+	const l = (st && st.listener) || null;
+	const parts = [];
+	if (l) {
+		let line = l.mode + (l.host !== undefined && l.port !== undefined
+			? ' ' + l.host + ':' + l.port : '');
+		if (l.connections !== undefined) line += ' | ' + l.connections + ' ' + t('connections');
+		parts.push(line);
+	}
+	if (st && st.owner) parts.push(t('owner') + ': ' + st.owner);
+	const ch = (bip.channels || []).map(bipChannelLine).join(' | ');
+	if (ch) parts.push(ch);
+	return parts.join(' \u00b7 ');
+}
+
+function bipMsg(text, cls) {
+	const el = document.getElementById('bip-msg');
+	el.textContent = text;
+	el.classList.remove('hidden');
+	el.className = 'text-xs mt-2 ' + (cls || 'text-gray-500 dark:text-slate-400');
+}
+
+async function bipStatusRefresh() {
+	const el = document.getElementById('bip-state');
+	const chEl = document.getElementById('bip-channels');
+	try {
+		const st = await pysimFetch('/api/bip/status');
+		el.textContent = bipStatusLine(st);
+		const chans = (st.bip && st.bip.channels) || [];
+		chEl.innerHTML = chans.length
+			? chans.map(c => '<div class="py-0.5 border-b border-gray-100 dark:border-slate-700/50 break-all">' + esc(bipChannelLine(c)) + '</div>').join('')
+			: '<span class="text-gray-400">' + t('No channels.') + '</span>';
+		return st;
+	} catch (err) {
+		el.textContent = String(err.message || err);
+		return null;
+	}
+}
+
+async function bipLogRefresh() {
+	const el = document.getElementById('bip-log');
+	try {
+		const log = await pysimFetch('/api/bip/log');
+		const entries = (log.entries || []).slice(-200);
+		if (!entries.length) {
+			el.innerHTML = '<span class="text-gray-400">' + t('No entries yet.') + '</span>';
+			return;
+		}
+		el.innerHTML = entries.map(e =>
+			'<div class="py-0.5 border-b border-gray-100 dark:border-slate-700/50 break-all">' + scp81LogEntryHtml(e) + '</div>'
+		).join('');
+	} catch (err) {
+		el.innerHTML = '<span class="text-red-500">Error: ' + esc(String(err.message || err)) + '</span>';
+	}
+}
+
+async function bipLogClear() {
+	try {
+		await pysimFetch('/api/bip/log-clear', {});
+	} catch (err) { /* keep the log as it is */ }
+	bipLogRefresh();
+}
+
+async function bipStart() {
+	const mode = document.getElementById('bip-mode').value;
+	const built = bipStartBody(mode,
+		document.getElementById('bip-host').value,
+		document.getElementById('bip-port').value);
+	if (built.error) { bipMsg(t(built.error), 'text-red-500'); return; }
+	try {
+		const resp = await pysimFetch('/api/bip/control', built.body);
+		if (!resp.ok) { bipMsg(t('Start failed:') + ' ' + (resp.error || ''), 'text-red-500'); return; }
+		const notice = bipReplacedNotice(resp.replaced);
+		bipMsg(t('BIP session started') + (notice ? ' \u00b7 ' + notice : ''),
+			'text-emerald-600 dark:text-emerald-400');
+		bipStatusRefresh();
+		bipLogRefresh();
+	} catch (err) {
+		bipMsg(String(err.message || err), 'text-red-500');
+	}
+}
+
+async function bipStop() {
+	try {
+		const resp = await pysimFetch('/api/bip/control', { action: 'stop' });
+		const notice = bipReplacedNotice(resp.replaced);
+		bipMsg(t('BIP session stopped') + (notice ? ' \u00b7 ' + notice : ''),
+			'text-gray-500 dark:text-slate-400');
+		bipStatusRefresh();
+		bipLogRefresh();
+	} catch (err) {
+		bipMsg(String(err.message || err), 'text-red-500');
+	}
+}
+
+function bipEnter() {
+	bipModeChanged();
+	bipStatusRefresh();
+	bipLogRefresh();
+	setHelpAnchor('bip');
+	if (_bipTimer) clearInterval(_bipTimer);
+	_bipTimer = setInterval(() => {
+		if (document.getElementById('phone-sub-bip').classList.contains('hidden')) return;
+		bipStatusRefresh();
+		bipLogRefresh();
 	}, 2000);
 }
 
@@ -16290,6 +16509,32 @@ const LANG_RU = {
 	'The key is only sent to the local server and is never stored or logged.': 'Ключ передаётся только локальному серверу, не сохраняется и не записывается в журнал.',
 	'Listening.': 'Слушает.',
 	'Stopped.': 'Остановлено.',
+	'BIP': 'BIP',
+	'BIP terminal': 'BIP-терминал',
+	'Local sink (log only)': 'Локальный приёмник (только журнал)',
+	'Card\'s destination (OPEN CHANNEL)': 'Адрес карты (OPEN CHANNEL)',
+	'Fixed target': 'Заданный адрес',
+	'Channels': 'Каналы',
+	'BIP log': 'Журнал BIP',
+	'Local sink: accepts the card\'s BIP channels on this Host and Port, logs everything received and never sends anything back. Leave the port empty for an ephemeral port (the bound one appears in the status). Use it for cards that open a TCP connection just to upload data.': 'Локальный приёмник: принимает BIP-каналы карты на этом Host и Port, записывает всё принятое в журнал и ничего не отправляет обратно. Оставьте порт пустым для эфемерного порта (занятый порт появится в статусе). Подходит для карт, которые открывают TCP-соединение только чтобы выгрузить данные.',
+	'Card\'s destination: each BIP channel is connected to the destination the card requests in OPEN CHANNEL (Other address + transport port, TCP client only); Host and Port are not used and the server\'s network is used (lab only).': 'Адрес карты: каждый BIP-канал подключается к адресу, который карта запросила в OPEN CHANNEL (Other address + transport port, только TCP-клиент); Host и Port не используются, используется сеть сервера (только для лаборатории).',
+	'Fixed target: every BIP channel is connected to this Host:Port; the address the card requests is only logged.': 'Заданный адрес: каждый BIP-канал подключается к этому Host:Port; запрошенный картой адрес только записывается в журнал.',
+	'One BIP session at a time: starting here replaces a running SCP81 listener, and starting the SCP81 listener replaces this session.': 'Одновременно работает только одна BIP-сессия: запуск здесь останавливает слушатель SCP81, а запуск слушателя SCP81 останавливает эту сессию.',
+	'ephemeral': 'эфемерный',
+	'Fixed target requires the host': 'Для заданного адреса нужен хост',
+	'Port must be 1-65535': 'Порт должен быть в диапазоне 1-65535',
+	'Port must be 0-65535': 'Порт должен быть в диапазоне 0-65535',
+	'peer closed': 'пир закрыт',
+	'open': 'открыт',
+	'connections': 'соединений',
+	'owner': 'владелец',
+	'No channels.': 'Каналов нет.',
+	'Start failed:': 'Запуск не удался:',
+	'BIP session started': 'BIP-сессия запущена',
+	'BIP session stopped': 'BIP-сессия остановлена',
+	'Stopped the SCP81 listener': 'Остановлен слушатель SCP81',
+	'Stopped the BIP session': 'Остановлена BIP-сессия',
+	'BIP session:': 'BIP-сессия:',
 	'not running': 'не запущен',
 	'configured': 'настроен',
 	'required': 'обязательно',
@@ -16941,6 +17186,7 @@ function refreshDynamicI18n() {
 	capRenderAnalysis('ram');
 	capRenderAnalysis('scripts');
 	if (isViewVisible('tab-phone')) {
+		if (isViewVisible('phone-sub-bip')) { bipStatusRefresh(); bipLogRefresh(); }
 		if (isViewVisible('phone-sub-phone')) {
 			pysimEventsRender();
 			pysimProactiveLogRender();

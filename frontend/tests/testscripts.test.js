@@ -258,7 +258,7 @@ test('the item text check offers contains/exact only', () => {
 test('the Simulator hosts the Test script pill and its wiring', () => {
 	assert.match(html, /data-phone-sub="test"[^>]*data-l10n="Test script"/);
 	assert.match(html, /id="phone-sub-test"/);
-	assert.match(html, /\['phone', 'tr', 'esim', 'test'\]/);
+	assert.match(html, /\['phone', 'tr', 'bip', 'esim', 'test'\]/);
 	assert.match(html, /else if \(name === 'test'\) \{\s*testInit\(\);/);
 	assert.match(html, /test: 'test-script'/);
 	assert.match(html, /testRunActive\(\) && el\.closest && !el\.closest\('#phone-sub-test'\)/);

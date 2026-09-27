@@ -31,6 +31,7 @@ const code = extractFunc(html, 'phoneSwitchSubtab') + '\n' +
 	'globalThis.tpRefresh = () => { globalThis._tp = (globalThis._tp || 0) + 1; };\n' +
 	'globalThis.esimFetchAll = () => { globalThis._esim = (globalThis._esim || 0) + 1; };\n' +
 	'globalThis.testInit = () => { globalThis._test = (globalThis._test || 0) + 1; };\n' +
+	'globalThis.bipEnter = () => { globalThis._bip = (globalThis._bip || 0) + 1; };\n' +
 	'globalThis.netStateFetch = () => { globalThis._netstate = (globalThis._netstate || 0) + 1; };\n';
 eval(code);
 
@@ -46,12 +47,14 @@ function setup() {
 	const buttons = [
 		{ dataset: { phoneSub: 'phone' }, classList: makeClassList() },
 		{ dataset: { phoneSub: 'tr' }, classList: makeClassList() },
+		{ dataset: { phoneSub: 'bip' }, classList: makeClassList() },
 		{ dataset: { phoneSub: 'esim' }, classList: makeClassList() },
 		{ dataset: { phoneSub: 'test' }, classList: makeClassList() },
 	];
 	const panels = {
 		'phone-sub-phone': { classList: makeClassList() },
 		'phone-sub-tr': { classList: makeClassList() },
+		'phone-sub-bip': { classList: makeClassList() },
 		'phone-sub-esim': { classList: makeClassList() },
 		'phone-sub-test': { classList: makeClassList() },
 	};
@@ -63,6 +66,7 @@ function setup() {
 	globalThis._stk = globalThis._events = globalThis._log = globalThis._poll = globalThis._pli = globalThis._tp = 0;
 	globalThis._esim = globalThis._netstate = 0;
 	globalThis._test = 0;
+	globalThis._bip = 0;
 	return { buttons, panels };
 }
 
@@ -75,6 +79,16 @@ test('TR Config pill shows the TR panel and renders PLI data', () => {
 	assert.ok(!buttons[0].classList.has('bg-blue-600'));
 	assert.strictEqual(globalThis._anchor, 'pli-dict');
 	assert.strictEqual(globalThis._pli, 1);
+	assert.strictEqual(globalThis._stk, 0);
+});
+
+test('BIP pill shows the BIP panel', () => {
+	const { buttons, panels } = setup();
+	phoneSwitchSubtab('bip');
+	assert.ok(!panels['phone-sub-bip'].classList.has('hidden'));
+	assert.ok(panels['phone-sub-phone'].classList.has('hidden'));
+	assert.strictEqual(globalThis._anchor, 'bip');
+	assert.strictEqual(globalThis._bip, 1);
 	assert.strictEqual(globalThis._stk, 0);
 });
 
