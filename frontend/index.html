@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.5';
+const SIMPLE_VERSION = '3.6.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8834,6 +8834,19 @@ async function ramExplore(sp) {
 	ramRenderExplorer();
 }
 
+// GP DELETE (Card Spec v2.3.1 11.2, Tables 11-20/11-23): P1=00 (last/only
+// command), P2.b8 selects "object" ('00') or "object and related objects"
+// ('80'), the data field carries the mandatory '4F' AID TLV and Le is '00'.
+// The old inline builder called an undefined length helper (`_ber_len`): a
+// ReferenceError
+// after the confirm - the Delete buttons never sent anything) and omitted Le.
+function ramDeleteApdu(aid, withCascade) {
+	const a = (aid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (!a) return '';
+	const data = '4F' + berLenStr(a.length / 2) + a;
+	return '80E400' + (withCascade ? '80' : '00') + berLenStr(data.length / 2) + data + '00';
+}
+
 async function ramDeleteFromExplorer(aid, withCascade) {
 	const sp = getRamSpParams();
 	if (!sp.kicKey || !sp.kidKey) {
@@ -8842,9 +8855,8 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	}
 	const label = withCascade ? t('Delete') + ' (' + t('cascade') + ')' : t('Delete');
 	if (!confirm(label + ' — ' + t('AID:') + ' ' + aid + '?')) return;
-	const p2 = withCascade ? '80' : '00';
-	const aidLen = (aid.length / 2).toString(16).padStart(2, '0');
-	const apdu = '80E400' + p2 + _ber_len(2 + aid.length / 2) + '4F' + aidLen + aid;
+	const apdu = ramDeleteApdu(aid, withCascade);
+	if (!apdu) return;
 	ramShowProgress(label + ' ' + aid + '...');
 	const res = await ramSendOta(apdu, sp);
 	ramHideProgress();
@@ -12215,11 +12227,12 @@ async function scriptsGenerateInstall() {
 }
 
 function scp81DeleteApdus(aids, p2) {
-	// GP DELETE (Card Spec 2.3.1 Table 11-20/22): one APDU per AID, P2.b8
-	// selects "object only" ('00') or "object and related objects" ('80').
-	return (aids || []).map(aid =>
-		'80E4' + (p2 || '00') + '00' +
-		(aid.length / 2).toString(16).padStart(2, '0').toUpperCase() + aid + '00');
+	// GP DELETE (Card Spec v2.3.1 Table 11-20/23): one APDU per AID, P2.b8
+	// selects "object only" ('00') or "object and related objects" ('80');
+	// the data field carries the mandatory '4F' AID TLV and Le is '00'
+	// (the same builder the RAM Explore delete uses).
+	return (aids || []).map(aid => ramDeleteApdu(aid, (p2 || '00') === '80'))
+		.filter(a => a);
 }
 
 function scriptsGenerateDelete() {

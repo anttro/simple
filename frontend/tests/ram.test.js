@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -413,4 +413,19 @@ test('ramParseAppStatus keeps 16-byte AIDs (no rawLen-1 truncation)', () => {
 		'A1130001180002FFF7100E89494D4508',
 	]);
 	assert.strictEqual(apps[3].lifecycle, '07');
+});
+
+test('ramDeleteApdu builds the GP DELETE with the 4F AID TLV and Le (F0414C46416101)', () => {
+	// GP Card Spec v2.3.1 Table 11-20/23: P1=00, P2.b8 = object / object+related,
+	// data = '4F' AID TLV, Le=00.  The old handler called an undefined helper
+	// and no APDU was ever sent.
+	assert.strictEqual(ramDeleteApdu('F0414C46416101', false),
+		'80E40000094F07F0414C4641610100');
+	assert.strictEqual(ramDeleteApdu('F0414C46416101', true),
+		'80E40080094F07F0414C4641610100');
+	assert.strictEqual(ramDeleteApdu('A1130001180002FFF7100E8904000200', true),
+		'80E40080124F10A1130001180002FFF7100E890400020000');
+	assert.strictEqual(ramDeleteApdu('', false), '');
+	// the dead helper reference must not come back
+	assert.ok(!html.includes('_ber_len('), 'undefined _ber_len() call is back');
 });
