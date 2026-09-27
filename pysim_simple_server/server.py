@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.1'
+VERSION = '3.6.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1093,6 +1093,69 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
                     'error': 'ENVELOPE failed at segment %d' % (i + 1)}
     return {'success': True, 'bytes': len(pkt), 'segments': total, 'sw': sw,
             'response_data': data if data else None}
+
+
+# Remote-command status words that count as success in the RAM dialog:
+# 9000 = normal; 61xx = more data available (GET RESPONSE); 62xx/63xx =
+# warnings (63xx/63Cx often carry "more data available" too); CAFE =
+# GlobalPlatform "more data available" (GET STATUS pages).
+_RAM_REMOTE_SW_OK = ('9000', 'CAFE')
+
+
+def _ram_remote_sw_ok(sw):
+    s = str(sw or '').upper()
+    return bool(s) and (s in _RAM_REMOTE_SW_OK or s[:2] in ('61', '62', '63'))
+
+
+def _por_remote_sw(por):
+    """Last remote-command status word from a decoded PoR, '' when none:
+    compact responses carry last_status_word, expanded ones a status word
+    per command."""
+    dec = (por or {}).get('decoded') or {}
+    sw = str(dec.get('last_status_word') or '').upper()
+    if sw:
+        return sw
+    for r in reversed((por or {}).get('responses') or []):
+        if r.get('status_word'):
+            return str(r['status_word']).upper()
+    return ''
+
+
+def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
+    """Assemble a RAM-install step record and its failure reason.
+
+    The PoR verdict is the top-level `response_status`; the remote command's
+    own status word lives in `decoded.last_status_word` (compact) or in the
+    expanded `responses` list.  A step fails on a non-por_ok PoR, on a remote
+    SW outside `_RAM_REMOTE_SW_OK`, or when a PoR arrived but could not be
+    decoded (a 9000 transport SW with no PoR at all is 'no_por', not a
+    failure)."""
+    step = {'name': step_name, 'sw': last_sw, 'bytes': bytes_, 'segments': segments}
+    error = None
+    if por:
+        pstatus = str(por.get('response_status') or '')
+        remote_sw = _por_remote_sw(por)
+        step['por_status'] = pstatus or 'unknown'
+        step['por_type'] = por.get('response_type')
+        step['por_cntr'] = por.get('cntr')
+        step['por_data'] = (por.get('decoded') or {}).get('last_response_data', '')
+        step['por_raw'] = por.get('raw')
+        if remote_sw:
+            step['por_sw'] = remote_sw
+        if pstatus != 'por_ok':
+            error = 'PoR %s' % (pstatus or 'unknown')
+        elif remote_sw and not _ram_remote_sw_ok(remote_sw):
+            error = 'remote SW %s' % remote_sw
+    elif last_sw == '9000' and not por_hex:
+        step['por_status'] = 'no_por'
+    else:
+        step['por_status'] = 'unknown'
+        if por_hex:
+            step['por_raw'] = por_hex
+        error = 'PoR undecodable'
+    if error:
+        step['por_error'] = error
+    return step, error
 
 
 def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
@@ -5990,6 +6053,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 spi2_val = int(spi2, 16)
                 por_in_submit = bool(spi2_val & 0x20)
 
+                failure = {}
+
                 def _send_gp_apdu(apdu_hex, step_name):
                     nonlocal cntr, encode_error
                     try:
@@ -6031,18 +6096,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 por_hex = tpdu_b[idx:].hex()
                                 por_src = 'sms-submit'
                         por = _decode_por(spi1, spi2, kic, kid, cntr, kic_key, kid_key, por_hex)
-                        por_status = 'unknown'
-                        if por and por.get('decoded'):
-                            ps = por['decoded'].get('response_status', '')
-                            por_status = 'por_ok' if ps == '9100' else 'por_error_%s' % ps
-                            sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s (%d B, %d SM)\n' % (
-                                step_name, por_src, ps, result['bytes'], result['segments']))
-                        elif last_sw == '9000' and not por_hex:
-                            por_status = 'no_por'
-                        steps.append({'name': step_name, 'por_status': por_status, 'sw': last_sw,
-                                      'bytes': result['bytes'], 'segments': result['segments']})
+                        step, step_error = _ram_step_result(
+                            step_name, last_sw, por, por_hex,
+                            result['bytes'], result['segments'])
+                        steps.append(step)
+                        sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s remote_sw=%s%s (%d B, %d SM)\n' % (
+                            step_name, por_src, step.get('por_status', '?'),
+                            step.get('por_sw', '-'),
+                            (' error=%s' % step_error) if step_error else '',
+                            result['bytes'], result['segments']))
                         # Increment counter
                         cntr = '%010X' % ((int(cntr, 16) + 1) % (2 ** 32))
+                        if step_error:
+                            failure['error'] = '%s: %s' % (step_name, step_error)
+                            return False
                         return True
                     finally:
                         if submit_handler and hasattr(scc, '_tp'):
@@ -6065,7 +6132,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                         step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
                     if not _send_gp_apdu(gp_apdu, step_name):
                         resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
-                                'error': encode_error or ('%s failed' % step_name),
+                                'error': (encode_error or failure.get('error')
+                                          or ('%s failed' % step_name)),
                                 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                 'load_block_size': block_size,
                                 'load_block_size_requested': block_size_req,

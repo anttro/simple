@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -258,6 +258,25 @@ function fakeRamDocument(ids) {
 	};
 	return els;
 }
+
+test('ramStepLine shows the PoR verdict and the remote status word', () => {
+	globalThis.t = s => s;
+	globalThis.lookupSw = (a, b) => (a + b === '6700' ? 'Wrong length in Lc' : '');
+	const okLine = ramStepLine({ name: 'INSTALL [for load]', por_status: 'por_ok',
+		por_sw: '9000', sw: '9000', bytes: 50, segments: 1 }, 0);
+	assert.ok(okLine.startsWith('\u2705'), okLine);
+	assert.ok(okLine.includes('PoR ok'), okLine);
+	assert.ok(okLine.includes('remote SW 9000'), okLine);
+	assert.ok(okLine.includes('50 bytes / 1 SMS'), okLine);
+	const badLine = ramStepLine({ name: 'LOAD (1/9)', por_status: 'por_ok', por_sw: '6700',
+		por_error: 'remote SW 6700', sw: '9000', bytes: 274, segments: 3 }, 1);
+	assert.ok(badLine.startsWith('\u274c'), badLine);
+	assert.ok(badLine.includes('remote SW 6700 (Wrong length in Lc)'), badLine);
+	const porLine = ramStepLine({ name: 'LOAD', por_status: 'por_error_cntr_low' }, 2);
+	assert.ok(porLine.includes('PoR error cntr_low'), porLine);
+	const noPor = ramStepLine({ name: 'LOAD', por_status: 'no_por' }, 3);
+	assert.ok(noPor.startsWith('\u2705') && noPor.includes('no PoR'), noPor);
+});
 
 test('ramOpChanged clears the executed status only on a real op change', () => {
 	const els = fakeRamDocument(['ram-op', 'ram-install-params', 'ram-result', 'ram-explorer', 'ram-steps', 'ram-progress']);

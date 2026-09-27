@@ -477,7 +477,7 @@ Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
-Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE and its PoR is checked; the sequence aborts on the first PoR error. The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
+Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR). The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
 
 **Request body:**
 ```json
@@ -511,9 +511,9 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 **Response (success):**
 ```json
 {"success": true, "failed_step": null,
- "steps": [{"name": "install_for_load", "apdu": "80E60200...", "por_status": "por_ok", "sw": "9000", "bytes": 58, "segments": 1},
-           {"name": "load_0", "apdu": "80E80000...", "por_status": "por_ok", "sw": "9000", "bytes": 274, "segments": 3},
-           {"name": "install_for_install", "apdu": "80E60C00...", "por_status": "por_ok", "sw": "9000", "bytes": 66, "segments": 1}],
+ "steps": [{"name": "INSTALL [for load]", "por_status": "por_ok", "por_sw": "9000", "por_type": "compact", "por_cntr": "000000011B", "sw": "9000", "bytes": 58, "segments": 1},
+           {"name": "LOAD (1/9)", "por_status": "por_ok", "por_sw": "9000", "por_type": "compact", "sw": "9000", "bytes": 274, "segments": 3},
+           {"name": "INSTALL [for install]", "por_status": "por_ok", "por_sw": "9000", "por_type": "compact", "sw": "9000", "bytes": 66, "segments": 1}],
  "final_cntr": "0000000004",
  "load_file_aid": "A000000003000000",
  "module_aid": "A000000003000000",
@@ -527,7 +527,18 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 default), `load_block_size_requested` echoes an explicit `load_block_size`
 (null = the default was used) and `load_block_size_auto` marks that default.
 Each step reports the secured packet size `bytes` and the number of SMS
-`segments` it took.
+`segments` it took.  `sw` is the transport (ENVELOPE/GET RESPONSE) status
+word; the RAM results are in `por_status` (the PoR verdict: `por_ok`,
+`rc_cc_ds_failed`, `cntr_low`, ... or `no_por` when the card sent none) and
+`por_sw` (the remote command's own status word from the compact/expanded
+response, with `por_type`/`por_cntr`/`por_data`/`por_raw` for context).
+
+A step fails when the PoR is not `por_ok`, when `por_sw` is outside the
+success set (`9000`, `61xx` more data, `62xx`/`63xx` warnings, `CAFE` GP
+"more data"), or when response data arrived but could not be decoded.  The
+failing step carries `por_error` (e.g. `remote SW 6700`) and the response
+sets `success: false`, `failed_step` and a detailed `error` such as
+`LOAD (1/9): remote SW 6700`.
 
 **Response (failure):**
 ```json

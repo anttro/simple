@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.1';
+const SIMPLE_VERSION = '3.6.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8859,6 +8859,33 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	await ramExplore(sp);
 }
 
+// One RAM install step line: the PoR verdict plus the remote command's
+// status word (9000/61xx/62xx/63xx/CAFE are success; anything else is the
+// card's error) - the details that used to be lost behind a bare
+// "por_error_" label.  The envelope/GET RESPONSE SW is only shown when it is
+// not a plain 9000.
+function ramStepLine(s, idx) {
+	const ok = !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
+	let line = (ok ? '\u2705' : '\u274c') + ' ' + t('Step') + ' ' + (idx + 1) + ': ' +
+		s.name + ' \u2014 ';
+	if (s.por_status === 'por_ok') line += t('PoR ok');
+	else if (s.por_status === 'no_por') line += t('no PoR');
+	else if (s.por_status && s.por_status.indexOf('por_error') === 0) {
+		const legacy = s.por_status.replace(/^por_error_?/, '');
+		line += t('PoR error') + (legacy ? ' ' + legacy : '');
+	} else if (s.por_status) line += t('PoR error') + ' ' + s.por_status;
+	else line += t('PoR unknown');
+	if (s.por_sw) {
+		const name = lookupSw(s.por_sw.substr(0, 2), s.por_sw.substr(2, 2), 'gp');
+		line += ' \u00b7 ' + t('remote SW') + ' ' + s.por_sw + (name ? ' (' + name + ')' : '');
+	}
+	if (s.sw && s.sw !== '9000') line += ' \u00b7 ' + t('transport SW') + ' ' + s.sw;
+	if (s.bytes && s.segments) {
+		line += ' \u00b7 ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
+	}
+	return line;
+}
+
 async function ramInstallCap(sp) {
 	const fileInput = document.getElementById('ram-cap-file');
 	const file = fileInput.files[0];
@@ -8894,12 +8921,7 @@ async function ramInstallCap(sp) {
 	stepsEl.classList.remove('hidden');
 
 	let txt = '';
-	(data.steps || []).forEach((s, idx) => {
-		const mark = s.por_status === 'por_ok' ? '✅' : '❌';
-		let line = mark + ' ' + t('Step') + ' ' + (idx + 1) + ': ' + s.name + ' — ' + s.por_status + ' (SW ' + s.sw + ')';
-		if (s.bytes && s.segments) line += ' · ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
-		txt += line + '\n';
-	});
+	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx) + '\n'; });
 	stepsEl.textContent = txt;
 
 	if (data.success) {
@@ -16787,6 +16809,12 @@ const LANG_RU = {
 	'default: 9000 (91?? when polling)': 'по умолчанию: 9000 (91?? при опросе)',
 	'Expected data (hex, optional)': 'Ожидаемые данные (hex, опционально)',
 	'PoR check': 'Проверка PoR',
+	'PoR ok': 'PoR: успешно',
+	'no PoR': 'PoR: нет',
+	'PoR error': 'Ошибка PoR',
+	'PoR unknown': 'PoR: неизвестно',
+	'remote SW': 'SW команды',
+	'transport SW': 'транспортный SW',
 	'Any': 'Любой',
 	'No PoR expected': 'PoR не ожидается',
 	'On mismatch': 'При несовпадении',

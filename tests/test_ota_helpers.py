@@ -30,6 +30,9 @@ from pysim_simple_server.server import (
     _ota_reference,
     _parse_select_item,
     _parse_setup_menu_items,
+    _por_remote_sw,
+    _ram_remote_sw_ok,
+    _ram_step_result,
     _record_tr,
     _send_secured_packet,
     _spi_from_bytes,
@@ -1243,3 +1246,62 @@ class TerminalProfileTest(unittest.TestCase):
         self.assertEqual(server_obj.event_list, [0x09])
         self.assertEqual(server_obj.sim_menu, 'menu')
         self.assertTrue(resp['menu'])
+
+
+class RamPorStepTest(unittest.TestCase):
+    """The RAM install reports the PoR verdict and the remote command's own
+    status word.  Vectors: a captured live response where every remote
+    command returned SW 6700/6F00 while the PoR itself was por_ok, and
+    synthetic success responses (9000, 6113)."""
+
+    # 02 71 00 | 000e 0a | TAR b00011/000000 | CNTR | PCNT | STS=00 | compact
+    POR_INSTALL = '027100000e0a000000000000011b0000026700'
+    POR_INSTALL_OK = '027100000e0ab0001100000000000000019000'
+    POR_INSTALL_61XX = '027100000e0ab0001100000000000000016113'
+
+    @staticmethod
+    def _por(hexstr):
+        return _decode_por('00', '00', '01', '01', '0000000000',
+                           '00' * 16, '00' * 16, hexstr)
+
+    def test_remote_sw_success_set(self):
+        for sw in ('9000', '6113', '62F1', '6310', 'CAFE'):
+            self.assertTrue(_ram_remote_sw_ok(sw), sw)
+        for sw in ('6700', '6F00', '6A82', '6400', '', None):
+            self.assertFalse(_ram_remote_sw_ok(sw), sw)
+
+    def test_step_reports_the_remote_sw_failure(self):
+        por = self._por(self.POR_INSTALL)
+        self.assertEqual(por['response_status'], 'por_ok')
+        step, err = _ram_step_result('LOAD (1/9)', '9000', por,
+                                     self.POR_INSTALL, 274, 3)
+        self.assertEqual(step['por_status'], 'por_ok')
+        self.assertEqual(step['por_sw'], '6700')
+        self.assertEqual(step['por_type'], 'compact')
+        self.assertEqual(err, 'remote SW 6700')
+        self.assertEqual(step['por_error'], 'remote SW 6700')
+
+    def test_step_accepts_9000_and_61xx_remote_sw(self):
+        for hexstr, sw in ((self.POR_INSTALL_OK, '9000'),
+                           (self.POR_INSTALL_61XX, '6113')):
+            por = self._por(hexstr)
+            step, err = _ram_step_result('LOAD (1/9)', '9000', por, hexstr, 10, 1)
+            self.assertIsNone(err, sw)
+            self.assertNotIn('por_error', step)
+            self.assertEqual(step['por_sw'], sw)
+
+    def test_step_no_por_and_undecodable(self):
+        # transport SW 9000 with no response data at all: no PoR expected
+        step, err = _ram_step_result('LOAD', '9000', None, '', 10, 1)
+        self.assertIsNone(err)
+        self.assertEqual(step['por_status'], 'no_por')
+        # response data present but undecodable: a failure with the raw kept
+        step, err = _ram_step_result('LOAD', '9000', None, 'DEADBEEF', 10, 1)
+        self.assertEqual(err, 'PoR undecodable')
+        self.assertEqual(step['por_raw'], 'DEADBEEF')
+
+    def test_remote_sw_from_expanded_response(self):
+        por = {'response_status': 'por_ok', 'decoded': {},
+               'responses': [{'status_word': '9000'}, {'status_word': '6A82'}]}
+        self.assertEqual(_por_remote_sw(por), '6A82')
+
