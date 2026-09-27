@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.6';
+const SIMPLE_VERSION = '3.6.7';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8817,7 +8817,9 @@ async function ramExplore(sp) {
 	await paginate('10', modules, (hex) => ramParseElfStatus(hex, true), t('ELF Modules'));
 
 	ramMergeElfData(elfs, modules);
-	ramSaveCntr(cntr);
+	// Only write the counter when a packet was actually accepted: a run whose
+	// start value was stale must never lower the preset counter.
+	if (cntr !== sp.cntr) ramSaveCntr(cntr);
 	ramHideProgress();
 
 	if (errors.length) {
@@ -8848,6 +8850,10 @@ function ramDeleteApdu(aid, withCascade) {
 }
 
 async function ramDeleteFromExplorer(aid, withCascade) {
+	// The preset is the source of truth (see ramExecute): re-read it before
+	// the operation so a stale form copy cannot send an already-consumed
+	// counter.
+	spRefreshFromPreset('ram-card-sel');
 	const sp = getRamSpParams();
 	if (!sp.kicKey || !sp.kidKey) {
 		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
@@ -8860,19 +8866,31 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	ramShowProgress(label + ' ' + aid + '...');
 	const res = await ramSendOta(apdu, sp);
 	ramHideProgress();
+	// The card consumes the counter as soon as it accepts the packet, even
+	// when the remote command fails; a rejected packet (cntr_low, PoR error)
+	// leaves it untouched.
+	if (res.success && spPorAccepted(res.por)) {
+		sp.cntr = ramIncrementCntr(sp.cntr);
+		ramSaveCntr(sp.cntr);
+	}
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
-	if (!res.success || !res.por || res.por.response_status !== 'por_ok') {
-		resultEl.textContent = t('Failed') + ': ' + (res.por ? res.por.response_status : res.error || res.sw);
+	const sw = res.por && res.por.decoded ? res.por.decoded.last_status_word : '';
+	if (!res.success || !res.por || res.por.response_status !== 'por_ok' ||
+	    (sw && !ramRemoteSwOk(sw))) {
+		resultEl.textContent = t('Failed') + ': ' +
+			(res.por ? res.por.response_status : (res.error || res.sw)) +
+			(sw ? ' · ' + t('remote SW') + ' ' + sw : '');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 		return;
 	}
-	ramSaveCntr(ramIncrementCntr(sp.cntr));
-	const sw = res.por.decoded ? res.por.decoded.last_status_word : '';
 	stepsEl.classList.remove('hidden');
 	stepsEl.textContent = label + ' ' + aid + ' -> ' + sw;
 	resultEl.textContent = t('OK');
 	resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
+	// Continue from the counter the delete consumed: replaying the old one
+	// gets cntr_low on every page and the failed run writes it back over the
+	// preset (the counter reset reported after Delete All).
 	await ramExplore(sp);
 }
 
@@ -9473,6 +9491,15 @@ function spRefreshFromPreset(selId) {
 function spPorAccepted(por) {
 	return !por || por.response_status === 'por_ok' ||
 		por.response_status === 'actual_response_sms_submit';
+}
+
+// Remote-command status words that count as success (mirrors the server's
+// `_ram_remote_sw_ok`): 9000 normal; 61xx more data available; 62xx/63xx
+// warnings; CAFE GlobalPlatform "more data available" (GET STATUS pages).
+function ramRemoteSwOk(sw) {
+	const s = (sw || '').toUpperCase();
+	return !!s && (s === '9000' || s === 'CAFE' ||
+		['61', '62', '63'].indexOf(s.slice(0, 2)) >= 0);
 }
 
 // GET STATUS APDU for the compact listing format: P2.b2=0 (GP Card Spec

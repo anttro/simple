@@ -23,6 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
+	'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -428,4 +429,75 @@ test('ramDeleteApdu builds the GP DELETE with the 4F AID TLV and Le (F0414C46416
 	assert.strictEqual(ramDeleteApdu('', false), '');
 	// the dead helper reference must not come back
 	assert.ok(!html.includes('_ber_len('), 'undefined _ber_len() call is back');
+});
+
+test('ramRemoteSwOk mirrors the server success set', () => {
+	for (const sw of ['9000', '6113', '62F1', '6310', 'CAFE']) {
+		assert.ok(ramRemoteSwOk(sw), sw);
+	}
+	for (const sw of ['6700', '6F00', '6A88', '', null]) {
+		assert.ok(!ramRemoteSwOk(sw), String(sw));
+	}
+});
+
+function stubDeleteEnv(sendResult) {
+	// ramShowProgress/ramHideProgress are the real extracted helpers
+	const els = fakeRamDocument(['ram-result', 'ram-steps', 'ram-progress', 'ram-progress-text']);
+	const calls = { refresh: [], saved: [], sent: [], explored: null };
+	globalThis.t = s => s;
+	globalThis.spRefreshFromPreset = sel => { calls.refresh.push(sel); };
+	globalThis.getRamSpParams = () => ({ cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' });
+	globalThis.confirm = () => true;
+	globalThis.alert = () => {};
+	globalThis.ramShowProgress = () => {};   // not part of the extracted FNS
+	globalThis.ramSendOta = async (apdu, sp) => {
+		calls.sent.push({ apdu: apdu, cntr: sp.cntr });
+		return sendResult;
+	};
+	globalThis.ramSaveCntr = c => { calls.saved.push(c); };
+	globalThis.ramExplore = async sp => { calls.explored = sp.cntr; };
+	return { els, calls };
+}
+
+function unstubDeleteEnv() {
+	for (const k of ['getRamSpParams', 'confirm', 'alert', 'ramShowProgress',
+		'ramSendOta', 'ramSaveCntr', 'ramExplore']) {
+		delete globalThis[k];
+	}
+	globalThis.spRefreshFromPreset = () => '';   // the top-level stub
+}
+
+test('ramDeleteFromExplorer refreshes the preset and continues from the consumed counter', async () => {
+	const { els, calls } = stubDeleteEnv({ success: true,
+		por: { response_status: 'por_ok', decoded: { last_status_word: '9000' } } });
+	await ramDeleteFromExplorer('F0414C46416101', true);
+	assert.deepStrictEqual(calls.refresh, ['ram-card-sel'],
+		'the preset must be re-read before the operation');
+	assert.strictEqual(calls.sent.length, 1);
+	assert.ok(calls.sent[0].apdu.startsWith('80E40080'), calls.sent[0].apdu);
+	assert.strictEqual(calls.sent[0].cntr, '0000000005');
+	assert.deepStrictEqual(calls.saved, ['0000000006'],
+		'the accepted packet advances the saved counter');
+	assert.strictEqual(calls.explored, '0000000006',
+		'the re-explore must start from the consumed counter, never replay it');
+	assert.strictEqual(els['ram-result'].textContent, 'OK');
+	unstubDeleteEnv();
+});
+
+test('ramDeleteFromExplorer leaves the counter untouched on a rejected packet', async () => {
+	const { calls } = stubDeleteEnv({ success: true, por: { response_status: 'cntr_low' } });
+	await ramDeleteFromExplorer('F0414C46416101', false);
+	assert.deepStrictEqual(calls.saved, [], 'a rejected packet must not advance the counter');
+	assert.strictEqual(calls.explored, null, 'no re-explore after a rejected delete');
+	unstubDeleteEnv();
+});
+
+test('ramDeleteFromExplorer advances but does not re-explore on a failed remote command', async () => {
+	const { calls } = stubDeleteEnv({ success: true,
+		por: { response_status: 'por_ok', decoded: { last_status_word: '6A88' } } });
+	await ramDeleteFromExplorer('F0414C46416101', false);
+	assert.deepStrictEqual(calls.saved, ['0000000006'],
+		'the card consumed the packet, so the counter still advances');
+	assert.strictEqual(calls.explored, null, 'a failed DELETE must not re-explore');
+	unstubDeleteEnv();
 });
