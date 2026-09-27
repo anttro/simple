@@ -83,7 +83,8 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	const mem = memFixture();
 	mem.warnings = ['method class[0].token[1]: unknown opcode 0xAA, scan stopped'];
 	const out = capMemHtml(mem);
-	assert.ok(out.includes('CAP requirements (estimate)'), out);
+	// the border legend titles the box now; the body starts with the sections
+	assert.ok(!out.includes('CAP requirements (estimate)'), out);
 	// grouped, labelled sections (always visible except components/notes)
 	assert.ok(out.includes('>Package</div>'), out);
 	assert.ok(out.includes('>Requires (1)</div>'), out);
@@ -228,4 +229,39 @@ test('the CAP inputs and their action buttons are wired', () => {
 	assert.match(html, /id="ram-cap-info"/);
 	assert.match(html, /id="scripts-cap-info"/);
 	assert.match(html, /\/api\/cap-info/);
+	// the report lives in a bordered fieldset with the title in the border
+	// (the simulator/eSIM pattern); the JS fills the body div
+	assert.match(html, /<fieldset id="ram-cap-info"[^>]*>\s*<legend[^>]*data-l10n="CAP details">/);
+	assert.match(html, /<fieldset id="scripts-cap-info"[^>]*>\s*<legend[^>]*data-l10n="CAP details">/);
+	assert.match(html, /id="ram-cap-body"/);
+	assert.match(html, /id="scripts-cap-body"/);
+});
+
+test('capRenderAnalysis toggles the border box and fills its body', () => {
+	eval(extractFunc(html, 'capRenderAnalysis'));
+	const box = { hidden: true, classList: {
+		add() { box.hidden = true; },
+		remove() { box.hidden = false; },
+	} };
+	const body = { innerHTML: '' };
+	globalThis.document = { getElementById: id => ({
+		'ram-cap-info': box, 'ram-cap-body': body,
+	}[id] || null) };
+	// idle: hidden and empty
+	_capAnalysis.ram = { key: null, status: 'idle', memory: null, error: null, token: 0 };
+	capRenderAnalysis('ram');
+	assert.ok(box.hidden && body.innerHTML === '');
+	// a finished analysis: shown, body carries the report
+	_capAnalysis.ram = { key: null, status: 'ok', memory: memFixture(), error: null, token: 0 };
+	capRenderAnalysis('ram');
+	assert.ok(!box.hidden, 'the box is shown');
+	assert.ok(body.innerHTML.includes('>Requires (1)</div>'), body.innerHTML);
+	// a failure: shown with the error and a retry
+	_capAnalysis.ram = { key: null, status: 'error', memory: null, error: 'bad zip', token: 0 };
+	capRenderAnalysis('ram');
+	assert.ok(!box.hidden && body.innerHTML.includes('bad zip') && body.innerHTML.includes('Retry'), body.innerHTML);
+	// analyzing: shown with the progress line
+	_capAnalysis.ram = { key: null, status: 'analyzing', memory: null, error: null, token: 0 };
+	capRenderAnalysis('ram');
+	assert.ok(body.innerHTML.includes('Analyzing CAP file...'), body.innerHTML);
 });

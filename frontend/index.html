@@ -701,7 +701,10 @@
 			<div id="ram-install-params" class="hidden mb-3">
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
 				<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
-				<div id="ram-cap-info" class="text-xs text-gray-500 mt-1 hidden"></div>
+				<fieldset id="ram-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
+					<div id="ram-cap-body"></div>
+				</fieldset>
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
 				<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
 				<div id="rc-priv-row" class="mb-3 mt-2">
@@ -1376,7 +1379,10 @@
 						<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-400"><input type="checkbox" id="scripts-cap-makesel" checked> <span data-l10n="Make selectable">Make selectable</span></label>
 						<button data-needs="server" data-cap-gate="scripts" onclick="scriptsGenerateInstall()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Generate">Generate</button>
 					</div>
-					<div id="scripts-cap-info" class="text-xs text-gray-500 mt-1 hidden"></div>
+					<fieldset id="scripts-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
+						<div id="scripts-cap-body"></div>
+					</fieldset>
 					<div class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="The .cap is only used to generate the APDUs: the script stores the APDU list, not the file.">The .cap is only used to generate the APDUs: the script stores the APDU list, not the file.</div>
 				</div>
 				<div id="scripts-delete-params" class="hidden mt-3 border-t border-gray-200 dark:border-slate-700 pt-3">
@@ -1616,7 +1622,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.5.18';
+const SIMPLE_VERSION = '3.5.19';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8047,7 +8053,7 @@ function capMemHtml(mem) {
 	const part = content => cell(content, 'pl-4 text-gray-400 dark:text-slate-500');
 	const section = content => '<div class="mt-2 font-medium text-gray-500 dark:text-slate-400" style="text-transform:uppercase;letter-spacing:.06em">' + esc(content) + '</div>';
 	const disclosure = content => '<details class="mt-1"><summary class="cursor-pointer mt-2 font-medium text-gray-500 dark:text-slate-400" style="text-transform:uppercase;letter-spacing:.06em">' + esc(content) + '</summary>';
-	let html = '<div class="font-medium text-gray-700 dark:text-slate-300">' + esc(t('CAP requirements (estimate)')) + '</div>';
+	let html = '';
 
 	// ── package identity: AIDs, header flags (Table 6-4), applets and the
 	// compiled-against hint (javacard.framework version + CAP format) ──
@@ -8153,22 +8159,23 @@ function capMemHtml(mem) {
 
 function capRenderAnalysis(kind) {
 	const box = document.getElementById(kind === 'ram' ? 'ram-cap-info' : 'scripts-cap-info');
-	if (!box) return;
+	const body = document.getElementById(kind === 'ram' ? 'ram-cap-body' : 'scripts-cap-body');
+	if (!box || !body) return;
 	const st = _capAnalysis[kind];
 	if (!st || st.status === 'idle') {
 		box.classList.add('hidden');
-		box.innerHTML = '';
+		body.innerHTML = '';
 		return;
 	}
 	box.classList.remove('hidden');
 	if (st.status === 'analyzing') {
-		box.innerHTML = '<span class="text-gray-400">' + esc(t('Analyzing CAP file...')) + '</span>';
+		body.innerHTML = '<span class="text-gray-400">' + esc(t('Analyzing CAP file...')) + '</span>';
 	} else if (st.status === 'error') {
-		box.innerHTML = '<span class="text-red-500">' + esc(t('Analysis failed:')) + ' ' + esc(st.error || '') + '</span>' +
+		body.innerHTML = '<span class="text-red-500">' + esc(t('Analysis failed:')) + ' ' + esc(st.error || '') + '</span>' +
 			' <button class="underline text-gray-500 hover:text-gray-700 dark:text-slate-400" onclick="' +
 			(kind === 'ram' ? 'ramCapFileChanged()' : 'scriptsCapFileChanged()') + '">' + esc(t('Retry')) + '</button>';
 	} else {
-		box.innerHTML = capMemHtml(st.memory);
+		body.innerHTML = capMemHtml(st.memory);
 	}
 }
 
@@ -16143,6 +16150,7 @@ const LANG_RU = {
 	'Analysis failed:': 'Ошибка анализа:',
 	'Retry': 'Повторить',
 	'Analyze the CAP file first': 'Сначала проанализируйте CAP-файл',
+	'CAP details': 'Детали CAP',
 	'CAP requirements (estimate)': 'Требования CAP (оценка)',
 	'NVRAM requirement ≈': 'Требование NVRAM ≈',
 	'Requires:': 'Требуются:',
@@ -16929,6 +16937,9 @@ function refreshDynamicI18n() {
 	if (isViewVisible('tab-cards')) { cardsRender(); cardsSetFormMode(); }
 	if (isViewVisible('scp81-sub-scripts')) { scriptsRender(); scriptsRebuildSelect(); }
 	if (_ramExplorerData && isViewVisible('ram-explorer')) ramRenderExplorer();
+	// the CAP analysis bodies are built with t(); the legends are static
+	capRenderAnalysis('ram');
+	capRenderAnalysis('scripts');
 	if (isViewVisible('tab-phone')) {
 		if (isViewVisible('phone-sub-phone')) {
 			pysimEventsRender();
