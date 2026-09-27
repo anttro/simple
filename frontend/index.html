@@ -1665,7 +1665,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.3';
+const SIMPLE_VERSION = '3.6.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8730,66 +8730,54 @@ async function ramExplore(sp) {
 	const isd = [], apps = [], elfs = [], modules = [];
 
 	async function paginate(p1, collector, parser, label) {
-		// Chain GET STATUS + GET RESPONSE into a single SCP80 payload.
-		// The card's SCP80 layer executes both: GET STATUS returns 61XX,
-		// then GET RESPONSE fetches the data — the PoR captures the final
-		// result (9000 + response data) without the frontend handling 61XX.
-		// ELF queries (P1=20/10) use SPI2=0x21 (PoR via SMS-SUBMIT) because
-		// ELF data won't fit in the ENVELOPE response.
+		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
+		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
+		// commands, so the PoR carries the listing.  ELF queries (P1=20/10) use
+		// SPI2=0x21 (PoR via SMS-SUBMIT) because the listing won't fit in the
+		// ENVELOPE response.
 		const isElf = (p1 === '20' || p1 === '10');
 		const spi2 = isElf ? '21' : '01';
-		// Try TLV format (P2=02) first for structured data; fall back to raw
-		// (P2=00) if the card doesn't support TLV GET STATUS.
-		for (const p2Init of ['02', '00']) {
-			let p2 = p2Init;
-			let guard = 0;
-			let tlvFailed = false;
-			while (guard++ < 32) {
-				// P2=02: no data field (card returns all tags). P2=00: Lc=02 TagList=4F00 (ignored by card).
-				const dataField = p2 === '02' ? '' : '024F0000';
-				const apdu = '80F2' + p1 + p2 + dataField + 'C0000000';
-				ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
-				const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
-				if (!res.success || !res.por || res.por.response_status !== 'por_ok') {
-					const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
-					errors.push(label + ': ' + errorMsg);
-					tlvFailed = true;
-					break;
-				}
-				// the card consumed the packet: advance for the next step
-				cntr = ramIncrementCntr(cntr);
+		let p2 = '00';
+		let guard = 0;
+		while (guard++ < 32) {
+			const apdu = ramGetStatusApdu(p1, p2);
+			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
+			const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+			// A packet the card accepted advances the counter even when the
+			// page itself is incomplete: the card consumed it, and a retry with
+			// the same counter is rejected (cntr_low).
+			if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+			if (!res.success || !res.por || res.por.response_status !== 'por_ok') {
+				const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
+				errors.push(label + ': ' + errorMsg);
+				break;
+			}
 			const data = res.por.decoded ? res.por.decoded.last_response_data : '';
 			const sw = (res.por.decoded ? res.por.decoded.last_status_word : '').toUpperCase();
-				// If first attempt with P2=02 gets an unsupported error, retry with P2=00.
-				if (guard === 1 && p2Init === '02' && (sw === '6A86' || sw === '6A88')) {
-					tlvFailed = true;
-					break;
+			// Defensive: a remote 61XX means the data is still pending (the
+			// chained GET RESPONSE normally prevents this).
+			if (sw && sw.startsWith('61')) {
+				if (data) {
+					const parsed61 = parser(data);
+					if (parsed61.length) collector.push(...parsed61);
 				}
-				// Defensive: 61XX means more data available (shouldn't happen with
-				// chained GET RESPONSE, but handle it if the card responds this way).
-				if (sw && sw.startsWith('61')) {
-					if (data) {
-						const parsed61 = parser(data);
-						if (parsed61.length) collector.push(...parsed61);
-					}
-					p2 = '01';
-					continue;
-				}
-				if (sw === '6F00') { tlvFailed = true; break; }
-				if (!data) {
-					if (sw !== '9000') {
-						errors.push(label + ': ' + t('(no data)') + ' — SW ' + sw);
-						tlvFailed = true;
-					}
-					break;
-				}
-				const parsed = parser(data);
-				if (!parsed.length) break;
-				collector.push(...parsed);
-				if (sw === '9000') break;
+				if (p1 === '80') break;   // the ISD is a single occurrence (11.4.2.2)
 				p2 = '01';
+				continue;
 			}
-			if (!tlvFailed) break;
+			if (sw === '6F00') break;
+			if (!data) {
+				if (sw !== '9000') errors.push(label + ': ' + t('(no data)') + ' — SW ' + sw);
+				break;
+			}
+			const parsed = parser(data);
+			if (!parsed.length) break;
+			collector.push(...parsed);
+			if (sw === '9000') break;
+			// next occurrence (P2.b1=1) - never for the ISD-only query: the
+			// card shall reject it (GP 11.4.2.2)
+			if (p1 === '80') break;
+			p2 = '01';
 		}
 	}
 
@@ -9459,10 +9447,23 @@ function spRefreshFromPreset(selId) {
 }
 
 // A send counts as accepted when there is no PoR to check (the SPI requests
-// none) or the PoR is por_ok; anything else (cntr_low, Por error) must leave
-// the counter untouched.
+// none) or the card reports success: por_ok, or actual_response_sms_submit
+// (0x0B - the real response follows as an SMS-SUBMIT; the packet was still
+// consumed and the counter must advance).  Anything else (cntr_low, PoR
+// error) leaves the counter untouched.
 function spPorAccepted(por) {
-	return !por || por.response_status === 'por_ok';
+	return !por || por.response_status === 'por_ok' ||
+		por.response_status === 'actual_response_sms_submit';
+}
+
+// GET STATUS APDU for the compact listing format: P2.b2=0 (GP Card Spec
+// v2.3.1 11.4.2.2) with the mandatory '4F00' search criterion (all
+// occurrences) and a chained GET RESPONSE (00C0000000) in the same secured
+// payload.  The expanded TLV format (P2.b2=1, P2=02/03) must NOT carry a GET
+// RESPONSE - it returns the E3 templates directly - so this builder is only
+// for the compact path.
+function ramGetStatusApdu(p1, p2) {
+	return '80F2' + p1 + p2 + '024F0000' + 'C0000000';
 }
 
 function downloadJson(name, obj) {

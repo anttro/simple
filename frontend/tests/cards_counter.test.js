@@ -84,6 +84,8 @@ test('cardsApplyFields fills the form without generating a packet', () => {
 test('spPorAccepted treats a missing PoR and por_ok as accepted', () => {
 	assert.strictEqual(spPorAccepted(undefined), true);
 	assert.strictEqual(spPorAccepted({ response_status: 'por_ok' }), true);
+	// 0x0B: the real response follows as an SMS-SUBMIT - the packet was consumed
+	assert.strictEqual(spPorAccepted({ response_status: 'actual_response_sms_submit' }), true);
 	assert.strictEqual(spPorAccepted({ response_status: 'cntr_low' }), false);
 	assert.strictEqual(spPorAccepted({ response_status: 'rc_cc_ds_failed' }), false);
 });

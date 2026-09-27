@@ -294,6 +294,14 @@ segments are sent in order.  A packet that would need more than 5 segments
 is refused (the card's concatenation buffer is the limit).  With `sp` a
 pre-built packet is delivered the same way.
 
+The card may answer with PoR status `actual_response_sms_submit` (`0x0B`):
+the real response (a big GET STATUS listing, for example) then arrives as one
+or more proactive SEND SHORT MESSAGE commands.  The server captures those
+SMS-SUBMIT TPDUs, reassembles the concatenated segments and returns the
+decoded response in `por` (as if it had arrived in the ENVELOPE), so callers
+see a normal `por.response_status == "por_ok"` with the remote status word
+and response data.
+
 **Request body:**
 ```json
 {

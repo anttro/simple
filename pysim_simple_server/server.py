@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.3'
+VERSION = '3.6.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -883,9 +883,12 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
                         if len(matching) >= total:
                             sorted_segs = sorted(matching, key=lambda s: s[2])
                             assembled = b''.join(bytes.fromhex(s[3]) for s in sorted_segs)
-                            submit_handler.submit_tpdu_hex = assembled.hex()
-                            sys.stderr.write('SMS concat: assembled %d segments (ref=%s)\n' % (total, ref))
+                            submit_handler.submit_ud_hex = assembled.hex()
+                            submit_handler.submit_tpdu_hex = submit_handler.submit_tpdu_hex or tpdu_hex
+                            sys.stderr.write('SMS concat: assembled %d segments (ref=%s, %d B)\n' % (
+                                total, ref, len(assembled)))
                     else:
+                        submit_handler.submit_ud_hex = payload.hex()
                         submit_handler.submit_tpdu_hex = tpdu_hex
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
@@ -1168,6 +1171,23 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
     return step, error
 
 
+def _sms_submit_por(submit_handler):
+    """Response packet carried by an actual-response SMS-SUBMIT, in the
+    DELIVER-style form `_decode_por` expects.
+
+    The submit UD has no RPI UDH (the RPI is a UDH IE there) and starts at
+    RPL/RHL/TAR/CNTR/PCNTR/STS, so the `02 71 00` RPI UDH is prepended.  Returns
+    '' when no submit response was captured."""
+    ud_hex = (getattr(submit_handler, 'submit_ud_hex', None) or '').strip()
+    if not ud_hex:
+        return ''
+    try:
+        bytes.fromhex(ud_hex)
+    except ValueError:
+        return ''
+    return '027100' + ud_hex
+
+
 def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
     from pySim.ota import OtaDialectSms, CompactRemoteResp
     from osmocom.utils import h2b, b2h
@@ -1272,6 +1292,9 @@ class PoRSubmitHandler(ProactiveHandler):
     def __init__(self):
         super().__init__()
         self.submit_tpdu_hex = None
+        # Assembled UD data of the actual-response SMS-SUBMIT(s), UDH stripped:
+        # the DELIVER-style response packet is `02 71 00` + this data.
+        self.submit_ud_hex = None
         self.sms_segments = []  # [(ref, total, num, payload_hex), ...]
 
 
@@ -3685,6 +3708,19 @@ def _bip_flush_channel_events(scc):
         _FLUSHING_CHANNEL_EVENTS = False
 
 
+def _ber_len_at(raw, off):
+    """Return (length, value_offset) of a BER length field at raw[off]."""
+    if off >= len(raw):
+        return 0, off
+    first = raw[off]
+    if first < 0x80:
+        return first, off + 1
+    n = first & 0x7F
+    if n < 1 or off + 1 + n > len(raw):
+        return 0, off + 1
+    return int.from_bytes(raw[off + 1:off + 1 + n], 'big'), off + 1 + n
+
+
 def _skip_ber_len(raw, off):
     if off >= len(raw):
         return off
@@ -3852,13 +3888,22 @@ def _parse_proactive_header(raw):
 
 
 def _find_sms_tpdu(raw):
-    if raw[0] == 0xD0:
+    """Extract the SMS TPDU (tag 0x8B) from a FETCH response.
+
+    FETCH responses may use BER long-form lengths (`8B 81 97 ...` for the big
+    listings), so the TLV length must be parsed, not read as one byte: a
+    single-byte read silently truncates the TPDU and the PoR/data is lost."""
+    if raw and raw[0] == 0xD0:
         off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
-            tag, tlen = raw[off], raw[off + 1]
-            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+            tag = raw[off]
+            tlen, val_off = _ber_len_at(raw, off + 1)
             if tag == 0x8B and tlen >= 1:
-                return val.hex()
+                return raw[val_off:val_off + tlen].hex()
+            nxt = val_off + tlen
+            if nxt <= off:          # no forward progress: stop
+                break
+            off = nxt
     return None
 
 
@@ -3875,8 +3920,10 @@ def _calc_ud_offset(tpdu):
         da_len_digits = tpdu[2]
         da_data_bytes = (da_len_digits + 1) // 2
         off = 1 + 1 + 1 + 1 + da_data_bytes + 1 + 1
-        if vpf in (0x01, 0x02):  # relative or absolute
-            off += 7
+        # TP-VP: none (0), enhanced (7), relative (1), absolute (7) - reading
+        # the relative form as 7 bytes shifted the UD offset and made the
+        # concatenation UDH unparseable.
+        off += {0x00: 0, 0x01: 7, 0x02: 1, 0x03: 7}[vpf]
         if off >= len(tpdu):
             return None
         return off + 1  # skip UDL byte
@@ -5935,7 +5982,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 'bytes': result['bytes'], 'segments': result['segments']}
                         por_src = 'envelope'
                         por_hex = resp['response_data']
-                        if submit_handler and submit_handler.submit_tpdu_hex:
+                        submit_hex = _sms_submit_por(submit_handler)
+                        if submit_hex:
+                            por_hex = submit_hex
+                            por_src = 'sms-submit'
+                        elif submit_handler and submit_handler.submit_tpdu_hex:
+                            # no assembled UD: fall back to a raw RPI packet
                             tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
                             idx = tpdu_b.find(b'\x02\x71\x00')
                             if idx >= 0:
@@ -6099,7 +6151,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         # Decode PoR
                         por_src = 'envelope'
                         por_hex = last_data
-                        if submit_handler and submit_handler.submit_tpdu_hex:
+                        submit_hex = _sms_submit_por(submit_handler)
+                        if submit_hex:
+                            por_hex = submit_hex
+                            por_src = 'sms-submit'
+                        elif submit_handler and submit_handler.submit_tpdu_hex:
+                            # no assembled UD: fall back to a raw RPI packet
                             tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
                             idx = tpdu_b.find(b'\x02\x71\x00')
                             if idx >= 0:

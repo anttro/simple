@@ -30,9 +30,13 @@ from pysim_simple_server.server import (
     _ota_reference,
     _parse_select_item,
     _parse_setup_menu_items,
+    _calc_ud_offset,
+    _find_sms_tpdu,
+    _parse_sms_concat,
     _por_remote_sw,
     _ram_next_cntr,
     _ram_remote_sw_ok,
+    _sms_submit_por,
     _ram_step_result,
     _record_tr,
     _send_secured_packet,
@@ -1032,7 +1036,7 @@ class TestSmsReassembly(unittest.TestCase):
 
     def test_single_segment_no_concat(self):
         """Single segment without UDH → submit_tpdu_hex is set directly."""
-        from pysim_simple_server.server import PoRSubmitHandler, _find_sms_tpdu, _parse_sms_concat
+        from pysim_simple_server.server import PoRSubmitHandler
         handler = PoRSubmitHandler()
         # Build a simple D0 with tag 8B containing an SMS-SUBMIT without UDH
         sms_tpdu = bytes.fromhex('040005902143F50004'  # SMS-SUBMIT header
@@ -1310,4 +1314,70 @@ class RamPorStepTest(unittest.TestCase):
         por = {'response_status': 'por_ok', 'decoded': {},
                'responses': [{'status_word': '9000'}, {'status_word': '6A82'}]}
         self.assertEqual(_por_remote_sw(por), '6A82')
+
+
+
+class SmsSubmitCaptureTest(unittest.TestCase):
+    """The actual-response SMS-SUBMIT path: the card answers the ENVELOPE with
+    PoR status 0x0B and delivers the listing in SMS-SUBMIT TPDUs (SEND SHORT
+    MESSAGE proactive commands).  The FETCH bytes below are from a live RAM
+    explore (the two 274-byte segments of the ELF listing)."""
+
+    FETCH_1 = ('d081ae81030113008202818305000607812143658719f28b8197510005812143f57ff6'
+               '058c070003130201710000e90a000000000000030600000263100bd276000005aaffcafe'
+               '0001010007a000000151535001000bd276000005aaffcafe001001000bd276000005aaff'
+               'cafe0304010010d2760001180002ff491ff3890000010101000bd276000005aaffcafe00'
+               '02010007a0000000620001010007a0000000620002010007a0000000620101010006')
+    FETCH_2 = ('d0818e81030113008202818305000607812143658719f28b78510005812143f57ff6'
+               '056d050003130202a00000015100010007a0000000620102010007a000000062020101'
+               '0008a000000062020801010009a00000006202080101010010a0000000090003ffffff'
+               'ff8910710001010010a0000000090003ffffffff891071000201000bd276000005aaff'
+               'cafe00030100')
+
+    def test_find_sms_tpdu_reads_ber_long_form_lengths(self):
+        tpdu = bytes.fromhex(_find_sms_tpdu(bytes.fromhex(self.FETCH_1)))
+        self.assertEqual(len(tpdu), 0x97)                    # 8B 81 97 <151 bytes>
+        self.assertEqual(tpdu[:6].hex(), '510005812143'.lower())
+        tpdu2 = bytes.fromhex(_find_sms_tpdu(bytes.fromhex(self.FETCH_2)))
+        self.assertEqual(len(tpdu2), 0x78)                   # 8B 78 <120 bytes>
+
+    def test_sms_submit_ud_offset_with_relative_validity(self):
+        # VPF=10 (relative) = 1 byte, not 7: 0x51 & 0x18 = 0x10 -> relative
+        tpdu = bytes.fromhex(_find_sms_tpdu(bytes.fromhex(self.FETCH_1)))
+        self.assertEqual(_calc_ud_offset(tpdu), 11)
+        # synthetic absolute/enhanced forms still take 7 bytes
+        abs_tpdu = bytes.fromhex('5900048111227ff6' + '00' * 7 + '00' + '00' * 8)
+        self.assertEqual(_calc_ud_offset(abs_tpdu), 16)
+
+    def test_parse_sms_concat_segments(self):
+        ref, total, num, payload = _parse_sms_concat(
+            bytes.fromhex(_find_sms_tpdu(bytes.fromhex(self.FETCH_1))))
+        self.assertEqual((ref, total, num), (0x13, 2, 1))
+        self.assertEqual(len(payload), 132)
+        ref2, total2, num2, payload2 = _parse_sms_concat(
+            bytes.fromhex(_find_sms_tpdu(bytes.fromhex(self.FETCH_2))))
+        self.assertEqual((ref2, total2, num2), (0x13, 2, 2))
+        self.assertEqual(len(payload2), 103)
+
+    def test_sms_submit_por_decodes_to_the_listing(self):
+        class Handler:
+            submit_ud_hex = None
+        handler = Handler()
+        segs = {}
+        for hx in (self.FETCH_1, self.FETCH_2):
+            _, tot, num, payload = _parse_sms_concat(bytes.fromhex(_find_sms_tpdu(bytes.fromhex(hx))))
+            segs[num] = payload
+        handler.submit_ud_hex = b''.join(segs[k] for k in sorted(segs)).hex()
+        por_hex = _sms_submit_por(handler)
+        self.assertTrue(por_hex.startswith('027100'))
+        por = _decode_por('15', '21', '25', '25', '0000000306',
+                          '00' * 16, '00' * 16, por_hex)
+        self.assertEqual(por['response_status'], 'por_ok')
+        self.assertEqual(por['decoded']['last_status_word'], '6310')
+        data = por['decoded']['last_response_data']
+        self.assertEqual(len(data), 438)
+        self.assertTrue(data.lower().startswith('0bd2760000'), data[:20])
+        # no submit response captured -> empty string, never a bogus packet
+        handler.submit_ud_hex = None
+        self.assertEqual(_sms_submit_por(handler), '')
 
