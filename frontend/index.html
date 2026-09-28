@@ -1682,7 +1682,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.14';
+const SIMPLE_VERSION = '3.6.15';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4194,7 +4194,9 @@ function chainRamBuildRowHex(idx, row) {
 		var delMode = f.delMode || '00';
 		var df7 = '4F' + berLenStr(aid.length / 2) + aid;
 		var dl7 = berLenStr(df7.length / 2);
-		return buildApdu(0x80, 0xE4, 0x00, parseInt(delMode, 16), parseInt(dl7, 16), df7) + '00';
+		// case 3 (no Le), like the server's ramDeleteApdu: a trailing Le byte
+		// becomes a phantom command on the card's SCP80 layer (SW 6700).
+		return buildApdu(0x80, 0xE4, 0x00, parseInt(delMode, 16), parseInt(dl7, 16), df7);
 	}
 	if (cmd === 'get-status') {
 		var gsMode = f.gsMode || '80';
@@ -8896,15 +8898,17 @@ async function ramExplore(sp) {
 
 // GP DELETE (Card Spec v2.3.1 11.2, Tables 11-20/11-23): P1=00 (last/only
 // command), P2.b8 selects "object" ('00') or "object and related objects"
-// ('80'), the data field carries the mandatory '4F' AID TLV and Le is '00'.
-// The old inline builder called an undefined length helper (`_ber_len`): a
-// ReferenceError
-// after the confirm - the Delete buttons never sent anything) and omitted Le.
+// ('80'), the data field carries the mandatory '4F' AID TLV.  The APDU is
+// case 3 (no Le): a trailing Le byte makes the card's SCP80 layer count a
+// phantom second command whose SW 6700 masks the real result (live
+// 2026-09-28) - same as INSTALL/LOAD since v3.6.8.  The old inline builder
+// called an undefined length helper (`_ber_len`): a ReferenceError after the
+// confirm - the Delete buttons never sent anything.
 function ramDeleteApdu(aid, withCascade) {
 	const a = (aid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (!a) return '';
 	const data = '4F' + berLenStr(a.length / 2) + a;
-	return '80E400' + (withCascade ? '80' : '00') + berLenStr(data.length / 2) + data + '00';
+	return '80E400' + (withCascade ? '80' : '00') + berLenStr(data.length / 2) + data;
 }
 
 // A successful delete drops the object from the Explore result locally (the

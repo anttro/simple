@@ -77,7 +77,7 @@ test('accepted delete persists the consumed counter and drops the record', async
 		decoded: { last_status_word: '9000' } });
 	await ramDeleteFromExplorer('F0414C46416101', false);
 	assert.strictEqual(calls.sent.cntr, '0000000005');
-	assert.strictEqual(calls.sent.apdu, '80E40000094F07F0414C4641610100');
+	assert.strictEqual(calls.sent.apdu, '80E40000094F07F0414C46416101');
 	assert.strictEqual(calls.sent.spi2, '01', 'the computed SPI2 byte must be used');
 	assert.strictEqual(cards[0].cntr, '0000000006',
 		'the preset must carry the counter the card consumed');

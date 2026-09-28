@@ -84,9 +84,9 @@ test('scriptsParseApdus accepts comments and whitespace, rejects bad lines', () 
 
 test('scp81DeleteApdus builds GP DELETE APDUs per AID', () => {
 	assert.deepStrictEqual(scp81DeleteApdus(['A000000003000000'], '00'),
-		['80E400000A4F08A00000000300000000']);
+		['80E400000A4F08A000000003000000']);
 	assert.deepStrictEqual(scp81DeleteApdus(['A000000003000000', 'A000000100'], '80'),
-		['80E400800A4F08A00000000300000000', '80E40080074F05A00000010000']);
+		['80E400800A4F08A000000003000000', '80E40080074F05A000000100']);
 	assert.deepStrictEqual(scp81DeleteApdus([], '00'), []);
 });
 

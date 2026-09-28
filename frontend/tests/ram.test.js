@@ -416,16 +416,17 @@ test('ramParseAppStatus keeps 16-byte AIDs (no rawLen-1 truncation)', () => {
 	assert.strictEqual(apps[3].lifecycle, '07');
 });
 
-test('ramDeleteApdu builds the GP DELETE with the 4F AID TLV and Le (F0414C46416101)', () => {
+test('ramDeleteApdu builds the GP DELETE with the 4F AID TLV (F0414C46416101)', () => {
 	// GP Card Spec v2.3.1 Table 11-20/23: P1=00, P2.b8 = object / object+related,
-	// data = '4F' AID TLV, Le=00.  The old handler called an undefined helper
-	// and no APDU was ever sent.
+	// data = '4F' AID TLV, case 3 (no Le - a trailing Le byte becomes a
+	// phantom command on the card's SCP80 layer, live 2026-09-28).  The old
+	// handler called an undefined helper and no APDU was ever sent.
 	assert.strictEqual(ramDeleteApdu('F0414C46416101', false),
-		'80E40000094F07F0414C4641610100');
+		'80E40000094F07F0414C46416101');
 	assert.strictEqual(ramDeleteApdu('F0414C46416101', true),
-		'80E40080094F07F0414C4641610100');
+		'80E40080094F07F0414C46416101');
 	assert.strictEqual(ramDeleteApdu('A1130001180002FFF7100E8904000200', true),
-		'80E40080124F10A1130001180002FFF7100E890400020000');
+		'80E40080124F10A1130001180002FFF7100E8904000200');
 	assert.strictEqual(ramDeleteApdu('', false), '');
 	// the dead helper reference must not come back
 	assert.ok(!html.includes('_ber_len('), 'undefined _ber_len() call is back');
