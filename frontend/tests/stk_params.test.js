@@ -131,11 +131,13 @@ test('adfAidFromFci extracts the DF name (tag 84) from an FCI', () => {
 test('ramParamsPrefix composes C9 + EF (C7/C8) like the vendor scripts', () => {
 	// The vendor's working install (samples/uicc/applets/STK3):
 	//   C9 22 <config>  EF 08 C7 02 0000 C8 02 0000  EA ...
-	assert.strictEqual(ramParamsPrefix('', '', ''), '');
+	// C9 is mandatory (GP Table 11-49): an empty field is sent as C9 00 -
+	// without it the card rejects the data field with 6A80 (live 2026-09-28).
+	assert.strictEqual(ramParamsPrefix('', '', ''), 'C900');
 	assert.strictEqual(ramParamsPrefix('082905112000012066', '', ''),
 		'C909082905112000012066');
-	assert.strictEqual(ramParamsPrefix('', '0', '0'), 'EF08C7020000C8020000');
-	assert.strictEqual(ramParamsPrefix('', '32768', ''), 'EF06C70400008000');
+	assert.strictEqual(ramParamsPrefix('', '0', '0'), 'C900EF08C7020000C8020000');
+	assert.strictEqual(ramParamsPrefix('', '32768', ''), 'C900EF06C70400008000');
 	assert.strictEqual(ramParamsPrefix('AA', '', '1234'), 'C901AAEF04C80204D2');
 });
 

@@ -857,8 +857,8 @@
 					</div>
 				</div>
 			</div>
-			<label class="block mb-1 mt-2 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Install parameters (hex, optional)">Install parameters (hex, optional)</label>
-				<input id="ram-install-params-hex" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="C9 TLV">
+			<label class="block mb-1 mt-2 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Extra install parameters (hex, optional)">Extra install parameters (hex, optional)</label>
+				<input id="ram-install-params-hex" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="extra TLVs (optional)">
 				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400 mt-2" data-l10n="STK parameters (hex, optional)">STK parameters (hex, optional)</label>
 				<input id="ram-stk-params" oninput="this.dataset.manual='1'" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="EA / CA TLV">
 				<div id="ram-stk-hint" class="hidden text-xs text-red-600 dark:text-red-400 mt-1"></div>
@@ -1711,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.19';
+const SIMPLE_VERSION = '3.6.20';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2748,11 +2748,13 @@ function ramQuotaValue(n) {
 
 // The applet-specific prefix of the install parameters, in the vendor's
 // order: `C9 <applet-specific parameters>` + `EF <C7/C8 memory quotas>`.
-// The server appends the STK (`EA`/`EF+CA`) part after it.
+// The server appends the STK (`EA`/`EF+CA`) part after it.  C9 is mandatory
+// in the Install Parameters (GP Table 11-49), so an empty field is sent as
+// `C9 00` - like the reference tools; a prefix without C9 makes the card
+// reject the data field with 6A80 (live 2026-09-28).
 function ramParamsPrefix(c9Hex, c7, c8) {
 	const c9 = (c9Hex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	let out = '';
-	if (c9) out += 'C9' + berLenStr(c9.length / 2) + c9;
+	let out = 'C9' + berLenStr(c9.length / 2) + c9;
 	let ef = '';
 	if (String(c7 ?? '') !== '' && !isNaN(parseInt(c7, 10))) ef += 'C7' + ramQuotaValue(c7);
 	if (String(c8 ?? '') !== '' && !isNaN(parseInt(c8, 10))) ef += 'C8' + ramQuotaValue(c8);
@@ -2772,7 +2774,7 @@ function updateInstallParamsHex() {
 	const el = document.getElementById('ram-install-params-hex');
 	// The field carries extra raw TLVs; the generated prefix is shown in the
 	// placeholder so the composed parameters stay visible.
-	el.placeholder = prefix ? prefix + ' …' : 'C9 TLV';
+	el.placeholder = prefix ? prefix + ' …' : 'extra TLVs (optional)';
 }
 
 // ===== GSM 7-bit alphabet =====
@@ -16813,6 +16815,7 @@ const LANG_RU = {
 	'Select a card preset with keys first (RAM subtab → Card preset)': 'Сначала выберите пресет карты с ключами (RAM → Пресет карты)',
 	'Select a .cap file': 'Выберите файл .cap',
 	'RAM install (CAP file)': 'RAM-установка (файл CAP)',
+	'Extra install parameters (hex, optional)': 'Дополнительные параметры установки (hex, опционально)',
 	'Install parameters (hex, optional)': 'Параметры установки (hex, опционально)',
 	'STK parameters (hex, optional)': 'STK-параметры (hex, опционально)',
 	'Make selectable': 'Сделать выбираемым',
