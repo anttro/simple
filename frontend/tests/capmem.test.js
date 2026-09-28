@@ -41,6 +41,9 @@ eval(extractFunc(html, 'jcAidFamily'));
 eval(extractFunc(html, 'capMemBytes'));
 eval(extractFunc(html, 'capMemHtml'));
 eval(extractFunc(html, 'capAnalyzeFile', true));
+// The RAM CAP analysis also applies the detected toolkit mode (DOM-bound; its
+// own logic is covered in ram.test.js) - stub it for these state tests.
+globalThis.ramApplyCapToolkitMode = () => {};
 
 globalThis.esc = s => s;
 globalThis.t = s => s;

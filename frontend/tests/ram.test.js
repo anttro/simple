@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn',
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
@@ -272,6 +272,33 @@ test('ramFmtPrivileges decodes the GP privilege bytes (live ISD values)', () => 
 	assert.strictEqual(ramFmtPrivileges('0001'), 'Global Service');
 	assert.strictEqual(ramFmtPrivileges('000080'), 'Receipt Generation');
 	delete global.t;
+});
+
+test('ramCapToolkitMode picks CA/EA from the CAP linked libraries', () => {
+	// sim.toolkit / sim.access (A0000000090003...) -> SIM Toolkit (CA field)
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000090003FFFFFFFF8910710002' }]), 'ca');
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000090003FFFFFFFF8910710001' }]), 'ca');
+	// uicc.toolkit / uicc.access (A0000000090005...) -> UICC Toolkit (EA field)
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000090005FFFFFFFF8912000000' }]), 'ea');
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000090005FFFFFFFF8911000000' }]), 'ea');
+	// uicc.usim.* (A0000000871005...) -> UA family wins over a SIM library
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000871005FFFFFFFF8913200000' }]), 'ea');
+	assert.strictEqual(ramCapToolkitMode([
+		{ aid: 'A0000000090003FFFFFFFF8910710002' },
+		{ aid: 'A0000000871005FFFFFFFF8913200000' }]), 'ea');
+	// no toolkit/access library: leave the user's choice alone
+	assert.strictEqual(ramCapToolkitMode([{ aid: 'A0000000620101' }, { aid: 'A0000000620001' }]), null);
+	assert.strictEqual(ramCapToolkitMode([]), null);
+	assert.strictEqual(ramCapToolkitMode(undefined), null);
+});
+
+test('the toolkit block is an accented bordered fieldset', () => {
+	const m = /id="rc-toolkit-row"[^>]*class="([^"]*)"/.exec(html);
+	assert.ok(m, 'rc-toolkit-row not found');
+	assert.ok(m[1].includes('border'), m[1]);
+	assert.ok(m[1].includes('p-3'), m[1]);
+	assert.ok(/<legend[^>]*>[\s\S]*?rc-toolkit-enable[\s\S]*?<\/legend>/.test(html),
+		'the enable checkbox lives in the fieldset legend');
 });
 
 test('ramFmtPrivileges uses the translated (none) placeholder', () => {

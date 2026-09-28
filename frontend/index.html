@@ -751,13 +751,13 @@
 					<label class="flex items-center gap-1"><input type="checkbox" class="rc-priv-b3" value="80" onchange="updateRcPriv()"> Receipt Generation</label>
 				</div>
 			</div>
-			<div id="rc-toolkit-row" class="mb-3">
-				<div class="mb-2">
-					<label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+			<fieldset id="rc-toolkit-row" class="mb-3 mt-2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+				<legend class="px-1 text-sm font-medium text-blue-800 dark:text-blue-300">
+					<label class="flex items-center gap-2">
 						<input id="rc-toolkit-enable" type="checkbox" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800" onchange="updateRcToolkit()">
-						SIM/UICC Toolkit parameters
+						<span data-l10n="SIM/UICC Toolkit parameters">SIM/UICC Toolkit parameters</span>
 					</label>
-				</div>
+				</legend>
 				<div id="rc-toolkit-body" class="hidden">
 					<div class="mb-3">
 						<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Toolkit mode">Toolkit mode</label>
@@ -765,6 +765,7 @@
 							<option value="ca">SIM Toolkit (Tag CA)</option>
 							<option value="ea">UICC Toolkit (Tag EA)</option>
 						</select>
+						<div id="rc-tk-mode-hint" class="hidden mt-1 text-xs text-blue-700 dark:text-blue-300"></div>
 					</div>
 					<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
 						<div>
@@ -845,7 +846,7 @@
 						</div>
 					</div>
 				</div>
-			</div>
+			</fieldset>
 			<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm mt-2">
 				<div>
 					<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Applet-specific parameters (C9, hex, optional)">Applet-specific parameters (C9, hex, optional)</label>
@@ -1713,7 +1714,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.31';
+const SIMPLE_VERSION = '3.6.32';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2545,9 +2546,52 @@ function updateRcPriv() {
 	document.getElementById('rc-priv').value = hex;
 }
 
+// The install-parameter family a CAP belongs to, from its Import component:
+// sim.* (sim.toolkit / sim.access, AID tree A0000000090003FFFFFFFF89...) uses
+// the CA field (SIM Toolkit); uicc.* / uicc.usim.* (uicc.toolkit /
+// uicc.access / ..., AID trees A0000000090005FFFFFFFF89... and
+// A0000000871005FFFFFFFF89...) uses the EA field (UICC Toolkit).  Returns
+// 'ca', 'ea' or null when the CAP links against neither.
+function ramCapToolkitMode(imports) {
+	const aids = (imports || []).map(im => (im.aid || '').toUpperCase());
+	if (aids.some(a => a.startsWith('A0000000090005FFFFFFFF89') ||
+	                   a.startsWith('A0000000871005FFFFFFFF89'))) return 'ea';
+	if (aids.some(a => a.startsWith('A0000000090003FFFFFFFF89'))) return 'ca';
+	return null;
+}
+
+// Pick the toolkit mode of the analysed RAM CAP (when its libraries decide it)
+// and, when the block is in use, apply it: never make the user guess CA vs EA.
+function ramApplyCapToolkitMode() {
+	const st = _capAnalysis.ram;
+	const mode = ramCapToolkitMode((st.memory && st.memory.imports) || []);
+	st.tk_mode = mode;
+	const sel = document.getElementById('rc-tk-mode');
+	const hint = document.getElementById('rc-tk-mode-hint');
+	if (hint) {
+		if (mode) {
+			hint.textContent = t('detected from the CAP') + ': ' + sel.options[sel.selectedIndex].text;
+			hint.classList.remove('hidden');
+		} else {
+			hint.classList.add('hidden');
+		}
+	}
+	const enable = document.getElementById('rc-toolkit-enable');
+	if (mode && enable && enable.checked) {
+		sel.value = mode;
+		if (hint) hint.textContent = t('detected from the CAP') + ': ' +
+			(mode === 'ea' ? 'UICC Toolkit (Tag EA)' : 'SIM Toolkit (Tag CA)');
+		updateRcTkMode();
+		updateStkParamsHex();
+	}
+}
+
 function updateRcToolkit() {
 	const checked = document.getElementById('rc-toolkit-enable').checked;
 	document.getElementById('rc-toolkit-body').classList.toggle('hidden', !checked);
+	// A CAP linked against sim.* / uicc.* decides the toolkit mode
+	const st = _capAnalysis.ram;
+	if (checked && st && st.tk_mode) document.getElementById('rc-tk-mode').value = st.tk_mode;
 	updateRcTkMode();
 	updateStkParamsHex();
 }
@@ -8454,6 +8498,7 @@ async function capAnalyzeFile(file, kind) {
 		if (resp && resp.ok) {
 			st.status = 'ok';
 			st.memory = resp.memory || {};
+			if (kind === 'ram') ramApplyCapToolkitMode();
 		} else {
 			st.status = 'error';
 			st.error = (resp && resp.error) || t('Analysis failed');
@@ -16782,6 +16827,7 @@ const LANG_RU = {
 	'Byte 1': 'Байт 1',
 	'Byte 2': 'Байт 2',
 	'SIM/UICC Toolkit parameters': 'Параметры SIM/UICC Toolkit',
+	'detected from the CAP': 'определено по CAP',
 	'Toolkit mode': 'Режим Toolkit',
 	'Max services': 'Максимум сервисов',
 	'Priority': 'Приоритет',
