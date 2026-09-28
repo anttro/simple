@@ -66,15 +66,19 @@ test('cmdQualifierShort returns empty for unknown types', () => {
 });
 
 test('EVENT_NAMES follows the pinned CAT spec and names the 3GPP events', () => {
-	assert.strictEqual(EVENT_NAMES[0x0B], 'Access technology change (single)');
-	assert.strictEqual(EVENT_NAMES[0x14], 'Access technology change (multiple)');
+	assert.strictEqual(EVENT_NAMES[0x0B], 'Access technology change (single access technology)');
+	assert.strictEqual(EVENT_NAMES[0x14], 'Access technology change (multiple access technologies)');
 	assert.strictEqual(EVENT_NAMES[0x19], 'Profile container');
 	assert.strictEqual(EVENT_NAMES[0x1C], 'Poll interval negotiation');
-	for (const [v, frag] of [[0x11, '(I-)WLAN access status'], [0x12, 'Network rejection'],
+	for (const [v, name] of [[0x11, '(I-)WLAN access status'], [0x12, 'Network rejection'],
 		[0x15, 'CSG cell selection'], [0x17, 'IMS registration'], [0x18, 'Incoming IMS data'],
 		[0x1D, 'Data connection status change'], [0x1E, 'CAG cell selection'],
-		[0x1F, 'Slices status change']]) {
-		assert.ok(EVENT_NAMES[v].includes(frag), '0x' + v.toString(16) + ': ' + EVENT_NAMES[v]);
+		[0x1F, 'Slices status change'], [0x20, 'Reserved (future usage)']]) {
+		assert.strictEqual(EVENT_NAMES[v], name, '0x' + v.toString(16));
+	}
+	// the "Reserved for 3GPP" spec cross-reference is never user-facing
+	for (const [v, name] of Object.entries(EVENT_NAMES)) {
+		assert.ok(!name.includes('Reserved for 3GPP'), v + ': ' + name);
 	}
 });
 

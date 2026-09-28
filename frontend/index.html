@@ -1711,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.21';
+const SIMPLE_VERSION = '3.6.22';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -10730,34 +10730,35 @@ function pysimFsResetEdit() {
 }
 
 // ===== proactive UICC events =====
-// Event list codings (TS 102 223 v18.3.0 8.25).  Values the CAT spec leaves
-// "Reserved for 3GPP" carry the concrete 3GPP event name where TS 31.111
-// defines one (clause in parentheses), so the list stays informative.
+// Event list codings (TS 102 223 v18.3.0 8.25).  The values the CAT spec only
+// points at 3GPP for carry their TS 31.111 7.5 event name; "Reserved for
+// 3GPP" is a spec cross-reference, not a usage restriction, so it never
+// appears in the user-facing names.
 const EVENT_NAMES = {
 	0x00: 'MT call', 0x01: 'Call connected', 0x02: 'Call disconnected',
 	0x03: 'Location status', 0x04: 'User activity', 0x05: 'Idle screen available',
 	0x06: 'Card reader status', 0x07: 'Language selection',
 	0x08: 'Browser termination', 0x09: 'Data available',
-	0x0A: 'Channel status', 0x0B: 'Access technology change (single)',
+	0x0A: 'Channel status', 0x0B: 'Access technology change (single access technology)',
 	0x0C: 'Display parameters changed', 0x0D: 'Local connection',
 	0x0E: 'Network search mode change', 0x0F: 'Browsing status',
 	0x10: 'Frames information change',
-	0x11: 'Reserved for 3GPP — (I-)WLAN access status (TS 31.111 7.5.1)',
-	0x12: 'Reserved for 3GPP — Network rejection (TS 31.111 7.5.2)',
+	0x11: '(I-)WLAN access status',
+	0x12: 'Network rejection',
 	0x13: 'HCI connectivity',
-	0x14: 'Access technology change (multiple)',
-	0x15: 'Reserved for 3GPP — CSG cell selection (TS 31.111 7.5.3)',
+	0x14: 'Access technology change (multiple access technologies)',
+	0x15: 'CSG cell selection',
 	0x16: 'Contactless state request',
-	0x17: 'Reserved for 3GPP — IMS registration (TS 31.111 7.5.21)',
-	0x18: 'Reserved for 3GPP — Incoming IMS data (TS 31.111 7.5.20)',
+	0x17: 'IMS registration',
+	0x18: 'Incoming IMS data',
 	0x19: 'Profile container', 0x1A: 'Void', 0x1B: 'Secured profile container',
 	0x1C: 'Poll interval negotiation',
-	0x1D: 'Reserved for 3GPP — Data connection status change (TS 31.111 7.5.25)',
-	0x1E: 'Reserved for 3GPP — CAG cell selection (TS 31.111 7.5.26)',
-	0x1F: 'Reserved for 3GPP — Slices status change (TS 31.111 7.5.27)',
-	0x20: 'Reserved for 3GPP (future usage)',
-	0x21: 'Reserved for 3GPP (future usage)',
-	0x22: 'Reserved for 3GPP (future usage)',
+	0x1D: 'Data connection status change',
+	0x1E: 'CAG cell selection',
+	0x1F: 'Slices status change',
+	0x20: 'Reserved (future usage)',
+	0x21: 'Reserved (future usage)',
+	0x22: 'Reserved (future usage)',
 };
 
 const REJECTION_CAUSES = [
