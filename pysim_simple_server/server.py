@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.33'
+VERSION = '3.6.34'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1206,6 +1206,37 @@ def _ram_detect_format(server, scc, sp, state):
         if ok:
             return fmt
     return 'compact'
+
+
+# Live progress of the RAM operation currently running.  The long install
+# chains hold _CARD_LOCK for the whole request, so the PWA cannot learn the
+# step from the response - /api/status (lock-free cached state, polled every
+# 2 s) carries this dict instead (v3.6.34).
+_RAM_PROGRESS = {'active': False, 'kind': '', 'step': 0, 'total': 0,
+                 'name': '', 'started': 0.0}
+
+
+def _ram_progress_begin(kind, total):
+    _RAM_PROGRESS.update({'active': True, 'kind': str(kind),
+                          'step': 0, 'total': int(total or 0), 'name': '',
+                          'started': time.time()})
+
+
+def _ram_progress_step(step, name):
+    _RAM_PROGRESS.update({'step': int(step), 'name': str(name or '')})
+
+
+def _ram_progress_end():
+    _RAM_PROGRESS['active'] = False
+
+
+def _ram_progress_payload():
+    pr = _RAM_PROGRESS
+    started = pr.get('started') or 0
+    return {'active': bool(pr.get('active')), 'kind': pr.get('kind', ''),
+            'step': int(pr.get('step') or 0), 'total': int(pr.get('total') or 0),
+            'name': pr.get('name', ''),
+            'elapsed': round(time.time() - started, 1) if started else 0}
 
 
 def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
@@ -5161,6 +5192,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 'card_session': int(getattr(self.server, 'card_session', 0)),
                 'proactive_seq': _PROACTIVE_ENTRY_ID,
                 'equipping': bool(getattr(self.server, 'equipping', False)),
+                'ram_progress': _ram_progress_payload(),
                 'auto_equip': bool(_AUTO_EQUIP),
                 'card': card.name if card else None,
                 'profile': str(rs.profile) if rs and rs.profile else None,
@@ -6326,41 +6358,50 @@ class PysimHandler(BaseHTTPRequestHandler):
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
 
-                # RAM command format: detected per operation (a read-only probe
-                # step) unless the caller pinned compact/expanded (v3.6.24).
-                ram_format = _ram_normalize_format(body.get('ram_format'))
-                if ram_format == 'auto':
-                    ram_format = _ram_detect_format(self.server, scc, sp_state, state)
-
                 # INSTALL [for load] -> LOAD blocks -> INSTALL [for install]
                 seq = _cap_apdu_sequence(
                     loadfile_aid, module_aid, loadfile_data, sd_aid=sd_aid,
                     privileges=privileges_hex,
                     install_params=install_params_hex, stk_params=stk_params_hex,
                     make_selectable=make_selectable, block_size=block_size)
-                sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
-                    len(seq), len(seq) - 2, ram_format, loadfile_aid))
-                for apdu_idx, gp_apdu in enumerate(seq):
-                    if apdu_idx == 0:
-                        step_name = 'INSTALL [for load]'
-                    elif apdu_idx == len(seq) - 1:
-                        step_name = 'INSTALL [for install]'
-                    else:
-                        step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
-                    if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
-                                             step_name,
-                                             _ram_format_apdu(gp_apdu, ram_format)):
-                        resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
-                                'error': (state['encode_error'] or state['failure'].get('error')
-                                          or ('%s failed' % step_name)),
-                                'final_cntr': state['cntr'], 'ram_format': ram_format,
-                                'load_file_aid': loadfile_aid, 'module_aid': module_aid,
-                                'load_block_size': block_size,
-                                'load_block_size_requested': block_size_req,
-                                'load_block_size_auto': not block_size_req}
-                        self._send_json(resp)
-                        self._log_resp(resp)
-                        return
+
+                # Live progress for the PWA's operation modal (the request holds
+                # _CARD_LOCK until the chain is done; /api/status carries this)
+                _ram_progress_begin('install-cap', len(seq) + 1)
+                try:
+                    # RAM command format: detected per operation (a read-only
+                    # probe step) unless the caller pinned compact/expanded.
+                    ram_format = _ram_normalize_format(body.get('ram_format'))
+                    if ram_format == 'auto':
+                        _ram_progress_step(0, 'FORMAT CHECK')
+                        ram_format = _ram_detect_format(self.server, scc, sp_state, state)
+                    sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
+                        len(seq), len(seq) - 2, ram_format, loadfile_aid))
+
+                    for apdu_idx, gp_apdu in enumerate(seq):
+                        if apdu_idx == 0:
+                            step_name = 'INSTALL [for load]'
+                        elif apdu_idx == len(seq) - 1:
+                            step_name = 'INSTALL [for install]'
+                        else:
+                            step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
+                        _ram_progress_step(apdu_idx + 1, step_name)
+                        if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
+                                                 step_name,
+                                                 _ram_format_apdu(gp_apdu, ram_format)):
+                            resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
+                                    'error': (state['encode_error'] or state['failure'].get('error')
+                                              or ('%s failed' % step_name)),
+                                    'final_cntr': state['cntr'], 'ram_format': ram_format,
+                                    'load_file_aid': loadfile_aid, 'module_aid': module_aid,
+                                    'load_block_size': block_size,
+                                    'load_block_size_requested': block_size_req,
+                                    'load_block_size_auto': not block_size_req}
+                            self._send_json(resp)
+                            self._log_resp(resp)
+                            return
+                finally:
+                    _ram_progress_end()
 
                 resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
                         'module_aid': module_aid, 'final_cntr': state['cntr'],
@@ -6425,15 +6466,22 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'include_cpi': body.get('includeCpi', True)}
                 state = {'steps': [], 'encode_error': None, 'failure': {},
                          'cntr': sp_state['cntr']}
-                # RAM command format: detected per operation (a read-only probe
-                # step) unless the caller pinned compact/expanded (v3.6.24).
-                ram_format = _ram_normalize_format(body.get('ram_format'))
-                if ram_format == 'auto':
-                    ram_format = _ram_detect_format(self.server, scc, sp_state, state)
-                apdu = _ram_format_apdu(apdu, ram_format)
-                sys.stderr.write('RAM-INSTALL-APP: %s (%s, %s) cntr=%s\n' % (
-                    apdu, step_name, ram_format, sp_state['cntr']))
-                ok = _ram_send_gp_apdu(self.server, scc, sp_state, state, step_name, apdu)
+                # Live progress for the PWA's operation modal (see /api/ram-install)
+                _ram_progress_begin('install-app', 2)
+                try:
+                    # RAM command format: detected per operation (a read-only
+                    # probe step) unless the caller pinned compact/expanded.
+                    ram_format = _ram_normalize_format(body.get('ram_format'))
+                    if ram_format == 'auto':
+                        _ram_progress_step(0, 'FORMAT CHECK')
+                        ram_format = _ram_detect_format(self.server, scc, sp_state, state)
+                    apdu = _ram_format_apdu(apdu, ram_format)
+                    _ram_progress_step(1, step_name)
+                    sys.stderr.write('RAM-INSTALL-APP: %s (%s, %s) cntr=%s\n' % (
+                        apdu, step_name, ram_format, sp_state['cntr']))
+                    ok = _ram_send_gp_apdu(self.server, scc, sp_state, state, step_name, apdu)
+                finally:
+                    _ram_progress_end()
                 resp = {'success': bool(ok), 'steps': state['steps'],
                         'final_cntr': state['cntr'], 'ram_format': ram_format}
                 if not ok:

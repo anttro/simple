@@ -31,6 +31,9 @@ let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _pysimHeaderIccid = undefined;\nvar _pysimHeaderScp80 = undefined;\nvar _pysimHeaderScp81 = undefined;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
+// the status poll also feeds the RAM operation modal (DOM-bound, covered in
+// ram.test.js) - stub it for these state tests
+code += 'var ramOpProgress = function() {};\n';
 code += extractFunc(html, 'pysimRefresh', true) + '\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';

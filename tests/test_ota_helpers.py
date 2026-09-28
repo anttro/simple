@@ -1588,3 +1588,20 @@ class RamCommandFormatTests(unittest.TestCase):
         # only the accepted (expanded) probe advanced the 5-byte counter
         self.assertEqual(state['cntr'], '10000AAAC9')
         self.assertEqual(len(state['steps']), 2)
+
+
+class RamProgressTests(unittest.TestCase):
+    """Live RAM-operation progress exposed in /api/status (v3.6.34)."""
+
+    def test_progress_lifecycle_and_payload(self):
+        from pysim_simple_server import server as srv
+        srv._ram_progress_begin('install-cap', 5)
+        p = srv._ram_progress_payload()
+        self.assertTrue(p['active'])
+        self.assertEqual((p['kind'], p['step'], p['total']), ('install-cap', 0, 5))
+        srv._ram_progress_step(3, 'LOAD (2/3)')
+        p = srv._ram_progress_payload()
+        self.assertEqual((p['step'], p['name']), (3, 'LOAD (2/3)'))
+        self.assertGreaterEqual(p['elapsed'], 0)
+        srv._ram_progress_end()
+        self.assertFalse(srv._ram_progress_payload()['active'])

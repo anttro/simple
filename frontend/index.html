@@ -1710,11 +1710,29 @@
 		</div>
 	</div>
 
+	<div id="ram-op-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
+		<div class="bg-white dark:bg-slate-800 rounded-lg p-4 max-w-lg w-full max-h-[85vh] flex flex-col">
+			<div class="flex justify-between items-center mb-2 gap-3">
+				<span id="ram-op-title" class="font-bold text-sm flex-1"></span>
+				<button id="ram-op-close" onclick="ramOpModalClose()" disabled class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Close">Close</button>
+			</div>
+			<div class="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
+				<div id="ram-op-spin" class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+				<span id="ram-op-status" data-l10n="Working...">Working...</span>
+			</div>
+			<div class="mt-2 w-full bg-gray-200 dark:bg-slate-700 rounded h-1.5">
+				<div id="ram-op-bar" class="bg-blue-600 dark:bg-blue-500 h-1.5 rounded" style="width:0%"></div>
+			</div>
+			<div id="ram-op-steps" class="mt-2 text-xs font-mono whitespace-pre-wrap overflow-auto text-gray-700 dark:text-slate-300"></div>
+			<div class="mt-2 text-xs text-amber-600 dark:text-amber-400" id="ram-op-warn" data-l10n="Do not close or reload this window while the operation is running.">Do not close or reload this window while the operation is running.</div>
+		</div>
+	</div>
+
 <script>
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.33';
+const SIMPLE_VERSION = '3.6.34';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8267,6 +8285,72 @@ function ramHideProgress() {
 	document.getElementById('ram-progress').classList.add('hidden');
 }
 
+// ===== RAM operation modal (v3.6.34) =====
+// Long RAM operations (install chains, Explore) run behind a modal that blocks
+// everything else - an interrupted install can leave a half-loaded package.
+// The step headline comes from /api/status.ram_progress (polled every 2 s),
+// so it works while the install request holds the card lock.
+let _ramOpActive = false;
+
+function ramOpBeforeUnload(e) {
+	e.preventDefault();
+	e.returnValue = '';
+}
+
+function ramOpModalBegin(title) {
+	_ramOpActive = true;
+	document.getElementById('ram-op-title').textContent = title || '';
+	document.getElementById('ram-op-status').textContent = t('Working...');
+	document.getElementById('ram-op-status').className = 'text-sm text-gray-600 dark:text-slate-400';
+	document.getElementById('ram-op-bar').style.width = '0%';
+	document.getElementById('ram-op-steps').textContent = '';
+	document.getElementById('ram-op-close').disabled = true;
+	document.getElementById('ram-op-spin').classList.remove('hidden');
+	document.getElementById('ram-op-warn').classList.remove('hidden');
+	document.getElementById('ram-op-modal').classList.remove('hidden');
+	window.addEventListener('beforeunload', ramOpBeforeUnload);
+}
+
+function ramOpModalStatus(text) {
+	if (!_ramOpActive) return;
+	document.getElementById('ram-op-status').textContent = text || '';
+}
+
+// Headline of the modal from a /api/status.ram_progress payload (pure).
+function ramOpProgressText(p) {
+	if (!p) return '';
+	const parts = [];
+	parts.push(p.total ? t('Step') + ' ' + p.step + '/' + p.total : t('Working...'));
+	if (p.name) parts.push(p.name);
+	if (p.elapsed) parts.push(p.elapsed + ' s');
+	return parts.join(' \u2014 ');
+}
+
+function ramOpProgress(p) {
+	if (!_ramOpActive || !p || !p.active) return;
+	document.getElementById('ram-op-status').textContent = ramOpProgressText(p);
+	document.getElementById('ram-op-bar').style.width =
+		(p.total ? Math.min(100, Math.round(p.step * 100 / p.total)) : 10) + '%';
+}
+
+function ramOpModalFinish(summary, ok, stepsText) {
+	_ramOpActive = false;
+	window.removeEventListener('beforeunload', ramOpBeforeUnload);
+	document.getElementById('ram-op-spin').classList.add('hidden');
+	document.getElementById('ram-op-bar').style.width = '100%';
+	document.getElementById('ram-op-status').textContent = summary || '';
+	document.getElementById('ram-op-status').className = 'text-sm font-semibold ' +
+		(ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400');
+	if (stepsText !== undefined) document.getElementById('ram-op-steps').textContent = stepsText || '';
+	document.getElementById('ram-op-warn').classList.add('hidden');
+	document.getElementById('ram-op-close').disabled = false;
+}
+
+function ramOpModalClose() {
+	if (_ramOpActive) return;
+	document.getElementById('ram-op-modal').classList.add('hidden');
+}
+
 function ramClearResults() {
 	_ramExplorerData = null;
 	ramHideProgress();
@@ -8992,6 +9076,8 @@ async function ramExplore(sp) {
 	const mem = { appCount: null, freeNV: null, freeV: null };
 	const isd = [], apps = [], elfs = [];
 
+	ramOpModalBegin(t('Explore Card (all GP data)'));
+
 	async function paginate(p1, collector, parser, label, quiet) {
 		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
 		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
@@ -9005,6 +9091,7 @@ async function ramExplore(sp) {
 		while (guard++ < 32) {
 			const apdu = ramGetStatusApdu(p1, p2);
 			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
+			ramOpModalStatus(label + ' P1=' + p1 + ' P2=' + p2);
 			const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
 			// Reuse the format detected for the first packet of this run
 			if (res.ram_format) sp.ram_format = res.ram_format;
@@ -9089,6 +9176,7 @@ async function ramExplore(sp) {
 	}
 
 	 ramShowProgress(t('Card resources (GET DATA FF21)') + '...');
+	 ramOpModalStatus(t('Card resources (GET DATA FF21)'));
 	try {
 		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
 		if (memRes.ram_format) sp.ram_format = memRes.ram_format;
@@ -9144,6 +9232,7 @@ async function ramExplore(sp) {
 
 	_ramExplorerData = { mem: mem, isd: isd, apps: apps, elfs: elfs, fmt: sp.ram_format || '' };
 	ramRenderExplorer();
+	ramOpModalFinish(resultEl.textContent, errors.length === 0, errors.join('\n'));
 }
 
 // GP DELETE (Card Spec v2.3.1 11.2, Tables 11-20/11-23): P1=00 (last/only
@@ -9292,9 +9381,11 @@ async function ramInstallCap(sp) {
 	if (!file) { alert(t('Select a .cap file')); return; }
 	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
 
-	ramShowProgress(t('Reading CAP file...'));
+	const capPkg = (_capAnalysis.ram.memory && _capAnalysis.ram.memory.package_aid) || '';
+	ramOpModalBegin(t('Installing package') + (capPkg ? ' \u2014 ' + capPkg : ''));
+	ramOpModalStatus(t('Reading CAP file...'));
 	const capHex = await ramReadFileHex(file);
-	ramShowProgress(t('Sending to server for install...'));
+	ramOpModalStatus(t('Sending to server for install...'));
 
 	// The STK hex is regenerated on every toolkit field edit; recompute it
 	// once more at send time unless the user pasted a custom hex directly
@@ -9373,7 +9464,9 @@ async function ramInstallApp(sp, op) {
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
 	};
-	ramShowProgress(t('Sending to card...'));
+	ramOpModalBegin(t(mode === 'make_selectable' ? 'INSTALL [for make selectable]' : 'INSTALL [for install]')
+		+ ((instance || module) ? ' \u2014 ' + (instance || module) : ''));
+	ramOpModalStatus(t('Sending to card...'));
 	const data = await pysimFetch('/api/ram-install-app', body);
 	ramHideProgress();
 	ramShowInstallResult(data, t('OK'));
@@ -9399,6 +9492,7 @@ function ramShowInstallResult(data, okText) {
 		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 	}
+	ramOpModalFinish(resultEl.textContent, !!data.success, txt);
 }
 
 async function ramExecute() {
@@ -9427,6 +9521,7 @@ async function ramExecute() {
 		resultEl.textContent = t('Error') + ': ' + e.message;
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 		ramHideProgress();
+		if (_ramOpActive) ramOpModalFinish(resultEl.textContent, false, '');
 	}
 }
 
@@ -11661,6 +11756,7 @@ async function pysimResetCardData(refreshStatus) {
 
 function pysimCardStateUpdate(status) {
 	if (!status || typeof status.connected !== 'boolean') return;
+	ramOpProgress(status.ram_progress);
 	_pysimServerAvailable = true;
 	_pysimLastStatus = status;
 	_pysimCardEquipped = !!status.connected;
@@ -17593,6 +17689,9 @@ const LANG_RU = {
 	'Start': 'Запустить',
 	'Clear': 'Очистить',
 	'Loading...': 'Загрузка...',
+	'Close': 'Закрыть',
+	'Installing package': 'Установка пакета',
+	'Do not close or reload this window while the operation is running.': 'Не закрывайте и не перезагружайте окно, пока операция выполняется.',
 	'Working...': 'Выполняется...',
 	'APDU hex': 'APDU (hex)',
 	'CAP file (max 48 kB)': 'CAP-файл (не более 48 кБ)',

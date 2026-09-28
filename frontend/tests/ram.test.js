@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode',
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
@@ -271,6 +271,16 @@ test('ramFmtPrivileges decodes the GP privilege bytes (live ISD values)', () => 
 	// byte 2 / byte 3 spot checks
 	assert.strictEqual(ramFmtPrivileges('0001'), 'Global Service');
 	assert.strictEqual(ramFmtPrivileges('000080'), 'Receipt Generation');
+	delete global.t;
+});
+
+test('ramOpProgressText renders the step headline', () => {
+	global.t = s => s;
+	assert.strictEqual(
+		ramOpProgressText({ step: 3, total: 11, name: 'LOAD (2/9)', elapsed: 4.2 }),
+		'Step 3/11 \u2014 LOAD (2/9) \u2014 4.2 s');
+	assert.strictEqual(ramOpProgressText({ step: 0, total: 0, name: '' }), 'Working...');
+	assert.strictEqual(ramOpProgressText(null), '');
 	delete global.t;
 });
 
