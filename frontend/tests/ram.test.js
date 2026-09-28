@@ -203,6 +203,9 @@ test('explorer action buttons share a fixed-width column, Install is green', () 
 	delete global.t;
 	// every action cell is the same fixed-width column
 	assert.ok(out.includes('w-28 shrink-0'), out);
+	// rows are visible chips (background + hover) so the button belongs to its row
+	assert.ok(out.includes('bg-gray-50 dark:bg-slate-800/60'), out);
+	assert.ok(out.includes('hover:bg-gray-100 dark:hover:bg-slate-700/50'), out);
 	// the Install button (module without an instance) is green, not blue
 	const inst = /<button onclick="ramInstallFromExplorer[^>]*class="([^"]*)"/.exec(out);
 	assert.ok(inst, out);
