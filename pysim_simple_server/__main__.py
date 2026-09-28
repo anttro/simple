@@ -4,7 +4,7 @@ import os
 import sys
 import time
 import traceback
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
 from pySim.exceptions import NoCardError
@@ -35,6 +35,19 @@ def _default_mcc_mnc_list():
     # overrides it and the endpoint reports available=false when missing.
     pkg = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(pkg, 'data', 'mcc-mnc-list.json')
+
+
+def _build_http_server(host, port, handler):
+    """HTTP server for the PWA + API.
+
+    Threaded on purpose: card access is serialized by ``_CARD_LOCK`` (all
+    POSTs, the card-touching GETs and the background threads take it), so
+    while a long operation holds the lock the cached endpoints and static
+    files must still be answerable - a single-threaded server starved the
+    RAM modal's live progress poll (`/api/status.ram_progress`) and showed
+    the whole install result only at the end.  Daemon threads keep a stuck
+    request from blocking shutdown."""
+    return ThreadingHTTPServer((host, port), handler)
 
 
 def main():
@@ -247,7 +260,7 @@ def main():
             orig_onchange(param_name, old, new)
             _reattach_tracer()
         app._onchange_apdu_trace = _onchange_apdu_trace
-    server = HTTPServer((opts.http_host, opts.http_port), PysimHandler)
+    server = _build_http_server(opts.http_host, opts.http_port, PysimHandler)
     server.sl = sl
     server.scc = scc
     server.card = card

@@ -77,7 +77,7 @@ class StartupNoCardTest(unittest.TestCase):
              mock.patch.object(srv_main, '_read_iccid', return_value=None), \
              mock.patch.object(srv_main, '_send_terminal_profile', return_value=(None, None)), \
              mock.patch.object(srv_main, '_send_status', return_value=('', '9000')), \
-             mock.patch.object(srv_main, 'HTTPServer') as fake_http, \
+             mock.patch.object(srv_main, '_build_http_server') as fake_http, \
              mock.patch.object(srv_main, 'CardHandler'), \
              mock.patch('sys.stderr', err), mock.patch('sys.stdout', out):
             fake_fastinit.init_card_fast.side_effect = init_side_effect
@@ -128,7 +128,7 @@ class StartupNoCardTest(unittest.TestCase):
         with mock.patch.object(srv_main, 'load_pysim_app', return_value=fake_mod), \
              mock.patch.object(srv_main, 'fastinit') as fake_fastinit, \
              mock.patch.object(srv_main, 'start_card_monitor'), \
-             mock.patch.object(srv_main, 'HTTPServer') as fake_http, \
+             mock.patch.object(srv_main, '_build_http_server') as fake_http, \
              mock.patch.object(srv_main, 'CardHandler'), \
              mock.patch('sys.stderr', err), mock.patch('sys.stdout', out):
             fake_fastinit.init_card_fast.side_effect = NoCardError()

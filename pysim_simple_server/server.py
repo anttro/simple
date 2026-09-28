@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.38'
+VERSION = '3.6.39'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5328,7 +5328,11 @@ class PysimHandler(BaseHTTPRequestHandler):
         # keeping them out of the lock lets the UI report 'initializing' while a
         # long equip (or a test script step) holds the card lock.  Result-shaping
         # masks everything card-derived when the session is not connected.
-        if self.path in ('/api/status', '/api/test/status'):
+        # Static PWA files are card-free too: they must stay answerable while a
+        # long card operation holds the lock (the server is threaded, so this
+        # bypass is what actually serves the modal's progress poll and page
+        # assets during a RAM install).
+        if self.path in ('/api/status', '/api/test/status') or not self.path.startswith('/api/'):
             self._do_GET()
             return
         # Serialize all card access: the background STATUS poll runs in its own
