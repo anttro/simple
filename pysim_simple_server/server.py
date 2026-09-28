@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.36'
+VERSION = '3.6.37'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -870,7 +870,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
 
 
 def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
-                   handle_proactive=True):
+                   handle_proactive=True, poll_status=True):
     from pySim.ts_31_102 import SMSPPDownload
     from pySim.cat import DeviceIdentities, Address
     from osmocom.tlv import COMPR_TLV_IE
@@ -883,6 +883,30 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
             self._raw = bytes.fromhex(data_hex)
         def to_bytes(self, context={}):
             return self._raw
+
+    # Handler for a proactive chain that carries the PoR: the ENVELOPE may
+    # answer 9000 and the card delivers SEND SHORT MESSAGE on a later exchange
+    # (the STATUS poll below).  v3.6.37: this used to be defined inside the
+    # 91xx branch, so the poll path raised UnboundLocalError and the RAM
+    # operation died mid-packet with the command left pending (live 500).
+    def _capture_sms_tpdu(raw, cmd_num, cmd_type, dev_src, dev_dst):
+        if submit_handler:
+            tpdu_hex = _find_sms_tpdu(raw)
+            if tpdu_hex:
+                ref, total, num, payload = _parse_sms_concat(bytes.fromhex(tpdu_hex))
+                if total is not None and num is not None:
+                    submit_handler.sms_segments.append((ref, total, num, payload.hex()))
+                    matching = [s for s in submit_handler.sms_segments if s[0] == ref]
+                    if len(matching) >= total:
+                        sorted_segs = sorted(matching, key=lambda s: s[2])
+                        assembled = b''.join(bytes.fromhex(s[3]) for s in sorted_segs)
+                        submit_handler.submit_ud_hex = assembled.hex()
+                        submit_handler.submit_tpdu_hex = submit_handler.submit_tpdu_hex or tpdu_hex
+                        sys.stderr.write('SMS concat: assembled %d segments (ref=%s, %d B)\n' % (
+                            total, ref, len(assembled)))
+                else:
+                    submit_handler.submit_ud_hex = payload.hex()
+                    submit_handler.submit_tpdu_hex = tpdu_hex
 
     address = Address()
     oa_raw = _encode_sms_oa(sm_sc)
@@ -897,27 +921,12 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     elif handle_proactive and sw.startswith('91'):
-        def _capture_sms_tpdu(raw, cmd_num, cmd_type, dev_src, dev_dst):
-            if submit_handler:
-                tpdu_hex = _find_sms_tpdu(raw)
-                if tpdu_hex:
-                    ref, total, num, payload = _parse_sms_concat(bytes.fromhex(tpdu_hex))
-                    if total is not None and num is not None:
-                        submit_handler.sms_segments.append((ref, total, num, payload.hex()))
-                        matching = [s for s in submit_handler.sms_segments if s[0] == ref]
-                        if len(matching) >= total:
-                            sorted_segs = sorted(matching, key=lambda s: s[2])
-                            assembled = b''.join(bytes.fromhex(s[3]) for s in sorted_segs)
-                            submit_handler.submit_ud_hex = assembled.hex()
-                            submit_handler.submit_tpdu_hex = submit_handler.submit_tpdu_hex or tpdu_hex
-                            sys.stderr.write('SMS concat: assembled %d segments (ref=%s, %d B)\n' % (
-                                total, ref, len(assembled)))
-                    else:
-                        submit_handler.submit_ud_hex = payload.hex()
-                        submit_handler.submit_tpdu_hex = tpdu_hex
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
-    if (handle_proactive and sw == '9000' and submit_handler
+    # Late-PoR fallback: only after the last segment of a packet (a
+    # concatenated download cannot have produced its PoR before the card got
+    # every part, and polling mid-packet made spurious STATUS exchanges).
+    if (handle_proactive and poll_status and sw == '9000' and submit_handler
             and not submit_handler.submit_tpdu_hex and not data):
         sys.stderr.write('STATUS poll (PoR not captured)\n')
         st_data, st_sw = _send_status(scc)
@@ -1115,7 +1124,8 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
                 i + 1, total, len(part), ' + CPI' if i == 0 and include_cpi else ''))
         data, sw = _send_envelope(tpdu, scc, sm_sc=sm_sc or '12345678912',
                                   submit_handler=submit_handler,
-                                  handle_proactive=handle_proactive)
+                                  handle_proactive=handle_proactive,
+                                  poll_status=(i == total - 1))
         if sw != '9000' and not sw.startswith('91'):
             return {'success': False, 'sw': sw, 'bytes': len(pkt),
                     'segments': total,

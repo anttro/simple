@@ -1732,7 +1732,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.36';
+const SIMPLE_VERSION = '3.6.37';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9358,12 +9358,42 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	// consumed was saved above.
 }
 
+// Which CAP components a LOAD step's payload covers (pure, diagnostic).  The
+// server sends the component list in load-file order with sizes that include
+// each component's 3-byte header (capmem), so the ranges accumulate directly.
+// `completed` lists the components whose last byte falls inside the block -
+// the card has just seen them whole, which is where a verifier rejection
+// lands (a CAP whose Import list the card cannot satisfy is refused exactly
+// in the block completing Import).
+function ramStepComponents(name, components, blockSize) {
+	const m = /^LOAD \((\d+)\/(\d+)\)$/.exec(String(name || '').trim());
+	const comps = components || [];
+	const size = Number(blockSize) || 0;
+	if (!m || !comps.length || size <= 0) return null;
+	const start = (Number(m[1]) - 1) * size;
+	const end = Number(m[1]) * size;
+	let off = 0;
+	const names = [];
+	const completed = [];
+	for (const c of comps) {
+		const cstart = off, cend = off + (Number(c.size) || 0);
+		off = cend;
+		if (cend <= start) continue;          // entirely before this block
+		if (cstart >= end) break;             // entirely after it
+		names.push(c.name);
+		if (cend > start && cend <= end) completed.push(c.name);
+	}
+	if (!names.length) return null;
+	return { names: names, completed: completed };
+}
+
 // One RAM install step line: the PoR verdict plus the remote command's
 // status word (9000/61xx/62xx/63xx/CAFE are success; anything else is the
 // card's error) - the details that used to be lost behind a bare
 // "por_error_" label.  The envelope/GET RESPONSE SW is only shown when it is
-// not a plain 9000.
-function ramStepLine(s, idx) {
+// not a plain 9000.  With the CAP analysis at hand the line also names the
+// component the block completed (see ramStepComponents).
+function ramStepLine(s, idx, comps, blockSize) {
 	const ok = !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
 	let line = (ok ? '\u2705' : '\u274c') + ' ' + t('Step') + ' ' + (idx + 1) + ': ' +
 		s.name + ' \u2014 ';
@@ -9382,6 +9412,12 @@ function ramStepLine(s, idx) {
 	if (s.bytes && s.segments) {
 		line += ' \u00b7 ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
 	}
+	const sc = ramStepComponents(s.name, comps, blockSize);
+	if (sc) {
+		if (sc.completed.length) line += ' \u00b7 ' + t('completes') + ' ' + sc.completed[sc.completed.length - 1];
+		else if (sc.names.length === 1) line += ' \u00b7 ' + t('inside') + ' ' + sc.names[0];
+		else line += ' \u00b7 ' + sc.names[0] + '\u2026' + sc.names[sc.names.length - 1];
+	}
 	return line;
 }
 
@@ -9398,7 +9434,10 @@ function ramInstallFailHint(data, mem) {
 	const step = steps[(Number(data.failed_step) || 1) - 1] || null;
 	const name = step ? String(step.name || '') : '';
 	if (!/^(LOAD |INSTALL \[for load\])/.test(name)) return '';
-	let hint = t('a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card');
+	let hint = '';
+	const sc = ramStepComponents(name, mem && mem.components, data.load_block_size);
+	if (sc && sc.completed.length) hint += t('the failed step completes') + ' ' + sc.completed[sc.completed.length - 1] + '. ';
+	hint += t('a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card');
 	if (mem && mem.requires_java_card) hint += ' (Java Card \u2265 ' + mem.requires_java_card + ')';
 	hint += t('. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)');
 	return hint;
@@ -9507,8 +9546,9 @@ function ramShowInstallResult(data, okText, capMem) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
 	stepsEl.classList.remove('hidden');
+	const comps = capMem && capMem.components;
 	let txt = '';
-	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx) + '\n'; });
+	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx, comps, data.load_block_size) + '\n'; });
 	stepsEl.textContent = txt;
 	// Persist the counter the card actually consumed (accepted packets only):
 	// even a failed install leaves the accepted steps behind, and replaying
@@ -17176,6 +17216,9 @@ const LANG_RU = {
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
 	'Hint:': 'Подсказка:',
+	'completes': 'завершает',
+	'inside': 'внутри',
+	'the failed step completes': 'неудавшийся шаг завершает',
 	'a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card': 'отклонение LOAD здесь означает, что карта отклонила CAP: все версии импортов из «Требуются» должны присутствовать на карте',
 	'. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)': '. Если CAP требует только доступные этой карте версии, повторите с меньшим размером блока LOAD (например, 64 Б)',
 	'Profile from snapshot': 'Профиль из снимка',

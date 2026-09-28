@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramInstallFailHint', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -390,6 +390,46 @@ test('ramStepLine shows the PoR verdict and the remote status word', () => {
 	assert.ok(noPor.startsWith('\u2705') && noPor.includes('no PoR'), noPor);
 });
 
+test('ramStepComponents maps a LOAD step to the CAP components it covers', () => {
+	// RemMobileID-like layout: sizes include each component's 3-byte header
+	const comps = [
+		{ name: 'Header', size: 20 }, { name: 'Directory', size: 34 },
+		{ name: 'Applet', size: 15 }, { name: 'Import', size: 101 },
+		{ name: 'ConstantPool', size: 1121 }, { name: 'Method', size: 8506 },
+	];
+	// 240 B block 1 (0..239) completes the Import component (its end is 170)
+	let sc = ramStepComponents('LOAD (1/64)', comps, 240);
+	assert.deepStrictEqual(sc.completed, ['Header', 'Directory', 'Applet', 'Import']);
+	assert.deepStrictEqual(sc.names.slice(0, 2), ['Header', 'Directory']);
+	// 64 B blocks: 1 completes Header/Directory, 3 completes Import
+	assert.deepStrictEqual(ramStepComponents('LOAD (1/240)', comps, 64).completed, ['Header', 'Directory']);
+	sc = ramStepComponents('LOAD (2/240)', comps, 64);
+	assert.deepStrictEqual(sc.names, ['Applet', 'Import']);
+	assert.deepStrictEqual(sc.completed, ['Applet']);
+	sc = ramStepComponents('LOAD (3/240)', comps, 64);
+	assert.deepStrictEqual(sc.names, ['Import', 'ConstantPool']);
+	assert.deepStrictEqual(sc.completed, ['Import']);
+	// other step names and missing data produce nothing
+	assert.strictEqual(ramStepComponents('INSTALL [for load]', comps, 64), null);
+	assert.strictEqual(ramStepComponents('LOAD (1/64)', comps, 0), null);
+	assert.strictEqual(ramStepComponents('LOAD (1/64)', null, 64), null);
+});
+
+test('ramStepLine annotates a LOAD step with the completing component', () => {
+	globalThis.t = s => s;
+	globalThis.lookupSw = () => '';
+	const comps = [{ name: 'Header', size: 20 }, { name: 'Import', size: 101 },
+		{ name: 'Method', size: 8506 }];
+	const line = ramStepLine({ name: 'LOAD (1/64)', por_status: 'por_ok', por_sw: '9000' }, 0, comps, 240);
+	assert.ok(line.includes('completes Import'), line);
+	// block 2 of 40 B blocks (40..79) lies strictly inside Import
+	const inside = ramStepLine({ name: 'LOAD (2/64)', por_status: 'por_ok', por_sw: '9000' }, 1, comps, 40);
+	assert.ok(inside.includes('inside Import'), inside);
+	// without a component list the line is unchanged
+	const plain = ramStepLine({ name: 'LOAD (1/64)', por_status: 'por_ok', por_sw: '9000' }, 0);
+	assert.ok(!plain.includes('completes') && !plain.includes('inside'), plain);
+});
+
 test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', () => {
 	globalThis.t = s => s;
 	const failedLoad = {
@@ -408,6 +448,14 @@ test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', 
 	assert.strictEqual(ramInstallFailHint(
 		{ success: false, failed_step: 2, steps: [{ name: 'INSTALL [for load]' }, { name: 'INSTALL [for install]' }] }, null), '');
 	assert.strictEqual(ramInstallFailHint({ success: true, failed_step: 1, steps: [] }, null), '');
+	// with the CAP analysis the completing component of the failing block is
+	// named (the card check lands on the component boundary)
+	const comps = [{ name: 'Header', size: 20 }, { name: 'Import', size: 101 }];
+	const withBoundary = ramInstallFailHint(
+		{ success: false, failed_step: 2, load_block_size: 64,
+		  steps: [{ name: 'INSTALL [for load]' }, { name: 'LOAD (2/240)', por_sw: '6438' }] },
+		{ requires_java_card: '2.2.2', components: comps });
+	assert.ok(withBoundary.startsWith('the failed step completes Import. '), withBoundary);
 });
 
 test('ramOpChanged clears the executed status only on a real op change', () => {

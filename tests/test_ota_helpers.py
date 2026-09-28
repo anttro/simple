@@ -304,6 +304,67 @@ class TestSmsConcatenation(unittest.TestCase):
             else:
                 self.assertNotIn(concat + '7000', tpdu)
 
+    def test_send_secured_packet_polls_for_a_late_por_only_at_the_last_segment(self):
+        import pysim_simple_server.server as srv
+        apdu = '80E80000F0' + '00' * 240 + '00'
+        sp_hex, _ = _build_secured_packet('16', '01', '15', '15', 'b00000',
+                                          '0000000001', apdu, K, K)
+        polls = []
+
+        def fake_envelope(tpdu_hex, scc, sm_sc=None, submit_handler=None,
+                          poll_status=True, **kwargs):
+            polls.append(poll_status)
+            return '', '9000'
+
+        with mock.patch.object(srv, '_send_envelope', side_effect=fake_envelope):
+            result = _send_secured_packet(object(), sp_hex, oa_number='12345')
+        self.assertTrue(result['success'], result)
+        self.assertGreater(result['segments'], 1)
+        self.assertEqual(polls, [False] * (result['segments'] - 1) + [True])
+        # a single-SMS packet keeps the immediate late-PoR poll
+        polls.clear()
+        with mock.patch.object(srv, '_send_envelope', side_effect=fake_envelope):
+            _send_secured_packet(object(), '00' * 10, oa_number='12345')
+        self.assertEqual(polls, [True])
+
+    def test_envelope_status_poll_carries_the_capture_handler(self):
+        # A late PoR (ENVELOPE 9000, then STATUS 91xx) must reach the
+        # proactive chain with the SEND SHORT MESSAGE capture handler.  It
+        # used to be defined inside the 91xx branch only, so this path raised
+        # UnboundLocalError and killed the operation mid-packet with the
+        # command left pending (live 2026-09-29).
+        import pysim_simple_server.server as srv
+
+        class FakeTp:
+            def send_apdu(self, apdu):
+                return '', '9000'
+
+        class FakeScc:
+            cat_cla = '80'
+            _tp = FakeTp()
+
+        class FakeSubmit:
+            sms_segments = []
+            submit_tpdu_hex = None
+            submit_ud_hex = None
+
+        calls = []
+        with mock.patch.object(srv, '_send_status', return_value=('', '910b')), \
+                mock.patch.object(srv, '_handle_proactive_chain',
+                                  side_effect=lambda scc, sw, cb=None: calls.append((sw, cb))):
+            data, sw = srv._send_envelope('00', FakeScc(), submit_handler=FakeSubmit())
+        self.assertEqual(sw, '9000')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], '910b')
+        self.assertTrue(callable(calls[0][1]))
+        # a mid-packet segment (poll_status=False) skips the poll entirely
+        with mock.patch.object(srv, '_send_status') as status, \
+                mock.patch.object(srv, '_handle_proactive_chain') as chain:
+            srv._send_envelope('00', FakeScc(), submit_handler=FakeSubmit(),
+                               poll_status=False)
+        self.assertFalse(status.called)
+        self.assertFalse(chain.called)
+
     def test_send_secured_packet_refuses_more_than_the_card_buffer(self):
         length = SCP80_FIRST_BYTES + SCP80_NEXT_BYTES * (SCP80_MAX_SEGMENTS - 1) + 1
         result = _send_secured_packet(object(), '00' * length, oa_number='12345')
