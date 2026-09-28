@@ -55,6 +55,23 @@ function navigateEvent(url) {
 	return event;
 }
 
+test('install precaches every URL with cache: reload (no stale HTTP copies)', async () => {
+	const calls = [];
+	const { listeners, puts } = loadSW({
+		fetchImpl: async (url, init) => {
+			calls.push([String(url), init && init.cache]);
+			return { ok: true, status: 200 };
+		},
+		cacheMatch: async () => undefined,
+	});
+	const event = { waitUntil: p => { event.promise = p; } };
+	listeners.install(event);
+	await event.promise;
+	assert.ok(calls.length >= 10, String(calls.length));
+	assert.ok(calls.every(c => c[1] === 'reload'), JSON.stringify(calls[0]));
+	assert.strictEqual(puts.length, calls.length);
+});
+
 test('offline navigation falls back to the cached index.html', async () => {
 	const index = new FakeResponse('html');
 	const { listeners } = loadSW({

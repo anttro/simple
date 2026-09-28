@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.30'
+VERSION = '3.6.31'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5050,11 +5050,28 @@ class PysimHandler(BaseHTTPRequestHandler):
         with open(fs_path, 'rb') as f:
             data = f.read()
         content_type = _STATIC_MIME.get(os.path.splitext(rel)[1].lower(), 'application/octet-stream')
+        try:
+            mtime = int(os.path.getmtime(fs_path))
+        except OSError:
+            mtime = 0
+        last_modified = (time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(mtime))
+                         if mtime else '')
+        ims = self.headers.get('If-Modified-Since') if self.headers else None
+        if last_modified and ims == last_modified:
+            self.send_response(304)
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Last-Modified', last_modified)
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
-        if rel in ('index.html', 'sw.js'):
-            self.send_header('Cache-Control', 'no-cache')
+        # Every shell file revalidates - index.html/sw.js always did, but a
+        # stale style.css silently drops newly added styles (v3.6.31).  The
+        # revalidation is cheap thanks to Last-Modified/304.
+        self.send_header('Cache-Control', 'no-cache')
+        if last_modified:
+            self.send_header('Last-Modified', last_modified)
         self.end_headers()
         self.wfile.write(data)
 

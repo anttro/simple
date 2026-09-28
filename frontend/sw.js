@@ -1,4 +1,4 @@
-const CACHE = 'simple-v303';
+const CACHE = 'simple-v304';
 const URLS = [
   'index.html',
   'help.html',
@@ -18,8 +18,15 @@ const URLS = [
 ];
 
 self.addEventListener('install', e => {
+  // Fetch the shell with `cache: 'reload'`: a plain addAll() would re-use
+  // HTTP-cached copies, so a new SW version could precache a stale
+  // style.css/index.html (the stale-style trap, v3.6.31).
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(URLS))
+    caches.open(CACHE).then(c =>
+      Promise.all(URLS.map(u => fetch(u, { cache: 'reload' }).then(r => {
+        if (r && r.ok) return c.put(u, r);
+      })))
+    )
   );
   self.skipWaiting();
 });
