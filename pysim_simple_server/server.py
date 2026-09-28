@@ -10,7 +10,7 @@ import codecs
 import zlib
 from urllib.parse import unquote_plus
 from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler
 from io import StringIO
 from pySim.transport import ApduTracer, ProactiveHandler
 from pySim.cards import UiccCardBase
