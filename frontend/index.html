@@ -1705,7 +1705,7 @@
 			<div id="stk-menu-buttons" class="flex justify-between mt-3 pt-3 border-t border-gray-200 dark:border-slate-700 hidden">
 				<button id="stk-timeout-btn" onclick="stkMenuRespond('timeout')" class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Timeout">Timeout</button>
 				<button id="stk-cancel-btn" onclick="stkMenuRespond('cancel')" class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Cancel">Cancel</button>
-				<button id="stk-ok-btn" onclick="stkMenuRespond('ok')" class="px-4 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700" data-l10n="OK">OK</button>
+				<button id="stk-ok-btn" onclick="stkMenuOk()" class="px-4 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700" data-l10n="OK">OK</button>
 			</div>
 		</div>
 	</div>
@@ -1732,7 +1732,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.37';
+const SIMPLE_VERSION = '3.6.38';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9688,10 +9688,126 @@ async function stkMenuItemClick(itemId) {
 	}
 }
 
+// User-input prompt for a pending GET INKEY / GET INPUT (pure).  The card's
+// constraints drive the field: hidden entry masks the value (TS 102 223
+// 6.4.3), digits-only switches the keyboard, Response length bounds the text.
+function stkInputHtml(pd) {
+	pd = pd || {};
+	let html = '<div class="text-sm whitespace-pre-wrap p-2 bg-gray-50 dark:bg-slate-700 rounded mb-2">' + esc(pd.text || '') + '</div>';
+	if (pd.yes_no) {
+		html += '<div class="flex gap-2 justify-center">' +
+			'<button onclick="stkInputSubmit(\'01\')" class="px-4 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700">' + esc(t('Yes')) + '</button>' +
+			'<button onclick="stkInputSubmit(\'00\')" class="px-4 py-1 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">' + esc(t('No')) + '</button>' +
+			'</div>';
+		return html;
+	}
+	const max = Number(pd.max) || 0;
+	const attrs = [
+		'id="stk-input-field"',
+		'class="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono"',
+		'type="' + (pd.hidden ? 'password' : 'text') + '"',
+		pd.digits_only ? 'inputmode="numeric"' : '',
+		(max && max !== 0xFF) ? 'maxlength="' + max + '"' : '',
+		pd.immediate ? 'oninput="stkInputImmediate()"' : '',
+		'value="' + esc(pd.default || '') + '"',
+	].filter(Boolean).join(' ');
+	html += '<input ' + attrs + '>';
+	const hint = stkInputHint(pd);
+	if (hint) html += '<div class="text-xs text-gray-400 dark:text-slate-500 mt-1">' + esc(hint) + '</div>';
+	if (pd.help) {
+		html += '<div class="mt-2 text-center"><button onclick="stkMenuRespond(\'help\')" class="text-xs underline text-gray-500 dark:text-slate-400">' + esc(t('Help')) + '</button></div>';
+	}
+	return html;
+}
+
+// '4–16 characters · digits 0-9 * # + · hidden entry' (pure).
+function stkInputHint(pd) {
+	pd = pd || {};
+	const parts = [];
+	const lo = Number(pd.min) || 0;
+	const hi = Number(pd.max) || 0;
+	const hasHi = hi && hi !== 0xFF;
+	if (pd.type === 'get_inkey') {
+		parts.push(t('one character'));
+	} else if (lo && hasHi) {
+		parts.push(lo + '\u2013' + hi + ' ' + t('characters'));
+	} else if (hasHi) {
+		parts.push(t('up to') + ' ' + hi + ' ' + t('characters'));
+	} else if (lo) {
+		parts.push(t('At least') + ' ' + lo + ' ' + t('characters'));
+	}
+	if (pd.digits_only || pd.hidden) parts.push(t('digits 0-9 * # +'));
+	if (pd.hidden) parts.push(t('hidden entry'));
+	return parts.join(' \u00b7 ');
+}
+
+// Validate the typed answer against the card's request (pure; mirrors the
+// server rules so the panel can explain before sending).
+function stkInputValidate(pd, value) {
+	pd = pd || {};
+	const v = value == null ? '' : String(value);
+	const digits = /^[0-9*#+]*$/;
+	if (pd.type === 'get_inkey') {
+		if (v.length !== 1) return { ok: false, error: t('Enter exactly one character') };
+		if (pd.digits_only && !digits.test(v)) return { ok: false, error: t('Digits only (0-9, *, #, +)') };
+		return { ok: true };
+	}
+	const lo = Number(pd.min) || 0;
+	const hi = Number(pd.max) || 0;
+	if (v.length < lo) return { ok: false, error: t('At least') + ' ' + lo + ' ' + t('characters') };
+	if (hi && hi !== 0xFF && v.length > hi) return { ok: false, error: t('At most') + ' ' + hi + ' ' + t('characters') };
+	if ((pd.digits_only || pd.hidden) && !digits.test(v)) return { ok: false, error: t('Digits only (0-9, *, #, +)') };
+	return { ok: true };
+}
+
+let _stkInputPending = null;
+
+// Send the typed (or Yes/No) answer; the server validates again and builds
+// the Text string TERMINAL RESPONSE.
+async function stkInputSubmit(text) {
+	const pd = _stkInputPending || {};
+	if (text !== '01' && text !== '00') {
+		const field = document.getElementById('stk-input-field');
+		const value = field ? field.value : '';
+		const v = stkInputValidate(pd, value);
+		if (!v.ok) {
+			document.getElementById('stk-menu-panel-content').insertAdjacentHTML('beforeend',
+				'<div class="text-xs text-red-500 mt-1">' + esc(v.error) + '</div>');
+			return;
+		}
+		text = value;
+	}
+	const content = document.getElementById('stk-menu-panel-content');
+	content.innerHTML = '<span class="text-gray-500 text-sm">' + esc(t('Sending...')) + '</span>';
+	try {
+		const data = await pysimFetch('/api/menu-respond', { result: 'ok', text: text });
+		stkMenuHandleResponse(data);
+	} catch (e) {
+		content.innerHTML = '<span class="text-red-500 text-sm">Error: ' + esc(e.message) + '</span>';
+	}
+}
+
+// The OK button: submit the pending input, otherwise the plain 'ok' answer.
+function stkMenuOk() {
+	if (_stkInputPending && (_stkInputPending.type === 'get_input' || _stkInputPending.type === 'get_inkey')) {
+		stkInputSubmit(null);
+		return;
+	}
+	stkMenuRespond('ok');
+}
+
+// Immediate digit response (GET INKEY qualifier bit 4): pass the first
+// character on without asking for confirmation.
+function stkInputImmediate() {
+	const field = document.getElementById('stk-input-field');
+	if (field && field.value.length >= 1) stkInputSubmit(null);
+}
+
 function stkMenuHandleResponse(data) {
 	const content = document.getElementById('stk-menu-panel-content');
 	const backBtn = document.getElementById('stk-back-btn');
 	const btns = document.getElementById('stk-menu-buttons');
+	_stkInputPending = null;
 	btns.classList.add('hidden');
 	if (data.type === 'display_text') {
 		content.innerHTML = '<div class="text-sm whitespace-pre-wrap p-2 bg-gray-50 dark:bg-slate-700 rounded">' + esc(data.text) + '</div>';
@@ -9703,6 +9819,12 @@ function stkMenuHandleResponse(data) {
 		content.innerHTML = stkMenuItemsHtml(data.items, 'stkSubItemClick');
 		backBtn.style.display = '';
 		document.getElementById('stk-ok-btn').style.display = 'none';
+		btns.classList.remove('hidden');
+	} else if (data.type === 'get_input' || data.type === 'get_inkey') {
+		_stkInputPending = data;
+		content.innerHTML = stkInputHtml(data);
+		backBtn.style.display = '';
+		document.getElementById('stk-ok-btn').style.display = data.yes_no ? 'none' : '';
 		btns.classList.remove('hidden');
 	} else {
 		content.innerHTML = '<span class="text-gray-500 text-sm">SW: ' + esc(data.sw || '?') + '</span>';
@@ -9726,12 +9848,25 @@ async function stkSubItemClick(itemId) {
 // itself (the menu watchdog's timeout TERMINAL RESPONSE, or a new selection
 // that shadowed it): the dialog can no longer be answered (v3.6.35).
 function stkMenuPanelReset() {
+	_stkInputPending = null;
 	const panel = document.getElementById('stk-menu-panel');
 	if (panel) panel.classList.add('hidden');
 	const btns = document.getElementById('stk-menu-buttons');
 	if (btns) btns.classList.add('hidden');
 	const back = document.getElementById('stk-back-btn');
 	if (back) back.style.display = 'none';
+}
+
+// Open the panel for a pending command the server paused on by itself (a
+// card-initiated GET INPUT / SELECT ITEM): the reply to our own click renders
+// through stkMenuHandleResponse instead.
+function stkMenuShowPending(pd) {
+	document.getElementById('stk-menu-panel-title').textContent = document.getElementById('stk-menu-title').textContent;
+	stkSetPillsDisabled(true);
+	stkMenuStack = [];
+	document.getElementById('stk-back-btn').style.display = 'none';
+	document.getElementById('stk-menu-panel').classList.remove('hidden');
+	stkMenuHandleResponse(pd);
 }
 
 // The /api/menu-respond reply for a command the server already answered.
@@ -11921,6 +12056,12 @@ function pysimStartBackendPoll() {
 			// A command the server answered by itself must not leave a stale
 			// dialog behind (the panel is not refreshed when the tab is hidden)
 			if (stkChanged && !stk.pending) stkMenuPanelReset();
+			// A command the card sent on its own (not the reply to our click)
+			// opens the panel with its prompt (v3.6.38)
+			if (stkChanged && stk.pending && stk.pending_data && isViewVisible('tab-phone')
+					&& document.getElementById('stk-menu-panel').classList.contains('hidden')) {
+				stkMenuShowPending(stk.pending_data);
+			}
 			if (ts) {
 				const wasRunning = testRunActive();
 				_testRunState = ts;
@@ -17497,6 +17638,18 @@ const LANG_RU = {
 	'Event sent.': 'Событие отправлено.',
 	'Event data sent.': 'Данные события отправлены.',
 	'Sending...': 'Отправка...',
+	'Yes': 'Да',
+	'No': 'Нет',
+	'Help': 'Справка',
+	'one character': 'один символ',
+	'characters': 'символов',
+	'up to': 'до',
+	'At least': 'Не менее',
+	'At most': 'Не более',
+	'digits 0-9 * # +': 'цифры 0-9 * # +',
+	'hidden entry': 'скрытый ввод',
+	'Enter exactly one character': 'Введите ровно один символ',
+	'Digits only (0-9, *, #, +)': 'Только цифры (0-9, *, #, +)',
 	'Invalid': 'Некорректное значение',
 	'Service Status': 'Статус сервиса',
 	'Normal service': 'Обычный сервис',

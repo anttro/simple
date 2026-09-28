@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.37'
+VERSION = '3.6.38'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2129,6 +2129,33 @@ def _decode_cmd(cmd_type, raw, qualifier):
     if cmd_type == 0x21:
         text = _parse_display_text(raw)
         return [{'label': 'Text', 'value': text}] if text else []
+    if cmd_type in (0x22, 0x23):
+        info = (_parse_get_inkey(raw) if cmd_type == 0x22
+                else _parse_get_input(raw))
+        if not info:
+            return []
+        out = [{'label': 'Text', 'value': info['text']}]
+        if cmd_type == 0x22:
+            kind = ('Yes/No' if info['yes_no'] else
+                    'digits only' if info['digits_only'] else
+                    'UCS2' if info['ucs2'] else 'SMS default alphabet')
+            if info['immediate']:
+                kind += ', immediate'
+        else:
+            kind = ('digits only' if info['digits_only'] else
+                    'UCS2' if info['ucs2'] else 'SMS default alphabet')
+            if info['hidden']:
+                kind += ', hidden'
+            if info['packed']:
+                kind += ', packed'
+            max_text = 'no max' if info['max'] in (0, 0xFF) else str(info['max'])
+            out.append({'label': 'Length', 'value': '%d..%s' % (info['min'], max_text)})
+            if info.get('default'):
+                out.append({'label': 'Default', 'value': info['default']})
+        if info['help']:
+            kind += ', help'
+        out.append({'label': 'Response', 'value': kind})
+        return out
     if cmd_type == 0x24:
         items = _parse_select_item(raw)
         if items:
@@ -4252,6 +4279,70 @@ def _item_line(item):
     return line
 
 
+def _cmd_tlv_any(tlvs, tag):
+    """Command TLV lookup tolerating the comprehension-required variant in
+    both directions (0x81/0x01, 0x8D/0x0D, 0x91/0x11, TS 101 220 7.1.1)."""
+    return tlvs.get(tag) or tlvs.get(tag | 0x80) or tlvs.get(tag & 0x7F) or b''
+
+
+def _cmd_qualifier(tlvs):
+    """Command Qualifier byte of the Command details TLV (TS 102 223 8.6)."""
+    cd = _cmd_tlv_any(tlvs, 0x81)
+    return cd[2] if len(cd) >= 3 else None
+
+
+def _parse_get_inkey(raw):
+    """GET INKEY (0x22) fields: prompt text and the qualifier's request flags
+    (TS 102 223 6.6.2, 8.6, 8.15).  Returns None when the template is not a
+    parseable GET INKEY."""
+    tlvs = httpota.proactive_tlvs(raw)
+    text = _cmd_tlv_any(tlvs, 0x8D) if tlvs else b''
+    if not text:
+        return None
+    qual = _cmd_qualifier(tlvs)
+    try:
+        prompt = _decode_dcs_text(text)
+    except Exception:
+        return None
+    return {
+        'text': prompt,
+        'digits_only': bool(qual is not None and not (qual & 0x01)),
+        'ucs2': bool(qual is not None and (qual & 0x02)),
+        'yes_no': bool(qual is not None and (qual & 0x04)),
+        'immediate': bool(qual is not None and (qual & 0x08)),
+        'help': bool(qual is not None and (qual & 0x80)),
+    }
+
+
+def _parse_get_input(raw):
+    """GET INPUT (0x23) fields: prompt text, Response length (8.11), Default
+    Text (8.23) and the qualifier's request flags (TS 102 223 6.6.3, 8.6).
+    Returns None when the template is not a parseable GET INPUT."""
+    tlvs = httpota.proactive_tlvs(raw)
+    text = _cmd_tlv_any(tlvs, 0x8D) if tlvs else b''
+    if not text:
+        return None
+    qual = _cmd_qualifier(tlvs)
+    rl = _cmd_tlv_any(tlvs, 0x91)
+    default = _cmd_tlv_any(tlvs, 0x9D)
+    try:
+        prompt = _decode_dcs_text(text)
+        default_text = _decode_dcs_text(default) if default else None
+    except Exception:
+        return None
+    return {
+        'text': prompt,
+        'min': rl[0] if len(rl) >= 1 else 0,
+        'max': rl[1] if len(rl) >= 2 else 0xFF,
+        'default': default_text,
+        'digits_only': bool(qual is not None and not (qual & 0x01)),
+        'ucs2': bool(qual is not None and (qual & 0x02)),
+        'hidden': bool(qual is not None and (qual & 0x04)),
+        'packed': bool(qual is not None and (qual & 0x08)),
+        'help': bool(qual is not None and (qual & 0x80)),
+    }
+
+
 def _parse_select_item(raw):
     items = []
     nai = None
@@ -4474,25 +4565,128 @@ def _make_menu_fetch_handler(server, resp):
                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
             resp.update(type='select_item', items=items)
             return 'pause'
+        elif cmd_type in (0x22, 0x23):
+            # GET INKEY / GET INPUT: the user's answer is the TR's Text
+            # string, so the panel must pause for it (v3.6.38)
+            info = (_parse_get_inkey(raw) if cmd_type == 0x22
+                    else _parse_get_input(raw)) if raw else None
+            if info:
+                kind = 'get_inkey' if cmd_type == 0x22 else 'get_input'
+                pending = dict(info, type=kind, cmd_num=cmd_num,
+                               cmd_type=cmd_type, dev_src=dev_src, dev_dst=dev_dst)
+                dur = _find_duration(raw)
+                pending['duration_unit'] = dur[0] if dur else None
+                pending['shown_at'] = time.monotonic()
+                server.stk_pending = pending
+                resp.update(dict(info, type=kind))
+                return 'pause'
     return _on_menu_fetch
 
 
-def _menu_send_response(server, result, item_id=None):
+# Hidden entry allows only the digits set (TS 102 223 6.4.3); digits-only
+# requests use the same set for both input commands (6.4.2/6.4.3).
+_DIGITS_CHARSET = re.compile(r'^[0-9*#+]*$')
+
+
+def _validate_input_response(pd, text):
+    """Validate the user's input against the pending GET INKEY / GET INPUT
+    request (TS 102 223 6.4.2/6.4.3).  Returns (text, error)."""
+    text = '' if text is None else str(text)
+    if pd['type'] == 'get_inkey':
+        if pd.get('yes_no'):
+            if text not in ('01', '00'):
+                return None, 'yes/no response must be 01 (positive) or 00 (negative)'
+            return text, None
+        if len(text) != 1:
+            return None, 'GET INKEY needs exactly one character'
+        if pd.get('digits_only') and not _DIGITS_CHARSET.match(text):
+            return None, 'digits only (0-9, *, #, +)'
+        return text, None
+    lo = int(pd.get('min', 0) or 0)
+    hi = int(pd.get('max', 0xFF) or 0)
+    if len(text) < lo:
+        return None, 'at least %d character(s) required' % lo
+    if hi not in (0, 0xFF) and len(text) > hi:
+        return None, 'at most %d character(s) allowed' % hi
+    if (pd.get('digits_only') or pd.get('hidden')) and not _DIGITS_CHARSET.match(text):
+        return None, 'digits only (0-9, *, #, +)'
+    return text, None
+
+
+def _pack_gsm7(septets):
+    """Pack GSM 03.38 septets into 7-bit octets (TS 23.038 4, SMS packing)."""
+    out = bytearray()
+    acc = 0
+    bits = 0
+    for s in septets:
+        acc |= (s & 0x7F) << bits
+        bits += 7
+        while bits >= 8:
+            out.append(acc & 0xFF)
+            acc >>= 8
+            bits -= 8
+    if bits:
+        out.append(acc & 0xFF)
+    return bytes(out)
+
+
+def _input_text_tlv(pd, text):
+    """Text string TLV (TS 102 223 8.15) carrying the user's answer for a GET
+    INKEY / GET INPUT TERMINAL RESPONSE (6.8.5): the response is coded in the
+    SMS default alphabet unpacked (DCS '04'), as UCS2 ('08') when the request
+    asked for it, or packed ('00') for a packed GET INPUT."""
+    if text == '':
+        return bytes([0x8D, 0x00])            # null text string (empty input)
+    if pd.get('yes_no'):
+        body = bytes([0x04, 0x01 if text == '01' else 0x00])
+    elif pd.get('ucs2'):
+        body = bytes([0x08]) + text.encode('utf-16-be')
+    elif pd.get('packed'):
+        body = bytes([0x00]) + _pack_gsm7(text.encode('gsm03.38'))
+    else:
+        body = bytes([0x04]) + text.encode('gsm03.38')
+    return bytes([0x8D, len(body)]) + body
+
+
+def _menu_send_response(server, result, item_id=None, text=None):
     """Send the pending command's TERMINAL RESPONSE and continue the chain.
-    Shared by /api/menu-respond and the user-input timeout watchdog. Returns
-    (payload, http_status)."""
+    Shared by /api/menu-respond and the user-input timeout watchdog.  `text`
+    is the user's answer for a pending GET INKEY / GET INPUT (v3.6.38).
+    Returns (payload, http_status)."""
     if not server.stk_pending:
         return {'error': 'no pending command'}, 400
     scc = server.scc
-    RESULT_MAP = {'ok': 0x00, 'cancel': 0x10, 'back': 0x11, 'timeout': 0x12}
+    RESULT_MAP = {'ok': 0x00, 'cancel': 0x10, 'back': 0x11, 'timeout': 0x12,
+                  'help': 0x13}
     gr = RESULT_MAP.get(result, 0x00)
     pd = server.stk_pending
+    input_types = ('get_inkey', 'get_input')
+    text_tlv = b''
+    duration_tlv = b''
+    if result == 'ok' and pd['type'] in input_types:
+        text, err = _validate_input_response(pd, text)
+        if err:
+            return {'error': err}, 400
+        try:
+            text_tlv = _input_text_tlv(pd, text)
+        except UnicodeEncodeError as e:
+            return {'error': 'cannot encode the response text: %s' % e}, 400
+        if pd.get('duration_unit') is not None and pd.get('shown_at') is not None:
+            # TS 102 223 6.4.2/6.4.3: a variable-timeout request gets the
+            # actual display/entry duration back, in the requested unit (8.8)
+            elapsed = max(0.0, time.monotonic() - pd['shown_at'])
+            value = int(round(elapsed * {0x00: 1 / 60.0, 0x01: 1.0,
+                                         0x02: 10.0}.get(pd['duration_unit'], 1.0)))
+            value = max(1, min(255, value))
+            duration_tlv = bytes([0x04, 0x02, pd['duration_unit'], value])
     cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'], 0x00])
     di = bytes([0x82, 0x02, pd['dev_dst'], pd['dev_src']])
     tr_data = cd + di
     if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
         tr_data += bytes([0x90, 0x01, item_id])
     tr_data += bytes([0x83, 0x02, gr, 0x00])
+    # Table 6.8.0 order after Result: Duration (D) then Text string (E)
+    tr_data += duration_tlv + text_tlv
     tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
     tr_rv = scc._tp.send_apdu(tr_hex)
     sys.stderr.write('TR(menu): cmd=%02x type=%02x result=%02x -> %s\n' % (pd['cmd_num'], pd['cmd_type'], gr, tr_rv[1]))
@@ -5437,9 +5631,15 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(log)
             self._log_resp(log)
         elif self.path == '/api/stk-status':
+            pd = self.server.stk_pending
             resp = {'active': self.server.menu_active,
-                    'pending': self.server.stk_pending is not None,
-                    'pending_type': self.server.stk_pending['type'] if self.server.stk_pending else None}
+                    'pending': pd is not None,
+                    'pending_type': pd['type'] if pd else None}
+            if pd:
+                # the panel renders a card-initiated pending command from this
+                # (GET INKEY / GET INPUT prompt, SELECT ITEM items, ...)
+                resp['pending_data'] = {k: v for k, v in pd.items()
+                                        if k not in ('shown_at',)}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path in ('/api/scp81/status', '/api/bip/status'):
@@ -6084,7 +6284,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/menu-respond':
             body = self._read_body()
             self._log_req(body)
-            resp, code = _menu_send_response(self.server, body.get('result', 'ok'), body.get('item_id'))
+            resp, code = _menu_send_response(self.server, body.get('result', 'ok'),
+                                             body.get('item_id'), body.get('text'))
             self._send_json(resp, code)
             self._log_resp(resp)
         elif self.path == '/api/event-send':

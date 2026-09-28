@@ -46,6 +46,12 @@ from pysim_simple_server.server import (
     _spi_from_bytes,
     _split_secured_packet,
     _tr_data_only,
+    _menu_send_response,
+    _parse_get_input,
+    _parse_get_inkey,
+    _input_text_tlv,
+    _validate_input_response,
+    _pack_gsm7,
     SCP80_FIRST_BYTES,
     SCP80_MAX_SEGMENTS,
     SCP80_NEXT_BYTES,
@@ -1649,6 +1655,154 @@ class RamCommandFormatTests(unittest.TestCase):
         # only the accepted (expanded) probe advanced the 5-byte counter
         self.assertEqual(state['cntr'], '10000AAAC9')
         self.assertEqual(len(state['steps']), 2)
+
+
+class StkInputTests(unittest.TestCase):
+    """GET INKEY / GET INPUT handling (v3.6.38, TS 102 223 6.4.2/6.4.3)."""
+
+    # The live GET INPUT from the RemMobileID menu (2026-09-29): qualifier
+    # 0x04 = digits only + hidden entry, Response length 4..16.
+    GET_INPUT = bytes.fromhex(
+        'd03c8103012304820281828d2d0804120432043504340438044204350020004d006f00'
+        '620069006c0065002d00490044002000500049004e003191020410')
+
+    def test_parse_get_input_reads_text_and_response_length(self):
+        info = _parse_get_input(self.GET_INPUT)
+        self.assertEqual(info['text'], 'Введите Mobile-ID PIN1')
+        self.assertEqual((info['min'], info['max']), (4, 16))
+        self.assertTrue(info['digits_only'] and info['hidden'])
+        self.assertFalse(info['ucs2'] or info['packed'] or info['help'])
+        self.assertIsNone(info['default'])
+
+    def test_parse_get_inkey_reads_the_qualifier_flags(self):
+        # Command details: qualifier 0x84 = digits only + Yes/No, help bit set
+        raw = bytes.fromhex('d0188103012284820281828d0d0804120435044004350434043a0430')
+        info = _parse_get_inkey(raw)
+        self.assertTrue(info['digits_only'])
+        self.assertTrue(info['yes_no'])
+        self.assertTrue(info['help'])
+        self.assertFalse(info['ucs2'] or info['immediate'])
+        # a template without a Text string is not a parseable input command
+        self.assertIsNone(_parse_get_inkey(bytes.fromhex('d0038103012200')))
+
+    def test_decode_cmd_reports_the_input_request(self):
+        decoded = _decode_cmd(0x23, self.GET_INPUT, 0x04)
+        self.assertEqual(decoded[0], {'label': 'Text', 'value': 'Введите Mobile-ID PIN1'})
+        self.assertEqual(decoded[1], {'label': 'Length', 'value': '4..16'})
+        self.assertEqual(decoded[2], {'label': 'Response', 'value': 'digits only, hidden'})
+        # max 0xFF = no maximum (8.11); a help flag is reported too
+        raw = bytes.fromhex('d0118103012381820281828d020041910200ff')
+        decoded = _decode_cmd(0x23, raw, 0x81)
+        self.assertIn({'label': 'Length', 'value': '0..no max'}, decoded)
+        self.assertEqual(decoded[-1], {'label': 'Response', 'value': 'SMS default alphabet, help'})
+
+    def test_input_text_tlv_codings(self):
+        pd = {'type': 'get_input', 'digits_only': True, 'hidden': True}
+        # digits: SMS default alphabet unpacked (DCS 04), one byte per char
+        self.assertEqual(_input_text_tlv(pd, '1234').hex().upper(), '8D050431323334')
+        # empty input: the null text string (6.8.5)
+        self.assertEqual(_input_text_tlv(pd, '').hex().upper(), '8D00')
+        # UCS2 request: DCS 08
+        self.assertEqual(_input_text_tlv(dict(pd, ucs2=True, hidden=False), '12').hex().upper(),
+                         '8D050800310032')
+        # packed request: DCS 00 + TS 23.038 septet packing
+        self.assertEqual(_input_text_tlv(dict(pd, packed=True, hidden=False), '1234').hex().upper(),
+                         '8D050031D98C06')
+        # GET INKEY Yes/No: value 01 positive / 00 negative (6.8.5)
+        yesno = {'type': 'get_inkey', 'yes_no': True}
+        self.assertEqual(_input_text_tlv(yesno, '01').hex().upper(), '8D020401')
+        self.assertEqual(_input_text_tlv(yesno, '00').hex().upper(), '8D020400')
+
+    def test_pack_gsm7_matches_the_sms_packing(self):
+        self.assertEqual(_pack_gsm7(b'1234').hex().upper(), '31D98C06')
+        # 7 septets need 7 octets; the trailing bit is the last septet's MSB
+        # (0 for '7' = 0x37), so the padding octet stays 00
+        self.assertEqual(_pack_gsm7(b'1234567').hex().upper(), '31D98C56B3DD00')
+
+    def test_validate_input_response(self):
+        pd = {'type': 'get_input', 'min': 4, 'max': 16, 'digits_only': True, 'hidden': True}
+        self.assertEqual(_validate_input_response(pd, '1234'), ('1234', None))
+        self.assertIsNotNone(_validate_input_response(pd, '12')[1])
+        self.assertIsNotNone(_validate_input_response(pd, '1' * 17)[1])
+        self.assertIsNotNone(_validate_input_response(pd, 'abcd')[1])
+        # hidden entry allows only the digits set even without digits_only
+        self.assertIsNotNone(_validate_input_response({'type': 'get_input', 'hidden': True}, 'ab')[1])
+        # GET INKEY: exactly one character, digits-only honours * # +
+        self.assertEqual(_validate_input_response({'type': 'get_inkey'}, 'a'), ('a', None))
+        self.assertIsNotNone(_validate_input_response({'type': 'get_inkey'}, 'ab')[1])
+        self.assertEqual(_validate_input_response({'type': 'get_inkey', 'digits_only': True}, '*'),
+                         ('*', None))
+        self.assertIsNotNone(_validate_input_response({'type': 'get_inkey', 'digits_only': True}, 'a')[1])
+        # Yes/No: only 01 / 00
+        yesno = {'type': 'get_inkey', 'yes_no': True}
+        self.assertEqual(_validate_input_response(yesno, '01'), ('01', None))
+        self.assertIsNotNone(_validate_input_response(yesno, 'yes')[1])
+
+    def test_menu_send_response_carries_the_input_text(self):
+        class FakeTp:
+            def __init__(self):
+                self.sent = []
+
+            def send_apdu(self, apdu):
+                self.sent.append(apdu)
+                return '', '9000'
+
+        class FakeServer:
+            def __init__(self, pending):
+                self.stk_pending = pending
+                self.menu_active = True
+                self.scc = types.SimpleNamespace(cat_cla='80', _tp=FakeTp())
+
+        def pending(**over):
+            pd = {'type': 'get_input', 'cmd_num': 1, 'cmd_type': 0x23,
+                  'dev_src': 0x81, 'dev_dst': 0x82, 'text': 'PIN',
+                  'min': 4, 'max': 16, 'default': None, 'digits_only': True,
+                  'ucs2': False, 'hidden': True, 'packed': False, 'help': False,
+                  'duration_unit': None, 'shown_at': None}
+            pd.update(over)
+            return pd
+
+        server = FakeServer(pending())
+        resp, code = _menu_send_response(server, 'ok', None, '1234')
+        self.assertEqual(code, 200, resp)
+        apdu = server.scc._tp.sent[0].upper()
+        self.assertIn('8D050431323334', apdu)          # the entered digits
+        self.assertIn('83020000', apdu)                # successful result
+        self.assertIsNone(server.stk_pending)
+        # a rejected value sends nothing and keeps the command pending
+        server2 = FakeServer(pending())
+        resp2, code2 = _menu_send_response(server2, 'ok', None, 'abcd')
+        self.assertEqual(code2, 400)
+        self.assertIn('digits only', resp2['error'])
+        self.assertEqual(server2.scc._tp.sent, [])
+        # help is result 0x13 without a Text string
+        server3 = FakeServer(pending(help=True))
+        resp3, code3 = _menu_send_response(server3, 'help')
+        self.assertEqual(code3, 200)
+        self.assertIn('83021300', server3.scc._tp.sent[0].upper())
+
+    def test_menu_send_response_echoes_the_variable_timeout(self):
+        class FakeTp:
+            def __init__(self):
+                self.sent = []
+
+            def send_apdu(self, apdu):
+                self.sent.append(apdu)
+                return '', '9000'
+
+        server = types.SimpleNamespace(
+            stk_pending={'type': 'get_input', 'cmd_num': 2, 'cmd_type': 0x23,
+                         'dev_src': 0x81, 'dev_dst': 0x82, 'text': 'PIN',
+                         'min': 4, 'max': 16, 'digits_only': True, 'hidden': True,
+                         'ucs2': False, 'packed': False, 'help': False,
+                         'duration_unit': 0x01, 'shown_at': 997.0},
+            menu_active=True,
+            scc=types.SimpleNamespace(cat_cla='80', _tp=FakeTp()))
+        with mock.patch('time.monotonic', return_value=1000.0):
+            resp, code = _menu_send_response(server, 'ok', None, '1234')
+        self.assertEqual(code, 200, resp)
+        # TS 102 223 6.8.4: 3 seconds in the requested unit (seconds)
+        self.assertIn('04020103', server.scc._tp.sent[0].upper())
 
 
 class RamProgressTests(unittest.TestCase):

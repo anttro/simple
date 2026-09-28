@@ -26,6 +26,9 @@ code += extractFunc(html, 'stkNoPendingError') + '\n';
 code += extractFunc(html, 'stkMenuPanelReset') + '\n';
 code += extractFunc(html, 'stkMenuNaiSuffix') + '\n';
 code += extractFunc(html, 'stkMenuItemsHtml') + '\n';
+code += extractFunc(html, 'stkInputHtml') + '\n';
+code += extractFunc(html, 'stkInputHint') + '\n';
+code += extractFunc(html, 'stkInputValidate') + '\n';
 code += 'globalThis.esc = s => s;\n';
 eval(code);
 
@@ -131,4 +134,50 @@ test('an already-answered respond does not reach the dialog handler', async () =
 	await stkMenuRespond('ok');
 	assert.strictEqual(calls.handled, null);
 	assert.strictEqual(calls.rendered, 0);
+});
+
+test('stkInputHtml builds the card-driven input field', () => {
+	globalThis.t = s => s;
+	const out = stkInputHtml({ type: 'get_input', text: 'PIN', min: 4, max: 16,
+		digits_only: true, hidden: true });
+	assert.ok(out.includes('PIN'), out);
+	assert.ok(out.includes('type="password"'), out);          // hidden entry
+	assert.ok(out.includes('inputmode="numeric"'), out);      // digits only
+	assert.ok(out.includes('maxlength="16"'), out);
+	assert.ok(out.includes('4\u201316 characters'), out);
+	assert.ok(out.includes('hidden entry'), out);
+	// UCS2 alphabet entry: a plain text field without the numeric keyboard
+	const ucs2 = stkInputHtml({ type: 'get_input', text: 'Name', min: 0, max: 10, ucs2: true });
+	assert.ok(ucs2.includes('type="text"'), ucs2);
+	assert.ok(!ucs2.includes('inputmode'), ucs2);
+	assert.ok(ucs2.includes('up to 10 characters'), ucs2);
+	// 0xFF = no maximum (TS 102 223 8.11): no maxlength and no range hint
+	const noMax = stkInputHtml({ type: 'get_input', text: 'x', min: 0, max: 255 });
+	assert.ok(!noMax.includes('maxlength'), noMax);
+	assert.ok(!noMax.includes('characters'), noMax);
+	// Yes/No: buttons instead of a field
+	const yesNo = stkInputHtml({ type: 'get_inkey', text: 'Continue?', yes_no: true });
+	assert.ok(yesNo.includes("stkInputSubmit('01')"), yesNo);
+	assert.ok(yesNo.includes("stkInputSubmit('00')"), yesNo);
+	assert.ok(!yesNo.includes('stk-input-field'), yesNo);
+	// the card's default text is prefilled; help adds the help action
+	const def = stkInputHtml({ type: 'get_input', text: 'x', default: '1234', help: true });
+	assert.ok(def.includes('value="1234"'), def);
+	assert.ok(def.includes("stkMenuRespond('help')"), def);
+});
+
+test('stkInputValidate mirrors the server input rules', () => {
+	globalThis.t = s => s;
+	const pd = { type: 'get_input', min: 4, max: 16, digits_only: true, hidden: true };
+	assert.strictEqual(stkInputValidate(pd, '1234').ok, true);
+	assert.strictEqual(stkInputValidate(pd, '12').ok, false);
+	assert.strictEqual(stkInputValidate(pd, '12345678901234567').ok, false);
+	assert.strictEqual(stkInputValidate(pd, 'abcd').ok, false);
+	// hidden entry allows only the digits set even without digits_only
+	assert.strictEqual(stkInputValidate({ type: 'get_input', hidden: true }, 'ab').ok, false);
+	// GET INKEY: exactly one character, digits-only honours * # +
+	assert.strictEqual(stkInputValidate({ type: 'get_inkey' }, 'a').ok, true);
+	assert.strictEqual(stkInputValidate({ type: 'get_inkey' }, 'ab').ok, false);
+	assert.strictEqual(stkInputValidate({ type: 'get_inkey', digits_only: true }, '*').ok, true);
+	assert.strictEqual(stkInputValidate({ type: 'get_inkey', digits_only: true }, 'a').ok, false);
 });
