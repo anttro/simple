@@ -50,7 +50,9 @@ for (const c of consts) {
 }
 const start = html.indexOf('// ===== C-APDU Parser =====');
 const end = html.indexOf('// ===== Response Parser =====');
-eval(prefix + html.slice(start, end).replace(/^const PARSE_INS = /m, 'var PARSE_INS = '));
+eval(prefix + html.slice(start, end)
+	.replace(/^const PARSE_INS = /m, 'var PARSE_INS = ')
+	.replace(/^const PRIVILEGE_NAMES = /m, 'var PRIVILEGE_NAMES = '));
 
 test('Compact RAM INSTALL [for install] UICC', () => {
 	const tree = parseHexTree('80E60C00214F08A000000151000000C70100EA128010000000020101020200011603B0000100');
@@ -227,8 +229,24 @@ test('decodeTextData explicit DCS 08 with malformed payload returns ?', () => {
 	assert.strictEqual(decodeTextData('0841'), '?');
 });
 
+test('PRIVILEGE_NAMES matches GPC v2.3 Tables 11-7/11-8/11-9', () => {
+	assert.strictEqual(PRIVILEGE_NAMES[0][7], 'Mandated DAP Verification');
+	assert.strictEqual(PRIVILEGE_NAMES[1][2], 'Token Verification');
+	assert.strictEqual(PRIVILEGE_NAMES[1][7], 'Global Service');
+	assert.strictEqual(PRIVILEGE_NAMES[2][0], 'Receipt Generation');
+	assert.strictEqual(PRIVILEGE_NAMES[2][3], 'Contactless Self-Activation');
+});
+
 test('decodePrivileges byte 2 b6 is Token Verification per GPC v2.3 Table 11-8', () => {
 	assert.ok(decodePrivileges('0020').includes('Token Verification'));
+});
+
+test('decodePrivileges byte 1: DAP Verification vs Mandated DAP (GP Table 11-7)', () => {
+	assert.strictEqual(decodePrivileges('80'), 'Security Domain');
+	assert.strictEqual(decodePrivileges('C0'), 'Security Domain, DAP Verification');
+	assert.strictEqual(decodePrivileges('C1'), 'Security Domain, Mandated DAP Verification');
+	assert.strictEqual(decodePrivileges('40'), 'None');   // b7 alone is no privilege
+	assert.strictEqual(decodePrivileges('01'), 'None');   // b1 alone is only the flag
 });
 
 test('decodePrivileges', () => {

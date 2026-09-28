@@ -48,14 +48,6 @@ test('LIFECYCLE_MAP per GPC v2.3 life cycles', () => {
 	assert.strictEqual(LIFECYCLE_MAP['83'], 'LOCKED (SD)');
 });
 
-test('PRIVILEGE_NAMES matches GPC v2.3 Tables 11-7/11-8/11-9', () => {
-	assert.strictEqual(PRIVILEGE_NAMES[0][7], 'Mandated DAP Verification');
-	assert.strictEqual(PRIVILEGE_NAMES[1][2], 'Token Verification');
-	assert.strictEqual(PRIVILEGE_NAMES[1][7], 'Global Service');
-	assert.strictEqual(PRIVILEGE_NAMES[2][0], 'Receipt Generation');
-	assert.strictEqual(PRIVILEGE_NAMES[2][3], 'Contactless Self-Activation');
-});
-
 test('TS 51.011 SIM families resolve (94xx/98xx/92xx/9Exx/9Fxx)', () => {
 	assert.ok(lookupSw('94', '04', 'uicc').includes('not found'));
 	assert.ok(lookupSw('94', '00', 'uicc').includes('No EF selected'));

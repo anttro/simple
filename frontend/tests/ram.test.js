@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
@@ -35,6 +35,8 @@ const m = html.match(/const _chains = \{\};/);
 if (m) code += m[0].replace(/^const /, 'var ') + '\n';
 const lc = html.match(/const RAM_LIFECYCLE = \{[\s\S]*?\n\};/);
 if (lc) code += lc[0].replace(/^const /, 'var ') + '\n';
+const pn = html.match(/const PRIVILEGE_NAMES = \[[\s\S]*?\n\];/);
+if (pn) code += pn[0].replace(/^const /, 'var ') + '\n';
 const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
 if (an) code += an[0].replace(/^const /, 'var ') + '\n';
 const ar = html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/);
@@ -229,6 +231,23 @@ test('ramRenderExploreHtml annotates standard package AIDs, vendor AIDs stay bar
 	assert.ok(out.includes('(uicc.usim.toolkit)'), out);
 	assert.ok(out.includes('(javacard.framework.service)'), out);
 	assert.ok(out.includes('(GlobalPlatform RID)'), out);
+});
+
+test('ramFmtPrivileges decodes the GP privilege bytes (live ISD values)', () => {
+	global.t = s => s;
+	// GP Table 11-7: 0x9E = Security Domain + Card Lock + Card Terminate +
+	// Card Reset + CVM Management (the live ISD privilege byte)
+	assert.strictEqual(ramFmtPrivileges('9E'),
+		'Security Domain, Card Lock, Card Terminate, Card Reset, CVM Management');
+	assert.strictEqual(ramFmtPrivileges('9A'),
+		'Security Domain, Card Lock, Card Terminate, CVM Management');
+	// DAP Verification (b8+b7) vs Mandated DAP Verification (b8+b7+b1)
+	assert.strictEqual(ramFmtPrivileges('C0'), 'Security Domain, DAP Verification');
+	assert.strictEqual(ramFmtPrivileges('C1'), 'Security Domain, Mandated DAP Verification');
+	// byte 2 / byte 3 spot checks
+	assert.strictEqual(ramFmtPrivileges('0001'), 'Global Service');
+	assert.strictEqual(ramFmtPrivileges('000080'), 'Receipt Generation');
+	delete global.t;
 });
 
 test('ramFmtPrivileges uses the translated (none) placeholder', () => {

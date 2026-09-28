@@ -1713,7 +1713,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.27';
+const SIMPLE_VERSION = '3.6.28';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -5568,19 +5568,32 @@ function baseCompTag(tag) {
 	return (b >= 0x80 && b <= 0x9F) ? (b & 0x7F).toString(16).padStart(2, '0').toUpperCase() : tag;
 }
 
+// GP Card Spec v2.3.1 11.1.2 privilege coding (Tables 11-7/8/9).  Table 11-8
+// prints "Token Management" while the rest of the spec (and the tooling)
+// says "Token Verification" - the latter is used throughout.  The table lives
+// in the C-APDU parser section because its test evaluates that slice alone.
+const PRIVILEGE_NAMES = [
+	['Security Domain', 'DAP Verification', 'Delegated Management', 'Card Lock', 'Card Terminate', 'Card Reset', 'CVM Management', 'Mandated DAP Verification'],
+	['Trusted Path', 'Authorized Management', 'Token Verification', 'Global Delete', 'Global Lock', 'Global Registry', 'Final Application', 'Global Service'],
+	['Receipt Generation', 'Ciphered Load File Data Block', 'Contactless Activation', 'Contactless Self-Activation'],
+];
+
+// Byte 1's b7 flags "DAP Verification" and b1 turns it into "Mandated DAP
+// Verification" - the pair is decoded together so the flag bit cannot stand
+// alone (v3.6.28).
 function decodePrivileges(hex) {
-	if (hex.length < 2) return '';
-	const names = [
-		['Security Domain', 'DAP Verification', 'Delegated Management', 'Card Lock', 'Card Terminate', 'Card Reset', 'CVM Management', 'Mandated DAP Verification'],
-		['Trusted Path', 'Authorized Management', 'Token Verification', 'Global Delete', 'Global Lock', 'Global Registry', 'Final Application', 'Global Service'],
-		['Receipt Generation', 'Ciphered Load File Data Block', 'Contactless Activation', 'Contactless Self-Activation'],
-	];
+	const raw = (hex || '').replace(/[^0-9a-fA-F]/g, '');
+	const bytes = [];
+	for (let i = 0; i + 1 < raw.length; i += 2) bytes.push(parseInt(raw.substr(i, 2), 16));
 	const parts = [];
-	for (let i = 0; i < Math.min(names.length, hex.length / 2); i++) {
-		const b = parseInt(hex.substr(i * 2, 2), 16);
-		for (let bit = 7; bit >= 0; bit--) {
-			const idx = 7 - bit;
-			if (b & (1 << bit) && names[i][idx]) parts.push(names[i][idx]);
+	for (let b = 0; b < Math.min(PRIVILEGE_NAMES.length, bytes.length); b++) {
+		for (let bit = 0; bit < PRIVILEGE_NAMES[b].length; bit++) {
+			if (b === 0 && (bit === 1 || bit === 7)) continue;
+			if (bytes[b] & (0x80 >> bit) && PRIVILEGE_NAMES[b][bit]) parts.push(PRIVILEGE_NAMES[b][bit]);
+		}
+		if (b === 0 && (bytes[0] & 0xC0) === 0xC0) {
+			parts.splice(1, 0, (bytes[0] & 0x01)
+				? 'Mandated DAP Verification' : 'DAP Verification');
 		}
 	}
 	return parts.join(', ') || 'None';
@@ -6401,12 +6414,6 @@ const LIFECYCLE_MAP = {
 	'8F': 'LOCKED (SD)',
 };
 
-const PRIVILEGE_NAMES = [
-	['Security Domain', 'DAP Verification', 'Delegated Management', 'Card Lock', 'Card Terminate', 'Card Reset', 'CVM Management', 'Mandated DAP Verification'],
-	['Trusted Path', 'Authorized Management', 'Token Verification', 'Global Delete', 'Global Lock', 'Global Registry', 'Final Application', 'Global Service'],
-	['Receipt Generation', 'Ciphered Load File Data Block', 'Contactless Activation', 'Contactless Self-Activation'],
-];
-
 function getSwCategory(cmd) {
 	if (!cmd) return 'generic';
 	return cmd.startsWith('ram-') ? 'gp' : 'uicc';
@@ -6557,21 +6564,6 @@ function decodeTlvValue(t) {
 		} catch(e) { return t.value; }
 	}
 	return '';
-}
-
-function decodePrivileges(hex) {
-	const bytes = [];
-	for (let i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i,2),16));
-	const names = [];
-	for (let b = 0; b < Math.min(bytes.length, PRIVILEGE_NAMES.length); b++) {
-		const byteNames = PRIVILEGE_NAMES[b] || [];
-		for (let bit = 0; bit < byteNames.length; bit++) {
-			if (bytes[b] & (0x80 >> bit)) {
-				if (byteNames[bit]) names.push(byteNames[bit]);
-			}
-		}
-	}
-	return names.length ? names.join(', ') : 'None';
 }
 
 function decodeResponse() {
@@ -8808,34 +8800,15 @@ function ramFmtLifecycle(hex) {
 	return RAM_LIFECYCLE[hex] || ('0x' + hex);
 }
 
-// Decode GP Card Spec privileges TLV (tag C5) into human-readable strings
+// Decode the GP privileges value (tag C5 / compact listing) into
+// human-readable strings.  Delegates to the shared GP decoder so the RAM view
+// and the C-APDU parser can never drift apart: the previous private table had
+// wrong bits and invented names like "Cum Deletion Ctr" (v3.6.28).
 function ramFmtPrivileges(hex) {
-	const p = hex || '';
+	const p = (hex || '').replace(/[^0-9a-fA-F]/g, '');
 	if (!p) return t('(none)');
-	const bytes = p.match(/.{2}/g) || [];
-	const privs = [];
-	const b1 = parseInt(bytes[0] || '00', 16);
-	if (b1 & 0x01) privs.push('Card Lock');
-	if (b1 & 0x02) privs.push('Card Terminate');
-	if (b1 & 0x04) privs.push('Card Reset');
-	if (b1 & 0x08) privs.push('Cum Deletion Ctr');
-	if (b1 & 0x10) privs.push('GSM Card Binding');
-	if (b1 & 0x20) privs.push('Default Selected');
-	if (b1 & 0x40) privs.push('Global PIN');
-	const b2 = parseInt(bytes[1] || '00', 16);
-	if (b2 & 0x01) privs.push('Mandated DAP');
-	if (b2 & 0x02) privs.push('Security Domain');
-	if (b2 & 0x04) privs.push('DAP Verification');
-	if (b2 & 0x08) privs.push('Delegated Mgmt');
-	if (b2 & 0x10) privs.push('RFM');
-	if (b2 & 0x20) privs.push('CFM');
-	const b3 = parseInt(bytes[2] || '00', 16);
-	if (b3 & 0x01) privs.push('Receipt Gen');
-	if (b3 & 0x02) privs.push('Ciphered Load');
-	if (b3 & 0x04) privs.push('Delegated Perso');
-	if (b3 & 0x08) privs.push('Trusted Path');
-	if (b3 & 0x10) privs.push('Authorized Mgmt');
-	return privs.length ? privs.join(', ') : t('(none)');
+	const decoded = decodePrivileges(p);
+	return decoded === 'None' ? t('(none)') : decoded;
 }
 
 // Render the full explorer result as structured HTML
