@@ -1475,3 +1475,38 @@ class ResponseScriptingTest(unittest.TestCase):
         self.assertIsNone(_parse_response_scripting(bytes.fromhex('027100000263100BD2')))
         self.assertIsNone(_parse_response_scripting(b''))
 
+
+
+class RamSendGpApduLoggingTest(unittest.TestCase):
+    """_ram_send_gp_apdu (the shared step sender of /api/ram-install and
+    /api/ram-install-app) logs the plaintext RAM APDU and the packed SCP80
+    packet for every step, like /api/send-ota does."""
+
+    def test_logs_plaintext_apdu_and_packed_packet(self):
+        import contextlib
+        import io
+        from pysim_simple_server import server as srv
+
+        class FakeServer:
+            sms_oa = '12345'
+            sms_sc = '12345678912'
+
+        sp = {'spi1': '16', 'spi2': '01', 'kic': '25', 'kid': '25', 'tar': '000000',
+              'kic_key': 'AA', 'kid_key': 'BB', 'include_cpi': True}
+        state = {'steps': [], 'encode_error': None, 'failure': {}, 'cntr': '0000000001'}
+        orig_build = srv._build_secured_packet
+        orig_send = srv._send_secured_packet
+        try:
+            srv._build_secured_packet = lambda *a, **k: ('AABB', {})
+            srv._send_secured_packet = lambda *a, **k: {'success': False, 'error': 'stub'}
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                ok = srv._ram_send_gp_apdu(FakeServer(), object(), sp, state,
+                                           'LOAD (1/2)', '80E8800001AA')
+        finally:
+            srv._build_secured_packet = orig_build
+            srv._send_secured_packet = orig_send
+        self.assertFalse(ok)
+        out = buf.getvalue()
+        self.assertIn('RAM C-APDU (LOAD (1/2)): 80E8800001AA', out)
+        self.assertIn('RAM SECURED-PACKET (LOAD (1/2)): AABB', out)

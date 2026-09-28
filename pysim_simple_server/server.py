@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.18'
+VERSION = '3.6.19'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1208,6 +1208,10 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
         sp_hex, _ = _build_secured_packet(spi1, spi2, sp['kic'], sp['kid'], sp['tar'],
                                           state['cntr'], apdu_hex,
                                           sp['kic_key'], sp['kid_key'])
+        # Log the plaintext APDU and the packed packet like /api/send-ota does
+        # (the step name keeps the sequence readable).
+        sys.stderr.write('RAM C-APDU (%s): %s\n' % (step_name, apdu_hex))
+        sys.stderr.write('RAM SECURED-PACKET (%s): %s\n' % (step_name, sp_hex))
     except ValueError as e:
         state['encode_error'] = str(e)
         state['steps'].append({'name': step_name, 'por_status': 'encode_error',
