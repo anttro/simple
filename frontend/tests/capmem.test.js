@@ -39,6 +39,7 @@ eval(extractFunc(html, 'jcAidNorm'));
 eval(extractFunc(html, 'jcAidName'));
 eval(extractFunc(html, 'jcAidFamily'));
 eval(extractFunc(html, 'capMemBytes'));
+eval(extractFunc(html, 'capQuotaText'));
 eval(extractFunc(html, 'capMemHtml'));
 eval(extractFunc(html, 'capAnalyzeFile', true));
 // The RAM CAP analysis also applies the detected toolkit mode (DOM-bound; its
@@ -93,9 +94,9 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	assert.ok(out.includes('>Requires (1)</div>'), out);
 	assert.ok(out.includes('>Memory</div>'), out);
 	assert.ok(out.includes('>Components (3)'), out);
-	assert.ok(out.includes('>Notes'), out);
-	assert.ok(out.includes('Table 11-48'), out);
-	assert.ok(out.includes('Estimate only'), out);
+	// the static notes moved to the help; only scan warnings stay in the box
+	assert.ok(!out.includes('>Notes'), out);
+	assert.ok(!out.includes('Table 11-48'), out);
 	assert.ok(out.includes('unknown opcode 0xAA'), out);
 	// memory: the C6+C8-style total once, with indented children
 	assert.ok(out.includes('NVRAM requirement'), out);
@@ -109,7 +110,7 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	assert.ok(out.includes('reference storage 8 B'), out);
 	assert.ok(out.includes('>24 B</td>'), out);
 	assert.ok(out.includes('peak method frame 8 B'), out);
-	assert.ok(out.includes('C6=3000 C7=0x0110 C8=0x0088'), out);
+	assert.ok(out.includes('C6=3000 B (0x0BB8) \u00b7 C7=272 B (0x0110) \u00b7 C8=136 B (0x0088)'), out);
 	// requires: library name, AID, minimum version, family and refs
 	const req = out.slice(out.indexOf('Requires (1)'), out.indexOf('Memory</div>'));
 	assert.ok(req.includes('>AID</td>'), req);
@@ -173,7 +174,13 @@ test('capMemHtml drops the components section without a component list', () => {
 	delete mem.components;
 	const out = capMemHtml(mem);
 	assert.ok(!out.includes('>Components'), out);
-	assert.ok(out.includes('>Notes'), out);
+	assert.ok(out.includes('>Memory</div>'), out);
+});
+
+test('capQuotaText renders decimal bytes with the hex coding', () => {
+	const txt = capQuotaText({ c6: 27246, c7: 270, c8: 5143 });
+	assert.strictEqual(txt, 'C6=27246 B (0x6A6E) \u00b7 C7=270 B (0x010E) \u00b7 C8=5143 B (0x1417)');
+	assert.strictEqual(capQuotaText({}), 'C6=0 B (0x0000) \u00b7 C7=0 B (0x0000) \u00b7 C8=0 B (0x0000)');
 });
 
 test('capGateOk gates the RAM install op and the scripts form', () => {

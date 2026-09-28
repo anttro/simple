@@ -1714,7 +1714,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.32';
+const SIMPLE_VERSION = '3.6.33';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8326,10 +8326,21 @@ function capMemBytes(n) {
 
 // Estimate box body; pure apart from esc()/t().  `mem` is the server's
 // memory object (pysim_simple_server.capmem.memory_json).
+// Suggested C6/C7/C8 quotas as one readable line: decimal bytes (what the
+// install form takes and what GP 9.7 encodes) with the hex equivalent in
+// parentheses (how the C7/C8 install parameters are coded).  C6 = non-volatile
+// code space (the load file), C7 = volatile (RAM), C8 = non-volatile data.
+function capQuotaText(sug) {
+	sug = sug || {};
+	const dec = v => String(Number(v) || 0);
+	const hex = v => '0x' + (Number(v) || 0).toString(16).toUpperCase().padStart(4, '0');
+	return 'C6=' + dec(sug.c6) + ' B (' + hex(sug.c6) + ') \u00b7 C7=' + dec(sug.c7)
+		+ ' B (' + hex(sug.c7) + ') \u00b7 C8=' + dec(sug.c8) + ' B (' + hex(sug.c8) + ')';
+}
+
 function capMemHtml(mem) {
 	if (!mem) return '';
 	const nv = mem.nvram || {}, ram = mem.ram || {}, code = mem.code || {}, sug = mem.suggested || {};
-	const hex2 = v => (Number(v) || 0).toString(16).toUpperCase().padStart(4, '0');
 	const methodBytes = Number(code.method_component) || 0;
 	// older server responses carry only the bytecode size: fall back to it
 	const loadFile = Number(code.load_file) || methodBytes;
@@ -8424,7 +8435,8 @@ function capMemHtml(mem) {
 		t('peak method frame') + ' ' + capMemBytes(ram.peak_frame),
 	].join(' \u00b7 ')))));
 	mrows.push(row(label(esc(t('Suggested quotas (informational)'))) + cell(
-		'C6=' + esc(String(Number(sug.c6) || 0)) + ' C7=0x' + esc(hex2(sug.c7)) + ' C8=0x' + esc(hex2(sug.c8)),
+		'<span title="' + esc(t('C6 = non-volatile code space (the load file); C7 = volatile (RAM); C8 = non-volatile data.  Values are bytes; the hex is the install parameter coding.')) + '">'
+			+ esc(capQuotaText(sug)) + '</span>',
 		'pl-4 font-mono', 2)));
 	html += section(t('Memory')) + table(mrows.join(''));
 
@@ -8446,10 +8458,8 @@ function capMemHtml(mem) {
 		html += disclosure(t('Components') + ' (' + comps.length + ')') + table(crows) + '</details>';
 	}
 
-	html += disclosure(t('Notes')) +
-		'<div class="text-gray-400">' + esc(t('NVRAM = code image + persistent data (GP Card Spec v2.3.1 Table 11-48, C6+C8 style); card memory management, rounding and the registry entry are not included, and the static field image appears in both parts.')) + '</div>' +
-		'<div class="text-gray-400">' + esc(t('Estimate only — memory values are not used for installation')) + '</div>' +
-		'</details>';
+	// Scan warnings only - the NVRAM definition and the "estimate only" note
+	// live in the help; the CAP details box stays compact (v3.6.33).
 	(mem.warnings || []).forEach(w => {
 		html += '<div class="text-amber-600 dark:text-amber-400">\u26a0 ' + esc(w) + '</div>';
 	});
