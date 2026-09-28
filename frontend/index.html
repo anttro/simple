@@ -832,10 +832,24 @@
 					</div>
 				</div>
 			</div>
-			<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Install parameters (hex, optional)">Install parameters (hex, optional)</label>
+			<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm mt-2">
+				<div>
+					<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Applet-specific parameters (C9, hex, optional)">Applet-specific parameters (C9, hex, optional)</label>
+					<input id="rc-c9" oninput="updateInstallParamsHex()" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800" placeholder="empty = C9 00">
+				</div>
+				<div>
+					<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="C7 / C8 memory quotas (bytes, optional)">C7 / C8 memory quotas (bytes, optional)</label>
+					<div class="flex items-center gap-2">
+						<input id="rc-quota-c7" oninput="updateInstallParamsHex()" type="number" min="0" placeholder="C7" class="font-mono w-24 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
+						<input id="rc-quota-c8" oninput="updateInstallParamsHex()" type="number" min="0" placeholder="C8" class="font-mono w-24 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
+					</div>
+				</div>
+			</div>
+			<label class="block mb-1 mt-2 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Install parameters (hex, optional)">Install parameters (hex, optional)</label>
 				<input id="ram-install-params-hex" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="C9 TLV">
 				<label class="block mb-1 text-xs font-medium text-gray-500 dark:text-slate-400 mt-2" data-l10n="STK parameters (hex, optional)">STK parameters (hex, optional)</label>
 				<input id="ram-stk-params" oninput="this.dataset.manual='1'" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="EA / CA TLV">
+				<div id="ram-stk-hint" class="hidden text-xs text-red-600 dark:text-red-400 mt-1"></div>
 				<label class="flex items-center gap-2 mt-2">
 					<input type="checkbox" id="ram-make-sel" checked> <span class="text-sm" data-l10n="Make selectable">Make selectable</span>
 				</label>
@@ -1685,7 +1699,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.16';
+const SIMPLE_VERSION = '3.6.17';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2651,6 +2665,16 @@ function updateStkParamsHex() {
 	// A hand-edited hex is an explicit override: keep it until a toolkit
 	// field is edited again (this clears the flag).
 	if (el.dataset) delete el.dataset.manual;
+	// A rejected value must not vanish silently: say why the field is empty.
+	const hint = document.getElementById('ram-stk-hint');
+	if (!hint) return;
+	if (tk === null) {
+		hint.textContent = t('STK parameters not generated: check the TAR (multiple of 3 bytes), menu IDs (<= 7F) and the ADF AID (5-16 bytes)');
+		hint.classList.remove('hidden');
+	} else {
+		hint.textContent = '';
+		hint.classList.add('hidden');
+	}
 }
 
 // The ADF.USIM AID is card-specific: the FCI's DF name (tag 84) is the full
@@ -2701,8 +2725,42 @@ async function ramAdfAidFromCard() {
 	}
 }
 
+// GP memory-quota values (TS 102 226 8.2.1.3.2.2.1 / GP 9.7): a 2-byte
+// integer up to 32767, a 4-byte integer above.
+function ramQuotaValue(n) {
+	const v = Math.max(0, Math.min(0x7FFFFFFF, parseInt(n, 10) || 0));
+	return v <= 0x7FFF
+		? '02' + v.toString(16).padStart(4, '0').toUpperCase()
+		: '04' + v.toString(16).padStart(8, '0').toUpperCase();
+}
+
+// The applet-specific prefix of the install parameters, in the vendor's
+// order: `C9 <applet-specific parameters>` + `EF <C7/C8 memory quotas>`.
+// The server appends the STK (`EA`/`EF+CA`) part after it.
+function ramParamsPrefix(c9Hex, c7, c8) {
+	const c9 = (c9Hex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	let out = '';
+	if (c9) out += 'C9' + berLenStr(c9.length / 2) + c9;
+	let ef = '';
+	if (String(c7 ?? '') !== '' && !isNaN(parseInt(c7, 10))) ef += 'C7' + ramQuotaValue(c7);
+	if (String(c8 ?? '') !== '' && !isNaN(parseInt(c8, 10))) ef += 'C8' + ramQuotaValue(c8);
+	if (ef) out += 'EF' + berLenStr(ef.length / 2) + ef;
+	return out;
+}
+
+function ramInstallParamsPrefix() {
+	return ramParamsPrefix(
+		document.getElementById('rc-c9').value,
+		document.getElementById('rc-quota-c7').value,
+		document.getElementById('rc-quota-c8').value);
+}
+
 function updateInstallParamsHex() {
-	document.getElementById('ram-install-params-hex').value = 'C900';
+	const prefix = ramInstallParamsPrefix();
+	const el = document.getElementById('ram-install-params-hex');
+	// The field carries extra raw TLVs; the generated prefix is shown in the
+	// placeholder so the composed parameters stay visible.
+	el.placeholder = prefix ? prefix + ' …' : 'C9 TLV';
 }
 
 // ===== GSM 7-bit alphabet =====
@@ -9090,7 +9148,8 @@ async function ramInstallCap(sp) {
 		cap_hex: capHex,
 		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
-		install_params: (document.getElementById('ram-install-params-hex').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		install_params: (ramInstallParamsPrefix() +
+			(document.getElementById('ram-install-params-hex').value || '').replace(/[^0-9a-fA-F]/g, '')).toUpperCase(),
 		stk_params: (document.getElementById('ram-stk-params').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		make_selectable: document.getElementById('ram-make-sel').checked,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
@@ -17292,6 +17351,9 @@ const LANG_RU = {
 	'Name is required': 'Укажите имя',
 	'From card': 'С карты',
 	'Priority (0 = RFU)': 'Приоритет (0 = RFU)',
+	'Applet-specific parameters (C9, hex, optional)': 'Параметры апплета (C9, hex, опционально)',
+	'C7 / C8 memory quotas (bytes, optional)': 'Квоты памяти C7 / C8 (байты, опционально)',
+	'STK parameters not generated: check the TAR (multiple of 3 bytes), menu IDs (<= 7F) and the ADF AID (5-16 bytes)': 'STK-параметры не сформированы: проверьте TAR (кратность 3 байтам), ID меню (<= 7F) и ADF AID (5-16 байт)',
 	'SCP80 (GSM 03.48, ETSI TS 102 225)': 'SCP80 (GSM 03.48, ETSI TS 102 225)',
 	'SCP81 (HTTP OTA)': 'SCP81 (HTTP OTA)',
 	'Start': 'Запустить',
@@ -17543,6 +17605,7 @@ chainInit('chain-sim');
 chainInit('chain-usim');
 chainInit('chain-ram');
 ramResetGrants();
+updateInstallParamsHex();
 translatePage();
 // PWA
 let deferredPrompt;

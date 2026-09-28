@@ -23,7 +23,8 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['berLenStr', 'stkParamsBuild', 'buildRcToolkitParams',
-	'updateStkParamsHex', 'adfAidFromFci']) code += extractFunc(html, fn) + '\n';
+	'updateStkParamsHex', 'adfAidFromFci', 'ramParamsPrefix', 'ramQuotaValue',
+	'ramInstallParamsPrefix']) code += extractFunc(html, fn) + '\n';
 eval(code);
 
 const base = { mode: 'ea', priority: '0', timers: '0', textLen: '0', menus: '0',
@@ -127,6 +128,45 @@ test('adfAidFromFci extracts the DF name (tag 84) from an FCI', () => {
 	assert.strictEqual(adfAidFromFci('ZZZZ'), '');
 });
 
+test('ramParamsPrefix composes C9 + EF (C7/C8) like the vendor scripts', () => {
+	// The vendor's working install (samples/uicc/applets/STK3):
+	//   C9 22 <config>  EF 08 C7 02 0000 C8 02 0000  EA ...
+	assert.strictEqual(ramParamsPrefix('', '', ''), '');
+	assert.strictEqual(ramParamsPrefix('082905112000012066', '', ''),
+		'C909082905112000012066');
+	assert.strictEqual(ramParamsPrefix('', '0', '0'), 'EF08C7020000C8020000');
+	assert.strictEqual(ramParamsPrefix('', '32768', ''), 'EF06C70400008000');
+	assert.strictEqual(ramParamsPrefix('AA', '', '1234'), 'C901AAEF04C80204D2');
+});
+
+test('the RAM form composes the C9/quota prefix into the install parameters', () => {
+	const els = fakeForm({ 'rc-c9': 'AA', 'rc-quota-c7': '0' });
+	assert.strictEqual(ramInstallParamsPrefix(), 'C901AAEF04C7020000');
+	els['rc-quota-c8'].value = '5';
+	assert.strictEqual(ramInstallParamsPrefix(), 'C901AAEF08C7020000C8020005');
+});
+
+test('updateStkParamsHex names the rejection reason', () => {
+	globalThis.t = s => s;
+	const els = fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea',
+		'rc-tk-tar': 'AF4D' });   // not a multiple of 3 bytes
+	updateStkParamsHex();
+	assert.strictEqual(els['ram-stk-params'].value, '');
+	assert.ok(els['ram-stk-hint'].textContent.includes('STK parameters not generated'),
+		els['ram-stk-hint'].textContent);
+	// a valid form clears the hint
+	els['rc-tk-tar'].value = 'AF4D01';
+	updateStkParamsHex();
+	assert.ok(els['ram-stk-params'].value.startsWith('EA'), els['ram-stk-params'].value);
+	assert.strictEqual(els['ram-stk-hint'].textContent, '');
+	delete globalThis.t;
+});
+
+test('the install body composes the C9/quota prefix', () => {
+	const fn = extractFunc(html, 'ramInstallCap');
+	assert.ok(/install_params: \(ramInstallParamsPrefix\(\)/.test(fn), fn);
+});
+
 test('the ADF AID From-card button is wired', () => {
 	assert.ok(/id="rc-tk-adfaid-from-card"[^>]*onclick="ramAdfAidFromCard\(\)"/.test(html),
 		'the ADF AID From-card button is missing');
@@ -149,10 +189,12 @@ function fakeForm(values) {
 		'rc-tk-textlen', 'rc-tk-menus', 'rc-tk-firstpos', 'rc-tk-firstid',
 		'rc-tk-lastpos', 'rc-tk-lastid', 'rc-tk-channels', 'rc-tk-msl',
 		'rc-tk-tar', 'rc-tk-ad', 'rc-tk-services', 'rc-tk-fsaccess',
-		'rc-tk-adfaccess', 'rc-tk-adfaid', 'ram-stk-params'];
+		'rc-tk-adfaccess', 'rc-tk-adfaid', 'rc-c9', 'rc-quota-c7',
+		'rc-quota-c8', 'ram-stk-params', 'ram-stk-hint'];
 	const checks = ['rc-toolkit-enable', 'rc-tk-fsaccess', 'rc-tk-adfaccess'];
 	const els = {};
-	for (const id of ids) els[id] = { value: '', checked: false, dataset: {} };
+	for (const id of ids) els[id] = { value: '', checked: false, dataset: {},
+		classList: { add() {}, remove() {} } };
 	for (const [id, v] of Object.entries(values || {})) {
 		if (checks.indexOf(id) >= 0) els[id].checked = !!v;
 		else els[id].value = v;
