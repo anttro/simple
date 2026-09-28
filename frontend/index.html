@@ -1713,7 +1713,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.25';
+const SIMPLE_VERSION = '3.6.26';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8838,22 +8838,6 @@ function ramFmtPrivileges(hex) {
 	return privs.length ? privs.join(', ') : t('(none)');
 }
 
-// Merge ELF-module entries (P1=10, carry module AIDs) into ELF entries (P1=20).
-// With TLV format (P2=02), module AIDs come from tag '84' inside E3 templates.
-// With raw format (P2=00), module AIDs are not available in the response.
-function ramMergeElfData(elfs, modules) {
-	const byAid = {};
-	elfs.forEach(e => { if (e.aid) byAid[e.aid] = e; });
-	modules.forEach(m => {
-		if (m.aid && byAid[m.aid]) {
-			if (m.moduleAids && m.moduleAids.length) byAid[m.aid].moduleAids = m.moduleAids;
-		} else if (m.aid) {
-			elfs.push(m);
-		}
-	});
-	return elfs;
-}
-
 // Render the full explorer result as structured HTML
 function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	let html = '';
@@ -8957,9 +8941,9 @@ async function ramExplore(sp) {
 	let cntr = sp.cntr;
 	const errors = [];
 	const mem = { appCount: null, freeNV: null, freeV: null };
-	const isd = [], apps = [], elfs = [], modules = [];
+	const isd = [], apps = [], elfs = [];
 
-	async function paginate(p1, collector, parser, label) {
+	async function paginate(p1, collector, parser, label, quiet) {
 		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
 		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
 		// commands, so the PoR carries the listing; ramListingSpi2() picks the
@@ -9051,7 +9035,8 @@ async function ramExplore(sp) {
 			}
 		}
 		// The compact error only surfaces when the expanded pass did not rescue it
-		if (collector.length === before && compactError) errors.push(compactError);
+		// (`quiet` lets a fallback query decide whether to report it).
+		if (collector.length === before && compactError && !quiet) errors.push(compactError);
 	}
 
 	 ramShowProgress(t('Memory (GET DATA FF21)') + '...');
@@ -9080,10 +9065,19 @@ async function ramExplore(sp) {
 	//   80=ISD, 40=Applications, 20=Executable Load Files (ELFs), 10=ELF+modules
 	await paginate('80', isd, ramParseAppStatus, t('ISD'));
 	await paginate('40', apps, ramParseAppStatus, t('Apps'));
-	await paginate('20', elfs, ramParseElfStatus, t('ELFs'));
-	await paginate('10', modules, (hex) => ramParseElfStatus(hex, true), t('ELF Modules'));
-
-	ramMergeElfData(elfs, modules);
+	// GP 11.4.2.1: '10' returns the ELFs *with* their modules - the superset of
+	// '20' (ELFs only).  All four P1 values shall be supported, but cards
+	// deviate: the live card answered 6A86 (incorrect P1-P2) to '20' while
+	// '10' works (2026-09-28).  Query '10' first; fall back to '20' (no
+	// module lists) only when it yields nothing, and report the primary
+	// failure only when both fail.
+	const elfErrorsBefore = errors.length;
+	await paginate('10', elfs, (hex) => ramParseElfStatus(hex, true), t('ELFs'));
+	if (!elfs.length) {
+		const elfFailure = errors.splice(elfErrorsBefore);
+		await paginate('20', elfs, ramParseElfStatus, t('ELFs'), true);
+		if (!elfs.length) errors.push(...elfFailure);
+	}
 	// Only write the counter when a packet was actually accepted: a run whose
 	// start value was stale must never lower the preset counter.
 	if (cntr !== sp.cntr) ramSaveCntr(cntr);
