@@ -1711,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.22';
+const SIMPLE_VERSION = '3.6.23';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4593,7 +4593,7 @@ function packToSp(sourceId) {
 function spCntrAdjust(delta) {
 	const el = document.getElementById('sp-cntr');
 	let val = parseInt(el.value.replace(/[^0-9a-fA-F]/g, ''), 16) || 0;
-	val = Math.max(0, val + delta);
+	val = Math.max(0, val + delta) % 0x10000000000;   // wrap the 5-byte counter
 	el.value = val.toString(16).padStart(10, '0').toUpperCase();
 }
 function spInvalidate() {
@@ -8015,8 +8015,10 @@ async function pysimApdu() {
 function spNextCntr(value) {
 	// The OTA counter must strictly increase for every secured packet sent
 	// (replay protection): increment the 5-byte counter, carries included.
-	const v = (parseInt((value || '').replace(/[^0-9a-fA-F]/g, ''), 16) || 0) >>> 0;
-	return ((v + 1) >>> 0).toString(16).toUpperCase().padStart(10, '0').slice(-10);
+	// 5 bytes = 40 bits - a 32-bit `>>> 0` dropped the top byte of high
+	// counters (`10000AAAC8` -> `00000AAAC9`, v3.6.23).
+	const v = (parseInt((value || '').replace(/[^0-9a-fA-F]/g, ''), 16) || 0) % 0x10000000000;
+	return ((v + 1) % 0x10000000000).toString(16).toUpperCase().padStart(10, '0');
 }
 
 function spCntrSyncPreset() {

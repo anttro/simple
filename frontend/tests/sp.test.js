@@ -253,6 +253,14 @@ test('spNextCntr increments with carry', () => {
 	assert.strictEqual(spNextCntr('0000ABCDEF'), '0000ABCDF0');
 });
 
+test('spNextCntr keeps the full 5 bytes (no 32-bit truncation)', () => {
+	assert.strictEqual(spNextCntr('10000AAAC8'), '10000AAAC9');    // the reported case
+	assert.strictEqual(spNextCntr('1000 0AAAC8'), '10000AAAC9');  // separators stripped
+	assert.strictEqual(spNextCntr('FFFFFFFFF7'), 'FFFFFFFFF8');
+	assert.strictEqual(spNextCntr('FFFFFFFFFF'), '0000000000');   // 40-bit wrap
+	assert.strictEqual(spNextCntr('10000000000'), '0000000001');  // out of range clamps
+});
+
 test('spNextCntr tolerates lower case and separators', () => {
 	assert.strictEqual(spNextCntr('00000000 0a'), '000000000B');
 	assert.strictEqual(spNextCntr(''), '0000000001');
