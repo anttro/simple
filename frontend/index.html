@@ -555,6 +555,9 @@
 					<option value="05">05 — PoR required, RC</option>
 					<option value="09">09 — PoR required, CC</option>
 					<option value="0D">0D — PoR required, DS</option>
+					<option value="15">15 — PoR required, RC, ciphered</option>
+					<option value="19">19 — PoR required, CC, ciphered</option>
+					<option value="1D">1D — PoR required, DS, ciphered</option>
 					<option value="11">11 — PoR required, no security, ciphered</option>
 					<option value="02">02 — PoR on error, no security</option>
 					<option value="06">06 — PoR on error, RC</option>
@@ -1679,7 +1682,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.12';
+const SIMPLE_VERSION = '3.6.13';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8331,7 +8334,7 @@ function scriptsCapFileChanged() {
 function getRamSpParams() {
 	return {
 		spi1: document.getElementById('sp-spi1').value,
-		spi2: document.getElementById('sp-spi2').value,
+		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
 		kid: document.getElementById('sp-kid-hex').value,
 		tar: (document.getElementById('sp-tar').value || '000000').replace(/[^0-9a-fA-F]/g, ''),
@@ -8903,6 +8906,34 @@ function ramDeleteApdu(aid, withCascade) {
 	return '80E400' + (withCascade ? '80' : '00') + berLenStr(data.length / 2) + data + '00';
 }
 
+// A successful delete drops the object from the Explore result locally (the
+// re-explore is not re-run).  The registry has no package-to-applet link, so
+// a cascade package delete also drops the applets whose AID starts with the
+// package AID.
+function ramRemoveFromExplorer(aid, cascade) {
+	const d = _ramExplorerData;
+	if (!d) return false;
+	const a = (aid || '').toUpperCase();
+	const elfs = d.elfs || [];
+	const apps = d.apps || [];
+	const isElf = elfs.some(e => (e.aid || '').toUpperCase() === a);
+	const isApp = apps.some(x => (x.aid || '').toUpperCase() === a);
+	if (!isElf && !isApp) return false;
+	if (isElf) {
+		d.elfs = elfs.filter(e => (e.aid || '').toUpperCase() !== a);
+		if (cascade) {
+			d.apps = apps.filter(x => {
+				const xa = (x.aid || '').toUpperCase();
+				return xa !== a && !xa.startsWith(a);
+			});
+		}
+	} else {
+		d.apps = apps.filter(x => (x.aid || '').toUpperCase() !== a);
+	}
+	ramRenderExplorer();
+	return true;
+}
+
 async function ramDeleteFromExplorer(aid, withCascade) {
 	// The preset is the source of truth (see ramExecute): re-read it before
 	// the operation so a stale form copy cannot send an already-consumed
@@ -8930,7 +8961,7 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
 	const sw = res.por && res.por.decoded ? res.por.decoded.last_status_word : '';
-	if (!res.success || !res.por || !spPorAccepted(res.por) ||
+	if (!res.success || !spPorAccepted(res.por) ||
 	    (sw && !ramRemoteSwOk(sw))) {
 		resultEl.textContent = t('Failed') + ': ' +
 			(res.por ? res.por.response_status : (res.error || res.sw)) +
@@ -8938,14 +8969,13 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 		return;
 	}
+	const removed = ramRemoveFromExplorer(aid, withCascade);
 	stepsEl.classList.remove('hidden');
-	stepsEl.textContent = label + ' ' + aid + (sw ? ' -> ' + sw : '');
-	resultEl.textContent = t('OK');
+	stepsEl.textContent = label + ' ' + aid + ' -> ' + (sw || t('no PoR'));
+	resultEl.textContent = t('OK') + (removed ? '' : ' (' + t('not in the list') + ')');
 	resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
-	// Continue from the counter the delete consumed: replaying the old one
-	// gets cntr_low on every page and the failed run writes it back over the
-	// preset (the counter reset reported after Delete All).
-	await ramExplore(sp);
+	// The record is dropped locally (no re-explore); the counter the card
+	// consumed was saved above.
 }
 
 // One RAM install step line: the PoR verdict plus the remote command's
@@ -9512,6 +9542,21 @@ function cardsApplyFields(idx) {
 	const c = cards[parseInt(idx)];
 	if (!c) return false;
 	document.getElementById('sp-spi1').value = c.spi1;
+	// Sync the SPI2 selects with the preset byte (low 5 bits = PoR/security,
+	// bit 0x20 = PoR via SMS-SUBMIT): updateSp() recomputes sp-spi2-hex from
+	// them, so without this the preset value was clobbered on every refresh.
+	const spi2Val = parseInt(c.spi2, 16) || 0;
+	const baseHex = (spi2Val & 0x1F).toString(16).padStart(2, '0').toUpperCase();
+	const baseSel = document.getElementById('sp-spi2');
+	if (baseSel) {
+		if (baseSel.options && typeof Option === 'function' &&
+		    !Array.prototype.some.call(baseSel.options, o => o.value === baseHex)) {
+			baseSel.appendChild(new Option(baseHex + ' — preset', baseHex));
+		}
+		baseSel.value = baseHex;
+	}
+	const smSel = document.getElementById('sp-spi2-sm');
+	if (smSel) smSel.value = String((spi2Val >> 5) & 1);
 	document.getElementById('sp-spi2-hex').value = c.spi2;
 	const kicByte = parseInt(c.kic, 16);
 	document.getElementById('sp-kic-idx').value = ((kicByte >> 4) & 0x0F).toString(16).toUpperCase();
@@ -16537,6 +16582,8 @@ const LANG_RU = {
 	'no data': 'нет данных',
 	'(no data)': '(нет данных)',
 	'response via SMS not captured': 'ответ по SMS не перехвачен',
+	'no PoR': 'нет PoR',
+	'not in the list': 'нет в списке',
 	'free NV': 'свободно NV',
 	'Failed': 'Ошибка',
 	'cascade': 'каскадно',

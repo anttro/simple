@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
-	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2',
+	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -440,6 +440,33 @@ test('ramRemoteSwOk mirrors the server success set', () => {
 	}
 });
 
+test('ramRemoveFromExplorer drops the object locally (cascade drops its applets)', () => {
+	let renders = 0;
+	globalThis.ramRenderExplorer = () => { renders++; };
+	_ramExplorerData = {
+		apps: [{ aid: 'F0414C4641610101' }, { aid: 'F0414C4641610199' },
+			{ aid: 'A1130001180001FFFFFFFF89A1003908' }],
+		elfs: [{ aid: 'F0414C46416101' }, { aid: 'A1130001180001FFFFFFFF89A1003900' }],
+	};
+	assert.strictEqual(ramRemoveFromExplorer('f0414c4641610101', false), true);
+	assert.deepStrictEqual(_ramExplorerData.apps.map(a => a.aid),
+		['F0414C4641610199', 'A1130001180001FFFFFFFF89A1003908']);
+	assert.strictEqual(renders, 1);
+	assert.strictEqual(ramRemoveFromExplorer('F0414C46416101', true), true);
+	assert.deepStrictEqual(_ramExplorerData.elfs.map(e => e.aid),
+		['A1130001180001FFFFFFFF89A1003900']);
+	assert.deepStrictEqual(_ramExplorerData.apps.map(a => a.aid),
+		['A1130001180001FFFFFFFF89A1003908'], 'an unrelated applet stays');
+	assert.strictEqual(renders, 2);
+	assert.strictEqual(ramRemoveFromExplorer('DEADBEEF', false), false);
+	delete globalThis.ramRenderExplorer;
+});
+
+test('getRamSpParams reads the computed SPI2 byte, not the base select', () => {
+	const fn = extractFunc(html, 'getRamSpParams');
+	assert.ok(/spi2: document\.getElementById\('sp-spi2-hex'\)/.test(fn), fn);
+});
+
 test('ramListingSpi2 requests the SMS-submit PoR for the listing queries', () => {
 	// Apps (40) and ELF (20/10) listings can exceed the ENVELOPE response;
 	// with SPI2=0x01 the card answers actual_response_sms_submit and the data
@@ -451,7 +478,7 @@ test('ramListingSpi2 requests the SMS-submit PoR for the listing queries', () =>
 function stubDeleteEnv(sendResult) {
 	// ramShowProgress/ramHideProgress are the real extracted helpers
 	const els = fakeRamDocument(['ram-result', 'ram-steps', 'ram-progress', 'ram-progress-text']);
-	const calls = { refresh: [], saved: [], sent: [], explored: null };
+	const calls = { refresh: [], saved: [], sent: [], explored: null, removed: null };
 	globalThis.t = s => s;
 	globalThis.spRefreshFromPreset = sel => { calls.refresh.push(sel); };
 	globalThis.getRamSpParams = () => ({ cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' });
@@ -475,10 +502,13 @@ function unstubDeleteEnv() {
 	globalThis.spRefreshFromPreset = () => '';   // the top-level stub
 }
 
-test('ramDeleteFromExplorer refreshes the preset and continues from the consumed counter', async () => {
+test('ramDeleteFromExplorer refreshes the preset and drops the record locally', async () => {
 	const { els, calls } = stubDeleteEnv({ success: true,
 		por: { response_status: 'por_ok', decoded: { last_status_word: '9000' } } });
+	_ramExplorerData = { apps: [{ aid: 'F0414C4641610101' }], elfs: [{ aid: 'F0414C46416101' }] };
+	globalThis.ramRenderExplorer = () => {};
 	await ramDeleteFromExplorer('F0414C46416101', true);
+	delete globalThis.ramRenderExplorer;
 	assert.deepStrictEqual(calls.refresh, ['ram-card-sel'],
 		'the preset must be re-read before the operation');
 	assert.strictEqual(calls.sent.length, 1);
@@ -486,8 +516,11 @@ test('ramDeleteFromExplorer refreshes the preset and continues from the consumed
 	assert.strictEqual(calls.sent[0].cntr, '0000000005');
 	assert.deepStrictEqual(calls.saved, ['0000000006'],
 		'the accepted packet advances the saved counter');
-	assert.strictEqual(calls.explored, '0000000006',
-		'the re-explore must start from the consumed counter, never replay it');
+	assert.deepStrictEqual(_ramExplorerData.elfs, [],
+		'a successful cascade delete drops the package from the Explore result');
+	assert.deepStrictEqual(_ramExplorerData.apps, [],
+		'and the package applets (AID prefix) with it');
+	assert.strictEqual(calls.explored, null, 'no re-explore is run');
 	assert.strictEqual(els['ram-result'].textContent, 'OK');
 	unstubDeleteEnv();
 });

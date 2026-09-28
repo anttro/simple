@@ -22,8 +22,10 @@ function extractFunc(src, name) {
 }
 
 // The real functions behind the Explore Delete flow: the counter the card
-// consumed must be persisted into the preset, or the next operation starts
-// one behind and is rejected with cntr_low.
+// consumed must be persisted into the preset, a successful delete drops the
+// record locally (no re-explore), and a delete with no PoR (the SPI may
+// request none) is not a failure - live 2026-09-28 showed "Failed: 9000"
+// although the delete executed.
 let code = '';
 for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr',
 	'getRamSpParams', 'spPorAccepted', 'ramRemoteSwOk', 'ramShowProgress',
@@ -36,7 +38,7 @@ function fakeEnv(por, success) {
 	const els = {};
 	const mk = () => ({ value: '', textContent: '',
 		classList: { add() {}, remove() {}, toggle() {} } });
-	for (const id of ['sp-spi1', 'sp-spi2', 'sp-kic-hex', 'sp-kid-hex', 'sp-tar',
+	for (const id of ['sp-spi1', 'sp-spi2-hex', 'sp-kic-hex', 'sp-kid-hex', 'sp-tar',
 		'sp-cntr', 'sp-kic-key', 'sp-kid-key', 'ram-result', 'ram-steps',
 		'ram-progress', 'ram-progress-text']) els[id] = mk();
 	els['ram-card-sel'] = { value: '0' };
@@ -44,42 +46,55 @@ function fakeEnv(por, success) {
 	// the form (the delete flow aborts without them)
 	els['sp-kic-key'].value = 'AA';
 	els['sp-kid-key'].value = 'BB';
+	els['sp-spi2-hex'].value = '01';
 	globalThis.document = { getElementById: id => els[id] || null };
 	globalThis.cards = [{ name: 'C', cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' }];
-	const calls = { saved: 0, explored: null, sent: null };
+	const calls = { saved: 0, explored: null, removed: null, sent: null };
 	globalThis.cardsSave = () => { calls.saved++; };
 	globalThis.cardsRender = () => {};
 	globalThis.ramRender = () => {};
 	globalThis.t = s => s;
 	globalThis.alert = () => {};
 	globalThis.confirm = () => true;
-	// the preset re-read (cardsApply -> the sp-* form fields); the real
-	// spRefreshFromPreset is covered by cards_counter.test.js
 	globalThis.spRefreshFromPreset = () => {
 		els['sp-cntr'].value = cards[0].cntr;
 		return cards[0].cntr;
 	};
 	globalThis.ramSendOta = async (apdu, sp) => {
-		calls.sent = { apdu: apdu, cntr: sp.cntr };
+		calls.sent = { apdu: apdu, cntr: sp.cntr, spi2: sp.spi2 };
 		return { success: success !== false, por: por };
 	};
 	globalThis.ramExplore = async sp => { calls.explored = sp.cntr; };
+	globalThis.ramRemoveFromExplorer = (aid, cascade) => {
+		calls.removed = { aid: aid, cascade: cascade };
+		return true;
+	};
 	return { els, calls };
 }
 
-test('accepted delete persists the consumed counter and re-explores from it', async () => {
+test('accepted delete persists the consumed counter and drops the record', async () => {
 	const { els, calls } = fakeEnv({ response_status: 'por_ok',
 		decoded: { last_status_word: '9000' } });
 	await ramDeleteFromExplorer('F0414C46416101', false);
 	assert.strictEqual(calls.sent.cntr, '0000000005');
 	assert.strictEqual(calls.sent.apdu, '80E40000094F07F0414C4641610100');
+	assert.strictEqual(calls.sent.spi2, '01', 'the computed SPI2 byte must be used');
 	assert.strictEqual(cards[0].cntr, '0000000006',
 		'the preset must carry the counter the card consumed');
 	assert.strictEqual(els['sp-cntr'].value, '0000000006');
 	assert.ok(calls.saved > 0, 'cardsSave() must persist it');
-	assert.strictEqual(calls.explored, '0000000006',
-		'the re-explore must start at N+1, never replay N');
+	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
+	assert.strictEqual(calls.explored, null, 'no re-explore: the record is dropped locally');
 	assert.strictEqual(els['ram-result'].textContent, 'OK');
+});
+
+test('a delete with no PoR is accepted (the envelope 9000 is the result)', async () => {
+	const { els, calls } = fakeEnv(undefined);
+	await ramDeleteFromExplorer('F0414C46416101', false);
+	assert.strictEqual(cards[0].cntr, '0000000006');
+	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
+	assert.strictEqual(els['ram-result'].textContent, 'OK');
+	assert.ok(els['ram-steps'].textContent.includes('no PoR'), els['ram-steps'].textContent);
 });
 
 test('cntr_low leaves the preset untouched (the card did not consume the packet)', async () => {
@@ -87,31 +102,27 @@ test('cntr_low leaves the preset untouched (the card did not consume the packet)
 	await ramDeleteFromExplorer('F0414C46416101', false);
 	assert.strictEqual(cards[0].cntr, '0000000005');
 	assert.strictEqual(calls.saved, 0);
-	assert.strictEqual(calls.explored, null);
+	assert.strictEqual(calls.removed, null);
 });
 
-test('a refused DELETE still advances the counter but does not re-explore', async () => {
+test('a refused DELETE still advances the counter but drops nothing', async () => {
 	const { calls } = fakeEnv({ response_status: 'por_ok',
 		decoded: { last_status_word: '6A88' } });
 	await ramDeleteFromExplorer('F0414C46416101', true);
 	assert.strictEqual(cards[0].cntr, '0000000006');
-	assert.strictEqual(calls.explored, null);
+	assert.strictEqual(calls.removed, null);
 });
 
-test('a delete accepted via actual_response_sms_submit advances and re-explores', async () => {
-	// The card consumed the packet and will deliver the remote result as an
-	// SMS-SUBMIT; the counter must advance and the re-explore must run (the
-	// remote SW is unknown, so no SW is shown).
-	const { els, calls } = fakeEnv({ response_status: 'actual_response_sms_submit' });
+test('a delete accepted via actual_response_sms_submit advances and drops the record', async () => {
+	const { calls } = fakeEnv({ response_status: 'actual_response_sms_submit' });
 	await ramDeleteFromExplorer('F0414C46416101', false);
 	assert.strictEqual(cards[0].cntr, '0000000006');
-	assert.strictEqual(calls.explored, '0000000006');
-	assert.strictEqual(els['ram-result'].textContent, 'OK');
+	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
 });
 
 test('a send failure leaves the preset untouched', async () => {
 	const { calls } = fakeEnv({ response_status: 'por_ok' }, false);
 	await ramDeleteFromExplorer('F0414C46416101', false);
 	assert.strictEqual(cards[0].cntr, '0000000005');
-	assert.strictEqual(calls.explored, null);
+	assert.strictEqual(calls.removed, null);
 });
