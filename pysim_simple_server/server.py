@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.23'
+VERSION = '3.6.24'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -917,7 +917,8 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
                         submit_handler.submit_tpdu_hex = tpdu_hex
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
-    if handle_proactive and sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
+    if (handle_proactive and sw == '9000' and submit_handler
+            and not submit_handler.submit_tpdu_hex and not data):
         sys.stderr.write('STATUS poll (PoR not captured)\n')
         st_data, st_sw = _send_status(scc)
         sys.stderr.write('STATUS -> %s\n' % st_sw)
@@ -1153,10 +1154,58 @@ def _ram_next_cntr(cntr, advance):
     """Advance the SCP80 counter by one only when the card accepted the
     packet (PoR ok / no PoR expected): a rejected packet (cntr_low,
     rc_cc_ds_failed, ...) leaves the card's expectation and the preset
-    counter untouched."""
+    counter untouched.  The counter is 5 bytes (40 bits); a 32-bit wrap
+    dropped the top byte of high counters (v3.6.24)."""
     if not advance:
         return cntr
-    return '%010X' % ((int(cntr, 16) + 1) % (2 ** 32))
+    return '%010X' % ((int(cntr, 16) + 1) % (2 ** 40))
+
+
+# RAM command formats (TS 102 226 5.2.1): the bare C-APDU (compact) or the
+# Command TLV '22' inside the 'AA' scripting template (expanded) - the form
+# the reference terminal traces use.  The format is detected per operation
+# and never stored: cards differ batch to batch and may behave differently
+# later, so every operation re-checks (v3.6.24).
+_RAM_PROBE_APDU = '80F28000024F0000C0000000'   # GET STATUS [ISD], read-only
+
+
+def _wrap_expanded_apdu(apdu_hex):
+    """Wrap a C-APDU in the expanded remote-management format: the Command
+    TLV '22' inside the 'AA' template (TS 102 226 5.2.1), the exact form of
+    the reference trace `AA0A220880F24000024F0000`."""
+    cmd = '22' + _ber_len(len(apdu_hex) // 2) + apdu_hex
+    return ('AA' + _ber_len(len(cmd) // 2) + cmd).upper()
+
+
+def _ram_format_apdu(apdu_hex, ram_format):
+    """Apply the RAM command format ('compact' or 'expanded')."""
+    return _wrap_expanded_apdu(apdu_hex) if ram_format == 'expanded' else apdu_hex
+
+
+def _ram_normalize_format(value):
+    """'auto' | 'compact' | 'expanded'; anything else (or missing) is
+    'auto' for callers that opted in to the format handling."""
+    v = str(value or 'auto').strip().lower()
+    return v if v in ('auto', 'compact', 'expanded') else 'auto'
+
+
+def _ram_detect_format(server, scc, sp, state):
+    """Detect the card's RAM command format for one operation: send the
+    read-only GET STATUS [ISD] probe compact, then wrapped; the first format
+    whose remote SW succeeds wins (compact preferred).  Probe packets are
+    recorded as steps and consume counters only when accepted; the result is
+    used for this operation only - the next operation re-checks (v3.6.24)."""
+    for fmt, apdu in (('compact', _RAM_PROBE_APDU),
+                      ('expanded', _wrap_expanded_apdu(_RAM_PROBE_APDU))):
+        scratch = {'steps': [], 'encode_error': None, 'failure': {},
+                   'cntr': state['cntr']}
+        ok = _ram_send_gp_apdu(server, scc, sp, scratch,
+                               'FORMAT CHECK (%s)' % fmt, apdu)
+        state['steps'].extend(scratch['steps'])
+        state['cntr'] = scratch['cntr']
+        if ok:
+            return fmt
+    return 'compact'
 
 
 def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
@@ -1218,9 +1267,13 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
                                'sw': str(e)})
         sys.stderr.write('RAM-INSTALL: %s encode failed: %s\n' % (step_name, e))
         return False
+    # Capture the PoR from either transport: inline in the ENVELOPE response
+    # or as a proactive SEND SHORT MESSAGE.  Cards differ - some always submit,
+    # whatever the SPI2 request bit says - so the capture is unconditional
+    # (v3.6.24).
     submit_handler = None
     old_proactive = None
-    if bool(int(spi2, 16) & 0x20) and hasattr(scc, '_tp'):
+    if hasattr(scc, '_tp'):
         submit_handler = PoRSubmitHandler()
         old_proactive = scc._tp.proactive_handler
         scc._tp.proactive_handler = submit_handler
@@ -6048,6 +6101,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             include_cpi = body.get('includeCpi', True)
+            ram_format = None
             try:
                 if apdu:
                     # RAM operation: SCP80-wrap the raw GP command.  The packet
@@ -6061,15 +6115,35 @@ class PysimHandler(BaseHTTPRequestHandler):
                     cntr = body.get('cntr', '')
                     kic_key = body.get('kicKey', '')
                     kid_key = body.get('kidKey', '')
+                    # RAM command format: only when the caller opted in with a
+                    # ram_format value (the RAM views do; applet-directed or
+                    # pre-built payloads must not be wrapped).  The probe(s)
+                    # consume counters, so the command uses the advanced value.
+                    if body.get('ram_format') is not None:
+                        ram_format = _ram_normalize_format(body.get('ram_format'))
+                        if ram_format == 'auto':
+                            probe_state = {'steps': [], 'encode_error': None,
+                                           'failure': {}, 'cntr': cntr}
+                            sp_probe = {'spi1': spi1, 'spi2': spi2, 'kic': kic,
+                                        'kid': kid, 'tar': tar, 'kic_key': kic_key,
+                                        'kid_key': kid_key,
+                                        'include_cpi': include_cpi}
+                            ram_format = _ram_detect_format(self.server, scc, sp_probe,
+                                                            probe_state)
+                            cntr = probe_state['cntr']
+                        apdu = _ram_format_apdu(apdu, ram_format)
                     sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, cntr, apdu, kic_key, kid_key)
                 else:
                     # Regular SCP80: use pre-built secured packet
                     sp_hex = sp
                 spi2_val = int(body.get('spi2', '00'), 16)
-                por_in_submit = bool(spi2_val & 0x20)
+                # Capture the PoR from either transport: inline in the
+                # ENVELOPE response or as a proactive SEND SHORT MESSAGE (some
+                # cards always submit it, whatever the SPI2 request bit says;
+                # v3.6.24).
                 submit_handler = None
                 old_proactive = None
-                if por_in_submit and hasattr(scc, '_tp'):
+                if hasattr(scc, '_tp'):
                     submit_handler = PoRSubmitHandler()
                     old_proactive = scc._tp.proactive_handler
                     scc._tp.proactive_handler = submit_handler
@@ -6086,6 +6160,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                         submit_handler=submit_handler)
                     if not result['success']:
                         resp = result
+                        if ram_format is not None:
+                            resp['ram_format'] = ram_format
+                            resp['final_cntr'] = cntr
                         sys.stderr.write('OTA SEND FAILED: %s\n' % result.get('error'))
                     else:
                         resp = {'success': True, 'sw': result['sw'],
@@ -6128,6 +6205,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                             sys.stderr.write('OTA PoR[%s]: undecodable raw=%s\n' % (por_src, str(por_hex)))
                         else:
                             sys.stderr.write('OTA PoR[%s]: none\n' % por_src)
+                        if ram_format is not None:
+                            accepted = ((por is None) or por.get('response_status') in
+                                        ('por_ok', 'actual_response_sms_submit'))
+                            resp['ram_format'] = ram_format
+                            resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
@@ -6227,14 +6309,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
 
+                # RAM command format: detected per operation (a read-only probe
+                # step) unless the caller pinned compact/expanded (v3.6.24).
+                ram_format = _ram_normalize_format(body.get('ram_format'))
+                if ram_format == 'auto':
+                    ram_format = _ram_detect_format(self.server, scc, sp_state, state)
+
                 # INSTALL [for load] -> LOAD blocks -> INSTALL [for install]
                 seq = _cap_apdu_sequence(
                     loadfile_aid, module_aid, loadfile_data, sd_aid=sd_aid,
                     privileges=privileges_hex,
                     install_params=install_params_hex, stk_params=stk_params_hex,
                     make_selectable=make_selectable, block_size=block_size)
-                sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL) loadfile_aid=%s\n' % (
-                    len(seq), len(seq) - 2, loadfile_aid))
+                sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
+                    len(seq), len(seq) - 2, ram_format, loadfile_aid))
                 for apdu_idx, gp_apdu in enumerate(seq):
                     if apdu_idx == 0:
                         step_name = 'INSTALL [for load]'
@@ -6243,11 +6331,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                     else:
                         step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
                     if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
-                                             step_name, gp_apdu):
+                                             step_name,
+                                             _ram_format_apdu(gp_apdu, ram_format)):
                         resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                                 'error': (state['encode_error'] or state['failure'].get('error')
                                           or ('%s failed' % step_name)),
-                                'final_cntr': state['cntr'],
+                                'final_cntr': state['cntr'], 'ram_format': ram_format,
                                 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                 'load_block_size': block_size,
                                 'load_block_size_requested': block_size_req,
@@ -6258,6 +6347,7 @@ class PysimHandler(BaseHTTPRequestHandler):
 
                 resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
                         'module_aid': module_aid, 'final_cntr': state['cntr'],
+                        'ram_format': ram_format,
                         'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
                         'load_block_size_auto': not block_size_req}
@@ -6318,11 +6408,17 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'include_cpi': body.get('includeCpi', True)}
                 state = {'steps': [], 'encode_error': None, 'failure': {},
                          'cntr': sp_state['cntr']}
-                sys.stderr.write('RAM-INSTALL-APP: %s (%s) cntr=%s\n' % (
-                    apdu, step_name, sp_state['cntr']))
+                # RAM command format: detected per operation (a read-only probe
+                # step) unless the caller pinned compact/expanded (v3.6.24).
+                ram_format = _ram_normalize_format(body.get('ram_format'))
+                if ram_format == 'auto':
+                    ram_format = _ram_detect_format(self.server, scc, sp_state, state)
+                apdu = _ram_format_apdu(apdu, ram_format)
+                sys.stderr.write('RAM-INSTALL-APP: %s (%s, %s) cntr=%s\n' % (
+                    apdu, step_name, ram_format, sp_state['cntr']))
                 ok = _ram_send_gp_apdu(self.server, scc, sp_state, state, step_name, apdu)
                 resp = {'success': bool(ok), 'steps': state['steps'],
-                        'final_cntr': state['cntr']}
+                        'final_cntr': state['cntr'], 'ram_format': ram_format}
                 if not ok:
                     resp['error'] = (state['encode_error'] or state['failure'].get('error')
                                      or ('%s failed' % step_name))

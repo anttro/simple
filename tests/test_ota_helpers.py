@@ -36,6 +36,8 @@ from pysim_simple_server.server import (
     _parse_sms_concat,
     _por_remote_sw,
     _ram_next_cntr,
+    _ram_format_apdu,
+    _wrap_expanded_apdu,
     _ram_remote_sw_ok,
     _sms_submit_por,
     _ram_step_result,
@@ -1359,7 +1361,10 @@ class RamPorStepTest(unittest.TestCase):
     def test_counter_advances_only_for_accepted_packets(self):
         self.assertEqual(_ram_next_cntr('0000000010', True), '0000000011')
         self.assertEqual(_ram_next_cntr('0000000010', False), '0000000010')
-        self.assertEqual(_ram_next_cntr('FFFFFFFF', True), '0000000000')
+        # 5-byte counter: high values keep their top byte (v3.6.24)
+        self.assertEqual(_ram_next_cntr('10000AAAC8', True), '10000AAAC9')
+        self.assertEqual(_ram_next_cntr('0000FFFFFF', True), '0001000000')
+        self.assertEqual(_ram_next_cntr('FFFFFFFFFF', True), '0000000000')
 
     def test_remote_sw_from_expanded_response(self):
         por = {'response_status': 'por_ok', 'decoded': {},
@@ -1510,3 +1515,76 @@ class RamSendGpApduLoggingTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn('RAM C-APDU (LOAD (1/2)): 80E8800001AA', out)
         self.assertIn('RAM SECURED-PACKET (LOAD (1/2)): AABB', out)
+
+
+class RamCommandFormatTests(unittest.TestCase):
+    """RAM command format detection helpers (TS 102 226 5.2.1, v3.6.24)."""
+
+    def test_expanded_wrapper_matches_the_reference_trace(self):
+        # TCA Loader trace: GET STATUS [ISD] sent as 'AA' > '22' > C-APDU
+        self.assertEqual(_wrap_expanded_apdu('80F24000024F0000'),
+                         'AA0A220880F24000024F0000')
+
+    def test_expanded_wrapper_uses_ber_lengths(self):
+        apdu = '80' + 'AB' * 200
+        wrapped = _wrap_expanded_apdu(apdu)
+        self.assertTrue(wrapped.startswith('AA81'), wrapped[:8])
+        self.assertTrue(wrapped.endswith(apdu))
+        self.assertEqual(_ram_format_apdu(apdu, 'compact'), apdu)
+        self.assertEqual(_ram_format_apdu(apdu, 'expanded'), wrapped)
+
+    def test_detect_prefers_compact_and_records_the_probe(self):
+        from pysim_simple_server import server as srv
+
+        calls = []
+
+        def fake_send(server, scc, sp, state, name, apdu):
+            calls.append((name, apdu))
+            state['steps'].append({'name': name, 'por_status': 'por_ok', 'sw': '9000'})
+            state['cntr'] = srv._ram_next_cntr(state['cntr'], True)
+            return True
+
+        orig = srv._ram_send_gp_apdu
+        srv._ram_send_gp_apdu = fake_send
+        try:
+            state = {'steps': [], 'encode_error': None, 'failure': {},
+                     'cntr': '0000000010'}
+            fmt = srv._ram_detect_format(None, None, {}, state)
+        finally:
+            srv._ram_send_gp_apdu = orig
+        self.assertEqual(fmt, 'compact')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'FORMAT CHECK (compact)')
+        self.assertEqual(state['cntr'], '0000000011')
+        self.assertEqual(len(state['steps']), 1)
+
+    def test_detect_falls_back_to_expanded(self):
+        from pysim_simple_server import server as srv
+
+        calls = []
+
+        def fake_send(server, scc, sp, state, name, apdu):
+            calls.append((name, apdu))
+            wrapped = apdu.startswith('AA')
+            state['steps'].append({'name': name,
+                                   'por_status': 'por_ok' if wrapped else 'por_remote_error',
+                                   'sw': '9000'})
+            if wrapped:
+                state['cntr'] = srv._ram_next_cntr(state['cntr'], True)
+            return wrapped
+
+        orig = srv._ram_send_gp_apdu
+        srv._ram_send_gp_apdu = fake_send
+        try:
+            state = {'steps': [], 'encode_error': None, 'failure': {},
+                     'cntr': '10000AAAC8'}
+            fmt = srv._ram_detect_format(None, None, {}, state)
+        finally:
+            srv._ram_send_gp_apdu = orig
+        self.assertEqual(fmt, 'expanded')
+        self.assertEqual([c[0] for c in calls],
+                         ['FORMAT CHECK (compact)', 'FORMAT CHECK (expanded)'])
+        self.assertTrue(calls[1][1].startswith('AA'))
+        # only the accepted (expanded) probe advanced the 5-byte counter
+        self.assertEqual(state['cntr'], '10000AAAC9')
+        self.assertEqual(len(state['steps']), 2)

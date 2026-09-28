@@ -306,6 +306,16 @@ Scripting template (`AB`/`AF`: executed-count TLV `80` + R-APDU TLV `23`) are
 decoded the same way (`response_type: "scripting"`), with the R-APDU's own
 status word and data.
 
+With `ram_format` the server handles the two RAM command formats of
+TS 102 226 §5.2.1: `"auto"` (the default when the key is present) sends a
+read-only `GET STATUS [ISD]` probe first — compact, then wrapped as `AA`
+(Command TLV `22`) — and sends the command in the format the card answered;
+`"compact"` / `"expanded"` pin it.  The response reports the detected
+`ram_format` and `final_cntr` (the counter to use next — accepted probe
+packets consume counters).  Without the key the command data is sent
+byte-exact: applet-directed payloads (HTTP OTA triggers, §9 push, expanded
+scripts) must not be wrapped.
+
 **Request body:**
 ```json
 {
@@ -317,7 +327,8 @@ status word and data.
   "tar": "b00000",
   "cntr": "0000000001",
   "kicKey": "D6FCC023...",
-  "kidKey": "1B07E7E0..."
+  "kidKey": "1B07E7E0...",
+  "ram_format": "auto"
 }
 ```
 
@@ -325,6 +336,7 @@ status word and data.
 ```json
 {"success": true, "sw": "9000", "response_data": "027100000e0a...",
  "bytes": 36, "segments": 1,
+ "ram_format": "compact", "final_cntr": "0000000002",
  "por": {"response_status": "por_ok", "tar": "B00000", "pcntr": 0,
          "decoded": {"number_of_commands": 1, "last_status_word": "6e00",
                       "last_response_data": ""}}}
@@ -489,7 +501,7 @@ Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
-Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged). The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
+Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it. The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
 
 **Request body:**
 ```json
@@ -519,6 +531,7 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 | `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) for `gen_install_parameters()` |
 | `make_selectable` | no | If true (default), final INSTALL uses P1=`0C` (install + make selectable) |
 | `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
+| `ram_format` | no | RAM command format: `auto` (default — the read-only probe decides, recorded as `FORMAT CHECK (...)` steps), `compact` or `expanded` to pin it |
 
 **Response (success):**
 ```json
@@ -594,8 +607,9 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 | `instance_aid` | no | Application AID; empty → the module AID |
 | `privileges` | no | Hex privileges value (1 or 3 bytes), default `00` |
 | `install_params` / `stk_params` | no | As in `/api/ram-install` (the PWA composes `C9`+`EF`+raw and appends the STK part) |
+| `ram_format` | no | As in `/api/ram-install`: `auto` (default — a read-only probe step decides), `compact` or `expanded` |
 
-**Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.
+**Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "ram_format": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.
 
 ### `POST /api/sp-verify`
 

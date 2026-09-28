@@ -1711,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.23';
+const SIMPLE_VERSION = '3.6.24';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4562,6 +4562,10 @@ async function ramQueueScp81() {
 // Which TAR of the selected preset feeds the SCP80 form: RAM/GP -> ISD,
 // SIM RFM -> UICC, USIM RFM -> USIM (spec defaults when the value is empty).
 let _spTarKey = 'tar';
+// RAM/GP chains packed into the SCP80 form opt in to the per-operation
+// command-format detection ('auto'); other packs (HOTA, §9 push, expanded
+// script) keep their payload byte-exact.
+let _spRamFormat = null;
 
 function spTarKeyForPack(sourceId) {
 	return {
@@ -4589,6 +4593,7 @@ function packToSp(sourceId) {
 		_spTarKey = key;
 		document.getElementById('sp-tar').value = spPresetTar(key);
 	}
+	_spRamFormat = sourceId === 'chain-ram-preview' ? 'auto' : null;
 }
 function spCntrAdjust(delta) {
 	const el = document.getElementById('sp-cntr');
@@ -8034,7 +8039,7 @@ function spCntrSyncPreset() {
 }
 
 function spParams() {
-	return {
+	const p = {
 		spi1: document.getElementById('sp-spi1').value,
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
@@ -8045,6 +8050,8 @@ function spParams() {
 		kidKey: document.getElementById('sp-kid-key').value,
 		apdu: document.getElementById('sp-apdu').value,
 	};
+	if (_spRamFormat) p.ram_format = _spRamFormat;
+	return p;
 }
 
 async function pysimVerifySp() {
@@ -8124,7 +8131,8 @@ async function pysimSendOta() {
 			// "advance always" rule silently reverted preset edits).
 			if (spPorAccepted(por)) {
 				const cntrEl = document.getElementById('sp-cntr');
-				cntrEl.value = spNextCntr(cntrEl.value);
+				cntrEl.value = data.final_cntr || spNextCntr(cntrEl.value);
+				if (data.ram_format) _spRamFormat = data.ram_format;
 				msg += ' | CNTR -> ' + cntrEl.value;
 				document.getElementById('sp-result').value = '';
 				spShowSizeInfo();
@@ -8507,9 +8515,12 @@ function ramSaveCntr(cntr) {
 
 // Send a single GP APDU wrapped in SCP80 via /api/send-ota
 async function ramSendOta(apduHex, sp) {
-	// RAM operations: send raw GP command + SCP80 params; server handles SCP80 wrapping
-	// Caller controls SPI2: 0x01 = PoR via ENVELOPE response, 0x21 = PoR via SMS-SUBMIT
-	const body = Object.assign({}, sp, { apdu: apduHex, sp: '', includeCpi: true });
+	// RAM operations: send raw GP command + SCP80 params; server handles SCP80
+	// wrapping.  `ram_format` opts in to the per-operation command-format
+	// detection: 'auto' on the first packet, the detected value afterwards.
+	// Caller controls SPI2: 0x01 = PoR via ENVELOPE response, 0x21 = SMS-SUBMIT
+	const body = Object.assign({}, sp, { apdu: apduHex, sp: '', includeCpi: true,
+		ram_format: sp.ram_format || 'auto' });
 	return await pysimFetch('/api/send-ota', body);
 }
 
@@ -8956,10 +8967,14 @@ async function ramExplore(sp) {
 			const apdu = ramGetStatusApdu(p1, p2);
 			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
 			const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+			// Reuse the format detected for the first packet of this run
+			if (res.ram_format) sp.ram_format = res.ram_format;
 			// A packet the card accepted advances the counter even when the
 			// page itself is incomplete: the card consumed it, and a retry with
-			// the same counter is rejected (cntr_low).
-			if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+			// the same counter is rejected (cntr_low).  The server reports the
+			// counter to use next (the format-check packets are included).
+			if (res.final_cntr) cntr = res.final_cntr;
+			else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
 			if (!res.success || !res.por || !spPorAccepted(res.por)) {
 				const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
 				errors.push(label + ': ' + errorMsg);
@@ -9003,8 +9018,9 @@ async function ramExplore(sp) {
 	 ramShowProgress(t('Memory (GET DATA FF21)') + '...');
 	try {
 		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
+		if (memRes.ram_format) sp.ram_format = memRes.ram_format;
 		if (memRes.success && memRes.por && memRes.por.response_status === 'por_ok') {
-			cntr = ramIncrementCntr(cntr);
+			cntr = memRes.final_cntr || ramIncrementCntr(cntr);
 			const data = memRes.por.decoded ? memRes.por.decoded.last_response_data : '';
 			if (!data) {
 				errors.push(t('Memory') + ': ' + t('(no data)'));
@@ -9137,7 +9153,7 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	// when the remote command fails; a rejected packet (cntr_low, PoR error)
 	// leaves it untouched.
 	if (res.success && spPorAccepted(res.por)) {
-		sp.cntr = ramIncrementCntr(sp.cntr);
+		sp.cntr = res.final_cntr || ramIncrementCntr(sp.cntr);
 		ramSaveCntr(sp.cntr);
 	}
 	const resultEl = document.getElementById('ram-result');
