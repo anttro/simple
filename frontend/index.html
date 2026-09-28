@@ -1713,7 +1713,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.26';
+const SIMPLE_VERSION = '3.6.27';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8843,11 +8843,11 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	let html = '';
 	if (mem && (mem.appCount != null || mem.freeNV != null || mem.freeV != null)) {
 		html += '<div class="mb-4 p-3 bg-gray-50 dark:bg-slate-800 rounded">';
-		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Memory (GET DATA FF21)')) + '</div>';
+		html += '<div class="font-semibold text-sm mb-1" title="' + esc(t('Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory')) + '">' + esc(t('Card resources (GET DATA FF21)')) + '</div>';
 		html += '<div>' + esc(t('Applications:')) + ' ' + (mem.appCount != null ? mem.appCount : '?') + '</div>';
 		html += '<div>' + esc(t('Free NV:')) + ' ' + (mem.freeNV != null ? mem.freeNV + ' B' : '?') + '</div>';
-		if (fmt) html += '<div>' + esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
 		html += '<div>' + esc(t('Free Volatile:')) + ' ' + (mem.freeV != null ? mem.freeV + ' B' : '?') + '</div>';
+		if (fmt) html += '<div>' + esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
 		html += '</div>';
 	}
 	if (isd && isd.length) {
@@ -9039,7 +9039,7 @@ async function ramExplore(sp) {
 		if (collector.length === before && compactError && !quiet) errors.push(compactError);
 	}
 
-	 ramShowProgress(t('Memory (GET DATA FF21)') + '...');
+	 ramShowProgress(t('Card resources (GET DATA FF21)') + '...');
 	try {
 		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
 		if (memRes.ram_format) sp.ram_format = memRes.ram_format;
@@ -17555,7 +17555,8 @@ const LANG_RU = {
 	'KIc key and KID key are required': 'Укажите ключ KIc и ключ KID',
 	'RAM command format:': 'Формат команд RAM:',
 	'Query expanded registry details (E3)': 'Запрашивать расширенные данные реестра (E3)',
-	'Memory (GET DATA FF21)': 'Память (GET DATA FF21)',
+	'Card resources (GET DATA FF21)': 'Ресурсы карты (GET DATA FF21)',
+	'Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory': 'Расширенные ресурсы карты (тег GP FF21, ETSI TS 102 226 8.2.1.7.2): число установленных приложений, свободная энергонезависимая и свободная энергозависимая память',
 	'No secured packet to send. Generate a secure packet first.': 'Нет защищённого пакета для отправки. Сначала соберите пакет.',
 	'No secured packet to verify. Generate a secure packet first.': 'Нет защищённого пакета для проверки. Сначала соберите пакет.',
 	'Select': 'Выборка',

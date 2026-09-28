@@ -180,6 +180,16 @@ test('STORE DATA ram-enc P1 values 00/40/80/C0/E0', () => {
 	}
 });
 
+test('ramRenderExploreHtml puts the command format after the resource lines', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml({ appCount: 5, freeNV: 100, freeV: 50 }, [], [], [], 'compact');
+	delete global.t;
+	const iNv = out.indexOf('Free NV:');
+	const iV = out.indexOf('Free Volatile:');
+	const iFmt = out.indexOf('RAM command format:');
+	assert.ok(iNv >= 0 && iV >= 0 && iFmt > iV, out);
+});
+
 test('ramRenderExploreHtml localizes every label and button', () => {
 	const seen = [];
 	global.t = s => { seen.push(s); return 'XX' + s; };
