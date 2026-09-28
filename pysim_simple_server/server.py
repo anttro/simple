@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.17'
+VERSION = '3.6.18'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -721,6 +721,30 @@ def _encode_scts(dt=None):
     ])
 
 
+def _cap_install_apdu(loadfile_aid, module_aid, instance_aid='', privileges='00',
+                      install_params='', stk_params='', make_selectable=True):
+    """INSTALL [for install] APDU (GP Card Spec 11.5.2.3.2, Table 11-43) - the
+    final step of `_cap_apdu_sequence` and the /api/ram-install-app operation.
+    Case 3: no trailing Le (a trailing byte becomes a phantom command on the
+    card's SCP80 layer)."""
+    instance = instance_aid or module_aid
+    params = install_params if install_params else 'C900'
+    if stk_params:
+        params += stk_params
+    p1 = 0x0C if make_selectable else 0x04
+    data = (_lv(loadfile_aid) + _lv(module_aid) + _lv(instance) +
+            _lv(privileges or '00') + _lv(params) + '00')
+    return '80E6%02X00%02X%s' % (p1, len(data) // 2, data)
+
+
+def _cap_make_selectable_apdu(instance_aid, privileges='00'):
+    """INSTALL [for make selectable] APDU (GP Card Spec 11.5.2.3.3, Table
+    11-44): '00' '00' lv(AID) lv(privileges) lv(params) lv(token); the
+    parameters and token are empty here.  Case 3 (no Le)."""
+    data = '00' + '00' + _lv(instance_aid) + _lv(privileges or '00') + '00' + '00'
+    return '80E60800%02X%s' % (len(data) // 2, data)
+
+
 def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
                        privileges='00', install_params='', stk_params='',
                        make_selectable=True, block_size=240, instance_aid=None):
@@ -746,14 +770,10 @@ def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
     for i, block in enumerate(blocks):
         p1 = 0x80 if i == len(blocks) - 1 else 0x00
         apdus.append('80E8%02X%02X%02X%s' % (p1, i % 256, len(block) // 2, block))
-    instance = instance_aid or module_aid
-    params = install_params if install_params else 'C900'
-    if stk_params:
-        params += stk_params
-    p1_install = 0x0C if make_selectable else 0x04
-    ifi_data = (_lv(loadfile_aid) + _lv(module_aid) + _lv(instance) +
-                _lv(privileges or '00') + _lv(params) + '00')
-    apdus.append('80E6%02X00%02X%s' % (p1_install, len(ifi_data) // 2, ifi_data))
+    apdus.append(_cap_install_apdu(
+        loadfile_aid, module_aid, instance_aid=instance_aid,
+        privileges=privileges, install_params=install_params,
+        stk_params=stk_params, make_selectable=make_selectable))
     return apdus
 
 
@@ -1174,6 +1194,77 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
     if error:
         step['por_error'] = error
     return step, error
+
+
+def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
+    """Send one GP APDU as an SCP80 secured packet and append its step result
+    to `state['steps']`.  `sp` carries the SCP80 parameters (spi1, spi2, kic,
+    kid, tar, kic_key, kid_key, include_cpi); `state` carries the mutable run
+    state ({'steps', 'encode_error', 'failure', 'cntr'}) and the counter is
+    advanced only for a packet the card accepted.  Returns True on success
+    (the step record is the last element of state['steps'])."""
+    spi1, spi2 = sp['spi1'], sp['spi2']
+    try:
+        sp_hex, _ = _build_secured_packet(spi1, spi2, sp['kic'], sp['kid'], sp['tar'],
+                                          state['cntr'], apdu_hex,
+                                          sp['kic_key'], sp['kid_key'])
+    except ValueError as e:
+        state['encode_error'] = str(e)
+        state['steps'].append({'name': step_name, 'por_status': 'encode_error',
+                               'sw': str(e)})
+        sys.stderr.write('RAM-INSTALL: %s encode failed: %s\n' % (step_name, e))
+        return False
+    submit_handler = None
+    old_proactive = None
+    if bool(int(spi2, 16) & 0x20) and hasattr(scc, '_tp'):
+        submit_handler = PoRSubmitHandler()
+        old_proactive = scc._tp.proactive_handler
+        scc._tp.proactive_handler = submit_handler
+    try:
+        result = _send_secured_packet(
+            scc, sp_hex, oa_number=server.sms_oa, sm_sc=server.sms_sc,
+            include_cpi=sp['include_cpi'], submit_handler=submit_handler)
+        if not result['success']:
+            state['steps'].append({'name': step_name, 'por_status': 'envelope_error',
+                                   'sw': result.get('sw') or result.get('error'),
+                                   'bytes': result.get('bytes'),
+                                   'segments': result.get('segments')})
+            sys.stderr.write('RAM-INSTALL: %s send failed: %s\n' % (
+                step_name, result.get('error')))
+            return False
+        por_hex = result['response_data']
+        last_sw = result['sw']
+        por_src = 'envelope'
+        submit_hex = _sms_submit_por(submit_handler)
+        if submit_hex:
+            por_hex = submit_hex
+            por_src = 'sms-submit'
+        elif submit_handler and submit_handler.submit_tpdu_hex:
+            # no assembled UD: fall back to a raw RPI packet
+            tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
+            idx = tpdu_b.find(b'\x02\x71\x00')
+            if idx >= 0:
+                por_hex = tpdu_b[idx:].hex()
+                por_src = 'sms-submit'
+        por = _decode_por(spi1, spi2, sp['kic'], sp['kid'], state['cntr'],
+                          sp['kic_key'], sp['kid_key'], por_hex)
+        step, step_error = _ram_step_result(step_name, last_sw, por, por_hex,
+                                            result['bytes'], result['segments'])
+        state['steps'].append(step)
+        sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s remote_sw=%s%s (%d B, %d SM)\n' % (
+            step_name, por_src, step.get('por_status', '?'), step.get('por_sw', '-'),
+            (' error=%s' % step_error) if step_error else '',
+            result['bytes'], result['segments']))
+        # Advance the counter only for an accepted packet
+        state['cntr'] = _ram_next_cntr(
+            state['cntr'], step.get('por_status') in ('por_ok', 'no_por'))
+        if step_error:
+            state['failure']['error'] = '%s: %s' % (step_name, step_error)
+            return False
+        return True
+    finally:
+        if submit_handler and hasattr(scc, '_tp'):
+            scc._tp.proactive_handler = old_proactive
 
 
 def _parse_response_scripting(data):
@@ -4371,7 +4462,7 @@ _TEST_KIND_LABELS = {
 _TEST_BLOCKED_PATHS = frozenset([
     '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
     '/api/write', '/api/apdu', '/api/verify-adm', '/api/send-ota',
-    '/api/ram-install', '/api/sp-verify', '/api/menu-select',
+    '/api/ram-install', '/api/ram-install-app', '/api/sp-verify', '/api/menu-select',
     '/api/menu-respond', '/api/event-send', '/api/net-sim',
     '/api/net-state-refresh', '/api/status-poll', '/api/rescue',
     '/api/terminal-profile', '/api/poll-toggle', '/api/esim/chip',
@@ -6125,78 +6216,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % block_size)
 
                 steps = []
-                encode_error = None
-                include_cpi = body.get('includeCpi', True)
-                spi2_val = int(spi2, 16)
-                por_in_submit = bool(spi2_val & 0x20)
-
-                failure = {}
-
-                def _send_gp_apdu(apdu_hex, step_name):
-                    nonlocal cntr, encode_error
-                    try:
-                        sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, cntr, apdu_hex, kic_key, kid_key)
-                    except ValueError as e:
-                        encode_error = str(e)
-                        steps.append({'name': step_name, 'por_status': 'encode_error',
-                                      'sw': encode_error})
-                        sys.stderr.write('RAM-INSTALL: %s encode failed: %s\n' % (step_name, e))
-                        return False
-                    submit_handler = None
-                    old_proactive = None
-                    if por_in_submit and hasattr(scc, '_tp'):
-                        submit_handler = PoRSubmitHandler()
-                        old_proactive = scc._tp.proactive_handler
-                        scc._tp.proactive_handler = submit_handler
-                    try:
-                        result = _send_secured_packet(
-                            scc, sp_hex, oa_number=self.server.sms_oa,
-                            sm_sc=self.server.sms_sc, include_cpi=include_cpi,
-                            submit_handler=submit_handler)
-                        if not result['success']:
-                            steps.append({'name': step_name, 'por_status': 'envelope_error',
-                                          'sw': result.get('sw') or result.get('error'),
-                                          'bytes': result.get('bytes'),
-                                          'segments': result.get('segments')})
-                            sys.stderr.write('RAM-INSTALL: %s send failed: %s\n' % (
-                                step_name, result.get('error')))
-                            return False
-                        last_data = result['response_data']
-                        last_sw = result['sw']
-                        # Decode PoR
-                        por_src = 'envelope'
-                        por_hex = last_data
-                        submit_hex = _sms_submit_por(submit_handler)
-                        if submit_hex:
-                            por_hex = submit_hex
-                            por_src = 'sms-submit'
-                        elif submit_handler and submit_handler.submit_tpdu_hex:
-                            # no assembled UD: fall back to a raw RPI packet
-                            tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
-                            idx = tpdu_b.find(b'\x02\x71\x00')
-                            if idx >= 0:
-                                por_hex = tpdu_b[idx:].hex()
-                                por_src = 'sms-submit'
-                        por = _decode_por(spi1, spi2, kic, kid, cntr, kic_key, kid_key, por_hex)
-                        step, step_error = _ram_step_result(
-                            step_name, last_sw, por, por_hex,
-                            result['bytes'], result['segments'])
-                        steps.append(step)
-                        sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s remote_sw=%s%s (%d B, %d SM)\n' % (
-                            step_name, por_src, step.get('por_status', '?'),
-                            step.get('por_sw', '-'),
-                            (' error=%s' % step_error) if step_error else '',
-                            result['bytes'], result['segments']))
-                        # Advance the counter only for an accepted packet
-                        cntr = _ram_next_cntr(
-                            cntr, step.get('por_status') in ('por_ok', 'no_por'))
-                        if step_error:
-                            failure['error'] = '%s: %s' % (step_name, step_error)
-                            return False
-                        return True
-                    finally:
-                        if submit_handler and hasattr(scc, '_tp'):
-                            scc._tp.proactive_handler = old_proactive
+                state = {'steps': steps, 'encode_error': None, 'failure': {},
+                         'cntr': cntr}
+                sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
+                            'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
+                            'include_cpi': body.get('includeCpi', True)}
 
                 # INSTALL [for load] -> LOAD blocks -> INSTALL [for install]
                 seq = _cap_apdu_sequence(
@@ -6213,11 +6237,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         step_name = 'INSTALL [for install]'
                     else:
                         step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
-                    if not _send_gp_apdu(gp_apdu, step_name):
+                    if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
+                                             step_name, gp_apdu):
                         resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
-                                'error': (encode_error or failure.get('error')
+                                'error': (state['encode_error'] or state['failure'].get('error')
                                           or ('%s failed' % step_name)),
-                                'final_cntr': cntr,
+                                'final_cntr': state['cntr'],
                                 'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                 'load_block_size': block_size,
                                 'load_block_size_requested': block_size_req,
@@ -6227,16 +6252,80 @@ class PysimHandler(BaseHTTPRequestHandler):
                         return
 
                 resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
-                        'module_aid': module_aid, 'final_cntr': cntr,
+                        'module_aid': module_aid, 'final_cntr': state['cntr'],
                         'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
                         'load_block_size_auto': not block_size_req}
                 sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
-                    loadfile_aid, module_aid, cntr))
+                    loadfile_aid, module_aid, state['cntr']))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('RAM-INSTALL error: %s\n' % e)
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
+                self._log_resp(err)
+        elif self.path == '/api/ram-install-app':
+            # INSTALL [for install] / [for make selectable] for an already
+            # loaded package (iterate the final step without re-loading).
+            body = self._read_body()
+            self._log_req(body)
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            try:
+                mode = (body.get('mode') or 'install').strip()
+                loadfile_aid = (body.get('loadfile_aid') or '').replace(' ', '').upper()
+                module_aid = (body.get('module_aid') or '').replace(' ', '').upper()
+                instance_aid = ((body.get('instance_aid') or '').replace(' ', '').upper()
+                                or module_aid)
+                privileges = (body.get('privileges') or '').replace(' ', '') or '00'
+                install_params_hex = (body.get('install_params') or '').replace(' ', '')
+                stk_params_hex = (body.get('stk_params') or '').replace(' ', '')
+                make_selectable = bool(body.get('make_selectable', True))
+                if mode == 'make_selectable':
+                    if not instance_aid:
+                        err = {'success': False, 'error': 'instance_aid required'}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                    apdu = _cap_make_selectable_apdu(instance_aid, privileges)
+                    step_name = 'INSTALL [for make selectable]'
+                else:
+                    if not loadfile_aid or not module_aid:
+                        err = {'success': False,
+                               'error': 'loadfile_aid and module_aid required'}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                    apdu = _cap_install_apdu(
+                        loadfile_aid, module_aid, instance_aid=instance_aid,
+                        privileges=privileges, install_params=install_params_hex,
+                        stk_params=stk_params_hex, make_selectable=make_selectable)
+                    step_name = 'INSTALL [for install]'
+                sp_state = {
+                    'spi1': body.get('spi1', '16'), 'spi2': body.get('spi2', '01'),
+                    'kic': body.get('kic', '25'), 'kid': body.get('kid', '25'),
+                    'tar': body.get('tar', '000000'), 'cntr': body.get('cntr', '00000000'),
+                    'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
+                    'include_cpi': body.get('includeCpi', True)}
+                state = {'steps': [], 'encode_error': None, 'failure': {},
+                         'cntr': sp_state['cntr']}
+                sys.stderr.write('RAM-INSTALL-APP: %s (%s) cntr=%s\n' % (
+                    apdu, step_name, sp_state['cntr']))
+                ok = _ram_send_gp_apdu(self.server, scc, sp_state, state, step_name, apdu)
+                resp = {'success': bool(ok), 'steps': state['steps'],
+                        'final_cntr': state['cntr']}
+                if not ok:
+                    resp['error'] = (state['encode_error'] or state['failure'].get('error')
+                                     or ('%s failed' % step_name))
+                    resp['failed_step'] = len(state['steps'])
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                sys.stderr.write('RAM-INSTALL-APP error: %s\n' % e)
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)

@@ -696,20 +696,32 @@
 					<select id="ram-op" onchange="ramOpChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="explore" data-l10n="Explore Card (all GP data)">Explore Card (all GP data)</option>
 						<option value="install-cap" data-l10n="Install Package (.cap file)">Install Package (.cap file)</option>
+						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
+						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
 					</select>
 				</div>
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 
 			<div id="ram-install-params" class="hidden mb-3">
-				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
-				<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
-				<fieldset id="ram-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
-					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
-					<div id="ram-cap-body"></div>
-				</fieldset>
-				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
-				<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
+				<div id="ram-cap-rows">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
+					<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
+					<fieldset id="ram-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
+						<div id="ram-cap-body"></div>
+					</fieldset>
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
+					<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
+				</div>
+				<div id="ram-app-rows" class="hidden">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Load File AID / Package AID (hex)">Load File AID / Package AID (hex)</label>
+					<input id="ram-app-loadfile" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="F0414C46416101" maxlength="32">
+					<label class="block mb-1 mt-2 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Executable Module AID / Applet Class AID (hex)">Executable Module AID / Applet Class AID (hex)</label>
+					<input id="ram-app-module" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="F0414C4641610101" maxlength="32">
+					<label class="block mb-1 mt-2 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Instance AID (hex, empty = module AID)">Instance AID (hex, empty = module AID)</label>
+					<input id="ram-app-instance" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="(module AID)" maxlength="32">
+				</div>
 				<div id="rc-priv-row" class="mb-3 mt-2">
 				<div class="flex items-center gap-3 mb-2">
 					<label class="text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Privileges">Privileges</label>
@@ -1699,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.17';
+const SIMPLE_VERSION = '3.6.18';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8178,7 +8190,17 @@ function ramOpChanged() {
 	const op = document.getElementById('ram-op').value;
 	if (_ramOpLast !== null && op !== _ramOpLast) ramClearResults();
 	_ramOpLast = op;
-	document.getElementById('ram-install-params').classList.toggle('hidden', op !== 'install-cap');
+	const isCap = op === 'install-cap';
+	const isApp = op === 'install-app' || op === 'make-selectable';
+	const setHidden = (id, hidden) => {
+		const el = document.getElementById(id);
+		if (el) el.classList.toggle('hidden', hidden);
+	};
+	setHidden('ram-install-params', !(isCap || isApp));
+	setHidden('ram-cap-rows', !isCap);
+	setHidden('ram-app-rows', !isApp);
+	// The Execute button's .cap gate only applies to the install-cap op.
+	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }
 
 function ramShowProgress(text) {
@@ -8843,6 +8865,9 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?');
 			if (o.aid) {
 				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', false)" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete')) + '</button>';
+				if ((o.lifecycle || '').toUpperCase() === '03') {
+					html += ' <button onclick="ramMakeSelectableFromExplorer(\'' + o.aid + '\')" data-needs="card" class="ml-1 px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Make selectable')) + '</button>';
+				}
 			}
 			html += '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
@@ -8869,7 +8894,15 @@ function ramRenderExploreHtml(mem, isd, apps, elfs) {
 			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + o.version + '</div>';
 			if (o.moduleAids && o.moduleAids.length) {
 				html += '<div>' + esc(t('Executable Module AIDs / Applet Class AIDs:')) + '</div>';
-				o.moduleAids.forEach(m => { html += '<div class="pl-4">- ' + jcAidHtml(m) + '</div>'; });
+				o.moduleAids.forEach(m => {
+					html += '<div class="pl-4">- ' + jcAidHtml(m);
+					// A loaded applet class with no instance yet: one click to
+					// the single-APDU INSTALL [for install].
+					if (!ramHasInstance(apps, m)) {
+						html += ' <button onclick="ramInstallFromExplorer(\'' + o.aid + '\',\'' + m + '\')" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Install')) + '</button>';
+					}
+					html += '</div>';
+				});
 			}
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
@@ -9023,6 +9056,31 @@ function ramDeleteApdu(aid, withCascade) {
 	return '80E400' + (withCascade ? '80' : '00') + berLenStr(data.length / 2) + data;
 }
 
+// A loaded applet class with no instance yet (or an INSTALLED, non-selectable
+// instance): jump to the matching single-APDU operation with the AIDs filled.
+function ramHasInstance(apps, aid) {
+	const a = (aid || '').toUpperCase();
+	return (apps || []).some(x => (x.aid || '').toUpperCase().startsWith(a));
+}
+
+function ramInstallFromExplorer(loadfileAid, moduleAid) {
+	document.getElementById('ram-op').value = 'install-app';
+	ramOpChanged();
+	document.getElementById('ram-app-loadfile').value = loadfileAid || '';
+	document.getElementById('ram-app-module').value = moduleAid || '';
+	document.getElementById('ram-app-instance').value = '';
+	const el = document.getElementById('ram-op');
+	if (el.scrollIntoView) el.scrollIntoView({block: 'center'});
+}
+
+function ramMakeSelectableFromExplorer(aid) {
+	document.getElementById('ram-op').value = 'make-selectable';
+	ramOpChanged();
+	document.getElementById('ram-app-instance').value = aid || '';
+	const el = document.getElementById('ram-op');
+	if (el.scrollIntoView) el.scrollIntoView({block: 'center'});
+}
+
 // A successful delete drops the object from the Explore result locally (the
 // re-explore is not re-run).  The registry has no package-to-applet link, so
 // a cascade package delete also drops the applets whose AID starts with the
@@ -9165,25 +9223,71 @@ async function ramInstallCap(sp) {
 	const data = await pysimFetch('/api/ram-install', body);
 
 	ramHideProgress();
+	let sizeInfo = '';
+	if (data.load_block_size) {
+		sizeInfo = ' — ' + t('LOAD blocks') + ': ' + data.load_block_size + ' B';
+		if (data.load_block_size_auto) sizeInfo += ' (' + t('default') + ')';
+	}
+	ramShowInstallResult(data, t('Install OK') + ' — load_file_aid=' + data.load_file_aid
+		+ ' module_aid=' + data.module_aid + sizeInfo);
+}
+
+// INSTALL [for install] / [for make selectable] for an already loaded
+// package: one APDU, so the parameters can be iterated without deleting and
+// re-loading the .cap every time.
+async function ramInstallApp(sp, op) {
+	const clean = id => (document.getElementById(id).value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	const mode = op === 'make-selectable' ? 'make_selectable' : 'install';
+	const loadfile = clean('ram-app-loadfile');
+	const module = clean('ram-app-module');
+	const instance = clean('ram-app-instance');
+	if (mode === 'make_selectable') {
+		if (!instance) { alert(t('Instance AID required')); return; }
+	} else if (!loadfile || !module) {
+		alert(t('Load File AID and Module AID required'));
+		return;
+	}
+	// The privileges and the STK hex are derived from the form, never sent
+	// stale (see ramInstallCap).
+	updateRcPriv();
+	const stkEl = document.getElementById('ram-stk-params');
+	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
+		updateStkParamsHex();
+	}
+	const body = {
+		mode: mode,
+		loadfile_aid: loadfile,
+		module_aid: module,
+		instance_aid: instance,
+		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
+		install_params: (ramInstallParamsPrefix() +
+			(document.getElementById('ram-install-params-hex').value || '').replace(/[^0-9a-fA-F]/g, '')).toUpperCase(),
+		stk_params: (document.getElementById('ram-stk-params').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		make_selectable: document.getElementById('ram-make-sel').checked,
+		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
+		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
+	};
+	ramShowProgress(t('Sending to card...'));
+	const data = await pysimFetch('/api/ram-install-app', body);
+	ramHideProgress();
+	ramShowInstallResult(data, t('OK'));
+}
+
+// Shared result rendering for /api/ram-install and /api/ram-install-app: the
+// per-step lines, the counter the card consumed, and the verdict.
+function ramShowInstallResult(data, okText) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
 	stepsEl.classList.remove('hidden');
-
 	let txt = '';
 	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx) + '\n'; });
 	stepsEl.textContent = txt;
-
 	// Persist the counter the card actually consumed (accepted packets only):
 	// even a failed install leaves the accepted steps behind, and replaying
 	// their counter would make the card reject the next attempt.
 	if (data.final_cntr) ramSaveCntr(data.final_cntr);
 	if (data.success) {
-		let sizeInfo = '';
-		if (data.load_block_size) {
-			sizeInfo = ' — ' + t('LOAD blocks') + ': ' + data.load_block_size + ' B';
-			if (data.load_block_size_auto) sizeInfo += ' (' + t('default') + ')';
-		}
-		resultEl.textContent = t('Install OK') + ' — load_file_aid=' + data.load_file_aid + ' module_aid=' + data.module_aid + sizeInfo;
+		resultEl.textContent = okText || t('OK');
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	} else {
 		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '');
@@ -9211,6 +9315,7 @@ async function ramExecute() {
 	try {
 		if (op === 'explore') await ramExplore(sp);
 		else if (op === 'install-cap') await ramInstallCap(sp);
+		else if (op === 'install-app' || op === 'make-selectable') await ramInstallApp(sp, op);
 	} catch (e) {
 		const resultEl = document.getElementById('ram-result');
 		resultEl.textContent = t('Error') + ': ' + e.message;
@@ -17352,6 +17457,15 @@ const LANG_RU = {
 	'From card': 'С карты',
 	'Priority (0 = RFU)': 'Приоритет (0 = RFU)',
 	'Applet-specific parameters (C9, hex, optional)': 'Параметры апплета (C9, hex, опционально)',
+	'INSTALL [for install] (loaded package)': 'INSTALL [for install] (загруженный пакет)',
+	'INSTALL [for make selectable]': 'INSTALL [for make selectable]',
+	'Load File AID / Package AID (hex)': 'Load File AID / AID пакета (hex)',
+	'Executable Module AID / Applet Class AID (hex)': 'AID модуля / класса апплета (hex)',
+	'Instance AID (hex, empty = module AID)': 'AID экземпляра (hex, пусто = AID модуля)',
+	'Install': 'Установить',
+	'Instance AID required': 'Требуется AID экземпляра',
+	'Load File AID and Module AID required': 'Требуются Load File AID и Module AID',
+	'Sending to card...': 'Отправка на карту...',
 	'C7 / C8 memory quotas (bytes, optional)': 'Квоты памяти C7 / C8 (байты, опционально)',
 	'STK parameters not generated: check the TAR (multiple of 3 bytes), menu IDs (<= 7F) and the ADF AID (5-16 bytes)': 'STK-параметры не сформированы: проверьте TAR (кратность 3 байтам), ID меню (<= 7F) и ADF AID (5-16 байт)',
 	'SCP80 (GSM 03.48, ETSI TS 102 225)': 'SCP80 (GSM 03.48, ETSI TS 102 225)',

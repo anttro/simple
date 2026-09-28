@@ -38,6 +38,7 @@ a 3.x PWA).
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
+| `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/test/run` | POST | Start a test script (actions + proactive expectations) |
 | `/api/test/status` | GET | Test script run state and per-step results |
@@ -560,6 +561,41 @@ sets `success: false`, `failed_step` and a detailed `error` such as
 ```
 
 The `steps` array contains one entry per GP command. `final_cntr` is the counter value after all successful steps (use it to update the card preset). The response is not streamed — all steps run server-side before the JSON is returned.
+
+### `POST /api/ram-install-app`
+
+Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) APDU for an *already loaded* package — one APDU, so the install parameters can be iterated without deleting and re-loading the `.cap`.  The APDU builders are shared with `/api/ram-install` (`_cap_install_apdu` / `_cap_make_selectable_apdu`; both case 3 — no trailing `Le`, which the card's SCP80 layer counts as a phantom command) and the step verdict/counter logic is the same (`final_cntr` is returned on success **and** on failure).
+
+**Request body:**
+```json
+{
+  "mode": "install",
+  "loadfile_aid": "F0414C46416101",
+  "module_aid": "F0414C4641610101",
+  "instance_aid": "",
+  "privileges": "00",
+  "install_params": "C900",
+  "stk_params": "",
+  "make_selectable": true,
+  "spi1": "0E", "spi2": "01",
+  "kic": "15", "kid": "15",
+  "tar": "000000",
+  "cntr": "0000000001",
+  "kicKey": "D6FCC023...",
+  "kidKey": "1B07E7E0..."
+}
+```
+
+| Field | Req | Description |
+|---|---|---|
+| `mode` | no | `install` (default) or `make_selectable` (GP Table 11-44; needs `instance_aid`) |
+| `loadfile_aid` | cond | Package AID (required for `mode: "install"`) |
+| `module_aid` | cond | Executable module / applet class AID (required for `mode: "install"`) |
+| `instance_aid` | no | Application AID; empty → the module AID |
+| `privileges` | no | Hex privileges value (1 or 3 bytes), default `00` |
+| `install_params` / `stk_params` | no | As in `/api/ram-install` (the PWA composes `C9`+`EF`+raw and appends the STK part) |
+
+**Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.
 
 ### `POST /api/sp-verify`
 

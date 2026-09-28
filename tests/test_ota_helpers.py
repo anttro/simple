@@ -1207,6 +1207,41 @@ class CapApduSequenceTest(unittest.TestCase):
         self.assertEqual(seq[0][:10], '80E6020012')
         self.assertIn('06A00000010001' + '07A0000000040000' + '000000', seq[0])
 
+    def test_install_apdu_matches_the_live_apdu_and_the_sequence_tail(self):
+        # /api/ram-install-app reuses the exact final APDU of the full
+        # sequence (one builder, no drift).  Pinned to the live no-STK
+        # INSTALL [for install] (decrypted 2026-09-28).
+        from pysim_simple_server.server import _cap_apdu_sequence, _cap_install_apdu
+        self.assertEqual(
+            _cap_install_apdu('F0414C46416101', 'F0414C4641610101'),
+            '80E60C0020' + '07F0414C46416101' + '08F0414C4641610101'
+            + '08F0414C4641610101' + '0100' + '02C900' + '00')
+        stk = 'EA0F800D000000000102011203AF4D0100'
+        seq = _cap_apdu_sequence('F0414C46416101', 'F0414C4641610101', 'AABBCCDD',
+                                 stk_params=stk)
+        self.assertEqual(seq[-1], _cap_install_apdu(
+            'F0414C46416101', 'F0414C4641610101', stk_params=stk))
+        # case 3: the length is header + Lc data, no trailing Le
+        lc = int(seq[-1][8:10], 16)
+        self.assertEqual(len(seq[-1]), 10 + 2 * lc)
+        # make selectable switches P1 to 0x0C
+        self.assertTrue(_cap_install_apdu(
+            'F0414C46416101', 'F0414C4641610101').startswith('80E60C00'))
+        self.assertTrue(_cap_install_apdu(
+            'F0414C46416101', 'F0414C4641610101',
+            make_selectable=False).startswith('80E60400'))
+
+    def test_make_selectable_apdu(self):
+        # GP Card Spec 11.5.2.3.3, Table 11-44: '00' '00' lv(AID)
+        # lv(privileges) lv(params) lv(token); case 3.
+        from pysim_simple_server.server import _cap_make_selectable_apdu
+        self.assertEqual(
+            _cap_make_selectable_apdu('F0414C4641610101'),
+            '80E608000F' + '0000' + '08F0414C4641610101' + '0100' + '0000')
+        self.assertEqual(
+            _cap_make_selectable_apdu('F0414C4641610101', '04'),
+            '80E608000F' + '0000' + '08F0414C4641610101' + '0104' + '0000')
+
     def test_gen_install_returns_the_apdu_list(self):
         # /api/scp81/gen-install: build the INSTALL/LOAD/INSTALL list for a
         # .cap without touching any listener or script state.

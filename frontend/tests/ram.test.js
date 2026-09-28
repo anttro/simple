@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
-	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer',
+	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -439,6 +439,37 @@ test('ramRemoteSwOk mirrors the server success set', () => {
 	for (const sw of ['6700', '6F00', '6A88', '', null]) {
 		assert.ok(!ramRemoteSwOk(sw), String(sw));
 	}
+});
+
+test('ramHasInstance matches instances by AID prefix', () => {
+	const apps = [{ aid: 'F0414C4641610101' },
+		{ aid: 'A1130001180001FFFFFFFF89A1003908' }];
+	assert.strictEqual(ramHasInstance(apps, 'f0414c46416101'), true);
+	assert.strictEqual(ramHasInstance(apps, 'F0414C4641610101'), true);
+	assert.strictEqual(ramHasInstance(apps, 'F0414C46416001'), false);
+	assert.strictEqual(ramHasInstance([], 'F0414C46416101'), false);
+});
+
+test('the Explore result offers Install / Make selectable actions', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml(
+		null,
+		[],
+		[{ aid: 'A000000151000000', lifecycle: '03', privileges: '' }],
+		[{ aid: 'F0414C46416101', lifecycle: '01', version: '0.0',
+			moduleAids: ['F0414C4641610101'] }]
+	);
+	// the module has no instance yet -> Install; the INSTALLED instance -> Make selectable
+	assert.ok(out.includes("ramInstallFromExplorer('F0414C46416101','F0414C4641610101')"), out);
+	assert.ok(out.includes("ramMakeSelectableFromExplorer('A000000151000000')"), out);
+	delete global.t;
+});
+
+test('the single-APDU ops are wired', () => {
+	assert.ok(/value="install-app"/.test(html), 'the INSTALL [for install] op is missing');
+	assert.ok(/value="make-selectable"/.test(html), 'the make selectable op is missing');
+	assert.ok(/async function ramInstallApp\(sp, op\)/.test(html), 'ramInstallApp is missing');
+	assert.ok(/pysimFetch\('\/api\/ram-install-app'/.test(html), 'the endpoint call is missing');
 });
 
 test('ramRemoveFromExplorer drops the object locally (cascade drops its applets)', () => {
