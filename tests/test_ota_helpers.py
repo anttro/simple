@@ -49,6 +49,7 @@ from pysim_simple_server.server import (
     _menu_send_response,
     _parse_get_input,
     _parse_get_inkey,
+    _parse_setup_menu_command,
     _input_text_tlv,
     _validate_input_response,
     _pack_gsm7,
@@ -1803,6 +1804,35 @@ class StkInputTests(unittest.TestCase):
         self.assertEqual(code, 200, resp)
         # TS 102 223 6.8.4: 3 seconds in the requested unit (seconds)
         self.assertIn('04020103', server.scc._tp.sent[0].upper())
+
+
+class SetupMenuParseTests(unittest.TestCase):
+    """SET UP MENU parsing must accept both TLV tag styles (v3.6.40)."""
+
+    # The live Alfa card's SET UP MENU as fetched during the TERMINAL PROFILE
+    # chain (2026-09-29): the title is the CR-set tag 0x85, the items 0x8F.
+    LIVE_FETCH = bytes.fromhex(
+        'd03c810301250082028182850b416c6661204d6f62696c65'
+        '8f16808112089db0c1c2c0beb9bab82f53657474696e6773'
+        '8f0881810400d4e5f3f418020021')
+
+    def test_live_card_title_and_items_are_parsed(self):
+        menu = _parse_setup_menu_command(self.LIVE_FETCH)
+        self.assertEqual(menu['command_number'], 1)
+        self.assertEqual(menu['title'], 'Alfa Mobile')
+        self.assertEqual(menu['items'][0], {'id': 0x80, 'text': 'Настройки/Settings'})
+        self.assertEqual(menu['items'][1],
+                         {'id': 0x81, 'text': 'Test', 'nai': 0x21, 'nai_name': 'DISPLAY TEXT'})
+
+    def test_plain_tag_variants_are_accepted(self):
+        # same command with the plain title tag 0x05 and a plain 0x0F item
+        raw = bytes.fromhex('d012810301250082028182850b416c6661204d6f62696c650f00')
+        menu = _parse_setup_menu_command(raw)
+        self.assertEqual(menu['title'], 'Alfa Mobile')
+        self.assertEqual(menu['items'], [])
+        # a command that is not SET UP MENU has no menu
+        self.assertIsNone(_parse_setup_menu_command(bytes.fromhex('d009810301260182028182')))
+        self.assertIsNone(_parse_setup_menu_command(b''))
 
 
 class RamProgressTests(unittest.TestCase):

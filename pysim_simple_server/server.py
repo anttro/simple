@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.39'
+VERSION = '3.6.40'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1397,7 +1397,7 @@ def _parse_response_scripting(data):
         val = body[voff:voff + ln]
         if tag == 0x80 and val:
             count = int.from_bytes(val, 'big')
-        elif tag == 0x23 and len(val) >= 2:
+        elif tag in (0x23, 0xA3) and len(val) >= 2:
             last = (val[-2:].hex().upper(), val[:-2].hex().upper())
         off = voff + ln
     if last is None:
@@ -1936,9 +1936,12 @@ def _dec_imei(hex8):
 
 
 def _cmd_tlv(tlvs, tag):
-    """Fetch a command TLV, tolerating both the plain tag and its
-    comprehension-required variant (e.g. 0x24 and 0xA4, TS 101 220 7.1.1)."""
-    return tlvs.get(tag) or tlvs.get(tag | 0x80) or b''
+    """Fetch a command TLV, tolerating both tag styles: bit 8 of the tag is
+    the comprehension-required flag (TS 101 220 7.1.1), so the other variant
+    is `tag ^ 0x80` - covering both directions (0x24/0xA4, 0x8D/0x0D,
+    0x05/0x85).  The exact tag wins.  Every proactive-TLV lookup goes through
+    this helper; tests/test_tag_variants.py enforces it for all parsers."""
+    return tlvs.get(tag) or tlvs.get(tag ^ 0x80) or b''
 
 
 def _tlv_map(data):
@@ -2594,7 +2597,7 @@ def _scp81_parse_response(body):
         off = voff + tlen
         if tag == 0x80:
             count = int.from_bytes(val, 'big') if val else 0
-        elif tag == 0x23 and len(val) >= 2:
+        elif tag in (0x23, 0xA3) and len(val) >= 2:
             out.append((val[:-2], val[-2:].hex().upper()))
     return count, out
 
@@ -2610,11 +2613,11 @@ def _scp81_decode_memory(rapdu):
         tag, tlen = content[off], content[off + 1]
         val = content[off + 2:off + 2 + tlen]
         off += 2 + tlen
-        if tag == 0x81:
+        if tag in (0x81, 0x01):
             out['applets'] = int.from_bytes(val, 'big')
-        elif tag == 0x82:
+        elif tag in (0x82, 0x02):
             out['free_nv'] = int.from_bytes(val, 'big')
-        elif tag == 0x83:
+        elif tag in (0x83, 0x03):
             out['free_volatile'] = int.from_bytes(val, 'big')
     return out or None
 
@@ -4130,7 +4133,7 @@ def _find_sms_tpdu(raw):
         while off < len(raw) - 1:
             tag = raw[off]
             tlen, val_off = _ber_len_at(raw, off + 1)
-            if tag == 0x8B and tlen >= 1:
+            if tag in (0x8B, 0x0B) and tlen >= 1:
                 return raw[val_off:val_off + tlen].hex()
             nxt = val_off + tlen
             if nxt <= off:          # no forward progress: stop
@@ -4279,15 +4282,9 @@ def _item_line(item):
     return line
 
 
-def _cmd_tlv_any(tlvs, tag):
-    """Command TLV lookup tolerating the comprehension-required variant in
-    both directions (0x81/0x01, 0x8D/0x0D, 0x91/0x11, TS 101 220 7.1.1)."""
-    return tlvs.get(tag) or tlvs.get(tag | 0x80) or tlvs.get(tag & 0x7F) or b''
-
-
 def _cmd_qualifier(tlvs):
     """Command Qualifier byte of the Command details TLV (TS 102 223 8.6)."""
-    cd = _cmd_tlv_any(tlvs, 0x81)
+    cd = _cmd_tlv(tlvs, 0x81)
     return cd[2] if len(cd) >= 3 else None
 
 
@@ -4296,7 +4293,7 @@ def _parse_get_inkey(raw):
     (TS 102 223 6.6.2, 8.6, 8.15).  Returns None when the template is not a
     parseable GET INKEY."""
     tlvs = httpota.proactive_tlvs(raw)
-    text = _cmd_tlv_any(tlvs, 0x8D) if tlvs else b''
+    text = _cmd_tlv(tlvs, 0x8D) if tlvs else b''
     if not text:
         return None
     qual = _cmd_qualifier(tlvs)
@@ -4319,12 +4316,12 @@ def _parse_get_input(raw):
     Text (8.23) and the qualifier's request flags (TS 102 223 6.6.3, 8.6).
     Returns None when the template is not a parseable GET INPUT."""
     tlvs = httpota.proactive_tlvs(raw)
-    text = _cmd_tlv_any(tlvs, 0x8D) if tlvs else b''
+    text = _cmd_tlv(tlvs, 0x8D) if tlvs else b''
     if not text:
         return None
     qual = _cmd_qualifier(tlvs)
-    rl = _cmd_tlv_any(tlvs, 0x91)
-    default = _cmd_tlv_any(tlvs, 0x9D)
+    rl = _cmd_tlv(tlvs, 0x91)
+    default = _cmd_tlv(tlvs, 0x9D)
     try:
         prompt = _decode_dcs_text(text)
         default_text = _decode_dcs_text(default) if default else None
@@ -4351,7 +4348,7 @@ def _parse_select_item(raw):
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-            if tag == 0x05 and tlen >= 1:
+            if tag in (0x85, 0x05) and tlen >= 1:
                 try:
                     _title = _decode_stk_text(val)
                 except Exception:
@@ -4372,7 +4369,7 @@ def _parse_setup_menu_items(raw):
     while off < len(raw) - 1:
         tag, tlen = raw[off], raw[off + 1]
         val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-        if tag == 0x8F and tlen >= 2:
+        if tag in (0x8F, 0x0F) and tlen >= 2:
             items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
         elif tag in (0x18, 0x98) and tlen >= 1:
             nai = val
@@ -4441,9 +4438,48 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
         _bip_flush_channel_events(scc)
 
 
+def _parse_setup_menu_command(raw):
+    """Parse a SET UP MENU proactive command: title (Alpha identifier
+    0x85/0x05) and items (0x8F/0x0F) with their Items Next Action Indicator.
+
+    Both TLV tag styles must be accepted (TS 101 220 7.1.1): the live Alfa
+    card sends the title as '85' while this parser used to look for '05'
+    only, so the menu arrived without a title and the PWA showed "No menu set
+    by the card" (2026-09-29, card-specific because of the tag variant).
+    Returns the menu dict or None when the template is not a SET UP MENU."""
+    if not raw or raw[0] != 0xD0:
+        return None
+    tlvs = httpota.proactive_tlvs(raw)
+    cd = _cmd_tlv(tlvs, 0x81)
+    if len(cd) < 3 or cd[1] != 0x25:
+        return None
+    menu = {'command_number': cd[0], 'items': []}
+    # an Item walk, not a TLV map: every 0x8F occurrence must be collected
+    off = _skip_ber_len(raw, 1)
+    nai = None
+    while off < len(raw) - 1:
+        tag, tlen = raw[off], raw[off + 1]
+        val = raw[off + 2: off + 2 + tlen]
+        off += 2 + tlen
+        if tag in (0x85, 0x05) and tlen >= 1:
+            try:
+                menu['title'] = _STK_DECODE._decode(val, {}, 'stk_title')
+            except Exception:
+                menu['title'] = val.hex()
+        elif tag in (0x8F, 0x0F) and tlen >= 2:
+            try:
+                txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
+            except Exception:
+                txt = val[1:].hex()
+            menu['items'].append({'id': val[0], 'text': txt})
+        elif tag in (0x18, 0x98) and tlen >= 1:
+            nai = val
+    _attach_nai(menu['items'], nai)
+    return menu
+
+
 def _send_terminal_profile(scc, tp_hex):
     tp_data, tp_sw = scc._tp.send_apdu('%s100000%02x%s' % (scc.cat_cla, len(tp_hex) // 2, tp_hex))
-    sim_menu = None
     sim_menu = None
     event_list = None
     if tp_sw.startswith('91'):
@@ -4458,37 +4494,20 @@ def _send_terminal_profile(scc, tp_hex):
                 raw = bytes.fromhex(fdata)
                 if raw[0] == 0xD0:
                     off = _skip_ber_len(raw, 1)
-                    menu = None
-                    items = []
-                    nai = None
                     while off < len(raw) - 1:
                         tag, tlen = raw[off], raw[off + 1]
                         val = raw[off + 2: off + 2 + tlen]
                         off += 2 + tlen
-                        if tag == 0x81 and tlen >= 3:
+                        if tag in (0x81, 0x01) and tlen >= 3:
                             cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
-                            if cmd_type == 0x25:
-                                menu = {'command_number': cmd_num, 'items': items}
-                        elif tag == 0x82 and tlen >= 2:
+                        elif tag in (0x82, 0x02) and tlen >= 2:
                             dev_src, dev_dst = val[0], val[1]
-                        elif tag == 0x05 and tlen >= 1 and menu is not None:
-                            try:
-                                menu['title'] = _STK_DECODE._decode(val, {}, 'stk_title')
-                            except Exception:
-                                menu['title'] = val.hex()
-                        elif tag == 0x8F and tlen >= 2:
-                            try:
-                                txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
-                            except Exception:
-                                txt = val[1:].hex()
-                            items.append({'id': val[0], 'text': txt})
-                        elif tag in (0x18, 0x98) and tlen >= 1:
-                            nai = val
                         elif tag in (0x99, 0x19) and tlen >= 1:
                             event_list = [b for b in val]
-                    if menu:
-                        _attach_nai(items, nai)
-                        sim_menu = menu
+                    if cmd_type == 0x25:
+                        menu = _parse_setup_menu_command(raw)
+                        if menu:
+                            sim_menu = menu
             if fdata and cmd_type in (0x03, 0x04):
                 _handle_card_poll_command(cmd_type, raw)
             if fdata and cmd_type:

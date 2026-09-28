@@ -26,6 +26,7 @@ code += extractFunc(html, 'stkNoPendingError') + '\n';
 code += extractFunc(html, 'stkMenuPanelReset') + '\n';
 code += extractFunc(html, 'stkMenuNaiSuffix') + '\n';
 code += extractFunc(html, 'stkMenuItemsHtml') + '\n';
+code += extractFunc(html, 'stkMenuLabel') + '\n';
 code += extractFunc(html, 'stkInputHtml') + '\n';
 code += extractFunc(html, 'stkInputHint') + '\n';
 code += extractFunc(html, 'stkInputValidate') + '\n';
@@ -180,4 +181,16 @@ test('stkInputValidate mirrors the server input rules', () => {
 	assert.strictEqual(stkInputValidate({ type: 'get_inkey' }, 'ab').ok, false);
 	assert.strictEqual(stkInputValidate({ type: 'get_inkey', digits_only: true }, '*').ok, true);
 	assert.strictEqual(stkInputValidate({ type: 'get_inkey', digits_only: true }, 'a').ok, false);
+});
+
+test('stkMenuLabel shows the card title or a generic label', () => {
+	globalThis.t = s => s;
+	// the card's title when it sent one
+	assert.strictEqual(stkMenuLabel({ title: 'Alfa Mobile', items: [{ id: 1 }] }), 'Alfa Mobile');
+	// a title-less SET UP MENU still shows the menu (TS 102 223 6.6.7)
+	assert.strictEqual(stkMenuLabel({ items: [{ id: 1 }] }), 'Menu');
+	// no items = no menu, whatever the title
+	assert.strictEqual(stkMenuLabel({ title: 'x', items: [] }), '');
+	assert.strictEqual(stkMenuLabel({ items: [] }), '');
+	assert.strictEqual(stkMenuLabel(null), '');
 });

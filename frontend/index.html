@@ -1732,7 +1732,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.39';
+const SIMPLE_VERSION = '3.6.40';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9599,13 +9599,23 @@ async function ramExecute() {
 // ===== STK Menu Browser =====
 let stkMenuStack = [];
 
+// The STK button label from /api/menu (pure): the card's title, or a generic
+// label when the SET UP MENU carried none (the alpha identifier is optional,
+// TS 102 223 6.6.7 - a title-less menu must not read as "No menu set by the
+// card").  Empty string = no menu.
+function stkMenuLabel(data) {
+	if (!data || !data.items || !data.items.length) return '';
+	return data.title || t('Menu');
+}
+
 async function stkCheckMenu() {
 	try {
 		const data = await pysimFetch('/api/menu');
 		const btn = document.getElementById('stk-menu-btn');
 		const none = document.getElementById('stk-menu-none');
-		if (data && data.title && data.items && data.items.length) {
-			document.getElementById('stk-menu-title').textContent = data.title;
+		const label = stkMenuLabel(data);
+		if (label) {
+			document.getElementById('stk-menu-title').textContent = label;
 			btn.style.display = '';
 			none.style.display = 'none';
 		} else {
@@ -17641,6 +17651,7 @@ const LANG_RU = {
 	'Yes': 'Да',
 	'No': 'Нет',
 	'Help': 'Справка',
+	'Menu': 'Меню',
 	'one character': 'один символ',
 	'characters': 'символов',
 	'up to': 'до',
