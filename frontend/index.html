@@ -1682,7 +1682,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.13';
+const SIMPLE_VERSION = '3.6.14';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2548,7 +2548,7 @@ function ramResetGrants() {
 // value cannot be coded: each TAR is 3 bytes (6 hex digits), and menu item
 // identifiers 128..255 are reserved for the toolkit framework, so only
 // 01..7F may be requested (TS 102 226 8.2.1.3.2.3).  In EA mode `v.fsAccess`
-// adds the UICC file-access parameters (tag '82') and `v.adfAccess` extends
+// adds the UICC file-access parameters (tag '81') and `v.adfAccess` extends
 // them with an ADF entry (AID from `v.adfAid`, default ADF.USIM); the SIM path
 // grants access via the CA Access Domain field instead.
 function stkParamsBuild(v) {
@@ -2600,21 +2600,22 @@ function stkParamsBuild(v) {
 		services.toString(16).padStart(2, '0');
 	let eaValue = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
 	if (v.fsAccess) {
-		// UICC Access Application specific parameters (TS 102 226
-		// 8.2.1.3.2.2.2): every entry ends with the "Length of Access Domain
-		// DAP" byte (00 = no DAP):
+		// UICC Access Application specific parameters (tag '81', TS 102 226
+		// 8.2.1.3.2.2/8.2.1.3.2.2.2; '82' is the *Administrative* Access
+		// field): every entry ends with the "Length of Access Domain DAP"
+		// byte (00 = no DAP):
 		//   [file system AID length 00 = shared FS][AD length 01]
 		//   [ADP 00 = full access][DAP length 00]
 		//   [ADF AID length][ADF AID][AD length 01][ADP 00][DAP length 00]
-		// (without the DAP length byte the card rejected the ADF entry with
-		// 6A80; the ADF AID must be 5..16 bytes.)
+		// (the ADF AID must be 5..16 bytes; under '82' the card rejected the
+		// ADF entry with 6A80 - the applet never got its FileView rights.)
 		let acc = '000100' + '00';
 		if (v.adfAccess) {
 			const adf = (v.adfAid || 'A0000000871002').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 			if (adf.length < 10 || adf.length > 32) return null;
 			acc += (adf.length / 2).toString(16).padStart(2, '0').toUpperCase() + adf + '0100' + '00';
 		}
-		eaValue += '82' + berLenStr(acc.length / 2) + acc;
+		eaValue += '81' + berLenStr(acc.length / 2) + acc;
 	}
 	return 'EA' + berLenStr(eaValue.length / 2) + eaValue;
 }

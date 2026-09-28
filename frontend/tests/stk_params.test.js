@@ -150,24 +150,24 @@ test('the RAM form fields build the live install parameters end to end', () => {
 });
 
 test('UICC file-access parameters (82) are appended in EA mode', () => {
-	// TS 102 226 8.2.1.3.2.2.2: every entry ends with the "Length of Access
-	// Domain DAP" byte (00 = no DAP):
+	// TS 102 226 8.2.1.3.2.2/8.2.1.3.2.2.2: the file-access list is the
+	// tag '81' field ('82' is the *Administrative* Access field); every entry
+	// ends with the "Length of Access Domain DAP" byte (00 = no DAP):
 	//   [FS AID len 00 = shared FS][AD len 01][ADP 00 = full][DAP len 00]
 	//   [ADF AID len][ADF AID][AD len 01][ADP 00][DAP len 00]
 	// The SIM path grants the same rights via the CA Access Domain field; the
-	// ADF entry is an extension of the file-system entry.  A missing DAP
-	// length byte made the card reject the ADF entry with 6A80 (live
-	// 2026-09-28).
+	// ADF entry is an extension of the file-system entry.  Under '82' the card
+	// rejected the ADF entry with 6A80 (live 2026-09-28).
 	const base = vals({ channels: '1', msl: '12', tar: 'AF4D01' });
 	assert.strictEqual(stkParamsBuild(Object.assign({}, base, { fsAccess: true })),
-		'EA15800D000000000102011203AF4D0100820400010000');
+		'EA15800D000000000102011203AF4D0100810400010000');
 	assert.strictEqual(
 		stkParamsBuild(Object.assign({}, base, { fsAccess: true, adfAccess: true })),
-		'EA20800D000000000102011203AF4D0100820F0001000007A0000000871002010000');
+		'EA20800D000000000102011203AF4D0100810F0001000007A0000000871002010000');
 	assert.strictEqual(
 		stkParamsBuild(Object.assign({}, base, { fsAccess: true, adfAccess: true,
 			adfAid: 'A0000000871002FF33FFFF89010101' })),
-		'EA28800D000000000102011203AF4D01008217000100000FA0000000871002FF33FFFF89010101010000');
+		'EA28800D000000000102011203AF4D01008117000100000FA0000000871002FF33FFFF89010101010000');
 	assert.strictEqual(stkParamsBuild(base), 'EA0F800D000000000102011203AF4D0100');
 	assert.strictEqual(stkParamsBuild(Object.assign({}, base, { adfAccess: true })),
 		'EA0F800D000000000102011203AF4D0100');
@@ -182,12 +182,12 @@ test('the RAM form emits full file access when the checkbox is ticked', () => {
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true });
 	assert.strictEqual(buildRcToolkitParams(),
-		'EA15800D000000000102011203AF4D0100820400010000');
+		'EA15800D000000000102011203AF4D0100810400010000');
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true,
 		'rc-tk-adfaccess': true });
 	assert.strictEqual(buildRcToolkitParams(),
-		'EA20800D000000000102011203AF4D0100820F0001000007A0000000871002010000');
+		'EA20800D000000000102011203AF4D0100810F0001000007A0000000871002010000');
 });
 
 test('updateStkParamsHex refreshes the field and clears the manual flag', () => {
