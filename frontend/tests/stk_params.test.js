@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['berLenStr', 'stkParamsBuild', 'buildRcToolkitParams',
-	'updateStkParamsHex']) code += extractFunc(html, fn) + '\n';
+	'updateStkParamsHex', 'adfAidFromFci']) code += extractFunc(html, fn) + '\n';
 eval(code);
 
 const base = { mode: 'ea', priority: '0', timers: '0', textLen: '0', menus: '0',
@@ -114,6 +114,27 @@ test('the applet TAR field has no B00001 default or placeholder', () => {
 	assert.ok(!html.includes("f.tkTar || 'B00001'"), 'the chain toolkit default must stay empty');
 });
 
+test('adfAidFromFci extracts the DF name (tag 84) from an FCI', () => {
+	// the live ADF.USIM FCI (read from the card, 2026-09-28): the DF name is
+	// 12 bytes - the base A0000000871002 is only a prefix, and a shorter AID
+	// makes the card reject the access entry with 6A80.
+	assert.strictEqual(
+		adfAidFromFci('622882027821840CA0000000871002FF49FF05898A01058B032F0617C60C90016083010183010A830181'),
+		'A0000000871002FF49FF0589');
+	// an FCI without a DF name, and garbage
+	assert.strictEqual(adfAidFromFci('6207820278218A0105'), '');
+	assert.strictEqual(adfAidFromFci(''), '');
+	assert.strictEqual(adfAidFromFci('ZZZZ'), '');
+});
+
+test('the ADF AID From-card button is wired', () => {
+	assert.ok(/id="rc-tk-adfaid-from-card"[^>]*onclick="ramAdfAidFromCard\(\)"/.test(html),
+		'the ADF AID From-card button is missing');
+	assert.ok(/async function ramAdfAidFromCard\(\)/.test(html), 'ramAdfAidFromCard is missing');
+	assert.ok(/pysimFetch\('\/api\/select', \{ name: 'ADF.USIM' \}\)/.test(html),
+		'the button must read the ADF.USIM FCI');
+});
+
 test('the RAM install recomputes the STK hex at send time unless hand-edited', () => {
 	assert.ok(/oninput="this\.dataset\.manual='1'"/.test(html),
 		'the hex field must flag manual edits');
@@ -146,7 +167,7 @@ test('the RAM form fields build the live install parameters end to end', () => {
 	// carried TAR B00001 / MSL 16 / channels 0 and the card answered 6A80.
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1' });
-	assert.strictEqual(buildRcToolkitParams(), 'EA0F800D000000000102011203AF4D0100');
+	assert.strictEqual(buildRcToolkitParams(), 'EA0F800DFF0000000102011203AF4D0100');
 });
 
 test('UICC file-access parameters (82) are appended in EA mode', () => {
@@ -182,12 +203,12 @@ test('the RAM form emits full file access when the checkbox is ticked', () => {
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true });
 	assert.strictEqual(buildRcToolkitParams(),
-		'EA15800D000000000102011203AF4D0100810400010000');
+		'EA15800DFF0000000102011203AF4D0100810400010000');
 	fakeForm({ 'rc-toolkit-enable': true, 'rc-tk-mode': 'ea', 'rc-tk-msl': '12',
 		'rc-tk-tar': 'AF4D01', 'rc-tk-channels': '1', 'rc-tk-fsaccess': true,
 		'rc-tk-adfaccess': true });
 	assert.strictEqual(buildRcToolkitParams(),
-		'EA20800D000000000102011203AF4D0100810F0001000007A0000000871002010000');
+		'EA20800DFF0000000102011203AF4D0100810F0001000007A0000000871002010000');
 });
 
 test('updateStkParamsHex refreshes the field and clears the manual flag', () => {

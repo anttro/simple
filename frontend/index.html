@@ -754,8 +754,8 @@
 					</div>
 					<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
 						<div>
-							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Priority">Priority</label>
-							<input id="rc-tk-priority" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
+							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Priority (0 = RFU)">Priority (0 = RFU)</label>
+							<input id="rc-tk-priority" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="255" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Timers (max)">Timers (max)</label>
@@ -824,7 +824,10 @@
 								<span data-l10n="ADF.USIM access (full)">ADF.USIM access (full)</span>
 							</label>
 							<label class="block mb-1 mt-1 text-xs text-gray-500 dark:text-slate-400" data-l10n="ADF AID (hex)">ADF AID (hex)</label>
-							<input id="rc-tk-adfaid" oninput="updateStkParamsHex()" value="A0000000871002" maxlength="32" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
+							<div class="flex items-center gap-2">
+								<input id="rc-tk-adfaid" oninput="updateStkParamsHex()" value="A0000000871002" maxlength="32" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
+								<button type="button" id="rc-tk-adfaid-from-card" data-needs="card" onclick="ramAdfAidFromCard()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="From card">From card</button>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -1682,7 +1685,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.15';
+const SIMPLE_VERSION = '3.6.16';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2552,17 +2555,20 @@ function ramResetGrants() {
 // them with an ADF entry (AID from `v.adfAid`, default ADF.USIM); the SIM path
 // grants access via the CA Access Domain field instead.
 function stkParamsBuild(v) {
-	const priority = parseInt(v.priority, 10) || 0;
+	// Priority '00' is RFU (TS 102 226 8.2.1.3.2.6): an unset field defaults
+	// to 255 (0xFF, lowest priority) instead of the invalid zero.
+	const priority = (v.priority === '' || v.priority === undefined)
+		? 0xFF : (parseInt(v.priority, 10) || 0);
 	const timers = parseInt(v.timers, 10) || 0;
 	const textLen = parseInt(v.textLen, 10) || 0;
 	const menus = parseInt(v.menus, 10) || 0;
 	const firstPos = parseInt(v.firstPos, 10) || 0;
-	const firstId = (v.firstId || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
+	const firstId = (v.firstId || '00').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padStart(2, '0').slice(0, 2) || '00';
 	const lastPos = parseInt(v.lastPos, 10) || 0;
-	const lastId = (v.lastId || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2) || '00';
+	const lastId = (v.lastId || '00').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padStart(2, '0').slice(0, 2) || '00';
 	const channels = parseInt(v.channels, 10) || 0;
-	const msl = v.msl || '00';
-	const tar = (v.tar || '').replace(/[^0-9a-fA-F]/g, '');
+	const msl = (v.msl || '00').toUpperCase();
+	const tar = (v.tar || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	const adRaw = (v.ad || '').replace(/[^0-9a-fA-F]/g, '');
 	const ad = adRaw.padStart(2, '0').slice(0, 2);
 	const services = parseInt(v.services, 10) || 0;
@@ -2570,33 +2576,33 @@ function stkParamsBuild(v) {
 	if (parseInt(firstId, 16) > 0x7F || parseInt(lastId, 16) > 0x7F) return null;
 	let menuPairs = '';
 	for (let i = 1; i <= menus; i++) {
-		if (i === 1) menuPairs += firstPos.toString(16).padStart(2, '0') + firstId;
-		else if (i === menus) menuPairs += lastPos.toString(16).padStart(2, '0') + lastId;
+		if (i === 1) menuPairs += firstPos.toString(16).padStart(2, '0').toUpperCase() + firstId;
+		else if (i === menus) menuPairs += lastPos.toString(16).padStart(2, '0').toUpperCase() + lastId;
 		else menuPairs += '0000';
 	}
 	const mslField = msl === '00' ? '00' : '0201' + msl;
 	let tkPayload = '';
 	if (v.mode === 'ca') {
 		tkPayload = (adRaw ? '01' + ad : '00') +
-			priority.toString(16).padStart(2, '0') +
-			timers.toString(16).padStart(2, '0') +
-			textLen.toString(16).padStart(2, '0') +
-			menus.toString(16).padStart(2, '0') +
+			priority.toString(16).padStart(2, '0').toUpperCase() +
+			timers.toString(16).padStart(2, '0').toUpperCase() +
+			textLen.toString(16).padStart(2, '0').toUpperCase() +
+			menus.toString(16).padStart(2, '0').toUpperCase() +
 			menuPairs +
-			channels.toString(16).padStart(2, '0') +
+			channels.toString(16).padStart(2, '0').toUpperCase() +
 			mslField +
-			(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00');
+			(tar ? (tar.length / 2).toString(16).padStart(2, '0').toUpperCase() + tar : '00');
 		const caTlv = 'CA' + berLenStr(tkPayload.length / 2) + tkPayload;
 		return 'EF' + berLenStr(caTlv.length / 2) + caTlv;
 	}
-	tkPayload = priority.toString(16).padStart(2, '0') +
-		timers.toString(16).padStart(2, '0') +
-		textLen.toString(16).padStart(2, '0') +
-		menus.toString(16).padStart(2, '0') +
+	tkPayload = priority.toString(16).padStart(2, '0').toUpperCase() +
+		timers.toString(16).padStart(2, '0').toUpperCase() +
+		textLen.toString(16).padStart(2, '0').toUpperCase() +
+		menus.toString(16).padStart(2, '0').toUpperCase() +
 		menuPairs +
-		channels.toString(16).padStart(2, '0') +
+		channels.toString(16).padStart(2, '0').toUpperCase() +
 		mslField +
-		(tar ? (tar.length / 2).toString(16).padStart(2, '0') + tar : '00') +
+		(tar ? (tar.length / 2).toString(16).padStart(2, '0').toUpperCase() + tar : '00') +
 		services.toString(16).padStart(2, '0');
 	let eaValue = '80' + berLenStr(tkPayload.length / 2) + tkPayload;
 	if (v.fsAccess) {
@@ -2645,6 +2651,54 @@ function updateStkParamsHex() {
 	// A hand-edited hex is an explicit override: keep it until a toolkit
 	// field is edited again (this clears the flag).
 	if (el.dataset) delete el.dataset.manual;
+}
+
+// The ADF.USIM AID is card-specific: the FCI's DF name (tag 84) is the full
+// 5..16-byte AID the access parameters need - the base A0000000871002 is only
+// a prefix, and a shorter AID makes the card reject the entry with 6A80
+// (live 2026-09-28: the card's DF name is A0000000871002FF49FF0589).
+function adfAidFromFci(fciHex) {
+	const s = (fciHex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	let i = 0;
+	if (s.length >= 4 && (s.startsWith('62') || s.startsWith('6F'))) {
+		const n = parseInt(s.substr(2, 2), 16);
+		i = 4 + (n > 0x80 ? (n & 0x7F) * 2 : 0);   // skip the FCP/FCI template head
+	}
+	while (i + 4 <= s.length) {
+		const tag = s.substr(i, 2);
+		let n = parseInt(s.substr(i + 2, 2), 16);
+		let j = i + 4;
+		if (n > 0x80) {
+			const nb = n & 0x7F;
+			n = parseInt(s.substr(i + 4, nb * 2), 16);
+			j = i + 4 + nb * 2;
+		}
+		if (tag === '84') return s.substr(j, n * 2).toUpperCase();
+		i = j + n * 2;
+	}
+	return '';
+}
+
+// Fill the ADF AID from the card's ADF.USIM FCI (one click; the AID cannot be
+// known in advance - it carries a card-specific PIX).
+async function ramAdfAidFromCard() {
+	const el = document.getElementById('rc-tk-adfaid');
+	const btn = document.getElementById('rc-tk-adfaid-from-card');
+	if (!el || !btn) return;
+	const label = btn.textContent;
+	btn.disabled = true;
+	try {
+		const data = await pysimFetch('/api/select', { name: 'ADF.USIM' });
+		const aid = adfAidFromFci(data && data.fci_hex);
+		if (!aid) throw new Error('no DF name');
+		el.value = aid;
+		updateStkParamsHex();
+		btn.textContent = t('OK');
+	} catch (e) {
+		btn.textContent = t('Failed');
+	} finally {
+		setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1500);
+	}
 }
 
 function updateInstallParamsHex() {
@@ -3446,7 +3500,7 @@ function chainRamToolkitHtml(chainId, idx, f, uf) {
 		'SIM/UICC Toolkit parameters</label></div>';
 	if (!enabled) return html;
 	var tkMode = f.tkMode || 'ea';
-	var priority = f.tkPriority || '0';
+	var priority = f.tkPriority || '255';
 	var timers = f.tkTimers || '0';
 	var textLen = f.tkTextlen || '0';
 	var menus = f.tkMenus || '0';
@@ -3465,7 +3519,7 @@ function chainRamToolkitHtml(chainId, idx, f, uf) {
 		'<option value="ca"' + (tkMode === 'ca' ? ' selected' : '') + '>SIM Toolkit (Tag CA)</option>' +
 		'<option value="ea"' + (tkMode === 'ea' ? ' selected' : '') + '>UICC Toolkit (Tag EA)</option></select></div>' +
 		'<div class="grid grid-cols-4 gap-x-2 gap-y-1.5 text-xs">' +
-		'<div><label class="block text-gray-600 dark:text-slate-400 mb-0.5">Priority</label>' +
+		'<div><label class="block text-gray-600 dark:text-slate-400 mb-0.5">Priority (0 = RFU)</label>' +
 		'<input type="number" min="0" max="255" value="' + escHtml(priority) + '" oninput="' + uf('tkPriority') + '" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800"></div>' +
 		'<div><label class="block text-gray-600 dark:text-slate-400 mb-0.5">Timers</label>' +
 		'<input type="number" min="0" max="255" value="' + escHtml(timers) + '" oninput="' + uf('tkTimers') + '" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800"></div>' +
@@ -17237,6 +17291,7 @@ const LANG_RU = {
 	'pending': 'ожидает',
 	'Name is required': 'Укажите имя',
 	'From card': 'С карты',
+	'Priority (0 = RFU)': 'Приоритет (0 = RFU)',
 	'SCP80 (GSM 03.48, ETSI TS 102 225)': 'SCP80 (GSM 03.48, ETSI TS 102 225)',
 	'SCP81 (HTTP OTA)': 'SCP81 (HTTP OTA)',
 	'Start': 'Запустить',
