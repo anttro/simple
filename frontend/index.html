@@ -1732,7 +1732,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.35';
+const SIMPLE_VERSION = '3.6.36';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8472,11 +8472,21 @@ function capMemHtml(mem) {
 			return esc(a) + (n ? ' <span class="text-gray-400">(' + esc(n) + ')</span>' : '');
 		}).join('<br>'), 'pl-4 font-mono break-all'));
 	}
+	// ── minimum platform: the card must provide every import version (JC VM
+	// spec 4.5.2 - same major, minor >= the export version) and the JCRE
+	// checks that while the load file is verified, so the framework import
+	// names the minimum Java Card level; the header int flag needs int
+	// support (Java Card 2.2+).  capmem computes the level
+	// (requires_java_card); the local table is the fallback for an older
+	// server response.
 	const fw = imports.find(im => (im.aid || '').toUpperCase() === 'A0000000620101');
-	const sdk = fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '';
-	let against = sdk ? 'Java Card ' + sdk : '';
+	const sdk = mem.requires_java_card ||
+		(fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '');
+	let against = sdk ? 'Java Card \u2265 ' + sdk
+		: (fw ? 'javacard.framework \u2265 ' + (Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0) : '');
 	if (mem.cap_version) against += (against ? ' \u00b7 ' : '') + t('CAP format') + ' ' + mem.cap_version;
-	if (against) pkgRows += row(label(esc(t('Compiled'))) + cell(esc(against), 'pl-4'));
+	if (mem.needs_int) against += (against ? ' \u00b7 ' : '') + t('int support');
+	if (against) pkgRows += row(label(esc(t('Platform'))) + cell(esc(against), 'pl-4'));
 	if (pkgRows) html += section(t('Package')) + table(pkgRows);
 
 	// ── the libraries the CAP is linked against (JC VM spec 6.6), shown as
@@ -9375,6 +9385,25 @@ function ramStepLine(s, idx) {
 	return line;
 }
 
+// Hint after a failed RAM install (pure).  A rejected LOAD / INSTALL [for
+// load] step has two known causes: the card's platform is older than the
+// CAP requires (the JCRE checks every import while it verifies the load file,
+// JC VM spec 4.5.2, and refuses the step as soon as the Import component is
+// complete - observed remote SW 6438/6985 exactly at that block boundary),
+// or the LOAD block exceeds the card's buffer.  `mem` is the CAP analysis
+// (capmem memory_json) when the install came from a .cap.
+function ramInstallFailHint(data, mem) {
+	if (!data || data.success) return '';
+	const steps = data.steps || [];
+	const step = steps[(Number(data.failed_step) || 1) - 1] || null;
+	const name = step ? String(step.name || '') : '';
+	if (!/^(LOAD |INSTALL \[for load\])/.test(name)) return '';
+	let hint = t('a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card');
+	if (mem && mem.requires_java_card) hint += ' (Java Card \u2265 ' + mem.requires_java_card + ')';
+	hint += t('. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)');
+	return hint;
+}
+
 async function ramInstallCap(sp) {
 	const fileInput = document.getElementById('ram-cap-file');
 	const file = fileInput.files[0];
@@ -9426,7 +9455,7 @@ async function ramInstallCap(sp) {
 		if (data.load_block_size_auto) sizeInfo += ' (' + t('default') + ')';
 	}
 	ramShowInstallResult(data, t('Install OK') + ' — load_file_aid=' + data.load_file_aid
-		+ ' module_aid=' + data.module_aid + sizeInfo);
+		+ ' module_aid=' + data.module_aid + sizeInfo, _capAnalysis.ram.memory);
 }
 
 // INSTALL [for install] / [for make selectable] for an already loaded
@@ -9474,7 +9503,7 @@ async function ramInstallApp(sp, op) {
 
 // Shared result rendering for /api/ram-install and /api/ram-install-app: the
 // per-step lines, the counter the card consumed, and the verdict.
-function ramShowInstallResult(data, okText) {
+function ramShowInstallResult(data, okText, capMem) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
 	stepsEl.classList.remove('hidden');
@@ -9489,7 +9518,9 @@ function ramShowInstallResult(data, okText) {
 		resultEl.textContent = okText || t('OK');
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	} else {
-		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '');
+		const hint = ramInstallFailHint(data, capMem || null);
+		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '') +
+			(hint ? ' \u2014 ' + t('Hint:') + ' ' + hint : '');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, txt);
@@ -17116,7 +17147,8 @@ const LANG_RU = {
 	'Version': 'Версия',
 	'Type': 'Тип',
 	'Applets': 'Апплеты',
-	'Compiled': 'Собрано',
+	'Platform': 'Платформа',
+	'int support': 'поддержка int',
 	'Requires': 'Требуются',
 	'Family': 'Семейство',
 	'AID': 'AID',
@@ -17143,6 +17175,9 @@ const LANG_RU = {
 	'Step': 'Шаг',
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
+	'Hint:': 'Подсказка:',
+	'a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card': 'отклонение LOAD здесь означает, что карта отклонила CAP: все версии импортов из «Требуются» должны присутствовать на карте',
+	'. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)': '. Если CAP требует только доступные этой карте версии, повторите с меньшим размером блока LOAD (например, 64 Б)',
 	'Profile from snapshot': 'Профиль из снимка',
 	'Profile verification results for:': 'Результаты проверки профиля:',
 	'Snapshot comparison results:': 'Результаты сравнения снимков:',

@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramInstallFailHint', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -388,6 +388,26 @@ test('ramStepLine shows the PoR verdict and the remote status word', () => {
 	assert.ok(porLine.includes('PoR error cntr_low'), porLine);
 	const noPor = ramStepLine({ name: 'LOAD', por_status: 'no_por' }, 3);
 	assert.ok(noPor.startsWith('\u2705') && noPor.includes('no PoR'), noPor);
+});
+
+test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', () => {
+	globalThis.t = s => s;
+	const failedLoad = {
+		success: false, failed_step: 3,
+		steps: [{ name: 'INSTALL [for load]' }, { name: 'LOAD (1/240)' }, { name: 'LOAD (2/240)', por_sw: '6985' }],
+	};
+	const hint = ramInstallFailHint(failedLoad, { requires_java_card: '2.2.2' });
+	assert.ok(hint.includes('every import version under Requires'), hint);
+	assert.ok(hint.includes('(Java Card \u2265 2.2.2)'), hint);
+	assert.ok(hint.includes('smaller LOAD block'), hint);
+	// without a CAP analysis (INSTALL [for install] ops) the level is omitted
+	const noMem = ramInstallFailHint(failedLoad, null);
+	assert.ok(noMem.includes('every import version under Requires'), noMem);
+	assert.ok(!noMem.includes('Java Card'), noMem);
+	// only a load-related step gets the hint
+	assert.strictEqual(ramInstallFailHint(
+		{ success: false, failed_step: 2, steps: [{ name: 'INSTALL [for load]' }, { name: 'INSTALL [for install]' }] }, null), '');
+	assert.strictEqual(ramInstallFailHint({ success: true, failed_step: 1, steps: [] }, null), '');
 });
 
 test('ramOpChanged clears the executed status only on a real op change', () => {

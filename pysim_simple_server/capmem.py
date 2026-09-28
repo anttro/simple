@@ -1444,6 +1444,21 @@ def _external_ref_counts(cap):
     return counts
 
 
+# javacard.framework export version -> Java Card release family whose kit
+# ships exactly that version.  Derived from the local Oracle SDK kit corpus
+# (jc211_kit .. jc305u4_kit exports, 2026-09-27; same table as the PWA's
+# JC_FRAMEWORK_SDK).  A card provides the framework export of its platform,
+# and JC VM spec 4.5.2 makes the CAP's import version a ">=" demand on it
+# (same major, minor >= the export version), checked by the JCRE while the
+# load file is verified - so the framework import names the minimum Java Card
+# level a CAP can load on.
+JC_FRAMEWORK_AID = 'A0000000620101'
+JC_FRAMEWORK_JDK = {
+    '1.0': '2.1.1/2.1.2', '1.2': '2.2.1', '1.3': '2.2.2',
+    '1.4': '3.0.3', '1.5': '3.0.4', '1.6': '3.0.5',
+}
+
+
 def analyze_bytes(cap_bytes, verbose=False):
     """Analyze a CAP archive (bytes) and return (report, memory)."""
     cap = CAP(cap_bytes)
@@ -1472,6 +1487,21 @@ def analyze_bytes(cap_bytes, verbose=False):
         h = cap.components['header']
         report['flags'] = h.flags
         report['package_name'] = h.package_name
+        # flags bit 0 ('int', set by the JC 2.1.2 converter's -i): the loader
+        # must support int (Java Card 2.2+)
+        report['needs_int'] = bool(h.flags & 0x01)
+
+    # Minimum platform (JC VM spec 4.5.2): the card must export every
+    # imported package at >= the version recorded in the CAP, and the JCRE
+    # performs that check while the load file is verified.  The framework
+    # import names the minimum Java Card level (a card with an older platform
+    # rejects the LOAD as soon as the Import component is complete).
+    if cap.has('import'):
+        fw = next((p for p in cap.components['import'].packages
+                   if p.aid_hex == JC_FRAMEWORK_AID), None)
+        if fw:
+            report['requires_framework'] = f'{fw.major}.{fw.minor}'
+            report['requires_java_card'] = JC_FRAMEWORK_JDK.get(report['requires_framework'])
 
     # Component sizes (the load file order) for the breakdown display
     report['components'] = [{'name': name, 'size': size} for name, size in cap.files]
@@ -1710,6 +1740,12 @@ def memory_json(report, memory, load_file_bytes=None):
             'applet': bool(report.get('flags', 0) & 0x04),
         },
         'package_name': report.get('package_name'),
+        # minimum platform the card must provide for this load file (JC VM
+        # spec 4.5.2, derived from the imports): the Java Card level named by
+        # the framework import, and the header int flag's loader requirement
+        'requires_framework': report.get('requires_framework'),
+        'requires_java_card': report.get('requires_java_card'),
+        'needs_int': bool(report.get('needs_int')),
         'components': report.get('components', []),
         'class_count': report.get('class_count', 0),
         'method_count': report.get('method_count', 0),
@@ -1756,6 +1792,14 @@ def format_report(report, memory):
 
     if 'cap_version' in report:
         lines.append(f'CAP format: {report["cap_version"]}')
+    if report.get('requires_java_card') or report.get('requires_framework'):
+        req = 'Requires Java Card >= %s' % (report.get('requires_java_card')
+                                            or report.get('requires_framework'))
+        if report.get('requires_java_card') and report.get('requires_framework'):
+            req += ' (javacard.framework %s)' % report['requires_framework']
+        if report.get('needs_int'):
+            req += ', int support'
+        lines.append(req)
     if 'package_version' in report:
         lines.append(f'Package version: {report["package_version"]}')
     if 'package_aid' in report:

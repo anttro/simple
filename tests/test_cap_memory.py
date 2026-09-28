@@ -1,6 +1,8 @@
 """Tests for the bundled CAP memory analyzer (capmem) and /api/cap-info helper."""
 
 import io
+import pathlib
+import re
 import struct
 import unittest
 import zipfile
@@ -227,6 +229,38 @@ class TestCapAnalyzer(unittest.TestCase):
         # a CAP 2.1 header (no name bytes) reports no name
         report, _ = capmem.analyze_bytes(build_cap())
         self.assertIsNone(report['package_name'])
+
+    def test_framework_sdk_table_matches_the_pwa(self):
+        # capmem.JC_FRAMEWORK_JDK mirrors the PWA's fallback JC_FRAMEWORK_SDK
+        # (drift guard: the PWA shows the server value when it is present)
+        html = pathlib.Path(__file__).resolve().parents[1].joinpath(
+            'frontend', 'index.html').read_text(encoding='utf-8')
+        m = re.search(r"const JC_FRAMEWORK_SDK = \{(.*?)\};", html, re.S)
+        self.assertIsNotNone(m, 'JC_FRAMEWORK_SDK not found in index.html')
+        pwa = dict(re.findall(r"'([\d.]+)':\s*'([^']+)'", m.group(1)))
+        self.assertEqual(pwa, capmem.JC_FRAMEWORK_JDK)
+
+    def test_platform_requirement_from_the_framework_import(self):
+        # java.lang only: no Java Card level named, but the int flag shows
+        report, _ = capmem.analyze_bytes(
+            build_cap(imports=[(0, 1, bytes.fromhex('A0000000620001'))], header_flags=0x01))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertIsNone(info['requires_framework'])
+        self.assertIsNone(info['requires_java_card'])
+        self.assertTrue(info['needs_int'])
+        # javacard.framework 1.3 -> Java Card 2.2.2 (the kit corpus mapping)
+        report, _ = capmem.analyze_bytes(
+            build_cap(imports=[(3, 1, JAVACARD_FRAMEWORK)], header_flags=0x05))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertEqual(info['requires_framework'], '1.3')
+        self.assertEqual(info['requires_java_card'], '2.2.2')
+        self.assertTrue(info['needs_int'])
+        # a version outside the corpus keeps the raw framework version
+        report, _ = capmem.analyze_bytes(
+            build_cap(imports=[(0, 2, JAVACARD_FRAMEWORK)]))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertEqual(info['requires_framework'], '2.0')
+        self.assertIsNone(info['requires_java_card'])
 
     def test_memory_json_nvram_requirement_uses_the_load_file(self):
         report, memory = capmem.analyze_bytes(rich_cap())

@@ -119,11 +119,12 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	assert.ok(req.includes('>\u2265 1.0</td>'), req);
 	assert.ok(req.includes('>Oracle JavaCard API</td>'), req);
 	assert.ok(req.includes('>6</td>'), req);
-	// package identity + compiled-against hint derived from the framework version
+	// package identity + platform requirement derived from the framework version
 	assert.ok(out.includes('A0000000620101') && out.includes('>v1.0</td>'), out);
 	assert.ok(out.includes('applet package'), out);
 	assert.ok(out.includes('(javacard.framework)</span>'), out);
-	assert.ok(out.includes('Java Card 2.1.1/2.1.2 \u00b7 CAP format 2.1'), out);
+	assert.ok(out.includes('>Platform</td>'), out);
+	assert.ok(out.includes('Java Card \u2265 2.1.1/2.1.2 \u00b7 CAP format 2.1'), out);
 	// components in load-file order with sizes, shares and the total row
 	assert.ok(out.includes('>Header</td>') && out.includes('>20 B</td>') && out.includes('>1%</td>'), out);
 	assert.ok(out.includes('>Method</td>') && out.includes('>2.7 kB</td>') && out.includes('>93%</td>'), out);
@@ -132,6 +133,25 @@ test('capMemHtml renders the grouped report: package, requires, memory, componen
 	const c1 = out.indexOf('Header</td>'), c2 = out.indexOf('Method</td>'), c3 = out.indexOf('ConstantPool</td>');
 	assert.ok(c1 >= 0 && c1 < c2 && c2 < c3, 'components keep the load-file order');
 	assert.strictEqual(capMemHtml(null), '');
+});
+
+test('capMemHtml shows the server platform requirement and int support', () => {
+	const mem = memFixture();
+	mem.requires_java_card = '2.2.2';
+	mem.requires_framework = '1.3';
+	mem.needs_int = true;
+	const out = capMemHtml(mem);
+	assert.ok(out.includes('Java Card \u2265 2.2.2 \u00b7 CAP format 2.1 \u00b7 int support'), out);
+	// the server value wins over the local fallback table (fixture import 1.0)
+	assert.ok(!out.includes('2.1.1/2.1.2'), out);
+});
+
+test('capMemHtml falls back to the raw framework version outside the corpus', () => {
+	const mem = memFixture();
+	mem.imports = [{ aid: 'A0000000620101', minor: 0, major: 7, refs: 6 }];
+	const out = capMemHtml(mem);
+	assert.ok(out.includes('javacard.framework \u2265 7.0 \u00b7 CAP format 2.1'), out);
+	assert.ok(!out.includes('Java Card'), out);
 });
 
 test('capMemHtml skips the import section on a response without imports', () => {
