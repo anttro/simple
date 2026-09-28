@@ -22,6 +22,8 @@ function extractFunc(src, name, asyncFn) {
 }
 
 let code = extractFunc(html, 'stkMenuRespond', true) + '\n';
+code += extractFunc(html, 'stkNoPendingError') + '\n';
+code += extractFunc(html, 'stkMenuPanelReset') + '\n';
 code += extractFunc(html, 'stkMenuNaiSuffix') + '\n';
 code += extractFunc(html, 'stkMenuItemsHtml') + '\n';
 code += 'globalThis.esc = s => s;\n';
@@ -32,10 +34,12 @@ function setup(response) {
 	globalThis.pysimFetch = async () => response;
 	globalThis.stkMenuHandleResponse = d => { calls.handled = d; };
 	globalThis.stkMenuRenderItems = () => { calls.rendered++; };
+	globalThis.stkCheckMenu = () => {};
 	const btns = { classList: { add: () => {} } };
 	const back = { style: {} };
 	globalThis.document = {
-		getElementById: id => (id === 'stk-menu-buttons' ? btns : id === 'stk-back-btn' ? back : { innerHTML: '' }),
+		getElementById: id => (id === 'stk-menu-buttons' ? btns : id === 'stk-back-btn' ? back
+			: { innerHTML: '', classList: { add: () => {} } }),
 	};
 	return calls;
 }
@@ -112,5 +116,19 @@ test('ok navigates with the server response', async () => {
 	const calls = setup(data);
 	await stkMenuRespond('ok');
 	assert.strictEqual(calls.handled, data);
+	assert.strictEqual(calls.rendered, 0);
+});
+
+test('stkNoPendingError detects the already-answered reply', () => {
+	assert.strictEqual(stkNoPendingError({ error: 'no pending command' }), true);
+	assert.strictEqual(stkNoPendingError({ sw: '9000', type: 'done' }), false);
+	assert.strictEqual(stkNoPendingError({ error: 'other' }), false);
+	assert.strictEqual(stkNoPendingError(null), false);
+});
+
+test('an already-answered respond does not reach the dialog handler', async () => {
+	const calls = setup({ error: 'no pending command' });
+	await stkMenuRespond('ok');
+	assert.strictEqual(calls.handled, null);
 	assert.strictEqual(calls.rendered, 0);
 });

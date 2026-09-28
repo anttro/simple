@@ -1732,7 +1732,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.34';
+const SIMPLE_VERSION = '3.6.35';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9651,9 +9651,33 @@ async function stkSubItemClick(itemId) {
 	}
 }
 
+// Close the pending-command panel when the server answered the command by
+// itself (the menu watchdog's timeout TERMINAL RESPONSE, or a new selection
+// that shadowed it): the dialog can no longer be answered (v3.6.35).
+function stkMenuPanelReset() {
+	const panel = document.getElementById('stk-menu-panel');
+	if (panel) panel.classList.add('hidden');
+	const btns = document.getElementById('stk-menu-buttons');
+	if (btns) btns.classList.add('hidden');
+	const back = document.getElementById('stk-back-btn');
+	if (back) back.style.display = 'none';
+}
+
+// The /api/menu-respond reply for a command the server already answered.
+function stkNoPendingError(data) {
+	return !!(data && typeof data.error === 'string'
+		&& data.error.indexOf('no pending command') >= 0);
+}
+
 async function stkMenuRespond(result) {
 	try {
 		const data = await pysimFetch('/api/menu-respond', { result: result });
+		if (stkNoPendingError(data)) {
+			// Already answered (timeout / shadowed): close the stale panel
+			stkMenuPanelReset();
+			stkCheckMenu();
+			return;
+		}
 		if (result === 'cancel' || result === 'back' || result === 'timeout') {
 			if (data && (data.type === 'select_item' || data.type === 'display_text')) {
 				stkMenuHandleResponse(data);
@@ -11821,7 +11845,11 @@ function pysimStartBackendPoll() {
 				pysimFetch('/api/test/status').catch(() => null),
 			]);
 			pysimUpdatePollUI(ps.enabled, ps.interval, ps.card_disabled, ps.warning);
-			if (pysimStkStatusChanged(stk) && isViewVisible('tab-phone')) stkCheckMenu();
+			const stkChanged = pysimStkStatusChanged(stk);
+			if (stkChanged && isViewVisible('tab-phone')) stkCheckMenu();
+			// A command the server answered by itself must not leave a stale
+			// dialog behind (the panel is not refreshed when the tab is hidden)
+			if (stkChanged && !stk.pending) stkMenuPanelReset();
 			if (ts) {
 				const wasRunning = testRunActive();
 				_testRunState = ts;

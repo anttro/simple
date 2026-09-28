@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.34'
+VERSION = '3.6.35'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5033,7 +5033,13 @@ class PysimHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+        try:
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # The browser navigated away or reloaded while the response was in
+            # flight (a cancelled poll): the request is done and the client is
+            # gone - one line, no traceback (v3.6.35).
+            sys.stderr.write('CLIENT GONE: %s %s\n' % (self.command, self.path))
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
@@ -5104,7 +5110,10 @@ class PysimHandler(BaseHTTPRequestHandler):
         if last_modified:
             self.send_header('Last-Modified', last_modified)
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            sys.stderr.write('CLIENT GONE: GET %s\n' % rel)
 
     def do_GET(self):
         if _test_request_blocked(self.path):
@@ -5698,6 +5707,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'no terminal profile configured'}, 400)
                 self._log_resp({'error': 'no terminal profile configured'})
                 return
+            _finish_pending_menu(self.server, scc)
             sys.stderr.write('RESCUE: re-sending TERMINAL PROFILE\n')
             resp = _resend_terminal_profile(self.server, scc)
             self._send_json(resp)
@@ -5722,6 +5732,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'no terminal profile configured'}, 400)
                 self._log_resp({'error': 'no terminal profile configured'})
                 return
+            # Never re-send the TP while a FETCHed command awaits its
+            # TERMINAL RESPONSE: answer it with a cancel TR first (v3.6.35).
+            _finish_pending_menu(self.server, scc)
             sys.stderr.write('TERMINAL-PROFILE: re-sending %s\n' % self.server.terminal_profile)
             try:
                 resp = _resend_terminal_profile(self.server, scc)
