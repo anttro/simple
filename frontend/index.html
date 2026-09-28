@@ -703,6 +703,8 @@
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 
+			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300"><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600"> <span data-l10n="Query expanded registry details (E3)">Query expanded registry details (E3)</span></label>
+
 			<div id="ram-install-params" class="hidden mb-3">
 				<div id="ram-cap-rows">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
@@ -1711,7 +1713,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.24';
+const SIMPLE_VERSION = '3.6.25';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8141,6 +8143,7 @@ async function pysimSendOta() {
 			} else {
 				msg += ' | CNTR unchanged (' + ((por && por.response_status) || 'PoR error') + ')';
 			}
+			if (data.ram_format) msg += ' | ' + t('RAM command format:') + ' ' + data.ram_format;
 			sendResultEl.textContent = msg;
 			if (por && por.raw) {
 				const rawLine = document.createElement('div');
@@ -8852,13 +8855,14 @@ function ramMergeElfData(elfs, modules) {
 }
 
 // Render the full explorer result as structured HTML
-function ramRenderExploreHtml(mem, isd, apps, elfs) {
+function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	let html = '';
 	if (mem && (mem.appCount != null || mem.freeNV != null || mem.freeV != null)) {
 		html += '<div class="mb-4 p-3 bg-gray-50 dark:bg-slate-800 rounded">';
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Memory (GET DATA FF21)')) + '</div>';
 		html += '<div>' + esc(t('Applications:')) + ' ' + (mem.appCount != null ? mem.appCount : '?') + '</div>';
 		html += '<div>' + esc(t('Free NV:')) + ' ' + (mem.freeNV != null ? mem.freeNV + ' B' : '?') + '</div>';
+		if (fmt) html += '<div>' + esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
 		html += '<div>' + esc(t('Free Volatile:')) + ' ' + (mem.freeV != null ? mem.freeV + ' B' : '?') + '</div>';
 		html += '</div>';
 	}
@@ -8940,7 +8944,7 @@ function ramRenderExplorer() {
 		explorerEl.innerHTML = '';
 		return;
 	}
-	const html = ramRenderExploreHtml(_ramExplorerData.mem, _ramExplorerData.isd, _ramExplorerData.apps, _ramExplorerData.elfs);
+	const html = ramRenderExploreHtml(_ramExplorerData.mem, _ramExplorerData.isd, _ramExplorerData.apps, _ramExplorerData.elfs, _ramExplorerData.fmt);
 	explorerEl.innerHTML = html || esc(t('(no data)'));
 	explorerEl.classList.remove('hidden');
 	pysimApplyAvailability();
@@ -8961,6 +8965,8 @@ async function ramExplore(sp) {
 		// commands, so the PoR carries the listing; ramListingSpi2() picks the
 		// PoR transport per query.
 		const spi2 = ramListingSpi2(p1);
+		const before = collector.length;
+		let compactError = null;
 		let p2 = '00';
 		let guard = 0;
 		while (guard++ < 32) {
@@ -8976,8 +8982,8 @@ async function ramExplore(sp) {
 			if (res.final_cntr) cntr = res.final_cntr;
 			else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
 			if (!res.success || !res.por || !spPorAccepted(res.por)) {
-				const errorMsg = res.por ? res.por.response_status : (res.error || t('no data'));
-				errors.push(label + ': ' + errorMsg);
+				compactError = label + ': ' + (res.por ? res.por.response_status
+					: (res.error || t('no data')));
 				break;
 			}
 			const data = res.por.decoded ? res.por.decoded.last_response_data : '';
@@ -8985,7 +8991,7 @@ async function ramExplore(sp) {
 			if (!data && res.por.response_status === 'actual_response_sms_submit') {
 				// Accepted, but the actual-response SMS was not captured: there
 				// is nothing to parse for this page (not a card error).
-				errors.push(label + ': ' + t('response via SMS not captured'));
+				compactError = label + ': ' + t('response via SMS not captured');
 				break;
 			}
 			// Defensive: a remote 61XX means the data is still pending (the
@@ -9001,7 +9007,7 @@ async function ramExplore(sp) {
 			}
 			if (sw === '6F00') break;
 			if (!data) {
-				if (sw !== '9000') errors.push(label + ': ' + t('(no data)') + ' — SW ' + sw);
+				if (sw !== '9000') compactError = label + ': ' + t('(no data)') + ' — SW ' + sw;
 				break;
 			}
 			const parsed = parser(data);
@@ -9013,6 +9019,39 @@ async function ramExplore(sp) {
 			if (p1 === '80') break;
 			p2 = '01';
 		}
+		// Expanded pass: the fallback when the compact listing produced
+		// nothing (a card may reject P2.b2=0 - it is deprecated), and the
+		// optional details source (privileges, ELF/SD associations) behind the
+		// "Query expanded registry details (E3)" checkbox.
+		const wantDetails = !!(document.getElementById('ram-expanded-details') || {}).checked;
+		if (collector.length === before || wantDetails) {
+			ramShowProgress(label + ' P1=' + p1 + ' P2=02 (expanded)...');
+			const res = await ramSendOta(ramExpandedQueryApdu(p1), Object.assign({}, sp, { cntr, spi2 }));
+			if (res.ram_format) sp.ram_format = res.ram_format;
+			if (res.final_cntr) cntr = res.final_cntr;
+			else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+			const data = (res.success && res.por && res.por.decoded)
+				? (res.por.decoded.last_response_data || '') : '';
+			const parsed = data ? parser(data) : [];
+			if (collector.length === before) {
+				// Nothing from the compact pass: the expanded result is the listing
+				collector.push(...parsed);
+			} else if (parsed.length) {
+				// Keep the compact entries, add the expanded-only fields
+				const byAid = {};
+				collector.forEach(e => { if (e.aid) byAid[e.aid.toUpperCase()] = e; });
+				parsed.forEach(p => {
+					const cur = byAid[(p.aid || '').toUpperCase()];
+					if (!cur) return;
+					['privileges', 'lifecycle', 'version', 'elfAid', 'sdAid', 'implicitSel'].forEach(k => {
+						if (p[k] && !cur[k]) cur[k] = p[k];
+					});
+					if (p.moduleAids && p.moduleAids.length) cur.moduleAids = p.moduleAids;
+				});
+			}
+		}
+		// The compact error only surfaces when the expanded pass did not rescue it
+		if (collector.length === before && compactError) errors.push(compactError);
 	}
 
 	 ramShowProgress(t('Memory (GET DATA FF21)') + '...');
@@ -9056,11 +9095,11 @@ async function ramExplore(sp) {
 		stepsEl.classList.remove('hidden');
 		stepsEl.textContent = errors.join('\n');
 	} else {
-		resultEl.textContent = t('OK') + ' — ' + isd.length + ' ' + t('ISD') + ', ' + apps.length + ' ' + t('Apps') + ', ' + elfs.length + ' ' + t('ELFs') + (mem.freeNV ? ', ' + mem.freeNV + ' ' + t('free NV') : '');
+		resultEl.textContent = t('OK') + ' — ' + isd.length + ' ' + t('ISD') + ', ' + apps.length + ' ' + t('Apps') + ', ' + elfs.length + ' ' + t('ELFs') + (mem.freeNV ? ', ' + mem.freeNV + ' ' + t('free NV') : '') + (sp.ram_format ? ' — ' + t('RAM command format:') + ' ' + sp.ram_format : '');
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	}
 
-	_ramExplorerData = { mem: mem, isd: isd, apps: apps, elfs: elfs };
+	_ramExplorerData = { mem: mem, isd: isd, apps: apps, elfs: elfs, fmt: sp.ram_format || '' };
 	ramRenderExplorer();
 }
 
@@ -9170,7 +9209,8 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	const removed = ramRemoveFromExplorer(aid, withCascade);
 	stepsEl.classList.remove('hidden');
 	stepsEl.textContent = label + ' ' + aid + ' -> ' + (sw || t('no PoR'));
-	resultEl.textContent = t('OK') + (removed ? '' : ' (' + t('not in the list') + ')');
+	resultEl.textContent = t('OK') + (removed ? '' : ' (' + t('not in the list') + ')')
+		+ (res.ram_format ? ' — ' + t('RAM command format:') + ' ' + res.ram_format : '');
 	resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	// The record is dropped locally (no re-explore); the counter the card
 	// consumed was saved above.
@@ -9870,6 +9910,14 @@ function ramRemoteSwOk(sw) {
 // for the compact path.
 function ramGetStatusApdu(p1, p2) {
 	return '80F2' + p1 + p2 + '024F0000' + 'C0000000';
+}
+
+// P2=02 + the reference tag list: the expanded (E3) registry listing
+// (GP Card Spec 11.4.2.3/11.4.3.1).  Used as the fallback when a card rejects
+// the deprecated compact format and for the optional details pass; the bytes
+// are the reference trace form (`80F28002 0C 4F00 5C08 4F9F70C5C4CCCEEA 00`).
+function ramExpandedQueryApdu(p1) {
+	return '80F2' + p1 + '02' + '0C' + '4F005C084F9F70C5C4CCCEEA' + '00';
 }
 
 // The ISD (80) and memory responses fit the ENVELOPE; the Apps (40) and ELF
@@ -17511,6 +17559,8 @@ const LANG_RU = {
 	'Card reader server is not connected': 'Сервер картридера не подключён',
 	'KIc and KID are required': 'Укажите KIc и KID',
 	'KIc key and KID key are required': 'Укажите ключ KIc и ключ KID',
+	'RAM command format:': 'Формат команд RAM:',
+	'Query expanded registry details (E3)': 'Запрашивать расширенные данные реестра (E3)',
 	'Memory (GET DATA FF21)': 'Память (GET DATA FF21)',
 	'No secured packet to send. Generate a secure packet first.': 'Нет защищённого пакета для отправки. Сначала соберите пакет.',
 	'No secured packet to verify. Generate a secure packet first.': 'Нет защищённого пакета для проверки. Сначала соберите пакет.',

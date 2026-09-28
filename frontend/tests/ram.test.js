@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
-	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance',
+	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -380,6 +380,41 @@ test('ramCardIdxAfterRemove keeps the remembered index aligned', () => {
 	assert.strictEqual(ramCardIdxAfterRemove(0, 0), null);
 	assert.strictEqual(ramCardIdxAfterRemove(0, 2), 0);
 	assert.strictEqual(ramCardIdxAfterRemove(null, 1), null);
+});
+
+test('ramExpandedQueryApdu matches the reference trace bytes', () => {
+	// TCA Loader: `AA14 2212 80F28002 0C 4F00 5C08 4F9F70C5C4CCCEEA 00`
+	for (const p1 of ['80', '40', '20', '10']) {
+		assert.strictEqual(ramExpandedQueryApdu(p1),
+			'80F2' + p1 + '020C4F005C084F9F70C5C4CCCEEA00');
+	}
+});
+
+test('ramParseAppStatus parses the expanded E3 listing (vendor traces)', () => {
+	// Explore_NC.log, ISD: E3 { 4F AID, 9F70 LC, C5 privileges }
+	const isd = ramParseAppStatus('E3134F08A0000000030000009F70010FC5039AFE80');
+	assert.strictEqual(isd.length, 1);
+	assert.strictEqual(isd[0].aid, 'A000000003000000');
+	assert.strictEqual(isd[0].lifecycle, '0F');
+	assert.strictEqual(isd[0].privileges, '9AFE80');
+	assert.strictEqual(isd[0].type, 'app');
+	// Explore_ET.log, application entry: adds the ELF AID (C4) and SD AID (CC)
+	const apps = ramParseAppStatus('E3374F10A1130001180001FFFFFFFF89A10039089F700107C503000000C410A1130001180001FFFFFFFF89A1003900CC08A000000151000000');
+	assert.strictEqual(apps.length, 1);
+	assert.strictEqual(apps[0].aid, 'A1130001180001FFFFFFFF89A1003908');
+	assert.strictEqual(apps[0].elfAid, 'A1130001180001FFFFFFFF89A1003900');
+	assert.strictEqual(apps[0].sdAid, 'A000000151000000');
+	assert.strictEqual(apps[0].privileges, '000000');
+});
+
+test('ramParseElfStatus parses the expanded E3 listing (NP trace)', () => {
+	const elfs = ramParseElfStatus('E31B4F07A00000015153509F700101CE020100CC08A000000151000000');
+	assert.strictEqual(elfs.length, 1);
+	assert.strictEqual(elfs[0].aid, 'A0000001515350');
+	assert.strictEqual(elfs[0].lifecycle, '01');
+	assert.strictEqual(elfs[0].version, '0100');
+	assert.strictEqual(elfs[0].sdAid, 'A000000151000000');
+	assert.strictEqual(elfs[0].type, 'elf');
 });
 
 test('ramParseElfStatus lists the compact ELF and module listings (F0414C46416101)', () => {
