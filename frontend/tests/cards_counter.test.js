@@ -29,7 +29,8 @@ for (const fn of ['cardsTarValue', 'cardsApplyFields', 'cardsApply',
 eval(code);
 
 // The SP form is a working copy: the preset is the source of truth, and
-// every SCP80/RAM operation re-reads it before starting (v3.6.3).
+// every SCP80/RAM operation re-reads it before starting (v3.6.3).  The plain
+// SCP80 send keeps a hand-edited packet TAR (v3.6.21).
 function fakeEnv(selValue, selId, presetCntr) {
 	const els = {};
 	for (const id of ['sp-spi1', 'sp-spi2-hex', 'sp-kic-idx', 'sp-kic-alg',
@@ -68,6 +69,17 @@ test('spRefreshFromPreset for the RAM selector targets the ISD TAR', () => {
 	assert.strictEqual(spRefreshFromPreset('ram-card-sel'), '0000000010');
 	assert.strictEqual(_spTarKey, 'tar');
 	assert.strictEqual(env.els['sp-tar'].value, '000000');
+});
+
+test('the pre-send refresh keeps a hand-edited packet TAR (v3.6.21)', () => {
+	const env = fakeEnv('0', 'sp-card-sel', '0000000020');
+	env.els['sp-tar'].value = 'AF4D01';   // e.g. a push/link trigger target
+	assert.strictEqual(spRefreshFromPreset('sp-card-sel', true), '0000000020');
+	assert.strictEqual(env.els['sp-tar'].value, 'AF4D01', 'the typed TAR must survive the send');
+	assert.strictEqual(env.els['sp-cntr'].value, '0000000020', 'the counter still refreshes');
+	// an explicit preset apply (or a pack) still sets the TAR
+	cardsApplyFields(0);
+	assert.strictEqual(env.els['sp-tar'].value, 'B00000');
 });
 
 test('cardsApplyFields fills the form without generating a packet', () => {

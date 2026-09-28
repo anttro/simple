@@ -1711,7 +1711,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.20';
+const SIMPLE_VERSION = '3.6.21';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4869,7 +4869,7 @@ function _genSpBuild() {
 	const spi2 = parseInt(document.getElementById('sp-spi2-hex').value, 16);
 	const kicHex = document.getElementById('sp-kic-hex').value;
 	const kidHex = document.getElementById('sp-kid-hex').value;
-	const tarHex = (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').padEnd(6, '0').slice(0, 6);
+	const tarHex = (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6);
 	const cntrHex = (document.getElementById('sp-cntr').value || '').replace(/[^0-9a-fA-F]/g, '').padStart(10, '0').slice(0, 10);
 	const kicKeyHex = (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, '');
 	const kidKeyHex = (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, '');
@@ -8037,7 +8037,7 @@ function spParams() {
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
 		kid: document.getElementById('sp-kid-hex').value,
-		tar: document.getElementById('sp-tar').value,
+		tar: (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6),
 		cntr: document.getElementById('sp-cntr').value,
 		kicKey: document.getElementById('sp-kic-key').value,
 		kidKey: document.getElementById('sp-kid-key').value,
@@ -8078,10 +8078,13 @@ async function pysimSendOta() {
 		alert('Card reader server is not connected');
 		return;
 	}
-	// Re-read the preset (counter and keys) before sending: the Cards tab may
-	// have changed it after the form was filled, and a stale counter is
+	// Re-read the preset (counter, keys, SPI) before sending: the Cards tab
+	// may have changed it after the form was filled, and a stale counter is
 	// rejected by the card (cntr_low) and then written back over the preset.
-	spRefreshFromPreset('sp-card-sel');
+	// The TAR is not re-applied: a packet may target a manually entered TAR
+	// (push/link triggers, applet OTA) - the preset sets it only when a card
+	// is picked or a chain is packed (v3.6.21).
+	spRefreshFromPreset('sp-card-sel', true);
 	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (!sp) { alert('No secured packet to send. Generate a secure packet first.'); return; }
 	const sendResultEl = document.getElementById('sp-send-result');
@@ -8476,7 +8479,7 @@ function getRamSpParams() {
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
 		kid: document.getElementById('sp-kid-hex').value,
-		tar: (document.getElementById('sp-tar').value || '000000').replace(/[^0-9a-fA-F]/g, ''),
+		tar: (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6),
 		cntr: (document.getElementById('sp-cntr').value || '0000000001').replace(/[^0-9a-fA-F]/g, ''),
 		kicKey: (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		kidKey: (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
@@ -9762,8 +9765,11 @@ function cardsAutoSelectByIccid(iccid) {
 }
 
 // Fill the SP form from the preset (no packet generation): the form is a
-// working copy, the preset stays the source of truth.
-function cardsApplyFields(idx) {
+// working copy, the preset stays the source of truth.  `keepTar` leaves the
+// packet TAR alone: the plain SCP80 send re-reads only the preset-owned
+// counter/keys/SPI, a manually entered target TAR (push/link triggers,
+// applet OTA) must survive.
+function cardsApplyFields(idx, keepTar) {
 	const c = cards[parseInt(idx)];
 	if (!c) return false;
 	document.getElementById('sp-spi1').value = c.spi1;
@@ -9791,7 +9797,7 @@ function cardsApplyFields(idx) {
 	document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
 	document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
 	updateSpKid();
-	document.getElementById('sp-tar').value = cardsTarValue(_spTarKey, c[_spTarKey]);
+	if (!keepTar) document.getElementById('sp-tar').value = cardsTarValue(_spTarKey, c[_spTarKey]);
 	document.getElementById('sp-cntr').value = c.cntr;
 	document.getElementById('sp-kic-key').value = c.kicKey;
 	document.getElementById('sp-kid-key').value = c.kidKey;
@@ -9800,8 +9806,8 @@ function cardsApplyFields(idx) {
 	return true;
 }
 
-function cardsApply(idx) {
-	if (!cardsApplyFields(idx)) return;
+function cardsApply(idx, keepTar) {
+	if (!cardsApplyFields(idx, keepTar)) return;
 	genSp();
 }
 
@@ -9810,12 +9816,12 @@ function cardsApply(idx) {
 // filled, and a stale counter is rejected by the card (cntr_low) and would
 // then be written back over the preset.  Returns the preset counter ('' when
 // no preset is selected).
-function spRefreshFromPreset(selId) {
+function spRefreshFromPreset(selId, keepTar) {
 	const sel = document.getElementById(selId || 'sp-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
 	if (isNaN(idx) || !cards[idx]) return '';
 	if (selId === 'ram-card-sel') _spTarKey = 'tar';
-	cardsApply(idx);
+	cardsApply(idx, keepTar);
 	return cards[idx].cntr;
 }
 

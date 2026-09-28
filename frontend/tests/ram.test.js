@@ -499,6 +499,11 @@ test('getRamSpParams reads the computed SPI2 byte, not the base select', () => {
 	assert.ok(/spi2: document\.getElementById\('sp-spi2-hex'\)/.test(fn), fn);
 });
 
+test('getRamSpParams normalises the packet TAR to three bytes', () => {
+	const fn = extractFunc(html, 'getRamSpParams');
+	assert.ok(/tar:[\s\S]*?padEnd\(6, '0'\)\.slice\(0, 6\),/.test(fn), fn);
+});
+
 test('ramListingSpi2 requests the SMS-submit PoR for the listing queries', () => {
 	// Apps (40) and ELF (20/10) listings can exceed the ENVELOPE response;
 	// with SPI2=0x01 the card answers actual_response_sms_submit and the data
