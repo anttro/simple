@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges',
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
@@ -190,6 +190,27 @@ test('ramRenderExploreHtml puts the command format after the resource lines', ()
 	const iV = out.indexOf('Free Volatile:');
 	const iFmt = out.indexOf('RAM command format:');
 	assert.ok(iNv >= 0 && iV >= 0 && iFmt > iV, out);
+});
+
+test('explorer action buttons share a fixed-width column, Install is green', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml(
+		{ appCount: 1, freeNV: 10, freeV: 5 },
+		[],
+		[{ aid: 'A000000151000000', lifecycle: '03', privileges: '' }],
+		[{ aid: 'ELF1', lifecycle: '01', version: '1.0', moduleAids: ['M1'] }]
+	);
+	delete global.t;
+	// every action cell is the same fixed-width column
+	assert.ok(out.includes('w-28 shrink-0'), out);
+	// the Install button (module without an instance) is green, not blue
+	const inst = /<button onclick="ramInstallFromExplorer[^>]*class="([^"]*)"/.exec(out);
+	assert.ok(inst, out);
+	assert.ok(inst[1].includes('bg-emerald-100'), inst[1]);
+	assert.ok(!inst[1].includes('bg-blue-'), inst[1]);
+	// the delete buttons keep the danger tone
+	const del = /<button onclick="ramDeleteFromExplorer[^>]*class="([^"]*)"/.exec(out);
+	assert.ok(del && del[1].includes('bg-red-100'), del && del[1]);
 });
 
 test('ramRenderExploreHtml localizes every label and button', () => {

@@ -1713,7 +1713,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.28';
+const SIMPLE_VERSION = '3.6.29';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8811,6 +8811,19 @@ function ramFmtPrivileges(hex) {
 	return decoded === 'None' ? t('(none)') : decoded;
 }
 
+// One explorer action button.  All buttons live in a fixed-width action
+// column so Delete / Delete All / Make selectable / Install line up
+// table-like across the entry and module rows (v3.6.29).
+function ramActionBtn(label, action, tone) {
+	const tones = {
+		danger: 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400',
+		ok: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400',
+	};
+	return '<button onclick="' + action + '" data-needs="card" class="w-full px-2 py-0.5 text-xs text-center whitespace-nowrap rounded '
+		+ (tones[tone] || tones.ok)
+		+ ' disabled:opacity-40 disabled:cursor-not-allowed">' + esc(label) + '</button>';
+}
+
 // Render the full explorer result as structured HTML
 function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	let html = '';
@@ -8840,21 +8853,23 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 		html += '<div class="mb-4">';
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Applications / Applet Instances')) + '</div>';
 		apps.forEach(o => {
-			html += '<div class="mb-1 pl-2 border-l-2 border-green-400">';
-			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?');
-			if (o.aid) {
-				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', false)" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete')) + '</button>';
-				if ((o.lifecycle || '').toUpperCase() === '03') {
-					html += ' <button onclick="ramMakeSelectableFromExplorer(\'' + o.aid + '\')" data-needs="card" class="ml-1 px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Make selectable')) + '</button>';
-				}
-			}
-			html += '</div>';
+			html += '<div class="mb-1 pl-2 border-l-2 border-green-400 flex items-start gap-3">';
+			html += '<div class="flex-1 min-w-0">';
+			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.implicitSel) html += '<div>' + esc(t('Implicit sel:')) + ' ' + o.implicitSel + '</div>';
 			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
+			html += '<div class="w-28 shrink-0 flex flex-col gap-1">';
+			if (o.aid) {
+				html += ramActionBtn(t('Delete'), "ramDeleteFromExplorer('" + o.aid + "', false)", 'danger');
+				if ((o.lifecycle || '').toUpperCase() === '03') {
+					html += ramActionBtn(t('Make selectable'), "ramMakeSelectableFromExplorer('" + o.aid + "')", 'ok');
+				}
+			}
+			html += '</div></div>';
 		});
 		html += '</div>';
 	}
@@ -8862,29 +8877,35 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 		html += '<div class="mb-4">';
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + '</div>';
 		elfs.forEach(o => {
-			html += '<div class="mb-1 pl-2 border-l-2 border-purple-400">';
-			html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?');
-			if (o.aid) {
-				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', false)" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete')) + '</button>';
-				html += ' <button onclick="ramDeleteFromExplorer(\'' + o.aid + '\', true)" data-needs="card" class="ml-1 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Delete All')) + '</button>';
-			}
-			html += '</div>';
+			html += '<div class="mb-1 pl-2 border-l-2 border-purple-400 flex items-start gap-3">';
+			html += '<div class="flex-1 min-w-0">';
+			html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
 			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + o.version + '</div>';
 			if (o.moduleAids && o.moduleAids.length) {
 				html += '<div>' + esc(t('Executable Module AIDs / Applet Class AIDs:')) + '</div>';
-				o.moduleAids.forEach(m => {
-					html += '<div class="pl-4">- ' + jcAidHtml(m);
-					// A loaded applet class with no instance yet: one click to
-					// the single-APDU INSTALL [for install].
-					if (!ramHasInstance(apps, m)) {
-						html += ' <button onclick="ramInstallFromExplorer(\'' + o.aid + '\',\'' + m + '\')" data-needs="card" class="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Install')) + '</button>';
-					}
-					html += '</div>';
-				});
 			}
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
 			html += '</div>';
+			html += '<div class="w-28 shrink-0 flex flex-col gap-1">';
+			if (o.aid) {
+				html += ramActionBtn(t('Delete'), "ramDeleteFromExplorer('" + o.aid + "', false)", 'danger');
+				html += ramActionBtn(t('Delete All'), "ramDeleteFromExplorer('" + o.aid + "', true)", 'danger');
+			}
+			html += '</div></div>';
+			// Module rows: emitted as sibling rows so their Install buttons share
+			// the same action column as the entry buttons.
+			(o.moduleAids || []).forEach(m => {
+				html += '<div class="mb-1 pl-6 flex items-start gap-3">';
+				html += '<div class="flex-1 min-w-0">- ' + jcAidHtml(m) + '</div>';
+				html += '<div class="w-28 shrink-0 flex flex-col gap-1">';
+				// A loaded applet class with no instance yet: one click to the
+				// single-APDU INSTALL [for install].
+				if (!ramHasInstance(apps, m)) {
+					html += ramActionBtn(t('Install'), "ramInstallFromExplorer('" + o.aid + "','" + m + "')", 'ok');
+				}
+				html += '</div></div>';
+			});
 		});
 		html += '</div>';
 	}
