@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.41'
+VERSION = '3.6.42'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -843,6 +843,87 @@ def _cap_parse(cap_hex):
     loadfile_data = b''.join(loadfile_parts).hex().upper()
 
     return loadfile_aid, module_aid, loadfile_data
+
+
+def _probe_import_versions(load_file_hex, overrides):
+    """Diagnostic probe: rewrite the version bytes of the load file's Import
+    component (JC VM spec 4.5.2 - the card must export every imported package
+    at >= the recorded version).
+
+    The JCRE checks the import list while it verifies the load file, so a card
+    that cannot satisfy one of the CAP's export versions rejects the LOAD as
+    soon as the Import component is complete (live 2026-09-29: remote SW
+    6438/6985 exactly in the block containing the component's last byte).
+    Lowering the versions shows whether that list is the cause and, by
+    bisection, which package the card refuses.  Only the two version bytes per
+    entry change: the load file length, the component sizes, the Directory and
+    every offset stay untouched.
+
+    `overrides` is {'all': 'x.y'} or {aid_hex: 'x.y'} (lower/upper case and
+    spaces are tolerated).  Returns (patched_hex, applied) where `applied`
+    lists the entries actually changed.  Diagnostic only - never used for a
+    real install."""
+    data = bytearray.fromhex(load_file_hex or '')
+    if not data:
+        raise ValueError('empty load file')
+
+    norm = {}
+    for key, value in (overrides or {}).items():
+        k = str(key).replace(' ', '')
+        norm['all' if k.lower() == 'all' else k.upper()] = value
+
+    def version_pair(text):
+        try:
+            major, minor = str(text).strip().split('.')
+            major, minor = int(major), int(minor)
+        except (TypeError, ValueError):
+            raise ValueError('invalid version %r (expected major.minor)' % (text,))
+        if not (0 <= major <= 255 and 0 <= minor <= 255):
+            raise ValueError('version out of range: %r' % (text,))
+        return minor, major          # the CAP stores [minor][major]
+
+    # Walk the components to the Import one (tag 0x04; sizes exclude the
+    # 3-byte component header).
+    start = None
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            start = off + 3
+            end = start + size
+            break
+        off += 3 + size
+    if start is None:
+        raise ValueError('no Import component in the load file')
+    if end > len(data):
+        raise ValueError('truncated Import component')
+    count = data[start]
+    p = start + 1
+    matched = 0
+    applied = []
+    for _ in range(count):
+        if p + 3 > end:
+            raise ValueError('truncated Import entry')
+        minor, major, aid_len = data[p], data[p + 1], data[p + 2]
+        aid_hex = bytes(data[p + 3:p + 3 + aid_len]).hex().upper()
+        if p + 3 + aid_len > end:
+            raise ValueError('truncated Import entry AID')
+        override = norm.get(aid_hex, norm.get('all'))
+        if override is not None:
+            matched += 1
+            new_minor, new_major = version_pair(override)
+            if (new_minor, new_major) != (minor, major):
+                applied.append({'aid': aid_hex,
+                                'from': '%d.%d' % (major, minor),
+                                'to': '%d.%d' % (new_major, new_minor)})
+                data[p] = new_minor
+                data[p + 1] = new_major
+        p += 3 + aid_len
+    if not matched:
+        raise ValueError('no import matched the probe (give AIDs from the '
+                         'CAP analysis or "all")')
+    return data.hex().upper(), applied
 
 
 def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', include_cpi=True,
@@ -6499,6 +6580,21 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # Parse .cap file
                 loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
 
+                # Optional diagnostic: rewrite the Import versions the card is
+                # asked to satisfy before the LOAD chain is built (v3.6.42)
+                probe_applied = None
+                probe = body.get('probe_imports')
+                if probe:
+                    try:
+                        loadfile_data, probe_applied = _probe_import_versions(loadfile_data, probe)
+                    except ValueError as e:
+                        resp = {'error': 'import probe: %s' % e}
+                        self._send_json(resp, 400)
+                        self._log_resp(resp)
+                        return
+                    sys.stderr.write('RAM-INSTALL: import probe applied: %s\n'
+                                     % json.dumps(probe_applied))
+
                 # SCP80 params
                 spi1 = body.get('spi1', '16')
                 spi2 = body.get('spi2', '01')
@@ -6579,6 +6675,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                             resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                                     'error': (state['encode_error'] or state['failure'].get('error')
                                               or ('%s failed' % step_name)),
+                                    'probe_imports': probe_applied,
                                     'final_cntr': state['cntr'], 'ram_format': ram_format,
                                     'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                     'load_block_size': block_size,
@@ -6592,7 +6689,7 @@ class PysimHandler(BaseHTTPRequestHandler):
 
                 resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
                         'module_aid': module_aid, 'final_cntr': state['cntr'],
-                        'ram_format': ram_format,
+                        'ram_format': ram_format, 'probe_imports': probe_applied,
                         'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
                         'load_block_size_auto': not block_size_req}

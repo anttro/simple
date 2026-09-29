@@ -8,7 +8,7 @@ import unittest
 import zipfile
 
 from pysim_simple_server import capmem
-from pysim_simple_server.server import _cap_info_body
+from pysim_simple_server.server import _cap_info_body, _cap_parse, _probe_import_versions
 
 
 # ─── synthetic CAP builder ───────────────────────────────────────────────
@@ -26,7 +26,9 @@ def _u4(v):
 
 
 def _component(tag, payload):
-    return bytes([tag]) + _u2(len(payload) + 3) + payload
+    # Real CAP components carry the *payload* length (the 3-byte component
+    # header is not counted), e.g. the live Header is `01 00 11` + 17 bytes.
+    return bytes([tag]) + _u2(len(payload)) + payload
 
 
 def _header(aid, flags=0, name=None):
@@ -159,6 +161,74 @@ def rich_cap(with_static=True):
         method_bytecode=bytecode,
         static=_static_field(8, 2, [(0x0C, [0, 1, 0, 2])]) if with_static else None,
     )
+
+
+def _import_entries(load_file):
+    """[(aid_hex, major, minor)] of the load file's Import component."""
+    data = bytes.fromhex(load_file) if isinstance(load_file, str) else load_file
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            start = off + 3
+            count = data[start]
+            p = start + 1
+            out = []
+            for _ in range(count):
+                minor, major, aid_len = data[p], data[p + 1], data[p + 2]
+                aid = bytes(data[p + 3:p + 3 + aid_len]).hex().upper()
+                out.append((aid, major, minor))
+                p += 3 + aid_len
+            return out
+        off += 3 + size
+    raise AssertionError('no Import component')
+
+
+class ImportProbeTests(unittest.TestCase):
+    """The RAM-install Import probe (v3.6.42, diagnostic only)."""
+
+    OTHER_AID = bytes.fromhex('0102030405')
+
+    def _load_file(self):
+        cap = build_cap(imports=[(3, 1, JAVACARD_FRAMEWORK), (0, 1, self.OTHER_AID)])
+        _aid, _module, load = _cap_parse(cap.hex().upper())
+        return load
+
+    def test_probe_all_lowers_every_version_keeping_the_length(self):
+        load = self._load_file()
+        before = _import_entries(load)
+        self.assertEqual([(maj, min_) for _a, maj, min_ in before], [(1, 3), (1, 0)])
+        patched, applied = _probe_import_versions(load, {'all': '0.0'})
+        self.assertEqual(len(patched), len(load))          # same byte length
+        self.assertEqual(len(applied), 2)
+        self.assertEqual([(maj, min_) for _a, maj, min_ in _import_entries(patched)],
+                         [(0, 0), (0, 0)])
+        self.assertEqual(applied[0],
+                         {'aid': JAVACARD_FRAMEWORK.hex().upper(), 'from': '1.3', 'to': '0.0'})
+
+    def test_probe_single_aid_leaves_the_others(self):
+        load = self._load_file()
+        patched, applied = _probe_import_versions(
+            load, {JAVACARD_FRAMEWORK.hex().lower(): '1.0'})
+        self.assertEqual(applied, [{'aid': JAVACARD_FRAMEWORK.hex().upper(),
+                                    'from': '1.3', 'to': '1.0'}])
+        self.assertEqual([(maj, min_) for _a, maj, min_ in _import_entries(patched)],
+                         [(1, 0), (1, 0)])
+        # overrides that change nothing are matches, not errors
+        _same, applied2 = _probe_import_versions(
+            load, {JAVACARD_FRAMEWORK.hex().upper(): '1.3', '0102030405': '1.0'})
+        self.assertEqual(applied2, [])
+        self.assertEqual(_same, load)
+
+    def test_probe_rejects_unknown_aids_and_bad_versions(self):
+        load = self._load_file()
+        with self.assertRaises(ValueError):
+            _probe_import_versions(load, {'DEADBEEF': '0.0'})
+        with self.assertRaises(ValueError):
+            _probe_import_versions(load, {'all': 'x.y'})
+        with self.assertRaises(ValueError):
+            _probe_import_versions(load, {'all': '1.300'})
 
 
 class TestCapAnalyzer(unittest.TestCase):

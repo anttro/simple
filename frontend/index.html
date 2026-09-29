@@ -713,6 +713,20 @@
 						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
 						<div id="ram-cap-body"></div>
 					</fieldset>
+					<fieldset class="mt-2 border border-gray-200 dark:border-slate-700 rounded p-3">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import probe (diagnostic)">Import probe (diagnostic)</legend>
+						<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer">
+							<input id="ram-probe-enable" type="checkbox" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800" onchange="ramProbeChanged()">
+							<span data-l10n="Rewrite the CAP's import versions before the load">Rewrite the CAP's import versions before the load</span>
+						</label>
+						<div id="ram-probe-body" class="hidden mt-2">
+							<textarea id="ram-probe-versions" rows="4" spellcheck="false" oninput="this.dataset.manual='1'" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="AID=version per line"></textarea>
+							<div class="flex items-center gap-2 mt-1">
+								<button type="button" onclick="ramProbeAllZero()" class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Set all 0.0">Set all 0.0</button>
+								<span class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.">Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.</span>
+							</div>
+						</div>
+					</fieldset>
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
 					<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
 				</div>
@@ -1732,7 +1746,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.41';
+const SIMPLE_VERSION = '3.6.42';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8602,7 +8616,7 @@ async function capAnalyzeFile(file, kind) {
 		if (resp && resp.ok) {
 			st.status = 'ok';
 			st.memory = resp.memory || {};
-			if (kind === 'ram') ramApplyCapToolkitMode();
+			if (kind === 'ram') { ramApplyCapToolkitMode(); ramProbeFill(st.memory); }
 		} else {
 			st.status = 'error';
 			st.error = (resp && resp.error) || t('Analysis failed');
@@ -9443,11 +9457,63 @@ function ramInstallFailHint(data, mem) {
 	return hint;
 }
 
+// ===== Import probe (diagnostic, v3.6.42) =====
+// The card checks the CAP's import list while it verifies the load file, so
+// rewriting the requested versions shows whether that list is what it refuses
+// - and, by lowering one entry at a time, which package and version it lacks.
+
+// 'AID=version' per line (or 'all=x.y'); blank/comment lines are ignored.
+// Pure: returns {map} or {error}.
+function ramProbeParse(text) {
+	const out = {};
+	for (const rawLine of String(text || '').split('\n')) {
+		const line = rawLine.split('#')[0].trim();
+		if (!line) continue;
+		const m = /^([0-9a-fA-F]{2,32}|all)\s*=\s*(\d{1,3})\.(\d{1,3})$/.exec(line);
+		if (!m) return { error: t('Invalid line:') + ' ' + line };
+		const aid = m[1].toLowerCase() === 'all' ? 'all' : m[1].toUpperCase();
+		out[aid] = m[2] + '.' + m[3];
+	}
+	if (!Object.keys(out).length) return { error: t('No import versions given') };
+	return { map: out };
+}
+
+function ramProbeChanged() {
+	const on = document.getElementById('ram-probe-enable').checked;
+	document.getElementById('ram-probe-body').classList.toggle('hidden', !on);
+}
+
+// Prefill from the analysed CAP's import list unless the user edited it.
+function ramProbeFill(mem) {
+	const el = document.getElementById('ram-probe-versions');
+	if (!el || (el.dataset && el.dataset.manual)) return;
+	const imports = (mem && mem.imports) || [];
+	el.value = imports.map(im => im.aid + '=' + (Number(im.major) || 0) + '.' + (Number(im.minor) || 0)).join('\n');
+}
+
+function ramProbeAllZero() {
+	const el = document.getElementById('ram-probe-versions');
+	if (!el) return;
+	el.value = String(el.value || '').split('\n').map(line => {
+		const m = /^([0-9a-fA-F]{2,32}|all)\s*=/.exec(line.trim());
+		return m ? m[1] + '=0.0' : line;
+	}).join('\n');
+	el.dataset.manual = '1';
+}
+
 async function ramInstallCap(sp) {
 	const fileInput = document.getElementById('ram-cap-file');
 	const file = fileInput.files[0];
 	if (!file) { alert(t('Select a .cap file')); return; }
 	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+
+	// Import probe (diagnostic): validated before the modal opens
+	let probe = null;
+	if (document.getElementById('ram-probe-enable').checked) {
+		const parsed = ramProbeParse(document.getElementById('ram-probe-versions').value);
+		if (parsed.error) { alert(parsed.error); return; }
+		probe = parsed.map;
+	}
 
 	const capPkg = (_capAnalysis.ram.memory && _capAnalysis.ram.memory.package_aid) || '';
 	ramOpModalBegin(t('Installing package') + (capPkg ? ' \u2014 ' + capPkg : ''));
@@ -9484,6 +9550,7 @@ async function ramInstallCap(sp) {
 		if (!(n >= 1 && n <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
 		body.load_block_size = n;
 	}
+	if (probe) body.probe_imports = probe;
 
 	const data = await pysimFetch('/api/ram-install', body);
 
@@ -9554,13 +9621,21 @@ function ramShowInstallResult(data, okText, capMem) {
 	// even a failed install leaves the accepted steps behind, and replaying
 	// their counter would make the card reject the next attempt.
 	if (data.final_cntr) ramSaveCntr(data.final_cntr);
+	// The import probe's applied changes (diagnostic runs only)
+	let probeNote = '';
+	const pa = data.probe_imports;
+	if (pa && pa.length) {
+		const targets = Array.from(new Set(pa.map(p => p.to)));
+		probeNote = ' \u2014 ' + t('probe') + ': ' + pa.length + ' ' + t('imports') +
+			' \u2192 ' + (targets.length === 1 ? targets[0] : t('mixed'));
+	}
 	if (data.success) {
-		resultEl.textContent = okText || t('OK');
+		resultEl.textContent = (okText || t('OK')) + probeNote;
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	} else {
 		const hint = ramInstallFailHint(data, capMem || null);
 		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '') +
-			(hint ? ' \u2014 ' + t('Hint:') + ' ' + hint : '');
+			probeNote + (hint ? ' \u2014 ' + t('Hint:') + ' ' + hint : '');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, txt);
@@ -17367,6 +17442,15 @@ const LANG_RU = {
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
 	'Hint:': 'Подсказка:',
+	'Import probe (diagnostic)': 'Проба импортов (диагностика)',
+	"Rewrite the CAP's import versions before the load": 'Переписать версии импортов CAP перед загрузкой',
+	'Set all 0.0': 'Все 0.0',
+	'Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.': 'Только диагностика: карта проверяет список импортов при загрузке, поэтому понижение версий показывает, является ли он причиной отказа.',
+	'Invalid line:': 'Некорректная строка:',
+	'No import versions given': 'Версии импортов не заданы',
+	'probe': 'проба',
+	'imports': 'импортов',
+	'mixed': 'разные',
 	'completes': 'завершает',
 	'inside': 'внутри',
 	'the failed step completes': 'неудавшийся шаг завершает',

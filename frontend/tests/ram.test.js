@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -771,4 +771,20 @@ test('ramDeleteFromExplorer advances but does not re-explore on a failed remote 
 		'the card consumed the packet, so the counter still advances');
 	assert.strictEqual(calls.explored, null, 'a failed DELETE must not re-explore');
 	unstubDeleteEnv();
+});
+
+test('ramProbeParse reads AID=version lines', () => {
+	globalThis.t = s => s;
+	let r = ramProbeParse('A0000000620101=0.0\n\n# comment\n0102030405 = 1.2');
+	assert.deepStrictEqual(r.map, { 'A0000000620101': '0.0', '0102030405': '1.2' });
+	// 'all' and lower-case AIDs are accepted, normalized to upper case
+	r = ramProbeParse('all=0.0');
+	assert.deepStrictEqual(r.map, { all: '0.0' });
+	r = ramProbeParse('a0000000620101=1.3');
+	assert.deepStrictEqual(r.map, { 'A0000000620101': '1.3' });
+	// malformed lines and an empty field are errors
+	assert.ok(ramProbeParse('A0000000620101').error);
+	assert.ok(ramProbeParse('A0000000620101=x.y').error);
+	assert.ok(ramProbeParse('').error);
+	assert.ok(ramProbeParse('  \n# only comments\n').error);
 });
