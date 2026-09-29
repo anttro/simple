@@ -332,6 +332,28 @@ class TestCapAnalyzer(unittest.TestCase):
         self.assertEqual(info['requires_framework'], '2.0')
         self.assertIsNone(info['requires_java_card'])
 
+    def test_etsi_release_from_the_uicc_toolkit_import(self):
+        uicc = bytes.fromhex('A0000000090005FFFFFFFF8912000000')
+        # the REL-7 prepared tree carries uicc.toolkit 1.4
+        report, _ = capmem.analyze_bytes(build_cap(imports=[(4, 1, uicc)]))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertEqual(info['requires_etsi_release'], 'REL-7')
+        self.assertEqual(info['requires_etsi_basis'], 'uicc.toolkit 1.4')
+        # the default (REL-12) tree carries 1.11
+        report, _ = capmem.analyze_bytes(build_cap(imports=[(11, 1, uicc)]))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertEqual(info['requires_etsi_release'], 'REL-12')
+        # an unmapped version keeps the basis, without a release
+        report, _ = capmem.analyze_bytes(build_cap(imports=[(7, 1, uicc)]))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertIsNone(info['requires_etsi_release'])
+        self.assertEqual(info['requires_etsi_basis'], 'uicc.toolkit 1.7')
+        # no uicc.toolkit import -> no ETSI line (SIM-only CAPs have no mapping)
+        report, _ = capmem.analyze_bytes(build_cap(imports=[(3, 1, JAVACARD_FRAMEWORK)]))
+        info = capmem.memory_json(report, capmem.compute_memory(report))
+        self.assertIsNone(info['requires_etsi_release'])
+        self.assertIsNone(info['requires_etsi_basis'])
+
     def test_memory_json_nvram_requirement_uses_the_load_file(self):
         report, memory = capmem.analyze_bytes(rich_cap())
         info = capmem.memory_json(report, memory, load_file_bytes=1000)

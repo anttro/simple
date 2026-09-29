@@ -148,6 +148,18 @@ test('capMemHtml shows the server platform requirement and int support', () => {
 	assert.ok(!out.includes('2.1.1/2.1.2'), out);
 });
 
+test('capMemHtml names the ETSI release the UICC API imports come from', () => {
+	const mem = memFixture();
+	mem.requires_java_card = '2.2.2';
+	mem.requires_etsi_release = 'REL-7';
+	mem.requires_etsi_basis = 'uicc.toolkit 1.4';
+	const out = capMemHtml(mem);
+	assert.ok(out.includes('Java Card \u2265 2.2.2 \u00b7 ETSI REL-7 (uicc.toolkit 1.4) \u00b7 CAP format 2.1'), out);
+	// a CAP without uicc.toolkit (or an unmapped version) shows no ETSI part
+	const noEtsi = capMemHtml(memFixture());
+	assert.ok(!noEtsi.includes('ETSI'), noEtsi);
+});
+
 test('capMemHtml falls back to the raw framework version outside the corpus', () => {
 	const mem = memFixture();
 	mem.imports = [{ aid: 'A0000000620101', minor: 0, major: 7, refs: 6 }];

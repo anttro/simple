@@ -1747,7 +1747,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.43';
+const SIMPLE_VERSION = '3.6.44';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8499,6 +8499,12 @@ function capMemHtml(mem) {
 		(fw ? JC_FRAMEWORK_SDK[(Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0)] : '');
 	let against = sdk ? 'Java Card \u2265 ' + sdk
 		: (fw ? 'javacard.framework \u2265 ' + (Number(fw.major) || 0) + '.' + (Number(fw.minor) || 0) : '');
+	// the ETSI release the UICC API imports come from (capmem: uicc.toolkit
+	// version -> REL-N per the workspace sim-tools corpus), basis in brackets
+	if (mem.requires_etsi_release) {
+		against += (against ? ' \u00b7 ' : '') + 'ETSI ' + mem.requires_etsi_release +
+			(mem.requires_etsi_basis ? ' (' + mem.requires_etsi_basis + ')' : '');
+	}
 	if (mem.cap_version) against += (against ? ' \u00b7 ' : '') + t('CAP format') + ' ' + mem.cap_version;
 	if (mem.needs_int) against += (against ? ' \u00b7 ' : '') + t('int support');
 	if (against) pkgRows += row(label(esc(t('Platform'))) + cell(esc(against), 'pl-4'));

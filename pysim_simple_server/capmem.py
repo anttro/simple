@@ -1458,6 +1458,22 @@ JC_FRAMEWORK_JDK = {
     '1.4': '3.0.3', '1.5': '3.0.4', '1.6': '3.0.5',
 }
 
+# uicc.toolkit (ETSI TS 102 241, UICC API for Java Card) export version -> the
+# ETSI/3GPP release the library comes from.  Sources: the workspace corpus -
+# sim-tools/ETSI-REL.md (the prepared trees: api21_rel7_export_files carries
+# uicc.toolkit 1.4 = the REL-7 jar, api21_export_files 1.11 = the REL-12 jar)
+# and sim-tools/etsi/102241/README.md's package-version table (spec version ->
+# toolkit version, read from the Annex B exports: 1.0 spans 06.00.01-07.02.00,
+# 1.11 spans 13.01.00-14.02.00, ...).  Only uicc.toolkit has a documented
+# mapping - the SIM API (sim.toolkit, TS 102 230) corpus is not mirrored, so a
+# SIM-only CAP gets no release label.
+UICC_TOOLKIT_AID = 'A0000000090005FFFFFFFF8912000000'
+ETSI_TOOLKIT_RELEASE = {
+    '1.0': 'REL-6/7', '1.1': 'REL-7', '1.2': 'REL-7', '1.3': 'REL-8',
+    '1.4': 'REL-7', '1.5': 'REL-9', '1.11': 'REL-12',
+    '1.12': 'REL-15/16/17', '1.13': 'REL-17', '1.14': 'REL-17/18',
+}
+
 
 def analyze_bytes(cap_bytes, verbose=False):
     """Analyze a CAP archive (bytes) and return (report, memory)."""
@@ -1502,6 +1518,13 @@ def analyze_bytes(cap_bytes, verbose=False):
         if fw:
             report['requires_framework'] = f'{fw.major}.{fw.minor}'
             report['requires_java_card'] = JC_FRAMEWORK_JDK.get(report['requires_framework'])
+        # ETSI release the UICC API comes from (uicc.toolkit import version)
+        tk = next((p for p in cap.components['import'].packages
+                   if p.aid_hex == UICC_TOOLKIT_AID), None)
+        if tk:
+            tk_v = f'{tk.major}.{tk.minor}'
+            report['requires_etsi_basis'] = 'uicc.toolkit %s' % tk_v
+            report['requires_etsi_release'] = ETSI_TOOLKIT_RELEASE.get(tk_v)
 
     # Component sizes (the load file order) for the breakdown display
     report['components'] = [{'name': name, 'size': size} for name, size in cap.files]
@@ -1745,6 +1768,8 @@ def memory_json(report, memory, load_file_bytes=None):
         # the framework import, and the header int flag's loader requirement
         'requires_framework': report.get('requires_framework'),
         'requires_java_card': report.get('requires_java_card'),
+        'requires_etsi_release': report.get('requires_etsi_release'),
+        'requires_etsi_basis': report.get('requires_etsi_basis'),
         'needs_int': bool(report.get('needs_int')),
         'components': report.get('components', []),
         'class_count': report.get('class_count', 0),
@@ -1800,6 +1825,9 @@ def format_report(report, memory):
         if report.get('needs_int'):
             req += ', int support'
         lines.append(req)
+    if report.get('requires_etsi_release'):
+        lines.append('Requires ETSI %s (%s)' % (report['requires_etsi_release'],
+                                                report.get('requires_etsi_basis') or 'uicc.toolkit'))
     if 'package_version' in report:
         lines.append(f'Package version: {report["package_version"]}')
     if 'package_aid' in report:
