@@ -714,17 +714,18 @@
 						<div id="ram-cap-body"></div>
 					</fieldset>
 					<fieldset class="mt-2 border border-gray-200 dark:border-slate-700 rounded p-3">
-						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import probe (diagnostic)">Import probe (diagnostic)</legend>
-						<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import probe (diagnostic)" data-l10n-title="Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.">Import probe (diagnostic)</legend>
+						<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer" data-l10n-title="Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.">
 							<input id="ram-probe-enable" type="checkbox" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800" onchange="ramProbeChanged()">
-							<span data-l10n="Rewrite the CAP's import versions before the load">Rewrite the CAP's import versions before the load</span>
+							<span data-l10n="Enable import probe">Enable import probe</span>
 						</label>
 						<div id="ram-probe-body" class="hidden mt-2">
 							<textarea id="ram-probe-versions" rows="4" spellcheck="false" oninput="this.dataset.manual='1'" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="AID=version per line"></textarea>
 							<div class="flex items-center gap-2 mt-1">
-								<button type="button" onclick="ramProbeAllZero()" class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Set all 0.0">Set all 0.0</button>
-								<span class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.">Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.</span>
+								<button type="button" onclick="ramProbeAllZero()" data-l10n-title="Sets every AID=version line to 0.0." class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Set all 0.0">Set all 0.0</button>
 							</div>
+							<div class="text-xs text-gray-400 dark:text-slate-500 mt-1" data-l10n="The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.">The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.</div>
+							<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.">Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.</div>
 						</div>
 					</fieldset>
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
@@ -1746,7 +1747,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.42';
+const SIMPLE_VERSION = '3.6.43';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -17443,9 +17444,12 @@ const LANG_RU = {
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
 	'Hint:': 'Подсказка:',
 	'Import probe (diagnostic)': 'Проба импортов (диагностика)',
-	"Rewrite the CAP's import versions before the load": 'Переписать версии импортов CAP перед загрузкой',
+	'Enable import probe': 'Включить пробу импортов',
 	'Set all 0.0': 'Все 0.0',
-	'Diagnostic only: the card checks the import list while loading, so lowering the versions shows whether it is the rejection cause.': 'Только диагностика: карта проверяет список импортов при загрузке, поэтому понижение версий показывает, является ли он причиной отказа.',
+	'Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.': 'Только диагностика: переписывает два байта версии у каждого импорта в load-файле (длина не меняется); для настоящей установки не используется.',
+	'Sets every AID=version line to 0.0.': 'Заменяет все строки AID=version на 0.0.',
+	"The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.": 'Карта проверяет список импортов CAP при загрузке, поэтому отказ LOAD на компоненте Import обычно означает, что она не может удовлетворить этот список.',
+	"Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.": 'Сначала нажмите «Все 0.0»: если LOAD теперь проходит, причина была в списке; затем возвращайте по одной строке, чтобы найти пакет и версию, которых не хватает карте.',
 	'Invalid line:': 'Некорректная строка:',
 	'No import versions given': 'Версии импортов не заданы',
 	'probe': 'проба',
@@ -18219,6 +18223,11 @@ function translatePage() {
 	document.querySelectorAll('[data-l10n]').forEach(el => {
 		const key = el.getAttribute('data-l10n');
 		el.textContent = t(key);
+	});
+	// static tooltips (the data-l10n-title attribute; the html test checks
+	// those keys against LANG_RU together with the data-l10n ones)
+	document.querySelectorAll('[data-l10n-title]').forEach(el => {
+		el.title = t(el.getAttribute('data-l10n-title'));
 	});
 }
 

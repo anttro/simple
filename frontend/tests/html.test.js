@@ -444,6 +444,7 @@ test('every data-l10n attribute resolves in LANG_RU after HTML decoding', () => 
     const decode = s => s.replace(/&([a-z]+|#[0-9]+);/gi,
         (m, e) => entities[e] !== undefined ? entities[e] : m);
     const attrs = [...html.matchAll(/data-l10n="([^"]*)"/g)].map(m => decode(m[1]));
-    const missing = [...new Set(attrs.filter(k => !(k in dict)))];
+    const titles = [...html.matchAll(/data-l10n-title="([^"]*)"/g)].map(m => decode(m[1]));
+    const missing = [...new Set([...attrs, ...titles].filter(k => !(k in dict)))];
     assert.deepStrictEqual(missing, [], 'data-l10n keys with no LANG_RU entry:\n' + missing.join('\n'));
 });
