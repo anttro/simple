@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.46'
+VERSION = '3.6.47'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4864,6 +4864,20 @@ _TEST_BLOCKED_PATHS = frozenset([
     '/api/scp81/gen-install', '/api/scp81/log-clear',
     '/api/bip/control', '/api/bip/log-clear',
 ])
+# GET endpoints that only read cached state (or the static file tree): served
+# without _CARD_LOCK so they stay answerable while a long card operation runs
+# (see do_GET).  Card-touching GETs are deliberately absent: /api/cardinfo
+# (runs cardinfo on the card) and /api/esim/* (ES10 selection + STORE DATA).
+_CARD_FREE_GET = frozenset([
+    '/api/status', '/api/test/status', '/api/version',
+    '/api/stk-status', '/api/poll-status', '/api/proactive-log',
+    '/api/menu', '/api/events', '/api/terminal-profile',
+    '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
+    '/api/net-state', '/api/mcc-mnc',
+    '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
+    '/api/scp81/log', '/api/bip/log',
+])
+
 _TEST_COMMAND_TYPES = {name.upper(): code for code, name in PROACTIVE_TYPE_NAMES.items()}
 
 
@@ -5424,15 +5438,17 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'test script running - card commands are '
                                       'blocked until it finishes'}, 409)
             return
-        # /api/status and /api/test/status are pure cached state (no card I/O);
-        # keeping them out of the lock lets the UI report 'initializing' while a
-        # long equip (or a test script step) holds the card lock.  Result-shaping
-        # masks everything card-derived when the session is not connected.
-        # Static PWA files are card-free too: they must stay answerable while a
-        # long card operation holds the lock (the server is threaded, so this
-        # bypass is what actually serves the modal's progress poll and page
-        # assets during a RAM install).
-        if self.path in ('/api/status', '/api/test/status') or not self.path.startswith('/api/'):
+        # Pure cached state (no card I/O) is served without the lock: the UI
+        # must be able to report 'initializing' while a long equip (or a test
+        # script step) holds the card lock.  The list is deliberately wide:
+        # with a long RAM install the UI polls several of these every few
+        # seconds, and if they queued behind the install they would eat the
+        # browser's per-host connection budget - starving /api/status (the
+        # modal's progress bar froze around 70% and jumped to 100% at the end,
+        # live 2026-09-29).  Static PWA files are card-free too.  Card-touching
+        # GETs (cardinfo, esim/*) stay locked below.
+        path = self.path.split('?', 1)[0]
+        if path in _CARD_FREE_GET or not path.startswith('/api/'):
             self._do_GET()
             return
         # Serialize all card access: the background STATUS poll runs in its own

@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 
 from pysim_simple_server.__main__ import _build_http_server
-from pysim_simple_server.server import PysimHandler
+from pysim_simple_server.server import PysimHandler, _CARD_FREE_GET, _CARD_LOCK
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -105,6 +105,56 @@ class TestScriptHttpTests(unittest.TestCase):
             urllib.request.urlopen('http://127.0.0.1:%d/api/test/run' % self.port, timeout=5)
         self.assertEqual(cm.exception.code, 404)
         cm.exception.close()
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+class CardFreeGetTests(unittest.TestCase):
+    """Cached GETs must answer while the card lock is held.
+
+    During a long RAM install the UI polls several cached endpoints every few
+    seconds; while they queued behind the install they ate the browser's
+    per-host connection budget and starved /api/status - the modal's progress
+    bar froze around 70% and jumped to 100% at the end (live 2026-09-29).
+    """
+
+    def setUp(self):
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = None
+        self.server.stk_pending = None
+        self.server.menu_active = False
+        self.server.sim_menu = None
+        self.server.event_list = None
+        self.server.terminal_profile = None
+        self.server.cli_terminal_profile = None
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _get(self, path, timeout=2):
+        return urllib.request.urlopen(
+            'http://127.0.0.1:%d%s' % (self.port, path), timeout=timeout)
+
+    def test_cached_endpoints_answer_while_the_card_lock_is_held(self):
+        with _CARD_LOCK:
+            for path in ('/api/status', '/api/stk-status', '/api/poll-status',
+                         '/api/proactive-log', '/api/menu', '/api/events'):
+                with self.subTest(path=path):
+                    with self._get(path) as res:
+                        self.assertEqual(res.status, 200)
+
+    def test_card_touching_gets_stay_locked(self):
+        # cardinfo runs a card command; the ES10 endpoints select/STORE DATA
+        for path in ('/api/cardinfo', '/api/esim/chip', '/api/esim/profiles'):
+            self.assertNotIn(path, _CARD_FREE_GET)
 
 
 if __name__ == '__main__':

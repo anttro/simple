@@ -374,12 +374,14 @@ test('ramGetStatusApdu builds the compact chain, never the expanded form', () =>
 test('ramStepLine shows the PoR verdict and the remote status word', () => {
 	globalThis.t = s => s;
 	globalThis.lookupSw = (a, b) => (a + b === '6700' ? 'Wrong length in Lc' : '');
+	// successful steps are compact: verdict symbol, remote SW (no name),
+	// size; the SMS count only for concatenated packets
 	const okLine = ramStepLine({ name: 'INSTALL [for load]', por_status: 'por_ok',
 		por_sw: '9000', sw: '9000', bytes: 50, segments: 1 }, 0);
-	assert.ok(okLine.startsWith('\u2705'), okLine);
-	assert.ok(okLine.includes('PoR ok'), okLine);
-	assert.ok(okLine.includes('remote SW 9000'), okLine);
-	assert.ok(okLine.includes('50 bytes / 1 SMS'), okLine);
+	assert.strictEqual(okLine, '\u2705 Step 1: INSTALL [for load] \u2014 9000 \u00b7 50 B');
+	const multi = ramStepLine({ name: 'LOAD (1/64)', por_status: 'por_ok',
+		por_sw: '6101', bytes: 274, segments: 3 }, 1);
+	assert.strictEqual(multi, '\u2705 Step 2: LOAD (1/64) \u2014 6101 \u00b7 274 B / 3 SMS');
 	const badLine = ramStepLine({ name: 'LOAD (1/9)', por_status: 'por_ok', por_sw: '6700',
 		por_error: 'remote SW 6700', sw: '9000', bytes: 274, segments: 3 }, 1);
 	assert.ok(badLine.startsWith('\u274c'), badLine);

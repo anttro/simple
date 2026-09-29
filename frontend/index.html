@@ -1725,7 +1725,7 @@
 	</div>
 
 	<div id="ram-op-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
-		<div class="bg-white dark:bg-slate-800 rounded-lg p-4 max-w-lg w-full max-h-[85vh] flex flex-col">
+		<div class="bg-white dark:bg-slate-800 rounded-lg p-4 max-w-3xl w-full max-h-[85vh] flex flex-col">
 			<div class="flex justify-between items-center mb-2 gap-3">
 				<span id="ram-op-title" class="font-bold text-sm flex-1"></span>
 				<button id="ram-op-close" onclick="ramOpModalClose()" disabled class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Close">Close</button>
@@ -1746,7 +1746,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.46';
+const SIMPLE_VERSION = '3.6.47';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9432,20 +9432,31 @@ function ramStepLine(s, idx, comps, blockSize) {
 	const ok = !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
 	let line = (ok ? '\u2705' : '\u274c') + ' ' + t('Step') + ' ' + (idx + 1) + ': ' +
 		s.name + ' \u2014 ';
-	if (s.por_status === 'por_ok') line += t('PoR ok');
-	else if (s.por_status === 'no_por') line += t('no PoR');
-	else if (s.por_status && s.por_status.indexOf('por_error') === 0) {
-		const legacy = s.por_status.replace(/^por_error_?/, '');
-		line += t('PoR error') + (legacy ? ' ' + legacy : '');
-	} else if (s.por_status) line += t('PoR error') + ' ' + s.por_status;
-	else line += t('PoR unknown');
-	if (s.por_sw) {
-		const name = lookupSw(s.por_sw.substr(0, 2), s.por_sw.substr(2, 2), 'gp');
-		line += ' \u00b7 ' + t('remote SW') + ' ' + s.por_sw + (name ? ' (' + name + ')' : '');
-	}
-	if (s.sw && s.sw !== '9000') line += ' \u00b7 ' + t('transport SW') + ' ' + s.sw;
-	if (s.bytes && s.segments) {
-		line += ' \u00b7 ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
+	if (ok) {
+		// successful step: the verdict symbol carries the meaning - keep the
+		// remote status word (without its verbose name), the size and the SMS
+		// count only when the packet was concatenated
+		if (s.por_sw) line += s.por_sw;
+		else if (s.por_status === 'no_por') line += t('no PoR');
+		else line += t('OK');
+		if (s.bytes) line += ' \u00b7 ' + s.bytes + ' B';
+		if (s.segments > 1) line += ' / ' + s.segments + ' SMS';
+	} else {
+		if (s.por_status === 'por_ok') line += t('PoR ok');
+		else if (s.por_status === 'no_por') line += t('no PoR');
+		else if (s.por_status && s.por_status.indexOf('por_error') === 0) {
+			const legacy = s.por_status.replace(/^por_error_?/, '');
+			line += t('PoR error') + (legacy ? ' ' + legacy : '');
+		} else if (s.por_status) line += t('PoR error') + ' ' + s.por_status;
+		else line += t('PoR unknown');
+		if (s.por_sw) {
+			const name = lookupSw(s.por_sw.substr(0, 2), s.por_sw.substr(2, 2), 'gp');
+			line += ' \u00b7 ' + t('remote SW') + ' ' + s.por_sw + (name ? ' (' + name + ')' : '');
+		}
+		if (s.sw && s.sw !== '9000') line += ' \u00b7 ' + t('transport SW') + ' ' + s.sw;
+		if (s.bytes && s.segments) {
+			line += ' \u00b7 ' + s.bytes + ' ' + t('bytes') + ' / ' + s.segments + ' SMS';
+		}
 	}
 	const sc = ramStepComponents(s.name, comps, blockSize);
 	if (sc) {

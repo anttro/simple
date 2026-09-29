@@ -486,3 +486,9 @@ test('the RAM form shows Card preset and Operation in one row', () => {
     const row = /<div class="mb-3 flex gap-2 items-end">\s*<div class="flex-1">\s*<label[^>]*data-l10n="Card preset"[\s\S]*?id="ram-card-sel"[\s\S]*?data-l10n="Operation"[\s\S]*?id="ram-op"[\s\S]*?data-l10n="Execute"/.exec(html);
     assert.ok(row, 'Card preset + Operation + Execute must share one row');
 });
+
+test('the RAM operation modal is wide enough for the step lines', () => {
+    const m = /<div id="ram-op-modal"[\s\S]*?<div class="([^"]*max-w-[^"]*)"/.exec(html);
+    assert.ok(m, 'RAM op modal not found');
+    assert.ok(m[1].includes('max-w-3xl'), 'the modal was widened to fit the step lines: ' + m[1]);
+});
