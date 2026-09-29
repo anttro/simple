@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.40'
+VERSION = '3.6.41'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5584,66 +5584,6 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {('%02X' % q): v for q, v in _PLI_DATA.items()}
             self._send_json(resp)
             self._log_resp(resp)
-        elif self.path == '/api/test/run':
-            body = self._read_body()
-            self._log_req(body)
-            if _TEST_RUNNING:
-                resp = {'error': 'a test script is already running'}
-                self._send_json(resp, 409)
-                self._log_resp(resp)
-                return
-            try:
-                script = testscript.normalise_script(body.get('script'), _test_command_type)
-            except testscript.ScriptError as e:
-                resp = {'error': str(e)}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-            preset = body.get('preset') or {}
-            needs_scp80 = any(s['type'] == 'action' and s['kind'] == 'scp80'
-                              for s in script['steps'])
-            err = _test_preset_error(script, preset) if needs_scp80 else None
-            if err:
-                resp = {'error': err}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-            try:
-                _test_run_start(self.server, script, preset)
-            except Exception as e:
-                resp = {'error': 'could not start the test run: %s' % e}
-                self._send_json(resp, 500)
-                self._log_resp(resp)
-                return
-            resp = _test_state_snapshot()
-            self._send_json(resp)
-            self._log_resp(resp)
-        elif self.path == '/api/test/stop':
-            self._log_req()
-            with _TEST_LOCK:
-                if _TEST_RUN['running']:
-                    _TEST_RUN['stop'] = True
-            resp = _test_state_snapshot()
-            self._send_json(resp)
-            self._log_resp(resp)
-        elif self.path == '/api/test/clear':
-            self._log_req()
-            with _TEST_LOCK:
-                busy = bool(_TEST_RUN['running'])
-                if not busy:
-                    _TEST_RUN.update({
-                        'running': False, 'stop': False, 'name': None, 'status': None,
-                        'session': None, 'index': 0, 'total': 0, 'steps': [],
-                        'preset': None, 'scp80_counter': None,
-                        'started': None, 'finished': None, 'error': None,
-                    })
-            if busy:
-                resp = {'error': 'test script is running'}
-                self._send_json(resp, 409)
-            else:
-                resp = _test_state_snapshot()
-                self._send_json(resp)
-            self._log_resp(resp)
         elif self.path == '/api/poll-status':
             resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL,
                     'card_disabled': _POLL_DISABLED_BY_CARD}
@@ -6813,6 +6753,66 @@ class PysimHandler(BaseHTTPRequestHandler):
             _BIP.clear_log()
             resp = {'ok': True, 'seq': _BIP.seq}
             self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/run':
+            body = self._read_body()
+            self._log_req(body)
+            if _TEST_RUNNING:
+                resp = {'error': 'a test script is already running'}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            try:
+                script = testscript.normalise_script(body.get('script'), _test_command_type)
+            except testscript.ScriptError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            preset = body.get('preset') or {}
+            needs_scp80 = any(s['type'] == 'action' and s['kind'] == 'scp80'
+                              for s in script['steps'])
+            err = _test_preset_error(script, preset) if needs_scp80 else None
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                _test_run_start(self.server, script, preset)
+            except Exception as e:
+                resp = {'error': 'could not start the test run: %s' % e}
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+                return
+            resp = _test_state_snapshot()
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/stop':
+            self._log_req()
+            with _TEST_LOCK:
+                if _TEST_RUN['running']:
+                    _TEST_RUN['stop'] = True
+            resp = _test_state_snapshot()
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/clear':
+            self._log_req()
+            with _TEST_LOCK:
+                busy = bool(_TEST_RUN['running'])
+                if not busy:
+                    _TEST_RUN.update({
+                        'running': False, 'stop': False, 'name': None, 'status': None,
+                        'session': None, 'index': 0, 'total': 0, 'steps': [],
+                        'preset': None, 'scp80_counter': None,
+                        'started': None, 'finished': None, 'error': None,
+                    })
+            if busy:
+                resp = {'error': 'test script is running'}
+                self._send_json(resp, 409)
+            else:
+                resp = _test_state_snapshot()
+                self._send_json(resp)
             self._log_resp(resp)
         else:
             self._send_json({'error': _err('not_found', lang)}, 404)
