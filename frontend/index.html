@@ -683,14 +683,13 @@
 		<div id="scp80-sub-ram" class="hidden">
 			<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="RAM operations perform atomic GlobalPlatform commands over SCP80. Card keys are taken from the saved preset.">RAM operations perform atomic GlobalPlatform commands over SCP80. Card keys are taken from the saved preset.</p>
 
-			<div class="mb-3">
-				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Card preset">Card preset</label>
-				<select id="ram-card-sel" onchange="ramApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
-					<option value="" data-l10n="— Select card —">— Select card —</option>
-				</select>
-			</div>
-
 			<div class="mb-3 flex gap-2 items-end">
+				<div class="flex-1">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Card preset">Card preset</label>
+					<select id="ram-card-sel" onchange="ramApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						<option value="" data-l10n="— Select card —">— Select card —</option>
+					</select>
+				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Operation">Operation</label>
 					<select id="ram-op" onchange="ramOpChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
@@ -1354,7 +1353,6 @@
 				</fieldset>
 			</div>
 		</div>
-	</div>
 
 	<div id="tab-scp81" class="tab-content hidden">
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
@@ -1603,6 +1601,7 @@
 		</div>
 		<div id="cards-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
 	</div>
+	</div>
 
 	<div id="event-send-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
 		<div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-sm w-full mx-4 max-h-[85vh] overflow-auto">
@@ -1747,7 +1746,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.45';
+const SIMPLE_VERSION = '3.6.46';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====

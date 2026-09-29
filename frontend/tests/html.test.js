@@ -448,3 +448,41 @@ test('every data-l10n attribute resolves in LANG_RU after HTML decoding', () => 
     const missing = [...new Set([...attrs, ...titles].filter(k => !(k in dict)))];
     assert.deepStrictEqual(missing, [], 'data-l10n keys with no LANG_RU entry:\n' + missing.join('\n'));
 });
+
+test('every tab-content lives inside the max-w-7xl page container', () => {
+    // SCP81 and Cards used to sit outside the container (its closing </div>
+    // came before them), so they stretched to the whole window while the
+    // other tabs were capped - v3.6.46.
+    const markup = htmlOnly(html);
+    const re = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*?)>/g;
+    let m;
+    let depth = 0;
+    let containerDepth = null;
+    const seen = new Set();
+    while ((m = re.exec(markup))) {
+        const closing = m[1] === '/';
+        const tag = m[2].toLowerCase();
+        const attrs = m[3] || '';
+        const selfClosing = attrs.trim().endsWith('/');
+        if (VOID_TAGS.has(tag) || selfClosing) continue;
+        if (closing) {
+            if (containerDepth !== null && depth === containerDepth) containerDepth = null;
+            depth--;
+            continue;
+        }
+        if (tag === 'div' && /class="[^"]*max-w-7xl/.test(attrs)) containerDepth = depth + 1;
+        if (tag === 'div' && /class="[^"]*tab-content/.test(attrs)) {
+            const id = (/id="([^"]+)"/.exec(attrs) || [])[1];
+            assert.notStrictEqual(containerDepth, null,
+                id + ' must be inside the max-w-7xl page container');
+            seen.add(id);
+        }
+        depth++;
+    }
+    assert.strictEqual(seen.size, 7, 'expected all seven tabs, saw ' + seen.size);
+});
+
+test('the RAM form shows Card preset and Operation in one row', () => {
+    const row = /<div class="mb-3 flex gap-2 items-end">\s*<div class="flex-1">\s*<label[^>]*data-l10n="Card preset"[\s\S]*?id="ram-card-sel"[\s\S]*?data-l10n="Operation"[\s\S]*?id="ram-op"[\s\S]*?data-l10n="Execute"/.exec(html);
+    assert.ok(row, 'Card preset + Operation + Execute must share one row');
+});
