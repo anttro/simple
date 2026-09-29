@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -787,4 +787,50 @@ test('ramProbeParse reads AID=version lines', () => {
 	assert.ok(ramProbeParse('A0000000620101=x.y').error);
 	assert.ok(ramProbeParse('').error);
 	assert.ok(ramProbeParse('  \n# only comments\n').error);
+});
+
+test('ramRenderExploreHtml counts apps and ELFs in the section headings', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml(null,
+		[{ aid: 'A1', lifecycle: '07' }],
+		[{ aid: 'A2', lifecycle: '07' }],
+		[{ aid: 'E1', lifecycle: '01', moduleAids: [] }]);
+	delete global.t;
+	assert.ok(out.includes('Applications / Applet Instances (1)'), out);
+	assert.ok(out.includes('Executable Load Files (ELFs) / Packages (1)'), out);
+	// the ISD is a single occurrence (GP 11.4.2.1): no count in its heading
+	assert.ok(out.includes('ISD (Issuer Security Domain)'), out);
+	assert.ok(!out.includes('ISD (Issuer Security Domain) ('), out);
+});
+
+test('the RAM command format line explains compact vs expanded', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml({ appCount: 1, freeNV: 1, freeV: 1 }, [], [], [], 'compact');
+	delete global.t;
+	assert.ok(out.includes('title="compact = the TS 102 226 5.2.1 command string'), out);
+});
+
+test('ramExplore runs inline, without the blocking modal', () => {
+	const src = extractFunc(html, 'ramExplore');
+	assert.ok(!/ramOpModal(Begin|Finish|Status)/.test(src),
+		'Explore must not use the RAM modal (installs only)');
+});
+
+test('the expanded-details checkbox is a sticky preference', () => {
+	const els = fakeRamDocument(['ram-expanded-details']);
+	const store = {};
+	globalThis.localStorage = {
+		getItem: k => (k in store ? store[k] : null),
+		setItem: (k, v) => { store[k] = String(v); },
+	};
+	els['ram-expanded-details'].checked = false;
+	ramExpandedDetailsInit();
+	assert.strictEqual(els['ram-expanded-details'].checked, false);   // default: off
+	store['simple_ram_expanded'] = '1';
+	ramExpandedDetailsInit();
+	assert.strictEqual(els['ram-expanded-details'].checked, true);    // stored choice applied
+	els['ram-expanded-details'].checked = false;
+	ramExpandedDetailsChanged();
+	assert.strictEqual(store['simple_ram_expanded'], '0');            // ticking stores it
+	delete globalThis.localStorage;
 });

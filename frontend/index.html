@@ -703,7 +703,7 @@
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 
-			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300"><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600"> <span data-l10n="Query expanded registry details (E3)">Query expanded registry details (E3)</span></label>
+			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA).  The compact listing carries AID/lifecycle/privileges/version only; the expanded pass adds the Load File AID, Security Domain AID and module lists.  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing."><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600" onchange="ramExpandedDetailsChanged()"> <span data-l10n="Fetch expanded registry details (load-file / SD associations)">Fetch expanded registry details (load-file / SD associations)</span></label>
 
 			<div id="ram-install-params" class="hidden mb-3">
 				<div id="ram-cap-rows">
@@ -1747,7 +1747,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.44';
+const SIMPLE_VERSION = '3.6.45';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8262,6 +8262,23 @@ function ramRender() {
 	});
 	if (keep !== null && keep !== undefined && cards[keep]) sel.value = String(keep);
 	ramOpChanged();
+	ramExpandedDetailsInit();
+}
+
+// The "Fetch expanded registry details" checkbox is a sticky preference: the
+// expanded query costs extra secured packets and not every card accepts it,
+// so it stays off unless the user asked for it (stored per browser).
+function ramExpandedDetailsInit() {
+	const el = document.getElementById('ram-expanded-details');
+	if (!el) return;
+	let v = null;
+	try { v = localStorage.getItem('simple_ram_expanded'); } catch (e) { /* private mode */ }
+	if (v !== null) el.checked = v === '1';
+}
+
+function ramExpandedDetailsChanged() {
+	const el = document.getElementById('ram-expanded-details');
+	try { localStorage.setItem('simple_ram_expanded', el && el.checked ? '1' : '0'); } catch (e) { /* ignore */ }
 }
 
 function ramApplyCard(idx) {
@@ -9003,7 +9020,10 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 		html += '<div>' + esc(t('Applications:')) + ' ' + (mem.appCount != null ? mem.appCount : '?') + '</div>';
 		html += '<div>' + esc(t('Free NV:')) + ' ' + (mem.freeNV != null ? mem.freeNV + ' B' : '?') + '</div>';
 		html += '<div>' + esc(t('Free Volatile:')) + ' ' + (mem.freeV != null ? mem.freeV + ' B' : '?') + '</div>';
-		if (fmt) html += '<div>' + esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
+		if (fmt) {
+			html += '<div title="' + esc(t('compact = the TS 102 226 5.2.1 command string (one C-APDU per secured packet, e.g. GET STATUS + GET RESPONSE); expanded = the AA/22 Command Scripting template (5.2.1.0).  Detected per operation with a read-only GET STATUS probe; a card that rejects the deprecated compact P2.b2=0 form answers the expanded one.')) + '">' +
+				esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
+		}
 		html += '</div>';
 	}
 	if (isd && isd.length) {
@@ -9021,7 +9041,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	}
 	if (apps && apps.length) {
 		html += '<div class="mb-4">';
-		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Applications / Applet Instances')) + '</div>';
+		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Applications / Applet Instances')) + ' (' + apps.length + ')</div>';
 		apps.forEach(o => {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-green-400 flex items-start gap-3">';
 			html += '<div class="flex-1 min-w-0">';
@@ -9045,7 +9065,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	}
 	if (elfs && elfs.length) {
 		html += '<div class="mb-4">';
-		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + '</div>';
+		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + ' (' + elfs.length + ')</div>';
 		elfs.forEach(o => {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-purple-400 flex items-start gap-3">';
 			html += '<div class="flex-1 min-w-0">';
@@ -9107,8 +9127,6 @@ async function ramExplore(sp) {
 	const mem = { appCount: null, freeNV: null, freeV: null };
 	const isd = [], apps = [], elfs = [];
 
-	ramOpModalBegin(t('Explore Card (all GP data)'));
-
 	async function paginate(p1, collector, parser, label, quiet) {
 		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
 		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
@@ -9122,7 +9140,6 @@ async function ramExplore(sp) {
 		while (guard++ < 32) {
 			const apdu = ramGetStatusApdu(p1, p2);
 			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
-			ramOpModalStatus(label + ' P1=' + p1 + ' P2=' + p2);
 			const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
 			// Reuse the format detected for the first packet of this run
 			if (res.ram_format) sp.ram_format = res.ram_format;
@@ -9173,7 +9190,7 @@ async function ramExplore(sp) {
 		// Expanded pass: the fallback when the compact listing produced
 		// nothing (a card may reject P2.b2=0 - it is deprecated), and the
 		// optional details source (privileges, ELF/SD associations) behind the
-		// "Query expanded registry details (E3)" checkbox.
+		// "Fetch expanded registry details" checkbox.
 		const wantDetails = !!(document.getElementById('ram-expanded-details') || {}).checked;
 		if (collector.length === before || wantDetails) {
 			ramShowProgress(label + ' P1=' + p1 + ' P2=02 (expanded)...');
@@ -9207,7 +9224,6 @@ async function ramExplore(sp) {
 	}
 
 	 ramShowProgress(t('Card resources (GET DATA FF21)') + '...');
-	 ramOpModalStatus(t('Card resources (GET DATA FF21)'));
 	try {
 		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
 		if (memRes.ram_format) sp.ram_format = memRes.ram_format;
@@ -9257,13 +9273,12 @@ async function ramExplore(sp) {
 		stepsEl.classList.remove('hidden');
 		stepsEl.textContent = errors.join('\n');
 	} else {
-		resultEl.textContent = t('OK') + ' — ' + isd.length + ' ' + t('ISD') + ', ' + apps.length + ' ' + t('Apps') + ', ' + elfs.length + ' ' + t('ELFs') + (mem.freeNV ? ', ' + mem.freeNV + ' ' + t('free NV') : '') + (sp.ram_format ? ' — ' + t('RAM command format:') + ' ' + sp.ram_format : '');
+		resultEl.textContent = t('OK');
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
 	}
 
 	_ramExplorerData = { mem: mem, isd: isd, apps: apps, elfs: elfs, fmt: sp.ram_format || '' };
 	ramRenderExplorer();
-	ramOpModalFinish(resultEl.textContent, errors.length === 0, errors.join('\n'));
 }
 
 // GP DELETE (Card Spec v2.3.1 11.2, Tables 11-20/11-23): P1=00 (last/only
@@ -18067,7 +18082,9 @@ const LANG_RU = {
 	'KIc and KID are required': 'Укажите KIc и KID',
 	'KIc key and KID key are required': 'Укажите ключ KIc и ключ KID',
 	'RAM command format:': 'Формат команд RAM:',
-	'Query expanded registry details (E3)': 'Запрашивать расширенные данные реестра (E3)',
+	'Fetch expanded registry details (load-file / SD associations)': 'Запрашивать расширенные данные реестра (связи load-файла и SD)',
+	'Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA).  The compact listing carries AID/lifecycle/privileges/version only; the expanded pass adds the Load File AID, Security Domain AID and module lists.  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing.': 'Запускает дополнительный расширенный запрос для каждого списка (P2=02, список тегов 4F 9F70 C5 C4 CC CE EA). Компактный список содержит только AID/состояние/привилегии/версию; расширенный проход добавляет AID load-файла, AID Security Domain и списки модулей. Он расходует дополнительные защищённые пакеты, и не все карты его поддерживают — Explore и так применяет его автоматически, когда компактный список ничего не вернул.',
+	'compact = the TS 102 226 5.2.1 command string (one C-APDU per secured packet, e.g. GET STATUS + GET RESPONSE); expanded = the AA/22 Command Scripting template (5.2.1.0).  Detected per operation with a read-only GET STATUS probe; a card that rejects the deprecated compact P2.b2=0 form answers the expanded one.': 'compact = командная строка по TS 102 226 5.2.1 (один C-APDU на защищённый пакет, например GET STATUS + GET RESPONSE); expanded = шаблон Command Scripting AA/22 (5.2.1.0). Определяется для каждой операции пробным чтением GET STATUS; карта, отклоняющая устаревшую компактную форму P2.b2=0, отвечает в расширенной.',
 	'Card resources (GET DATA FF21)': 'Ресурсы карты (GET DATA FF21)',
 	'Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory': 'Расширенные ресурсы карты (тег GP FF21, ETSI TS 102 226 8.2.1.7.2): число установленных приложений, свободная энергонезависимая и свободная энергозависимая память',
 	'No secured packet to send. Generate a secure packet first.': 'Нет защищённого пакета для отправки. Сначала соберите пакет.',
