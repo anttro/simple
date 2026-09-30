@@ -1113,6 +1113,13 @@ test('ramCompatFailureHtml names the failing CAP section and the import list', (
 	assert.ok(out3.includes('The import list already passed \u2014 the Import component completed at LOAD (1/2).'), out3);
 	assert.ok(out3.includes('remote SW 6581'), out3);
 	assert.ok(!out3.includes('4.5.2'), out3);
+	// a real install run (no probe): the hint points at the compatibility test
+	const install = { success: false, failed_step: 3, boundary_block: 1, total_blocks: 2,
+		load_block_size: 240, error: 'LOAD (1/2): remote SW 6985', steps: data.steps };
+	const out4 = ramCompatFailureHtml(install, mem);
+	assert.ok(out4.includes('the CAP compatibility test can confirm it'), out4);
+	assert.ok(!out4.includes('lower the versions (Set all 0.0)'), out4);
+	assert.ok(out4.includes('Import list under test (4):'), out4);
 	delete globalThis.t;
 	// not a LOAD failure at all: no block analysis
 	assert.strictEqual(ramCompatFailureHtml(Object.assign({}, data, {
@@ -1140,6 +1147,15 @@ test('the compatibility test runs in the modal like the install', () => {
 	assert.ok(src.includes('ramOpModalFinish'), 'must finish it with the verdict');
 	assert.ok(src.includes('ramCompatDetailHtml'), 'the per-AID detail must reach the modal');
 	assert.ok(!src.includes('ramShowProgress'), 'the inline progress bar is replaced by the modal');
+});
+
+test('a failed install carries the LOAD failure analysis into the modal', () => {
+	const src = extractFunc(html, 'ramShowInstallResult');
+	assert.ok(src.includes('ramCompatDetailHtml(data, capMem'), 'the analysis must reach the modal');
+	assert.ok(/ramOpModalFinish\(resultEl\.textContent, !!data\.success, modal, true\)/.test(src),
+		'the modal content is HTML now');
+	assert.ok(src.includes('ramInstallFailHint'), 'the short inline hint stays');
+	assert.ok(src.includes('ramNvLine'), 'the NV footprint line stays');
 });
 
 test('ramExecute dispatches the compatibility test op', () => {

@@ -1749,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.52';
+const SIMPLE_VERSION = '3.6.53';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9830,10 +9830,15 @@ function ramCompatFailureHtml(data, mem) {
 		html += ramCompatRowsHtml(rows);
 		const capRows = rows.filter(r => r.state === 'cap' || r.state === 'lowered');
 		const atCap = capRows.filter(r => r.state === 'cap').length;
+		const hasProbe = !!((data.probe_imports && data.probe_imports.length) ||
+			(data.probe_unmatched && data.probe_unmatched.length));
 		if (capRows.length && !atCap) {
 			html += '<div>' + esc(t('Every import was tested at 0.0 \u2014 a package the card does not have (or another load-file check, e.g. memory) is the cause.')) + '</div>';
-		} else if (capRows.length) {
+		} else if (capRows.length && hasProbe) {
 			html += '<div>' + esc(t('The card checks the whole list at that point \u2014 lower the versions (Set all 0.0) to test whether the list is the cause, then restore one line at a time to find the culprit.')) + '</div>';
+		} else if (capRows.length) {
+			// a real install runs the CAP's own versions: point at the test
+			html += '<div>' + esc(t('The card checks the whole list at that point \u2014 the CAP compatibility test can confirm it: Set all 0.0 first, then restore one line at a time to find the package and version the card lacks.')) + '</div>';
 		}
 	}
 	html += '</div>';
@@ -10032,7 +10037,10 @@ function ramNvLine(data) {
 }
 
 // Shared result rendering for /api/ram-install and /api/ram-install-app: the
-// per-step lines, the counter the card consumed, and the verdict.
+// per-step lines, the counter the card consumed, and the verdict.  A failure
+// at a LOAD / INSTALL [for load] step also gets the same block analysis as
+// the compatibility test (which CAP section the block covers, what the card
+// checks there, the import list and the status word) in the modal.
 function ramShowInstallResult(data, okText, capMem) {
 	const resultEl = document.getElementById('ram-result');
 	const stepsEl = document.getElementById('ram-steps');
@@ -10064,7 +10072,12 @@ function ramShowInstallResult(data, okText, capMem) {
 			probeNote + (hint ? ' \u2014 ' + t('Hint:') + ' ' + hint : '');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 	}
-	ramOpModalFinish(resultEl.textContent, !!data.success, txt);
+	// The modal carries the step lines (escaped) plus the LOAD-failure
+	// analysis when there is one (ramCompatDetailHtml returns '' for a
+	// successful run and for failures that are not LOAD/INSTALL [for load]).
+	let modal = esc(txt);
+	modal += ramCompatDetailHtml(data, capMem || null);
+	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
 }
 
 async function ramExecute() {
@@ -17906,6 +17919,7 @@ const LANG_RU = {
 	'The import list already passed \u2014 the Import component completed at': 'Список импортов уже пройден \u2014 компонент Import завершён на',
 	'Every import was tested at 0.0 \u2014 a package the card does not have (or another load-file check, e.g. memory) is the cause.': 'Все импорты проверены с версией 0.0 \u2014 причина в пакете, которого нет на карте (или в другой проверке load-файла, например памяти).',
 	'The card checks the whole list at that point \u2014 lower the versions (Set all 0.0) to test whether the list is the cause, then restore one line at a time to find the culprit.': 'Карта проверяет весь список в этой точке \u2014 понизьте версии («Все 0.0»), чтобы проверить, в списке ли причина, затем возвращайте по одной строке, чтобы найти виновника.',
+	'The card checks the whole list at that point \u2014 the CAP compatibility test can confirm it: Set all 0.0 first, then restore one line at a time to find the package and version the card lacks.': 'Карта проверяет весь список в этой точке \u2014 это можно подтвердить проверкой совместимости CAP: сначала «Все 0.0», затем возвращайте по одной строке, чтобы найти пакет и версию, которых не хватает карте.',
 	'completes': 'завершает',
 	'inside': 'внутри',
 	'the failed step completes': 'неудавшийся шаг завершает',
