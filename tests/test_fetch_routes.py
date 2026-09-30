@@ -16,6 +16,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 from pysim_simple_server.__main__ import _build_http_server
 from pysim_simple_server.server import PysimHandler, _CARD_FREE_GET, _CARD_LOCK
@@ -220,6 +221,92 @@ class CapCompatHttpTests(unittest.TestCase):
                                   {'cap_hex': _mini_cap_hex(), 'probe_imports': {'all': 'x'}})
         self.assertEqual(status, 400, resp)
         self.assertIn('import probe', resp['error'])
+
+
+class RamInstallNvFootprintHttpTests(unittest.TestCase):
+    """The RAM install response carries the measured NV footprint (v3.6.51):
+    the server reads GET DATA FF21 before and after the chain (best effort)
+    and reports the free-NV values and their delta."""
+
+    def setUp(self):
+        from pysim_simple_server import server as srv
+        self.srv = srv
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = object()
+        self.server.sms_oa = '12345'
+        self.server.sms_sc = '12345678912'
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _post(self, path, body):
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path),
+            data=json.dumps(body).encode(),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b'{}')
+
+    def _install(self, fail_at=None, nv_before=50000, nv_after=20000):
+        def fake_send(server, scc, sp, state, name, apdu, silent=False):
+            if fail_at == name:
+                state['steps'].append({'name': name, 'por_status': 'por_error', 'por_sw': '6A88'})
+                return False
+            state['steps'].append({'name': name, 'por_status': 'por_ok', 'por_sw': '9000'})
+            return True
+
+        def fake_read(server, scc, sp, state, ram_format, label):
+            return nv_before if label == 'NV before' else nv_after
+
+        patches = [
+            mock.patch.object(self.srv, '_cap_parse',
+                              lambda cap_hex: ('F0414C46416101', 'F0414C4641610101', b'\x01\x02')),
+            mock.patch.object(self.srv, '_cap_apdu_sequence',
+                              lambda *a, **k: ['80E60200', '80E80000', '80E60000']),
+            mock.patch.object(self.srv, '_ram_detect_format', lambda *a, **k: 'compact'),
+            mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_send),
+            mock.patch.object(self.srv, '_ram_read_ff21', fake_read),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            return self._post('/api/ram-install', {'cap_hex': 'AA'})
+        finally:
+            for p in reversed(patches):
+                p.stop()
+
+    def test_success_reports_the_nv_delta(self):
+        status, resp = self._install()
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['success'], resp)
+        self.assertEqual(resp['nv_before'], 50000)
+        self.assertEqual(resp['nv_after'], 20000)
+        self.assertEqual(resp['nv_delta'], 30000)
+
+    def test_failed_install_still_reports_the_nv_delta(self):
+        status, resp = self._install(fail_at='LOAD (1/1)')
+        self.assertEqual(status, 200, resp)
+        self.assertFalse(resp['success'], resp)
+        self.assertEqual(resp['failed_step'], 2)
+        self.assertEqual(resp['nv_before'], 50000)
+        self.assertEqual(resp['nv_after'], 20000)
+        self.assertEqual(resp['nv_delta'], 30000)
+
+    def test_a_card_without_ff21_has_no_nv_fields(self):
+        status, resp = self._install(nv_before=None, nv_after=None)
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['success'], resp)
+        for key in ('nv_before', 'nv_after', 'nv_delta'):
+            self.assertNotIn(key, resp)
 
 
 if __name__ == '__main__':

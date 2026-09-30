@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.50'
+VERSION = '3.6.51'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1479,13 +1479,18 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
     return step, error
 
 
-def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
+def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False):
     """Send one GP APDU as an SCP80 secured packet and append its step result
     to `state['steps']`.  `sp` carries the SCP80 parameters (spi1, spi2, kic,
     kid, tar, kic_key, kid_key, include_cpi); `state` carries the mutable run
     state ({'steps', 'encode_error', 'failure', 'cntr'}) and the counter is
     advanced only for a packet the card accepted.  Returns True on success
-    (the step record is the last element of state['steps'])."""
+    (the step record is the last element of state['steps']).
+
+    `silent=True` (the NV footprint reads) leaves no step record and no
+    failure note behind: the card's answer is only used by the caller, and a
+    rejected read must never fail the operation.  The decoded step record is
+    still available as `state['last_step']`."""
     spi1, spi2 = sp['spi1'], sp['spi2']
     try:
         sp_hex, _ = _build_secured_packet(spi1, spi2, sp['kic'], sp['kid'], sp['tar'],
@@ -1496,9 +1501,10 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
         sys.stderr.write('RAM C-APDU (%s): %s\n' % (step_name, apdu_hex))
         sys.stderr.write('RAM SECURED-PACKET (%s): %s\n' % (step_name, sp_hex))
     except ValueError as e:
-        state['encode_error'] = str(e)
-        state['steps'].append({'name': step_name, 'por_status': 'encode_error',
-                               'sw': str(e)})
+        if not silent:
+            state['encode_error'] = str(e)
+            state['steps'].append({'name': step_name, 'por_status': 'encode_error',
+                                   'sw': str(e)})
         sys.stderr.write('RAM-INSTALL: %s encode failed: %s\n' % (step_name, e))
         return False
     # Capture the PoR from either transport: inline in the ENVELOPE response
@@ -1516,10 +1522,11 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
             scc, sp_hex, oa_number=server.sms_oa, sm_sc=server.sms_sc,
             include_cpi=sp['include_cpi'], submit_handler=submit_handler)
         if not result['success']:
-            state['steps'].append({'name': step_name, 'por_status': 'envelope_error',
-                                   'sw': result.get('sw') or result.get('error'),
-                                   'bytes': result.get('bytes'),
-                                   'segments': result.get('segments')})
+            if not silent:
+                state['steps'].append({'name': step_name, 'por_status': 'envelope_error',
+                                       'sw': result.get('sw') or result.get('error'),
+                                       'bytes': result.get('bytes'),
+                                       'segments': result.get('segments')})
             sys.stderr.write('RAM-INSTALL: %s send failed: %s\n' % (
                 step_name, result.get('error')))
             return False
@@ -1541,7 +1548,9 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
                           sp['kic_key'], sp['kid_key'], por_hex)
         step, step_error = _ram_step_result(step_name, last_sw, por, por_hex,
                                             result['bytes'], result['segments'])
-        state['steps'].append(step)
+        state['last_step'] = step
+        if not silent:
+            state['steps'].append(step)
         sys.stderr.write('RAM-INSTALL: %s PoR[%s] status=%s remote_sw=%s%s (%d B, %d SM)\n' % (
             step_name, por_src, step.get('por_status', '?'), step.get('por_sw', '-'),
             (' error=%s' % step_error) if step_error else '',
@@ -1550,12 +1559,48 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex):
         state['cntr'] = _ram_next_cntr(
             state['cntr'], step.get('por_status') in ('por_ok', 'no_por'))
         if step_error:
-            state['failure']['error'] = '%s: %s' % (step_name, step_error)
+            if not silent:
+                state['failure']['error'] = '%s: %s' % (step_name, step_error)
             return False
         return True
     finally:
         if submit_handler and hasattr(scc, '_tp'):
             scc._tp.proactive_handler = old_proactive
+
+
+def _ram_free_nv(por_data_hex):
+    """Free non-volatile memory (bytes) from a GET DATA FF21 R-APDU, or None.
+    Reuses the FF21 decoder (TS 102 226 8.2.1.7.2: '81' applet count /
+    '82' free NV / '83' free volatile)."""
+    try:
+        rapdu = bytes.fromhex(por_data_hex or '')
+    except ValueError:
+        return None
+    mem = _scp81_decode_memory(rapdu)
+    return mem.get('free_nv') if mem else None
+
+
+def _ram_read_ff21(server, scc, sp, state, ram_format, label):
+    """Best-effort GET DATA FF21 (Extended Card Resources) read around an
+    install: returns the free non-volatile memory in bytes, or None (a card
+    without FF21 or a rejected read must never fail the operation).  The read
+    is sent through the normal step sender with `silent=True`, so it consumes
+    and advances the counter correctly but leaves no step record or failure
+    note behind."""
+    apdu = _ram_format_apdu('80CAFF2100', ram_format)
+    if not _ram_send_gp_apdu(server, scc, sp, state, label, apdu, silent=True):
+        return None
+    step = state.get('last_step') or {}
+    return _ram_free_nv(step.get('por_data'))
+
+
+def _ram_nv_fields(nv_before, nv_after):
+    """NV footprint fields for the install responses: the free-NV values and
+    their delta (None when the card has no FF21 readout)."""
+    if nv_before is None and nv_after is None:
+        return {}
+    delta = (nv_before - nv_after) if (nv_before is not None and nv_after is not None) else None
+    return {'nv_before': nv_before, 'nv_after': nv_after, 'nv_delta': delta}
 
 
 def _parse_response_scripting(data):
@@ -6765,6 +6810,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # Live progress for the PWA's operation modal (the request holds
                 # _CARD_LOCK until the chain is done; /api/status carries this)
                 _ram_progress_begin('install-cap', len(seq) + 1)
+                nv_before = None
+                nv_after = None
                 try:
                     # RAM command format: detected per operation (a read-only
                     # probe step) unless the caller pinned compact/expanded.
@@ -6774,6 +6821,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                         ram_format = _ram_detect_format(self.server, scc, sp_state, state)
                     sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
                         len(seq), len(seq) - 2, ram_format, loadfile_aid))
+                    # NV footprint: free non-volatile memory before the chain
+                    # (best effort - a card without FF21 skips it).
+                    nv_before = _ram_read_ff21(self.server, scc, sp_state, state,
+                                               ram_format, 'NV before')
 
                     for apdu_idx, gp_apdu in enumerate(seq):
                         if apdu_idx == 0:
@@ -6786,6 +6837,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                         if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
                                                  step_name,
                                                  _ram_format_apdu(gp_apdu, ram_format)):
+                            # What the failed attempt consumed (a rejected load
+                            # may keep or discard its partial file - the delta
+                            # tells which).
+                            nv_after = _ram_read_ff21(self.server, scc, sp_state, state,
+                                                      ram_format, 'NV after')
                             resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                                     'error': (state['encode_error'] or state['failure'].get('error')
                                               or ('%s failed' % step_name)),
@@ -6794,9 +6850,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                                     'load_block_size': block_size,
                                     'load_block_size_requested': block_size_req,
                                     'load_block_size_auto': not block_size_req}
+                            resp.update(_ram_nv_fields(nv_before, nv_after))
                             self._send_json(resp)
                             self._log_resp(resp)
                             return
+                    # NV footprint: what the successful chain consumed.
+                    nv_after = _ram_read_ff21(self.server, scc, sp_state, state,
+                                              ram_format, 'NV after')
                 finally:
                     _ram_progress_end()
 
@@ -6805,6 +6865,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'ram_format': ram_format, 'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
                         'load_block_size_auto': not block_size_req}
+                resp.update(_ram_nv_fields(nv_before, nv_after))
                 sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
                     loadfile_aid, module_aid, state['cntr']))
                 self._send_json(resp)

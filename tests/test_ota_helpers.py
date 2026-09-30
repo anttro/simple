@@ -37,6 +37,9 @@ from pysim_simple_server.server import (
     _por_remote_sw,
     _ram_next_cntr,
     _ram_format_apdu,
+    _ram_free_nv,
+    _ram_read_ff21,
+    _ram_nv_fields,
     _wrap_expanded_apdu,
     _ram_remote_sw_ok,
     _sms_submit_por,
@@ -1583,6 +1586,90 @@ class RamSendGpApduLoggingTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn('RAM C-APDU (LOAD (1/2)): 80E8800001AA', out)
         self.assertIn('RAM SECURED-PACKET (LOAD (1/2)): AABB', out)
+
+
+class RamNvFootprintTests(unittest.TestCase):
+    """GET DATA FF21 reads around an install (v3.6.51): the free-NV values and
+    their delta.  The reads are best-effort - a card without FF21 (or a
+    rejected read) must never fail the operation."""
+
+    def test_free_nv_from_ff21_response(self):
+        # TS 102 226 8.2.1.7.2: '81' applet count, '82' free NV, '83' free
+        # volatile (the length byte follows FF21).
+        data = 'FF210C' + '810102' + '820300C5D6' + '83020064'
+        self.assertEqual(_ram_free_nv(data), 0xC5D6)
+        # CR-set tag variants (0x01/0x02/0x03) decode the same
+        self.assertEqual(_ram_free_nv('FF210C' + '010102' + '020300C5D6' + '03020064'), 0xC5D6)
+        # not an FF21 response / empty / garbage
+        self.assertIsNone(_ram_free_nv('6A88'))
+        self.assertIsNone(_ram_free_nv(''))
+        self.assertIsNone(_ram_free_nv('not-hex'))
+
+    def test_nv_fields(self):
+        self.assertEqual(_ram_nv_fields(None, None), {})
+        self.assertEqual(_ram_nv_fields(50000, 20000),
+                         {'nv_before': 50000, 'nv_after': 20000, 'nv_delta': 30000})
+        # a freed delta is negative (memory released by the operation)
+        self.assertEqual(_ram_nv_fields(100, 150),
+                         {'nv_before': 100, 'nv_after': 150, 'nv_delta': -50})
+        # only one read available: the delta stays None
+        self.assertEqual(_ram_nv_fields(100, None),
+                         {'nv_before': 100, 'nv_after': None, 'nv_delta': None})
+
+    def test_read_ff21_uses_the_silent_sender(self):
+        from pysim_simple_server import server as srv
+
+        calls = []
+
+        def fake_send(server, scc, sp, state, name, apdu, silent=False):
+            calls.append((name, apdu, silent))
+            if not silent:
+                state['steps'].append({'name': name})
+            state['last_step'] = {'por_data': 'FF210C810102820300C5D683020064'}
+            return True
+
+        state = {'steps': [], 'encode_error': None, 'failure': {}, 'cntr': '0000000001'}
+        with mock.patch.object(srv, '_ram_send_gp_apdu', fake_send):
+            nv = _ram_read_ff21(None, None, {}, state, 'expanded', 'NV before')
+        self.assertEqual(nv, 0xC5D6)
+        self.assertEqual(calls, [('NV before', _wrap_expanded_apdu('80CAFF2100'), True)])
+        self.assertEqual(state['steps'], [])
+        self.assertEqual(state['failure'], {})
+
+    def test_read_ff21_returns_none_when_the_read_fails(self):
+        from pysim_simple_server import server as srv
+
+        def fake_send(server, scc, sp, state, name, apdu, silent=False):
+            return False
+
+        state = {'steps': [], 'encode_error': None, 'failure': {}, 'cntr': '0000000001'}
+        with mock.patch.object(srv, '_ram_send_gp_apdu', fake_send):
+            self.assertIsNone(_ram_read_ff21(None, None, {}, state, 'compact', 'NV after'))
+
+    def test_silent_send_leaves_no_step_or_failure(self):
+        import contextlib
+        import io
+        from pysim_simple_server import server as srv
+
+        class FakeServer:
+            sms_oa = '12345'
+            sms_sc = '12345678912'
+
+        sp = {'spi1': '16', 'spi2': '01', 'kic': '25', 'kid': '25', 'tar': '000000',
+              'kic_key': 'AA', 'kid_key': 'BB', 'include_cpi': True}
+        state = {'steps': [], 'encode_error': None, 'failure': {}, 'cntr': '0000000001'}
+        with mock.patch.object(srv, '_build_secured_packet', lambda *a, **k: ('AABB', {})), \
+             mock.patch.object(srv, '_send_secured_packet',
+                               lambda *a, **k: {'success': False, 'error': 'stub'}):
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                ok = srv._ram_send_gp_apdu(FakeServer(), object(), sp, state,
+                                           'NV before', '80CAFF2100', silent=True)
+        self.assertFalse(ok)
+        self.assertEqual(state['steps'], [])
+        self.assertEqual(state['failure'], {})
+        self.assertIsNone(state['encode_error'])
+        self.assertIn('RAM C-APDU (NV before): 80CAFF2100', buf.getvalue())
 
 
 class RamCommandFormatTests(unittest.TestCase):

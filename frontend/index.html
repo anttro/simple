@@ -703,7 +703,7 @@
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 
-			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA).  The compact listing carries AID/lifecycle/privileges/version only; the expanded pass adds the Load File AID, Security Domain AID and module lists.  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing."><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600" onchange="ramExpandedDetailsChanged()"> <span data-l10n="Fetch expanded registry details (load-file / SD associations)">Fetch expanded registry details (load-file / SD associations)</span></label>
+			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA, plus 84 for the ELF queries).  The compact listing carries AID, life cycle and privileges only - it has no version; the expanded pass adds the Executable Load File version, the Load File AID, the Security Domain AID, the module lists and the applet STK menu entries (SCP Registry Data).  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing."><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600" onchange="ramExpandedDetailsChanged()"> <span data-l10n="Fetch expanded registry details (load-file / SD associations)">Fetch expanded registry details (load-file / SD associations)</span></label>
 
 			<div id="ram-cap-rows" class="hidden mb-3">
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
@@ -1749,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.50';
+const SIMPLE_VERSION = '3.6.51';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6480,16 +6480,16 @@ const SW_CMD_NAMES = {
 };
 
 const LIFECYCLE_MAP = {
-	'01': 'OP_READY (card) / LOADED (ELF)',
-	'03': 'INSTALLED',
-	'07': 'SELECTABLE',
-	'0F': 'SECURED (card)',
-	'1F': 'PERSONALIZED (SD)',
+	'01': 'OP_READY (card/ISD) / LOADED (ELF)',
+	'03': 'INSTALLED (app/SD)',
+	'07': 'SELECTABLE (app/SD) / INITIALIZED (card/ISD)',
+	'0F': 'SECURED (card/ISD) / PERSONALIZED (SD)',
+	'1F': 'App-specific (app)',
 	'7F': 'CARD_LOCKED',
 	'FF': 'TERMINATED',
-	'83': 'LOCKED (SD)',
-	'87': 'LOCKED (SD)',
-	'8F': 'LOCKED (SD)',
+	'83': 'LOCKED',
+	'87': 'LOCKED',
+	'8F': 'LOCKED',
 };
 
 function getSwCategory(cmd) {
@@ -8837,20 +8837,57 @@ function jcAidHtml(aid) {
 // ===== TLV parsers for GET STATUS responses (P2=02 format) =====
 // P2=02 wraps each entry in an 'E3' GP Registry Data template containing TLV tags.
 // Fallback: if the card only supports P2=00 (raw format), raw parsers are used.
+// Known tags per GP Card Spec v2.3.1 Tables 11-36/11-37 and ETSI TS 102 226
+// 8.2.1.6 (EA SCP Registry Data -> 80 Menu Parameters); unknown registry data
+// objects are preserved in rawTlvs instead of being dropped.
 function _parseE3Entry(hex) {
 	const children = parseTLV(hex || '');
 	const r = {};
+	const raw = [];
 	for (const c of children) {
-		if (c.tag === '4F') r.aid = c.value.toUpperCase();
-		else if (c.tag === '9F70') r.lifecycle = c.value.toUpperCase();
-		else if (c.tag === 'C5') r.privileges = c.value.toUpperCase();
-		else if (c.tag === 'CE') r.version = c.value.toUpperCase();
-		else if (c.tag === 'CC') r.sdAid = c.value.toUpperCase();
-		else if (c.tag === 'C4') r.elfAid = c.value.toUpperCase();
-		else if (c.tag === 'CF') r.implicitSel = c.value.toUpperCase();
-		else if (c.tag === '84') r.moduleAids = ramParseModuleAids(c.value);
+		const v = c.value.toUpperCase();
+		if (c.tag === '4F') r.aid = v;
+		else if (c.tag === '9F70') r.lifecycle = v;
+		else if (c.tag === 'C5') r.privileges = v;
+		else if (c.tag === 'CE') r.version = v;
+		else if (c.tag === 'CC') r.sdAid = v;
+		else if (c.tag === 'C4') r.elfAid = v;
+		else if (c.tag === 'CF') r.implicitSel = v;
+		else if (c.tag === '84') {
+			// GP Table 11-37: one Executable Module AID per '84' TLV, repeated
+			// per module.  Some cards concatenate 4F<len><aid> TLVs inside one
+			// '84' - accept both codings.
+			const aids = ramParseModuleAids(v);
+			const list = aids.length ? aids : (v.length >= 10 && v.length <= 32 ? [v] : []);
+			r.moduleAids = (r.moduleAids || []).concat(list);
+		}
+		else if (c.tag === 'EA') {
+			// SCP Registry Data (TS 102 226 8.2.1.6 Table 8.2): a Menu
+			// Parameters TLV ('80') with (position, identifier, state)
+			// triples (Table 8.3).  An empty EA is valid (no menu entries).
+			const entries = _parseMenuEntries(v);
+			if (entries.length) r.menuEntries = entries;
+			else if (v) raw.push({ tag: 'EA', value: v });
+		}
+		else raw.push({ tag: c.tag, value: v });
 	}
+	if (raw.length) r.rawTlvs = raw;
 	return r;
+}
+
+// EA SCP Registry Data -> Menu Parameters ('80'): the value is a list of
+// 3-byte menu entry triples (position, identifier, state; '00' disabled /
+// '01' enabled, TS 102 226 Table 8.3).
+function _parseMenuEntries(hex) {
+	const out = [];
+	for (const c of parseTLV(hex || '')) {
+		if (c.tag !== '80') continue;
+		const v = c.value.toUpperCase();
+		for (let i = 0; i + 6 <= v.length; i += 6) {
+			out.push({ pos: v.substr(i, 2), id: v.substr(i + 2, 2), state: v.substr(i + 4, 2) });
+		}
+	}
+	return out;
 }
 
 // Raw format (P2=00): ISD uses pure AID length, Apps use combined length (AID+lifecycle).
@@ -8868,8 +8905,12 @@ function _parseRawAppEntry(hex, i) {
 	return { aid, lifecycle, privileges, next: j };
 }
 
-// Raw format (P2=00) ELF entry: <aid_len><AID><lifecycle><version>; the P1=10
-// (ELF + modules) listing appends module entries (<len><AID>[, lifecycle]).
+// Raw format (P2=00) ELF entry: <aid_len><AID><lifecycle><privileges>.  The
+// 4th byte is the privileges byte - the legacy GET STATUS response shape,
+// cross-checked against GlobalPlatformPro's populate_legacy (for load files it
+// must be 0x00); there is no version in the compact listing, it comes from the
+// expanded 'CE' tag.  The P1=10 (ELF + modules) listing appends
+// <module_count> (<module_len><module_AID>)*.
 // The walk is deterministic on the AID length - the old "scan for 0x10"
 // heuristic derailed whenever a length byte or an AID byte happened to be
 // 0x10 (which silently dropped entries like F0414C46416101).
@@ -8879,10 +8920,10 @@ function _parseRawElfEntry(hex, i, withModules) {
 	const aid = hex.substr(i + 2, aidLen * 2).toUpperCase();
 	let j = i + 2 + aidLen * 2;
 	const lifecycle = hex.substr(j, 2).toUpperCase(); j += 2;
-	const version = hex.substr(j + 2, 2).toUpperCase(); j += 2;
-	const out = { aid, lifecycle, version, next: j };
+	const privileges = hex.substr(j, 2).toUpperCase(); j += 2;
+	const out = { aid, lifecycle, privileges, next: j };
 	if (!withModules) return out;
-	// P1=10 (ELF + modules) entry: ...<lifecycle><version><module_count>
+	// P1=10 (ELF + modules) entry: ...<lifecycle><privileges><module_count>
 	// followed by <module_len><module_AID> entries.  Verified against two
 	// live traces (a F0414C46416101 ELF with its F0414C4641610101 module).
 	if (j + 2 > hex.length) return out;
@@ -8982,13 +9023,64 @@ function ramParseGetMemory(hex) {
 }
 
 // ===== Lifecycle / privilege formatting =====
-const RAM_LIFECYCLE = {
-	'01': 'OP_READY', '07': 'SELECTABLE', '0F': 'PERSONALIZED',
-	'03': 'INSTALLED', '1F': 'SD_PERSONALIZED', '7F': 'LOCKED',
-	'FF': 'TERMINATED',
-};
-function ramFmtLifecycle(hex) {
-	return RAM_LIFECYCLE[hex] || ('0x' + hex);
+// GP Card Spec v2.3.1 11.1.1: the life cycle coding depends on the registry
+// object kind (Tables 11-3..11-6; the ISD inherits the card life cycle).
+// `kind`: 'isd' (card life cycle) | 'app' | 'sd' | 'elf'.  Cards may return
+// extra bytes after the state (e.g. 9F70 02 0700): decode the first byte and
+// surface non-zero extras instead of guessing what they are.
+function ramFmtLifecycle(hex, kind) {
+	const s = (hex || '').toUpperCase();
+	if (!s) return '';
+	const b = parseInt(s.substr(0, 2), 16);
+	const extra = s.length > 2 && !/^0+$/.test(s.substr(2)) ? ' (0x' + s.substr(2) + ')' : '';
+	let name = '';
+	if (kind === 'elf') {
+		// GP Table 11-3: LOADED only.
+		if (b === 0x01) name = 'LOADED';
+	} else if (kind === 'isd') {
+		// GP Table 11-6: OP_READY / INITIALIZED / SECURED / CARD_LOCKED /
+		// TERMINATED (the ISD inherits the card life cycle).
+		name = { 1: 'OP_READY', 7: 'INITIALIZED', 15: 'SECURED', 127: 'CARD_LOCKED', 255: 'TERMINATED' }[b] || '';
+	} else if (kind === 'sd') {
+		// GP Table 11-5: INSTALLED / SELECTABLE / PERSONALIZED / LOCKED.
+		name = { 3: 'INSTALLED', 7: 'SELECTABLE', 15: 'PERSONALIZED' }[b] || '';
+		if (!name && (b & 0x83) === 0x83) name = 'LOCKED';
+	} else {
+		// GP Table 11-4 (default: an application): INSTALLED / SELECTABLE /
+		// application-specific bits b4-b7 (still selectable) / LOCKED.
+		if (b === 0x03) name = 'INSTALLED';
+		else if (b === 0x07) name = 'SELECTABLE';
+		else if ((b & 0x87) === 0x07) name = 'SELECTABLE (0x' + s.substr(0, 2) + ')';
+		else if ((b & 0x83) === 0x83) name = 'LOCKED';
+	}
+	return name ? name + extra : '0x' + s + extra;
+}
+
+// GP Table 11-37 Note 1: on a Java Card the Executable Load File Version
+// Number is a 2-byte major/minor pair (in this order); other lengths stay raw.
+function ramFmtVersion(hex) {
+	const s = (hex || '').toUpperCase();
+	if (/^[0-9A-F]{4}$/.test(s)) return parseInt(s.substr(0, 2), 16) + '.' + parseInt(s.substr(2, 2), 16);
+	return s;
+}
+
+// TS 102 226 Table 8.3 menu entry state: '00' disabled, '01' enabled.
+function ramMenuState(state) {
+	const s = (state || '').toUpperCase();
+	if (s === '00') return t('Disabled');
+	if (s === '01') return t('Enabled');
+	return '0x' + s;
+}
+
+// Life cycle coding kind of an explorer entry (GP 11.1.1): an application
+// carrying the Security Domain privilege (GP Table 11-7 byte 1 b8) is decoded
+// as a Security Domain; the ISD section and the ELF section pass their kind
+// explicitly.
+function ramEntryKind(o) {
+	if (!o) return 'app';
+	if (o.type === 'elf') return 'elf';
+	const b1 = parseInt(((o.privileges || '').substr(0, 2)) || '0', 16);
+	return (b1 & 0x80) ? 'sd' : 'app';
 }
 
 // Decode the GP privileges value (tag C5 / compact listing) into
@@ -9015,6 +9107,44 @@ function ramActionBtn(label, action, tone) {
 		+ ' disabled:opacity-40 disabled:cursor-not-allowed">' + esc(label) + '</button>';
 }
 
+// One line per STK menu entry the card reports for an applet (EA SCP Registry
+// Data, TS 102 226 8.2.1.6): identifier, position and state.
+function ramMenuHtml(entries) {
+	let html = '';
+	(entries || []).forEach(m => {
+		html += '<div>' + esc(t('STK menu entry:')) + ' 0x' + esc(m.id) +
+			' (' + esc(t('position')) + ' ' + parseInt(m.pos, 16) + ', ' + esc(ramMenuState(m.state)) + ')</div>';
+	});
+	return html;
+}
+
+// Registry data objects the card returned but the Explore does not decode
+// (GP Tables 11-36/11-37 and TS 102 226 extensions): preserved and shown, so
+// nothing from the card's answer is silently dropped.
+function ramRawTlvsHtml(rawTlvs) {
+	if (!rawTlvs || !rawTlvs.length) return '';
+	return '<div class="text-gray-500 dark:text-slate-400">' + esc(t('Other registry data:')) + ' ' +
+		rawTlvs.map(x => esc(x.tag) + '=' + esc(x.value)).join(' \u00b7 ') + '</div>';
+}
+
+// Merge the expanded (E3) pass into the compact entries: fill only the fields
+// the compact listing does not carry (it has AID, life cycle and privileges,
+// plus the module list for P1=10; the version, Load File AID, SD AID, menu
+// entries and unknown registry data come from the expanded pass).  A field
+// already present in the compact entry is never overwritten.
+function ramMergeExpanded(collector, parsed) {
+	const byAid = {};
+	collector.forEach(e => { if (e.aid) byAid[e.aid.toUpperCase()] = e; });
+	parsed.forEach(p => {
+		const cur = byAid[(p.aid || '').toUpperCase()];
+		if (!cur) return;
+		['privileges', 'lifecycle', 'version', 'elfAid', 'sdAid', 'implicitSel', 'menuEntries', 'rawTlvs'].forEach(k => {
+			if (p[k] && !cur[k]) cur[k] = p[k];
+		});
+		if (p.moduleAids && p.moduleAids.length) cur.moduleAids = p.moduleAids;
+	});
+}
+
 // Render the full explorer result as structured HTML
 function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 	let html = '';
@@ -9036,9 +9166,12 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 		isd.forEach(o => {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-blue-400">';
 			html += '<div>' + esc(t('AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
-			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
+			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '', 'isd') + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
+			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
+			html += ramMenuHtml(o.menuEntries);
+			html += ramRawTlvsHtml(o.rawTlvs);
 			html += '</div>';
 		});
 		html += '</div>';
@@ -9050,11 +9183,13 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-green-400 flex items-start gap-3">';
 			html += '<div class="flex-1 min-w-0">';
 			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
-			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
+			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '', ramEntryKind(o)) + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.implicitSel) html += '<div>' + esc(t('Implicit sel:')) + ' ' + o.implicitSel + '</div>';
 			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
+			html += ramMenuHtml(o.menuEntries);
+			html += ramRawTlvsHtml(o.rawTlvs);
 			html += '</div>';
 			html += '<div class="w-28 shrink-0 flex flex-col gap-1">';
 			if (o.aid) {
@@ -9074,12 +9209,14 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt) {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-purple-400 flex items-start gap-3">';
 			html += '<div class="flex-1 min-w-0">';
 			html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
-			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '') + '</div>';
-			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + o.version + '</div>';
+			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '', 'elf') + '</div>';
+			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + esc(ramFmtVersion(o.version)) + '</div>';
+			if (o.privileges && o.privileges !== '00') html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.moduleAids && o.moduleAids.length) {
 				html += '<div>' + esc(t('Executable Module AIDs / Applet Class AIDs:')) + '</div>';
 			}
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
+			html += ramRawTlvsHtml(o.rawTlvs);
 			html += '</div>';
 			html += '<div class="w-28 shrink-0 flex flex-col gap-1">';
 			if (o.aid) {
@@ -9210,16 +9347,7 @@ async function ramExplore(sp) {
 				collector.push(...parsed);
 			} else if (parsed.length) {
 				// Keep the compact entries, add the expanded-only fields
-				const byAid = {};
-				collector.forEach(e => { if (e.aid) byAid[e.aid.toUpperCase()] = e; });
-				parsed.forEach(p => {
-					const cur = byAid[(p.aid || '').toUpperCase()];
-					if (!cur) return;
-					['privileges', 'lifecycle', 'version', 'elfAid', 'sdAid', 'implicitSel'].forEach(k => {
-						if (p[k] && !cur[k]) cur[k] = p[k];
-					});
-					if (p.moduleAids && p.moduleAids.length) cur.moduleAids = p.moduleAids;
-				});
+				ramMergeExpanded(collector, parsed);
 			}
 		}
 		// The compact error only surfaces when the expanded pass did not rescue it
@@ -9726,6 +9854,17 @@ async function ramInstallApp(sp, op) {
 	ramShowInstallResult(data, t('OK'));
 }
 
+// Measured NV footprint of an install operation: the server reads GET DATA
+// FF21 (free non-volatile memory) before and after the chain; the delta is
+// what the operation consumed (negative = memory was freed).  Cards without
+// FF21 have no values and the line disappears.
+function ramNvLine(data) {
+	if (!data || data.nv_before == null || data.nv_after == null) return '';
+	const used = data.nv_before - data.nv_after;
+	const label = used < 0 ? t('NV freed:') : t('NV used:');
+	return label + ' ~' + Math.abs(used) + ' B (' + t('free') + ' ' + data.nv_before + ' \u2192 ' + data.nv_after + ')';
+}
+
 // Shared result rendering for /api/ram-install and /api/ram-install-app: the
 // per-step lines, the counter the card consumed, and the verdict.
 function ramShowInstallResult(data, okText, capMem) {
@@ -9735,6 +9874,8 @@ function ramShowInstallResult(data, okText, capMem) {
 	const comps = capMem && capMem.components;
 	let txt = '';
 	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx, comps, data.load_block_size) + '\n'; });
+	const nv = ramNvLine(data);
+	if (nv) txt += nv + '\n';
 	stepsEl.textContent = txt;
 	// Persist the counter the card actually consumed (accepted packets only):
 	// even a failed install leaves the accepted steps behind, and replaying
@@ -10489,8 +10630,14 @@ function ramGetStatusApdu(p1, p2) {
 // (GP Card Spec 11.4.2.3/11.4.3.1).  Used as the fallback when a card rejects
 // the deprecated compact format and for the optional details pass; the bytes
 // are the reference trace form (`80F28002 0C 4F00 5C08 4F9F70C5C4CCCEEA 00`).
+// The ELF queries add '84' (Executable Module AIDs, GP Table 11-37): with a
+// tag list present the card returns only the listed tags (11.4.3.1), so
+// without it the expanded fallback would list packages without their modules
+// (no module rows / Install buttons on cards that reject the compact form).
 function ramExpandedQueryApdu(p1) {
-	return '80F2' + p1 + '02' + '0C' + '4F005C084F9F70C5C4CCCEEA' + '00';
+	const elf = p1 === '10' || p1 === '20';
+	const tags = '4F9F70C5C4CCCEEA' + (elf ? '84' : '');
+	return '80F2' + p1 + '02' + (elf ? '0D' : '0C') + '4F005C' + (elf ? '09' : '08') + tags + '00';
 }
 
 // The ISD (80) and memory responses fit the ENVELOPE; the Apps (40) and ELF
@@ -18189,7 +18336,13 @@ const LANG_RU = {
 	'KIc key and KID key are required': 'Укажите ключ KIc и ключ KID',
 	'RAM command format:': 'Формат команд RAM:',
 	'Fetch expanded registry details (load-file / SD associations)': 'Запрашивать расширенные данные реестра (связи load-файла и SD)',
-	'Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA).  The compact listing carries AID/lifecycle/privileges/version only; the expanded pass adds the Load File AID, Security Domain AID and module lists.  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing.': 'Запускает дополнительный расширенный запрос для каждого списка (P2=02, список тегов 4F 9F70 C5 C4 CC CE EA). Компактный список содержит только AID/состояние/привилегии/версию; расширенный проход добавляет AID load-файла, AID Security Domain и списки модулей. Он расходует дополнительные защищённые пакеты, и не все карты его поддерживают — Explore и так применяет его автоматически, когда компактный список ничего не вернул.',
+	'Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA, plus 84 for the ELF queries).  The compact listing carries AID, life cycle and privileges only - it has no version; the expanded pass adds the Executable Load File version, the Load File AID, the Security Domain AID, the module lists and the applet STK menu entries (SCP Registry Data).  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing.': 'Запускает дополнительный расширенный запрос для каждого списка (P2=02, список тегов 4F 9F70 C5 C4 CC CE EA, плюс 84 для запросов ELF). Компактный список содержит только AID, состояние и привилегии — версии в нём нет; расширенный проход добавляет версию исполняемого load-файла, AID load-файла, AID Security Domain, списки модулей и пункты меню STK апплета (SCP Registry Data). Он расходует дополнительные защищённые пакеты, и не все карты его поддерживают — Explore и так применяет его автоматически, когда компактный список ничего не вернул.',
+	'STK menu entry:': 'Пункт меню STK:',
+	'position': 'позиция',
+	'Other registry data:': 'Прочие данные реестра:',
+	'NV used:': 'Занято NV:',
+	'NV freed:': 'Освобождено NV:',
+	'free': 'свободно',
 	'compact = the TS 102 226 5.2.1 command string (one C-APDU per secured packet, e.g. GET STATUS + GET RESPONSE); expanded = the AA/22 Command Scripting template (5.2.1.0).  Detected per operation with a read-only GET STATUS probe; a card that rejects the deprecated compact P2.b2=0 form answers the expanded one.': 'compact = командная строка по TS 102 226 5.2.1 (один C-APDU на защищённый пакет, например GET STATUS + GET RESPONSE); expanded = шаблон Command Scripting AA/22 (5.2.1.0). Определяется для каждой операции пробным чтением GET STATUS; карта, отклоняющая устаревшую компактную форму P2.b2=0, отвечает в расширенной.',
 	'Card resources (GET DATA FF21)': 'Ресурсы карты (GET DATA FF21)',
 	'Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory': 'Расширенные ресурсы карты (тег GP FF21, ETSI TS 102 226 8.2.1.7.2): число установленных приложений, свободная энергонезависимая и свободная энергозависимая память',

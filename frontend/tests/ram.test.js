@@ -22,9 +22,9 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
-	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
+	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -33,8 +33,6 @@ for (const f of FNS) {
 }
 const m = html.match(/const _chains = \{\};/);
 if (m) code += m[0].replace(/^const /, 'var ') + '\n';
-const lc = html.match(/const RAM_LIFECYCLE = \{[\s\S]*?\n\};/);
-if (lc) code += lc[0].replace(/^const /, 'var ') + '\n';
 const pn = html.match(/const PRIVILEGE_NAMES = \[[\s\S]*?\n\];/);
 if (pn) code += pn[0].replace(/^const /, 'var ') + '\n';
 const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
@@ -222,7 +220,8 @@ test('ramRenderExploreHtml localizes every label and button', () => {
 	const out = ramRenderExploreHtml(
 		{ appCount: 5, freeNV: 100, freeV: 50 },
 		[{ aid: 'A000000151000000', lifecycle: '07', privileges: '', sdAid: 'A000000151000000' }],
-		[{ aid: 'A1130001180001', lifecycle: '07', privileges: '80', implicitSel: '00', elfAid: 'ELF1' }],
+		[{ aid: 'A1130001180001', lifecycle: '07', privileges: '80', implicitSel: '00', elfAid: 'ELF1',
+		   menuEntries: [{ pos: '01', id: '80', state: '01' }], rawTlvs: [{ tag: '8F', value: '752B' }] }],
 		[{ aid: 'ELF1', lifecycle: '01', version: '1.0', moduleAids: ['M1'], sdAid: null }]
 	);
 	delete global.t;
@@ -240,6 +239,9 @@ test('ramRenderExploreHtml localizes every label and button', () => {
 	assert.ok(seen.includes('Application / Instance AID:'));
 	assert.ok(seen.includes('Load File AID / Package AID:'));
 	assert.ok(seen.includes('Executable Module AIDs / Applet Class AIDs:'));
+	assert.ok(seen.includes('STK menu entry:'));
+	assert.ok(seen.includes('position'));
+	assert.ok(seen.includes('Other registry data:'));
 	assert.ok(!out.includes('data-l10n'), out);
 	// the well-known ISD AID is annotated (GP Card Spec v2.3.1 H.1.3)
 	assert.ok(out.includes('A000000151000000 <span class="text-gray-400 dark:text-slate-500">(GlobalPlatform Issuer Security Domain)</span>'), out);
@@ -544,9 +546,16 @@ test('ramCardIdxAfterRemove keeps the remembered index aligned', () => {
 
 test('ramExpandedQueryApdu matches the reference trace bytes', () => {
 	// TCA Loader: `AA14 2212 80F28002 0C 4F00 5C08 4F9F70C5C4CCCEEA 00`
-	for (const p1 of ['80', '40', '20', '10']) {
+	for (const p1 of ['80', '40']) {
 		assert.strictEqual(ramExpandedQueryApdu(p1),
 			'80F2' + p1 + '020C4F005C084F9F70C5C4CCCEEA00');
+	}
+	// The ELF queries add '84' (Executable Module AIDs): with a tag list the
+	// card returns only the listed tags, so the expanded fallback would
+	// otherwise list packages without their modules (v3.6.51).
+	for (const p1 of ['20', '10']) {
+		assert.strictEqual(ramExpandedQueryApdu(p1),
+			'80F2' + p1 + '020D4F005C094F9F70C5C4CCCEEA8400');
 	}
 });
 
@@ -586,6 +595,10 @@ test('ramParseElfStatus lists the compact ELF and module listings (F0414C4641610
 	const f041 = elfs.find(r => r.aid === 'F0414C46416101');
 	assert.ok(f041, JSON.stringify(elfs.map(r => r.aid)));
 	assert.strictEqual(f041.lifecycle, '01');
+	// the 4th byte is the privileges byte (the legacy GET STATUS shape);
+	// the compact listing has no version - it comes from the expanded CE tag
+	assert.strictEqual(f041.privileges, '00');
+	assert.strictEqual(f041.version, undefined);
 	assert.ok(elfs.some(r => r.aid === 'A1130001180002FFF7100E8904000200'), 'A113 ELF missing');
 	assert.ok(elfs.some(r => r.aid === 'A0000000090005FFFFFFFF8912000000'), 'uicc.toolkit ELF missing');
 
@@ -594,6 +607,150 @@ test('ramParseElfStatus lists the compact ELF and module listings (F0414C4641610
 	const f041Row = mods.find(r => r.aid === 'F0414C46416101');
 	assert.ok(f041Row, JSON.stringify(mods.map(r => r.aid)));
 	assert.deepStrictEqual(f041Row.moduleAids, ['F0414C4641610101']);
+});
+
+test('_parseE3Entry collects Executable Module AIDs from every 84 TLV', () => {
+	// GP Table 11-37: one Executable Module AID per '84' TLV (the reference
+	// GPPro coding), repeated per module.
+	const one = _parseE3Entry('4F10A1130001180001FFFFFFFF89A10039008410A1130001180001FFFFFFFF89A1003908');
+	assert.deepStrictEqual(one.moduleAids, ['A1130001180001FFFFFFFF89A1003908']);
+	const two = _parseE3Entry('4F10A1130001180002FFF7100E89040002008410A1130001180002FFF7100E89040002088410A1130001180002FFF7100E89494D4508');
+	assert.deepStrictEqual(two.moduleAids,
+		['A1130001180002FFF7100E8904000208', 'A1130001180002FFF7100E89494D4508']);
+	// a card concatenating 4F<len><aid> TLVs inside one 84 still parses
+	const concat = _parseE3Entry('4F10A1130001180002FFF7100E890400020084244F10A1130001180002FFF7100E89040002084F10A1130001180002FFF7100E89494D4508');
+	assert.deepStrictEqual(concat.moduleAids,
+		['A1130001180002FFF7100E8904000208', 'A1130001180002FFF7100E89494D4508']);
+});
+
+test('_parseE3Entry reads the SCP Registry Data menu entries (NP trace)', () => {
+	// Explore_NP.log app entry: ... EA 05 80 03 01 80 01 = menu entry
+	// position 1, identifier 0x80, enabled (TS 102 226 Tables 8.2/8.3).
+	const r = _parseE3Entry('4F10A1130001180001FFFFFFFF89A10039089F70020700C503000000C410A1130001180001FFFFFFFF89A1003900CE020903CC07A0000001510000EA058003018001');
+	assert.strictEqual(r.aid, 'A1130001180001FFFFFFFF89A1003908');
+	assert.strictEqual(r.lifecycle, '0700');
+	assert.strictEqual(r.version, '0903');
+	assert.strictEqual(r.sdAid, 'A0000001510000');
+	assert.strictEqual(r.elfAid, 'A1130001180001FFFFFFFF89A1003900');
+	assert.deepStrictEqual(r.menuEntries, [{ pos: '01', id: '80', state: '01' }]);
+	assert.strictEqual(r.rawTlvs, undefined);
+	// an empty EA (an ISD with no menu entries) is not an error and adds nothing
+	const empty = _parseE3Entry('4F08A000000151000000EA00');
+	assert.strictEqual(empty.menuEntries, undefined);
+	assert.strictEqual(empty.rawTlvs, undefined);
+});
+
+test('_parseE3Entry preserves registry data objects it does not decode', () => {
+	// Explore_NP.log ISD entry: the card returned 8F/90/91/92 beyond the
+	// requested GP tags - shown raw, never dropped.
+	const r = _parseE3Entry('4F07A00000015100009F70020F00C5039AFF80C407A0000001515350CE020001CC07A00000015100008F02752B9002012D910265D592020BD3');
+	assert.deepStrictEqual(r.rawTlvs, [
+		{ tag: '8F', value: '752B' }, { tag: '90', value: '012D' },
+		{ tag: '91', value: '65D5' }, { tag: '92', value: '0BD3' },
+	]);
+	assert.strictEqual(r.privileges, '9AFF80');
+});
+
+test('ramFmtVersion formats the 2-byte CE version as major.minor', () => {
+	// GP Table 11-37 Note 1: Java Card CAP major/minor attributes, in order.
+	assert.strictEqual(ramFmtVersion('0903'), '9.3');
+	assert.strictEqual(ramFmtVersion('0100'), '1.0');
+	assert.strictEqual(ramFmtVersion('0A0B'), '10.11');
+	// other lengths stay raw (the format depends on the load file format)
+	assert.strictEqual(ramFmtVersion('09'), '09');
+	assert.strictEqual(ramFmtVersion(''), '');
+});
+
+test('ramFmtLifecycle decodes per GP object kind (Tables 11-3..11-6)', () => {
+	// ISD inherits the card life cycle (Table 11-6)
+	assert.strictEqual(ramFmtLifecycle('01', 'isd'), 'OP_READY');
+	assert.strictEqual(ramFmtLifecycle('07', 'isd'), 'INITIALIZED');
+	assert.strictEqual(ramFmtLifecycle('0F', 'isd'), 'SECURED');
+	assert.strictEqual(ramFmtLifecycle('7F', 'isd'), 'CARD_LOCKED');
+	assert.strictEqual(ramFmtLifecycle('FF', 'isd'), 'TERMINATED');
+	// Executable Load File (Table 11-3)
+	assert.strictEqual(ramFmtLifecycle('01', 'elf'), 'LOADED');
+	// Application (Table 11-4)
+	assert.strictEqual(ramFmtLifecycle('03', 'app'), 'INSTALLED');
+	assert.strictEqual(ramFmtLifecycle('07', 'app'), 'SELECTABLE');
+	assert.strictEqual(ramFmtLifecycle('0F', 'app'), 'SELECTABLE (0x0F)');
+	assert.strictEqual(ramFmtLifecycle('83', 'app'), 'LOCKED');
+	// Security Domain (Table 11-5)
+	assert.strictEqual(ramFmtLifecycle('0F', 'sd'), 'PERSONALIZED');
+	assert.strictEqual(ramFmtLifecycle('8F', 'sd'), 'LOCKED');
+	// a card may append extra bytes (NP trace: 9F70 02 0700)
+	assert.strictEqual(ramFmtLifecycle('0700', 'app'), 'SELECTABLE');
+	assert.strictEqual(ramFmtLifecycle('0701', 'app'), 'SELECTABLE (0x01)');
+	// unknown values stay visible
+	assert.strictEqual(ramFmtLifecycle('42', 'app'), '0x42');
+	assert.strictEqual(ramFmtLifecycle('', 'app'), '');
+});
+
+test('ramMenuState and ramEntryKind decode menu state and SD detection', () => {
+	global.t = s => s;
+	assert.strictEqual(ramMenuState('00'), 'Disabled');
+	assert.strictEqual(ramMenuState('01'), 'Enabled');
+	assert.strictEqual(ramMenuState('02'), '0x02');
+	delete global.t;
+	// GP Table 11-7 byte 1 b8 = Security Domain privilege
+	assert.strictEqual(ramEntryKind({ privileges: '9AFE80' }), 'sd');
+	assert.strictEqual(ramEntryKind({ privileges: '04' }), 'app');
+	assert.strictEqual(ramEntryKind({ type: 'elf', privileges: '00' }), 'elf');
+	assert.strictEqual(ramEntryKind(null), 'app');
+});
+
+test('the explorer shows versions, menu entries and unknown registry data', () => {
+	global.t = s => s;
+	const out = ramRenderExploreHtml(
+		{ appCount: 1, freeNV: 10, freeV: 5 },
+		[],
+		[{ aid: 'A1130001180001FFFFFFFF89A1003908', lifecycle: '0700', privileges: '000000',
+		   elfAid: 'A1130001180001FFFFFFFF89A1003900', sdAid: 'A0000001510000',
+		   menuEntries: [{ pos: '01', id: '80', state: '01' }], rawTlvs: [{ tag: '8F', value: '752B' }] }],
+		[{ aid: 'A1130001180001FFFFFFFF89A1003900', lifecycle: '01', privileges: '00', version: '0309' }]
+	);
+	delete global.t;
+	// the app row: SELECTABLE from the 2-byte 0700, menu entry, raw TLV
+	assert.ok(out.includes('SELECTABLE'), out);
+	assert.ok(out.includes('STK menu entry: 0x80 (position 1, Enabled)'), out);
+	assert.ok(out.includes('Other registry data: 8F=752B'), out);
+	// the ELF row: LOADED, formatted version, no privileges noise for '00'
+	assert.ok(out.includes('LOADED'), out);
+	assert.ok(out.includes('Version: 3.9'), out);
+	const elfSection = out.slice(out.indexOf('Executable Load Files'));
+	assert.ok(!elfSection.includes('Privileges:'), elfSection);
+});
+
+test('ramMergeExpanded fills only what the compact listing lacks', () => {
+	// the compact ELF entry has no version (v3.6.51): the expanded CE version
+	// and SD AID merge in - this was blocked while the bogus compact "version"
+	// was still set
+	const compact = [{ type: 'elf', aid: 'A1130001180001FFFFFFFF89A1003900', lifecycle: '01', privileges: '00' }];
+	const expanded = [{ aid: 'A1130001180001FFFFFFFF89A1003900', version: '0309', sdAid: 'A0000001510000', lifecycle: '01' }];
+	ramMergeExpanded(compact, expanded);
+	assert.strictEqual(compact[0].version, '0309');
+	assert.strictEqual(compact[0].sdAid, 'A0000001510000');
+	// a field the compact entry already carries is never overwritten
+	const apps = [{ aid: 'A1', privileges: '04' }];
+	ramMergeExpanded(apps, [{ aid: 'A1', privileges: '9AFE80', menuEntries: [{ pos: '01', id: '80', state: '01' }] }]);
+	assert.strictEqual(apps[0].privileges, '04');
+	assert.deepStrictEqual(apps[0].menuEntries, [{ pos: '01', id: '80', state: '01' }]);
+	// module lists come from the expanded listing when it has them
+	const elfs = [{ aid: 'E1' }];
+	ramMergeExpanded(elfs, [{ aid: 'E1', moduleAids: ['M1'] }]);
+	assert.deepStrictEqual(elfs[0].moduleAids, ['M1']);
+});
+
+test('ramNvLine reports the measured NV footprint', () => {
+	global.t = s => s;
+	assert.strictEqual(ramNvLine({ nv_before: 50646, nv_after: 23400 }),
+		'NV used: ~27246 B (free 50646 \u2192 23400)');
+	assert.strictEqual(ramNvLine({ nv_before: 100, nv_after: 150 }),
+		'NV freed: ~50 B (free 100 \u2192 150)');
+	assert.strictEqual(ramNvLine({ nv_before: 100 }), '');
+	assert.strictEqual(ramNvLine({}), '');
+	assert.strictEqual(ramNvLine(null), '');
+	delete global.t;
 });
 
 test('ramParseAppStatus keeps 16-byte AIDs (no rawLen-1 truncation)', () => {

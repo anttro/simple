@@ -38,14 +38,19 @@ test('gp 6310 label does not reference removed P2=42 option', () => {
 });
 
 test('LIFECYCLE_MAP per GPC v2.3 life cycles', () => {
-	assert.strictEqual(LIFECYCLE_MAP['01'], 'OP_READY (card) / LOADED (ELF)');
-	assert.strictEqual(LIFECYCLE_MAP['03'], 'INSTALLED');
-	assert.strictEqual(LIFECYCLE_MAP['07'], 'SELECTABLE');
-	assert.strictEqual(LIFECYCLE_MAP['0F'], 'SECURED (card)');
-	assert.strictEqual(LIFECYCLE_MAP['1F'], 'PERSONALIZED (SD)');
+	// GP Card Spec v2.3.1 11.1.1 Tables 11-3..11-6: the coding depends on the
+	// object kind (the ISD inherits the card life cycle), so the shared map
+	// names every interpretation.  The Explore decodes per kind instead
+	// (ramFmtLifecycle).
+	assert.strictEqual(LIFECYCLE_MAP['01'], 'OP_READY (card/ISD) / LOADED (ELF)');
+	assert.strictEqual(LIFECYCLE_MAP['03'], 'INSTALLED (app/SD)');
+	assert.strictEqual(LIFECYCLE_MAP['07'], 'SELECTABLE (app/SD) / INITIALIZED (card/ISD)');
+	assert.strictEqual(LIFECYCLE_MAP['0F'], 'SECURED (card/ISD) / PERSONALIZED (SD)');
+	assert.strictEqual(LIFECYCLE_MAP['1F'], 'App-specific (app)');
 	assert.strictEqual(LIFECYCLE_MAP['7F'], 'CARD_LOCKED');
 	assert.strictEqual(LIFECYCLE_MAP['FF'], 'TERMINATED');
-	assert.strictEqual(LIFECYCLE_MAP['83'], 'LOCKED (SD)');
+	assert.strictEqual(LIFECYCLE_MAP['83'], 'LOCKED');
+	assert.strictEqual(LIFECYCLE_MAP['8F'], 'LOCKED');
 });
 
 test('TS 51.011 SIM families resolve (94xx/98xx/92xx/9Exx/9Fxx)', () => {

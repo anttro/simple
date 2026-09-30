@@ -501,7 +501,7 @@ Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
-Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it. The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
+Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it.  The **NV footprint** is measured around the chain: a best-effort `GET DATA FF21` (Extended Card Resources, TS 102 226 §8.2.1.7.2) read before the first step and again after the last one (also on failure) reports the free non-volatile memory and its delta — the read is silent (no step record, no failure) and a card without FF21 simply yields no fields.  The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
 
 **Request body:**
 ```json
@@ -545,7 +545,10 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
  "application_aid": "A000000003000000",
  "load_block_size": 240,
  "load_block_size_requested": null,
- "load_block_size_auto": true}
+ "load_block_size_auto": true,
+ "nv_before": 50646,
+ "nv_after": 23400,
+ "nv_delta": 27246}
 ```
 
 `load_block_size` is the effective size used for the LOAD blocks (240 by
@@ -557,6 +560,14 @@ word; the RAM results are in `por_status` (the PoR verdict: `por_ok`,
 `rc_cc_ds_failed`, `cntr_low`, ... or `no_por` when the card sent none) and
 `por_sw` (the remote command's own status word from the compact/expanded
 response, with `por_type`/`por_cntr`/`por_data`/`por_raw` for context).
+
+`nv_before`/`nv_after` are the free non-volatile memory (bytes) read via
+`GET DATA FF21` before and after the chain, `nv_delta` their difference (what
+the operation consumed; negative = memory was released, e.g. a discarded
+partial load).  The three fields are omitted when the card has no FF21
+readout; on a failure the values still show what the failed attempt consumed.
+The two FF21 reads consume counters like any accepted packet, so
+`final_cntr` already includes them.
 
 A step fails when the PoR is not `por_ok`, when `por_sw` is outside the
 success set (`9000`, `61xx` more data, `62xx`/`63xx` warnings, `CAFE` GP
