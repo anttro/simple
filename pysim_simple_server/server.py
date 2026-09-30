@@ -1176,15 +1176,42 @@ def _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex):
     from osmocom.utils import h2b
     kic_b = int(kic, 16)
     kid_b = int(kid, 16)
+    spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
     algo_crypt = _CRYPT_ALGO.get(kic_b & 0x0F)
     algo_auth = _AUTH_ALGO.get(kid_b & 0x0F)
+    # TS 102 225 A.2: '00' is a valid KIc value when no ciphering is applied
+    # (SPI1.b3=0) and a valid KID value when no RC/CC/DS is applied
+    # (SPI1.b2b1=00) - a no-security packet carries no algorithm at all.  The
+    # algorithm is only *needed* when it is actually used, so an unknown nibble
+    # is refused only then and a placeholder is passed to pySim otherwise (its
+    # key is never touched).
+    needs_crypt = spi['ciphering'] or spi['por_shall_be_ciphered']
+    needs_auth = (spi['rc_cc_ds'] != 'no_rc_cc_ds'
+                  or spi['por_rc_cc_ds'] != 'no_rc_cc_ds')
     if algo_crypt is None:
-        raise ValueError('Unsupported KIc algorithm nibble %02X' % (kic_b & 0x0F))
+        if needs_crypt or (kic_b & 0x0F):
+            raise ValueError('Unsupported KIc algorithm nibble %02X' % (kic_b & 0x0F))
+        # 'implicit' codes the nibble as 0, which is exactly the spec's value
+        algo_crypt = 'implicit'
     if algo_auth is None:
-        raise ValueError('Unsupported KID algorithm nibble %02X' % (kid_b & 0x0F))
+        if needs_auth or (kid_b & 0x0F):
+            raise ValueError('Unsupported KID algorithm nibble %02X' % (kid_b & 0x0F))
+        algo_auth = 'implicit'
     return OtaKeyset(algo_crypt=algo_crypt, kic_idx=kic_b >> 4, kic=h2b(kic_key_hex),
                      algo_auth=algo_auth, kid_idx=kid_b >> 4, kid=h2b(kid_key_hex),
                      cntr=int(cntr_hex, 16) if cntr_hex else 0)
+
+
+def _counter_tracked(spi1_hex):
+    """True when the packet asks the card to check the counter (TS 102 225
+    5.1.1, SPI1.b5b4 = 01/10/11).  With b5b4 = 00 the field is "present,
+    ignored, never updated" - the card keeps no replay value for the packet,
+    so no counter may be advanced or persisted (a keyless SPI1 0x00 send must
+    leave every preset counter untouched)."""
+    try:
+        return ((int(spi1_hex, 16) >> 3) & 0x03) != 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex, kic_key_hex, kid_key_hex):
@@ -1467,8 +1494,10 @@ def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
     card state, so the server writes it with the operation that consumed it - a
     closed tab, a lost response or a second browser window can no longer lose
     an increment.  The store itself is monotonic (a stale value never regresses
-    it).  Best effort: a store failure must never fail the card operation."""
-    if not preset_id or not cntr:
+    it).  A key version is mandatory: a packet with no key version (KIc/KID
+    '00', or a SPI1 without a counter check) has no counter to write.  Best
+    effort: a store failure must never fail the card operation."""
+    if not preset_id or not cntr or not kvn:
         return
     store = getattr(server, 'card_presets', None)
     if store is None:
@@ -1670,12 +1699,14 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False)
             step_name, por_src, step.get('por_status', '?'), step.get('por_sw', '-'),
             (' error=%s' % step_error) if step_error else '',
             result['bytes'], result['segments']))
-        # Advance the counter only for an accepted packet
-        state['cntr'] = _ram_next_cntr(
-            state['cntr'], step.get('por_status') in ('por_ok', 'no_por'))
-        # ... and persist it right away: the server owns the counter now, so a
-        # crash mid-install cannot leave the preset behind the card (v3.8.0).
-        if step.get('por_status') in ('por_ok', 'no_por'):
+        # Advance the counter only for an accepted packet, and only when the
+        # packet asks the card to check it (TS 102 225 5.1.1 b5b4): a SPI1
+        # without a counter check leaves the card's replay value untouched, so
+        # the tool must not advance or persist anything either.
+        if step.get('por_status') in ('por_ok', 'no_por') and _counter_tracked(sp.get('spi1')):
+            state['cntr'] = _ram_next_cntr(state['cntr'], True)
+            # ... and persist it right away: the server owns the counter now,
+            # so a crash mid-install cannot leave the preset behind the card.
             _preset_counter_persist(server, state.get('preset_id'),
                                     state['cntr'], 'ram-%s' % step_name.split()[0].lower(),
                                     state.get('kvn'))
@@ -5166,6 +5197,7 @@ _TEST_BLOCKED_PATHS = frozenset([
     '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
     '/api/write', '/api/apdu', '/api/verify-adm', '/api/send-ota',
     '/api/ram-install', '/api/ram-install-app', '/api/cap-compat',
+    '/api/tar-probe',
     '/api/sp-verify', '/api/menu-select',
     '/api/menu-respond', '/api/event-send', '/api/net-sim',
     '/api/net-state-refresh', '/api/status-poll', '/api/rescue',
@@ -5188,6 +5220,40 @@ _CARD_FREE_GET = frozenset([
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
 ])
+
+# TAR values allocated by ETSI (TS 101 220 V18.3.0 Annex D, Table D.1): the
+# TAR probe sends one harmless command to each and reports the card's answer.
+# 'B00200' is not an application - it is the start of the RFU range, kept as a
+# control (a card must not answer it).
+TAR_PROBE_TARS = [
+    ('000000', 'Issuer Security Domain (compact)'),
+    ('B20100', 'Issuer Security Domain (expanded)'),
+    ('B00000', 'UICC shared file system RFM (compact)'),
+    ('B00001', 'ADF RFM (compact)'),
+    ('B00010', 'SIM file system RFM (compact)'),
+    ('B00120', 'UICC shared file system RFM (expanded)'),
+    ('B00130', 'SIM file system RFM (expanded)'),
+    ('B00140', 'ADF RFM (expanded)'),
+    ('B20000', 'USAT interpreter'),
+    ('B20200', 'Multiplexing application'),
+    ('B20201', 'Controlling Authority Security Domain'),
+    ('B20202', 'OMA BCAST audience measurement'),
+    ('B20203', 'OMA DM LWM2M application'),
+    ('B00200', 'RFU (control)'),
+]
+TAR_PROBE_DEFAULT_APDU = '00A40000023F00'   # SELECT MF: harmless, applet-visible
+
+
+def _tar_probe_verdict(step):
+    """Classify one TAR probe step: the card's ENVELOPE verdict plus the PoR
+    the registered application answered with."""
+    pstatus = str(step.get('por_status') or '')
+    if pstatus == 'por_ok':
+        return 'registered' if (step.get('por_sw') or step.get('por_data')) else 'no_answer'
+    if pstatus == 'no_por':
+        return 'no_por'
+    return 'refused'
+
 
 _TEST_COMMAND_TYPES = {name.upper(): code for code, name in PROACTIVE_TYPE_NAMES.items()}
 
@@ -5424,11 +5490,12 @@ def _test_run_scp80(server, step, ctx):
     sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s' % (
         source, tar or '-', spi1, spi2, counter,
         (' kvn=%d' % kvn) if kvn else '')
-    if sw:
-        # The card answered, so the SCP80 counter was consumed: advance the
-        # working value of this key version and persist it into the server-side
-        # preset (v3.8.0 - the server owns the counters, so the run survives a
-        # lost response and the PWA's counter write-back dance is gone).
+    if sw and _counter_tracked(spi1):
+        # The card answered and the packet asks for a counter check, so the
+        # SCP80 counter was consumed: advance the working value of this key
+        # version and persist it into the server-side preset (v3.8.0 - the
+        # server owns the counters, so the run survives a lost response and the
+        # PWA's counter write-back dance is gone).
         if kvn:
             counters[kvn] = _increment_counter_hex(counter)
             ctx['counter'] = counters[kvn]
@@ -6865,6 +6932,14 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            # Only a packet whose SPI1 asks the card to check the counter has a
+            # counter to track (TS 102 225 5.1.1 b5b4): with b5b4 = 00 (the
+            # keyless SPI1 00 case) the field is ignored and never updated, so
+            # no counter is advanced or persisted.
+            counter_tracked = _counter_tracked(body.get('spi1', ''))
+            if body.get('cntr') and not counter_tracked:
+                sys.stderr.write('OTA SEND: counter not tracked (SPI1 %s: '
+                                 'no counter check)\n' % body.get('spi1', ''))
             include_cpi = body.get('includeCpi', True)
             ram_format = None
             try:
@@ -6929,7 +7004,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         resp = result
                         if ram_format is not None:
                             resp['ram_format'] = ram_format
-                        if _counter_valid(cntr):
+                        if _counter_valid(cntr) and counter_tracked:
                             resp['final_cntr'] = cntr
                         # A warning ENVELOPE may still carry the PoR (the
                         # card's counter verdict): decode it so the caller
@@ -6972,10 +7047,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                                           body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
                                           body.get('kidKey', ''), por_hex)
                         # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
-                        is_ram = bool(apdu)
                         por_required = bool(spi2_val & 0x01)
                         no_por_received = not por_hex and not (submit_handler and submit_handler.submit_tpdu_hex)
-                        if is_ram and por_required and result['sw'] == '9000' and no_por_received:
+                        if por_required and result['sw'] == '9000' and no_por_received:
+                            # the PoR was requested and the card did not answer -
+                            # true for pre-built packets (the keyless form) too
+                            resp['por_missing'] = True
                             sys.stderr.write('WARNING: Card refused to return PoR - ENVELOPE returned 9000 with no response data\n')
                         sys.stderr.write('RAM RESPONSE-PACKET: %s\n' % (por_hex if por_hex else 'empty'))
                         if por:
@@ -7005,17 +7082,19 @@ class PysimHandler(BaseHTTPRequestHandler):
                         if ram_format is not None:
                             resp['ram_format'] = ram_format
                         # The counter to use next, reported for the RAM and the
-                        # plain SCP80 path alike; the server persists it (v3.8.0).
-                        # A pre-built packet may come without a counter - then
-                        # nothing is reported (and int('') never happens).
-                        if _counter_valid(cntr):
+                        # plain SCP80 path alike; the server persists it
+                        # (v3.8.0).  A pre-built packet may come without a
+                        # counter, and a packet whose SPI1 does not ask the card
+                        # to check it has none to track - nothing is reported
+                        # then (and int('') never happens).
+                        if _counter_valid(cntr) and counter_tracked:
                             resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
-                _preset_counter_persist(self.server, body.get('preset_id'),
-                                        resp.get('final_cntr'), 'send-ota',
-                                        kvn or None)
+                if counter_tracked:
+                    _preset_counter_persist(self.server, body.get('preset_id'),
+                                            resp.get('final_cntr'), 'send-ota', kvn)
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -7556,6 +7635,75 @@ class PysimHandler(BaseHTTPRequestHandler):
             else:
                 resp = _test_state_snapshot()
                 self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/tar-probe':
+            app = self.server.app
+            scc = self.server.scc
+            if not app or not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            kic = body.get('kic', '')
+            kid = body.get('kid', '')
+            kvn, keyset_err = self._keyset_guard(body, kic, kid)
+            if keyset_err:
+                err = {'success': False, 'error': keyset_err}
+                self._send_json(err, 400)
+                self._log_resp(err)
+                return
+            # The probe sends real secured packets: it needs a counter check
+            # (every accepted packet advances and is persisted) and a PoR.
+            spi1 = str(body.get('spi1') or '16').strip().upper()
+            spi2 = str(body.get('spi2') or '01').strip().upper()
+            if not _counter_tracked(spi1):
+                err = {'success': False,
+                       'error': 'the TAR probe needs a counter check - SPI1 %s has '
+                                'none (b5b4 = 00)' % spi1}
+                self._send_json(err, 400)
+                self._log_resp(err)
+                return
+            apdu = (body.get('apdu') or TAR_PROBE_DEFAULT_APDU).replace(' ', '').upper()
+            labels = {tar: label for tar, label in TAR_PROBE_TARS}
+            wanted = body.get('tars')
+            if isinstance(wanted, list) and wanted:
+                entries = []
+                for t in wanted:
+                    tar = str(t).replace(' ', '').upper()
+                    entries.append((tar, labels.get(tar, '')))
+            else:
+                entries = list(TAR_PROBE_TARS)
+            state = {'steps': [], 'encode_error': None, 'failure': {},
+                     'cntr': body.get('cntr', '00000000'),
+                     'preset_id': body.get('preset_id'), 'kvn': kvn}
+            sp = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid, 'tar': '000000',
+                  'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
+                  'include_cpi': body.get('includeCpi', True)}
+            sys.stderr.write('TAR-PROBE: %d TAR(s), APDU %s, SPI %s/%s, kvn=%s\n'
+                             % (len(entries), apdu, spi1, spi2, kvn))
+            _ram_progress_begin('tar-probe', len(entries))
+            try:
+                for index, (tar, _label) in enumerate(entries):
+                    _ram_progress_step(index, 'TAR ' + tar)
+                    sp['tar'] = tar
+                    _ram_send_gp_apdu(self.server, scc, sp, state, 'TAR ' + tar, apdu)
+            finally:
+                _ram_progress_end()
+            results = []
+            for (tar, label), step in zip(entries, state['steps']):
+                results.append({
+                    'tar': tar, 'label': label, 'verdict': _tar_probe_verdict(step),
+                    'sw': step.get('sw'), 'por_status': step.get('por_status'),
+                    'por_sw': step.get('por_sw'), 'por_data': step.get('por_data'),
+                    'bytes': step.get('bytes'), 'segments': step.get('segments'),
+                })
+            registered = sum(1 for r in results if r['verdict'] == 'registered')
+            resp = {'success': True, 'results': results, 'steps': state['steps'],
+                    'registered': registered, 'total': len(results),
+                    'final_cntr': state['cntr'], 'kvn': kvn,
+                    'spi1': spi1, 'spi2': spi2, 'apdu': apdu}
+            self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/presets':
             body = self._read_body()

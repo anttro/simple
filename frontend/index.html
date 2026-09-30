@@ -705,6 +705,7 @@
 						<option value="compat" data-l10n="CAP compatibility test">CAP compatibility test</option>
 						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
+						<option value="tar-probe" data-l10n="Probe TARs (registered OTA applications)">Probe TARs (registered OTA applications)</option>
 					</select>
 				</div>
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
@@ -720,6 +721,13 @@
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
 					<div id="ram-cap-body"></div>
 				</fieldset>
+			</div>
+			<div id="ram-tar-rows" class="hidden mb-3">
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Probe APDU (hex)">Probe APDU (hex)</label>
+				<input id="ram-tar-apdu" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" value="00A40000023F00">
+				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)">TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)</label>
+				<textarea id="ram-tar-list" rows="4" placeholder="000000&#10;B20100&#10;B00000&#10;…" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono"></textarea>
+				<p class="text-xs text-amber-600 dark:text-amber-400 mt-1" data-l10n="One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.">One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.</p>
 			</div>
 			<div id="ram-compat-rows" class="hidden mb-3">
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3" data-l10n-title="Runs the load only as far as the block that completes the CAP's Import component: the card checks the import list there, so its answer says whether the card can satisfy it.  Nothing is installed and nothing is committed - the link gate is the real install's business.  Lines are AID=version (rewrites an import) or +AID=version (appends a synthetic import, to query the card for a package the CAP does not use).">
@@ -8293,13 +8301,25 @@ async function pysimSendOta() {
 			// "advance always" rule silently reverted preset edits).
 			if (spPorAccepted(por)) {
 				const cntrEl = document.getElementById('sp-cntr');
-				cntrEl.value = data.final_cntr || spNextCntr(cntrEl.value);
+				const spi1Now = (document.getElementById('sp-spi1') || {}).value;
+				if (data.final_cntr) {
+					// the server persisted the accepted counter; sync the display
+					cntrEl.value = data.final_cntr;
+					msg += ' | CNTR -> ' + cntrEl.value;
+					spCntrLocalSync(cntrEl.value);
+				} else if (spCounterTracked(spi1Now)) {
+					// an older server: advance the local working copy
+					cntrEl.value = spNextCntr(cntrEl.value);
+					msg += ' | CNTR -> ' + cntrEl.value;
+					spCntrLocalSync(cntrEl.value);
+				} else {
+					// SPI1 without a counter check: the card keeps no replay
+					// value, so nothing is advanced (keyless SPI1 00 packets)
+					msg += ' | ' + t('counter not tracked (SPI1 has no counter check)');
+				}
 				if (data.ram_format) _spRamFormat = data.ram_format;
-				msg += ' | CNTR -> ' + cntrEl.value;
 				document.getElementById('sp-result').value = '';
 				spShowSizeInfo();
-				// the server persisted the accepted counter; sync the display
-				spCntrLocalSync(cntrEl.value);
 			} else {
 				msg += ' | CNTR unchanged (' + ((por && por.response_status) || 'PoR error') + ')';
 			}
@@ -8392,6 +8412,7 @@ function ramOpChanged() {
 	const isCap = op === 'install-cap';
 	const isCompat = op === 'compat';
 	const isApp = op === 'install-app' || op === 'make-selectable';
+	const isProbe = op === 'tar-probe';
 	const setHidden = (id, hidden) => {
 		const el = document.getElementById(id);
 		if (el) el.classList.toggle('hidden', hidden);
@@ -8400,6 +8421,7 @@ function ramOpChanged() {
 	setHidden('ram-cap-rows', !(isCap || isCompat));
 	setHidden('ram-compat-rows', !isCompat);
 	setHidden('ram-app-rows', !isApp);
+	setHidden('ram-tar-rows', !isProbe);
 	// The Execute button's .cap gate applies to the install-cap and compat ops.
 	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }
@@ -10464,6 +10486,95 @@ async function ramInstallApp(sp, op) {
 	ramShowInstallResult(data, t('OK'));
 }
 
+// ===== TAR probe (v3.8.0) =====
+// One secured packet per TAR from the preset's keyset, classified by the
+// card's ENVELOPE verdict and the application's PoR.  The standard TAR list
+// lives on the server (TS 101 220 V18.3.0 Annex D, Table D.1) and is used when
+// the list field is empty.  Each packet the card accepts consumes a counter,
+// which the server persists into the keyset (one per accepted TAR).
+
+function ramTarVerdictLabel(verdict) {
+	return { registered: 'registered', no_answer: 'accepted, no answer',
+		no_por: 'accepted, no PoR', refused: 'refused' }[verdict] || verdict;
+}
+
+// The probe result table (pure): TAR, application, ENVELOPE SW, verdict, the
+// application's status word and data.
+function ramTarProbeHtml(data) {
+	if (!data || !Array.isArray(data.results)) return '';
+	let html = '<div class="mb-2 text-sm">' + esc(t('Registered applications:')) + ' <b>' +
+		(data.registered || 0) + ' / ' + (data.total || 0) + '</b>' +
+		(data.final_cntr ? ' \u00b7 ' + esc(t('counter')) + ' ' + esc(data.final_cntr) : '') + '</div>';
+	html += '<table class="w-full text-xs"><thead><tr>';
+	['TAR', 'Application', 'ENVELOPE', 'Result', 'App SW', 'Data'].forEach(h => {
+		html += '<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">' + esc(t(h)) + '</th>';
+	});
+	html += '</tr></thead><tbody>';
+	(data.results || []).forEach(r => {
+		const tone = r.verdict === 'registered' ? 'text-emerald-700 dark:text-emerald-400'
+			: (r.verdict === 'refused' ? 'text-red-600 dark:text-red-400'
+			: 'text-amber-600 dark:text-amber-400');
+		html += '<tr class="border-b border-gray-100 dark:border-slate-700">' +
+			'<td class="py-1 px-2 font-mono">' + esc(r.tar) + '</td>' +
+			'<td class="py-1 px-2">' + esc(r.label || '') + '</td>' +
+			'<td class="py-1 px-2 font-mono">' + esc(r.sw || '-') + '</td>' +
+			'<td class="py-1 px-2 ' + tone + '">' + esc(t(ramTarVerdictLabel(r.verdict))) + '</td>' +
+			'<td class="py-1 px-2 font-mono">' + esc(r.por_sw || '-') + '</td>' +
+			'<td class="py-1 px-2 font-mono">' + esc(r.por_data || '-') + '</td></tr>';
+	});
+	html += '</tbody></table>';
+	return html;
+}
+
+async function ramTarProbe(sp) {
+	const apdu = (document.getElementById('ram-tar-apdu').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (!apdu) { alert(t('Specify the probe APDU')); return; }
+	const tars = (document.getElementById('ram-tar-list').value || '')
+		.split(/[\s,;]+/).map(s => s.trim().toUpperCase())
+		.filter(s => /^[0-9A-F]{6}$/.test(s));
+	const body = {
+		preset_id: sp.preset_id,
+		spi1: sp.spi1, spi2: '01',
+		kic: sp.kic, kid: sp.kid, kicKey: sp.kicKey, kidKey: sp.kidKey,
+		cntr: sp.cntr, apdu: apdu,
+	};
+	if (tars.length) body.tars = tars;
+	ramClearResults();
+	ramOpModalBegin(t('Probe TARs (registered OTA applications)'));
+	ramOpModalStatus(t('Sending to card...'));
+	let data;
+	try {
+		data = await pysimFetch('/api/tar-probe', body);
+	} catch (e) {
+		const msg = t('Error') + ': ' + e.message;
+		const el = document.getElementById('ram-result');
+		el.textContent = msg;
+		el.classList.remove('hidden', 'text-green-600');
+		el.classList.add('text-red-600');
+		ramOpModalFinish(msg, false, '');
+		return;
+	}
+	ramHideProgress();
+	if (data.final_cntr) ramSaveCntr(data.final_cntr);
+	if (!data.success) {
+		const msg = t('Error') + ': ' + (data.error || '?');
+		const el = document.getElementById('ram-result');
+		el.textContent = msg;
+		el.classList.remove('hidden', 'text-green-600');
+		el.classList.add('text-red-600');
+		ramOpModalFinish(msg, false, '');
+		return;
+	}
+	const html = ramTarProbeHtml(data);
+	const resultEl = document.getElementById('ram-result');
+	resultEl.textContent = t('Registered applications:') + ' ' + data.registered + ' / ' + data.total;
+	resultEl.classList.remove('hidden', 'text-red-600');
+	resultEl.classList.add('text-green-600');
+	const stepsEl = document.getElementById('ram-steps');
+	stepsEl.classList.add('hidden');
+	ramOpModalFinish(resultEl.textContent, true, html, true);
+}
+
 // Measured NV footprint of an install operation: the server reads GET DATA
 // FF21 (free non-volatile memory) before and after the chain; the delta is
 // what the operation consumed (negative = memory was freed).  Cards without
@@ -10612,6 +10723,7 @@ async function ramExecute() {
 	}
 	try {
 		if (op === 'explore') await ramExplore(sp);
+		else if (op === 'tar-probe') await ramTarProbe(sp);
 		else if (op === 'install-cap') await ramInstallCap(sp);
 		else if (op === 'compat') await ramCompatTest(sp);
 		else if (op === 'install-app' || op === 'make-selectable') await ramInstallApp(sp, op);
@@ -11017,6 +11129,16 @@ function spKeysetKvnOf(hex) {
 	const s = String(hex || '').trim().toUpperCase();
 	if (!/^[0-9A-F]{2}$/.test(s)) return null;
 	return (parseInt(s, 16) >> 4) & 0x0F;
+}
+
+// True when the packet asks the card to check the counter (TS 102 225 5.1.1,
+// SPI1.b5b4 = 01/10/11).  With b5b4 = 00 the field is "present, ignored,
+// never updated": a keyless SPI1 0x00 packet leaves every counter untouched,
+// so the form counter must not advance either.
+function spCounterTracked(spi1Hex) {
+	const v = parseInt(String(spi1Hex || ''), 16);
+	if (isNaN(v)) return false;
+	return ((v >> 3) & 0x03) !== 0;
 }
 
 // The keysets of a preset (a v3.8.0 flat preset converts to a single one).
@@ -19471,6 +19593,20 @@ const LANG_RU = {
 	'Duplicate key version in the keysets': 'Дублирующаяся версия ключа в наборах',
 	'Select a card preset - its keysets define the key versions': 'Выберите предустановку карты — её наборы ключей определяют версии ключей',
 	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в предустановке.',
+	'counter not tracked (SPI1 has no counter check)': 'счётчик не отслеживается (в SPI1 нет проверки счётчика)',
+	'Probe TARs (registered OTA applications)': 'Проба TAR (зарегистрированные OTA-приложения)',
+	'Probe APDU (hex)': 'APDU пробы (hex)',
+	'TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)': 'TAR для пробы (hex, по одному в строке; пусто = все стандартные TAR из TS 101 220 Annex D)',
+	'One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.': 'Один защищённый пакет на каждый TAR: каждый принятый картой пакет расходует счётчик, который сохраняется в предустановке.',
+	'Specify the probe APDU': 'Укажите APDU пробы',
+	'Registered applications:': 'Зарегистрированные приложения:',
+	'Application': 'Приложение',
+	'ENVELOPE': 'ENVELOPE',
+	'App SW': 'SW приложения',
+	'Data': 'Данные',
+	'registered': 'зарегистрировано',
+	'accepted, no answer': 'принято, нет ответа',
+	'accepted, no PoR': 'принято, нет PoR',
 	'No card presets defined — the SCP80/RAM views have no keys for the equipped card. Add one in the Cards tab.': 'Предустановки карт не заданы — в представлениях SCP80/RAM нет ключей для подключённой карты. Добавьте её на вкладке «Карты».',
 	'The equipped card': 'Подключённая карта',
 	'does not match any card preset — the selected preset may belong to another card. Add it in the Cards tab (From card).': 'не совпадает ни с одной предустановкой — выбранная предустановка может принадлежать другой карте. Добавьте её на вкладке «Карты» (кнопка «С карты»).',

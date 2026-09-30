@@ -646,6 +646,110 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('key version 3 is not defined', resp['error'])
 
+    def test_a_keyless_send_leaves_every_counter_untouched(self):
+        # SPI1 00: the counter is "present, ignored, never updated"
+        # (TS 102 225 5.1.1 b5b4=00) - the server must not report, advance or
+        # persist any counter for such a packet
+        p = self.store.add(self._preset(keysets=[
+            self._keyset(kic='15', kid='15', cntr='0000000005'),
+            self._keyset(kic='29', kid='29', kicKey='CC', kidKey='DD', cntr='0000000007')]))
+        before = [ks['cntr'] for ks in self.store.get(p['id'])['keysets']]
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 18, 'segments': 1,
+                'response_data': ''}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: None),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '00', 'spi2': '01', 'kic': '00', 'kid': '00',
+                'tar': 'B00000', 'cntr': '00000000AA', 'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertNotIn('final_cntr', resp)
+        self.assertEqual([ks['cntr'] for ks in self.store.get(p['id'])['keysets']], before)
+        self.assertFalse(self.store.audit_path.exists(),
+                         'a keyless send must not write a counter at all')
+
+    def test_a_no_security_packet_is_built_with_zero_kic_kid(self):
+        # TS 102 225 A.2: KIc/KID '00' are valid with SPI1 00 - the server
+        # builds the packet with no keys at all (the card accepted this exact
+        # form; a fake KIc/KID 15/15 is refused with 6200)
+        sent = []
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet',
+                              lambda scc, sp_hex, **kw: (sent.append(sp_hex), {
+                                  'success': True, 'sw': '9000', 'bytes': 18,
+                                  'segments': 1, 'response_data': ''})[1]),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: None),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'apdu': '00A40000023F00', 'spi1': '00', 'spi2': '01',
+                'kic': '00', 'kid': '00', 'tar': 'B00000', 'cntr': '0000000001',
+                'kicKey': '', 'kidKey': ''})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(sent[0].lower(), '0d00010000b0000000000000010000a40000023f00')
+
+    def test_the_tar_probe_classifies_each_tar(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098', keysets=[
+            self._keyset(kic='25', kid='25', kicKey='AA', kidKey='BB', cntr='0000000005')]))
+        seen = []
+
+        def fake_step(server, scc, sp, state, name, apdu, silent=False):
+            tar = sp['tar']
+            seen.append(tar)
+            if tar == '000000':
+                state['steps'].append({'name': name, 'sw': '9000', 'por_status': 'por_ok',
+                                       'por_sw': '6D00', 'por_data': ''})
+            elif tar == 'B00000':
+                state['steps'].append({'name': name, 'sw': '9000', 'por_status': 'por_ok',
+                                       'por_sw': '6B00', 'por_data': '3F00'})
+            elif tar == 'B00001':
+                state['steps'].append({'name': name, 'sw': '9000', 'por_status': 'no_por'})
+            else:
+                state['steps'].append({'name': name, 'sw': '6200', 'por_status': 'envelope_error'})
+            return True
+
+        self.server.app = object()      # the probe only checks truthiness
+        with mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_step):
+            status, resp = self._post('/api/tar-probe', {
+                'preset_id': p['id'], 'kic': '25', 'kid': '25',
+                'kicKey': 'AA', 'kidKey': 'BB', 'cntr': '0000000005',
+                'tars': ['000000', 'B00000', 'B00001', 'B00200']})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(seen, ['000000', 'B00000', 'B00001', 'B00200'])
+        verdicts = {r['tar']: r['verdict'] for r in resp['results']}
+        self.assertEqual(verdicts, {'000000': 'registered', 'B00000': 'registered',
+                                    'B00001': 'no_por', 'B00200': 'refused'})
+        self.assertEqual(resp['registered'], 2)
+        self.assertEqual(resp['total'], 4)
+        self.assertEqual(resp['kvn'], 2)
+        self.assertEqual(resp['results'][0]['label'], 'Issuer Security Domain (compact)')
+        self.assertEqual(resp['results'][0]['por_sw'], '6D00')
+
+    def test_the_tar_probe_needs_a_counter_check_and_a_defined_keyset(self):
+        self.server.app = object()
+        status, resp = self._post('/api/tar-probe', {'spi1': '00', 'kic': '15', 'kid': '15'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('counter check', resp['error'])
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        status, resp = self._post('/api/tar-probe',
+                                  {'preset_id': p['id'], 'kic': '35', 'kid': '35'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('not defined', resp['error'])
+
     def test_a_store_write_failure_answers_a_json_500(self):
         with mock.patch.object(self.store, 'add', side_effect=OSError('read-only file system')):
             status, resp = self._post('/api/presets', self._preset())

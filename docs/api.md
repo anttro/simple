@@ -36,6 +36,7 @@ a 3.x PWA).
 | `/api/presets/update` | POST | Update a preset (`{id, fields}`; the counter may be raised) |
 | `/api/presets/delete` | POST | Delete a preset (`{id}`) |
 | `/api/presets/import` | POST | Import presets (`{presets: [...], mode: merge\|replace}`) |
+| `/api/tar-probe` | POST | Probe the card's registered OTA applications (one secured packet per TAR, TS 101 220 Annex D) |
 | `/api/esim/chip` | GET | eUICC chip details (EID, EUICCInfo1/2, configured addresses) |
 | `/api/esim/profiles` | GET | Installed eSIM profiles with their metadata |
 | `/api/esim/notifications` | GET | Pending eSIM notifications (read-only) |
@@ -245,6 +246,35 @@ import also accepts presets exported by the older localStorage-based builds.
   `"replace"`) → `{"ok": true, "added": N, "skipped": M, "errors": […]}`;
   invalid entries and duplicates are skipped and reported, never fatal.
 
+### `POST /api/tar-probe`
+
+Probe which OTA applications the card has registered: one **secured packet per
+TAR** (the standard allocations of TS 101 220 V18.3.0 Annex D, Table D.1 unless
+a `tars` list is given), each carrying a harmless C-APDU (`SELECT MF` by
+default), with the preset's keyset and SPI `16/01` (counter check + PoR).
+Every accepted packet consumes a counter, which is persisted into the keyset
+like any other operation, so the probe is refused when the SPI1 has no counter
+check (b5b4 = 00) or the named preset does not define the key version.
+
+```json
+{"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
+ "cntr": "0000000187", "apdu": "00A40000023F00", "tars": ["000000", "B00000"]}
+```
+
+**Response:** `{"success": true, "registered": N, "total": M,
+ "final_cntr": "…", "kvn": 2, "spi1": "16", "spi2": "01",
+ "results": [{"tar": "000000", "label": "Issuer Security Domain (compact)",
+              "verdict": "registered", "sw": "9000", "por_status": "por_ok",
+              "por_sw": "6D00", "por_data": ""}], "steps": [...]}`
+
+Verdicts: `registered` (ENVELOPE 9000 + a PoR carrying the application's own
+status word/data), `no_answer` (accepted, PoR without an R-APDU), `no_por`
+(accepted, no PoR at all — the packet was silently dropped), `refused` (a
+non-9000 ENVELOPE, typically `6200` for a TAR without a registered
+application).  Observed on a live card: `000000`, `B00000` and `B00001`
+registered (compact-format applications), the expanded-format TARs, USAT,
+multiplexing and CASD refused.
+
 ### eSIM / LPA (local ES10 operations)
 
 These endpoints work only when the equipped card is an eUICC (SGP.22/32);
@@ -387,6 +417,16 @@ the counter into the keyset of the key version the packet used (see *Card
 presets*), so a lost response or a closed tab cannot lose the increment; the
 request is refused when KIc/KID carry different key versions (TS 102 225 A.2)
 or a non-zero key version the preset does not define.
+
+**Counter tracking follows SPI1.b5b4** (TS 102 225 §5.1.1): with `00` the
+counter field is "present, ignored, never updated", so a packet whose SPI1 has
+no counter check (the keyless `SPI1 00` form) reports **no** `final_cntr` and
+persists nothing — a keyless send must leave every preset counter untouched.
+The spec's no-security KIc/KID values `00/00` are accepted when the SPI says
+no ciphering / no RC-CC-DS (A.2), so `{apdu, spi1: "00", kic: "00", kid: "00"}`
+builds a keyless packet (the card accepted exactly that form; a fake `15/15`
+was refused with `6200`).  When a PoR was requested and the card did not
+answer, the response carries `por_missing: true`.
 
 **Request body:**
 ```json

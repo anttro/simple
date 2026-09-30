@@ -2071,3 +2071,55 @@ class RamProgressTests(unittest.TestCase):
         self.assertGreaterEqual(p['elapsed'], 0)
         srv._ram_progress_end()
         self.assertFalse(srv._ram_progress_payload()['active'])
+
+class NoSecurityAndCounterTrackingTests(unittest.TestCase):
+    """The keyless packet form and the counter-tracking rule (v3.8.0).
+
+    TS 102 225 A.2: KIc '00' is valid when no ciphering is applied (SPI1.b3=0)
+    and KID '00' when no RC/CC/DS is applied (SPI1.b2b1=00) - a no-security
+    packet carries no algorithm and no keys.  TS 102 225 5.1.1 b5b4: with '00'
+    the counter is "present, ignored, never updated", so no counter may be
+    advanced or persisted for such a packet."""
+
+    def test_zero_kic_kid_build_the_keyless_packet(self):
+        from pysim_simple_server import server as S
+        sp, spi = S._build_secured_packet('00', '01', '00', '00', 'B00000',
+                                          '0000000001', '00A40000', '', '')
+        self.assertEqual(sp.lower(), '0d00010000b0000000000000010000a40000')
+        self.assertFalse(spi['ciphering'])
+        self.assertEqual(spi['rc_cc_ds'], 'no_rc_cc_ds')
+
+    def test_the_algorithm_is_required_only_when_it_is_used(self):
+        from pysim_simple_server import server as S
+        # ciphering on (SPI1.b3) with an unknown KIc nibble: refused
+        with self.assertRaises(ValueError):
+            S._ota_keyset('04', '01', '00', '15', '0000000001', '', '')
+        # CC on (SPI1.b2b1) with an unknown KID nibble: refused
+        with self.assertRaises(ValueError):
+            S._ota_keyset('16', '01', '15', '00', '0000000001', '', '')
+        # a ciphered PoR needs the KIc key too
+        with self.assertRaises(ValueError):
+            S._ota_keyset('00', '11', '00', '15', '0000000001', '', '')
+        # ... the same nibbles are fine when unused
+        S._ota_keyset('00', '01', '00', '00', '0000000001', '', '')
+
+    def test_counter_tracking_follows_the_spi(self):
+        from pysim_simple_server import server as S
+        for spi1, tracked in (('00', False), ('06', False), ('01', False),
+                              ('08', True), ('10', True), ('16', True), ('18', True),
+                              ('', False), ('zz', False)):
+            self.assertEqual(S._counter_tracked(spi1), tracked, spi1)
+
+    def test_persist_needs_a_key_version(self):
+        from pysim_simple_server import server as S
+        store = mock.Mock()
+        server = types.SimpleNamespace(card_presets=store)
+        S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', None)
+        S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', 0)
+        self.assertFalse(store.set_counter.called, 'no key version -> no write')
+        S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', 2)
+        store.set_counter.assert_called_once_with('pid', '0000000002', 'send-ota', 2)
+
+
+if __name__ == '__main__':
+    unittest.main()

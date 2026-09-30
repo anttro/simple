@@ -23,7 +23,7 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'esc', 'escHtml']) {
+	'spKeysetOptionsHtml', 'spCounterTracked', 'esc', 'escHtml']) {
 	code += extractFunc(html, fn) + '\n';
 }
 code += 'function t(s){return s;}\n';
@@ -119,4 +119,15 @@ test('the Cards form wires the keyset editor', () => {
 	// the packet actions run the guard
 	assert.ok(html.includes('const ksErr = spKeysetGuard();'));
 	assert.ok(html.includes('const ksErr = ramKeysetGuard();'));
+});
+
+test('spCounterTracked follows SPI1 b5b4 (TS 102 225 5.1.1)', () => {
+	// b5b4 = 00: "present, ignored, never updated" - no counter to track
+	for (const spi1 of ['00', '01', '06', '']) {
+		assert.strictEqual(spCounterTracked(spi1), false, spi1);
+	}
+	for (const spi1 of ['08', '10', '16', '18', '1E']) {
+		assert.strictEqual(spCounterTracked(spi1), true, spi1);
+	}
+	assert.strictEqual(spCounterTracked('zz'), false);
 });
