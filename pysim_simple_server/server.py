@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.56'
+VERSION = '3.6.57'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2070,11 +2070,7 @@ def _decode_poll_negotiation(data_hex):
         return None
     result = None
     unit = interval = None
-    off = 0
-    while off + 1 < len(data):
-        tag, tlen = data[off], data[off + 1]
-        val = data[off + 2: off + 2 + tlen]
-        off += 2 + tlen
+    for tag, val in _ber_tlv_list(data):
         if tag in (0x11, 0x91) and len(val) >= 1:
             result = val[0]
         elif tag in (0x04, 0x84) and len(val) >= 2:
@@ -2203,11 +2199,8 @@ def _tlv_map(data):
     """Top-level COMPREHENSION-TLV map {tag: value} of a payload without a
     D0 wrapper (e.g. the command-specific TLVs of a TERMINAL RESPONSE)."""
     out = {}
-    off = 0
-    while off + 1 < len(data):
-        tag, tlen = data[off], data[off + 1]
-        out.setdefault(tag, data[off + 2: off + 2 + tlen])
-        off += 2 + tlen
+    for tag, val in _ber_tlv_list(data or b''):
+        out.setdefault(tag, val)
     return out
 
 
@@ -4221,6 +4214,38 @@ def _skip_ber_len(raw, off):
     return off + 3
 
 
+def _ber_tlv_list(data):
+    """[(tag, value)] of a BER-TLV sequence, stopping at a truncated or
+    malformed TLV instead of walking into the value.
+
+    The length MUST be read as BER: the big listings carry long-form lengths
+    (`8B 81 96` = the 150-byte SMS TPDU) and a single-byte read walks into the
+    value, eventually indexing past the end (live 2026-09-30: `IndexError:
+    index out of range` in the FETCH path - a SEND SHORT MESSAGE whose TLV
+    list was mis-walked)."""
+    out = []
+    off = 0
+    while off + 1 < len(data):
+        tag = data[off]
+        tlen, voff = _ber_len_at(data, off + 1)
+        if voff + tlen > len(data):
+            break
+        out.append((tag, data[voff:voff + tlen]))
+        if voff + tlen <= off:      # no forward progress: stop
+            break
+        off = voff + tlen
+    return out
+
+
+def _proactive_body(raw):
+    """The TLV region of a D0 proactive command (after its BER length)."""
+    if not raw or raw[0] != 0xD0:
+        return b''
+    ln, off = _ber_len_at(raw, 1)
+    end = off + ln if 0 < ln <= len(raw) - off else len(raw)
+    return raw[off:end]
+
+
 # ---- TIMER MANAGEMENT (TS 102 223 6.6.21, 6.8.13/14, 7.4) -----------------
 # The terminal keeps up to 8 timers per card session. On expiry it must send
 # ENVELOPE (TIMER EXPIRATION, tag D7) so the card can act (a common OTA retry
@@ -4362,18 +4387,14 @@ def _parse_proactive_header(raw):
     cmd_num, cmd_type = 1, 0
     cmd_qual = None
     dev_src, dev_dst = 0x83, 0x81
-    if raw[0] == 0xD0:
-        off = _skip_ber_len(raw, 1)
-        while off < len(raw) - 1:
-            tag, tlen = raw[off], raw[off + 1]
-            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-            # Cards use both the plain (01/02) and comprehension-required
-            # (81/82) tag variants - TS 101 220 7.1.1 leaves the CR flag to
-            # the application, and the reference cards switch between them.
-            if tag in (0x01, 0x81) and tlen >= 3:
-                cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
-            elif tag in (0x02, 0x82) and tlen >= 2:
-                dev_src, dev_dst = val[0], val[1]
+    for tag, val in _ber_tlv_list(_proactive_body(raw)):
+        # Cards use both the plain (01/02) and comprehension-required
+        # (81/82) tag variants - TS 101 220 7.1.1 leaves the CR flag to the
+        # application, and the reference cards switch between them.
+        if tag in (0x01, 0x81) and len(val) >= 3:
+            cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
+        elif tag in (0x02, 0x82) and len(val) >= 2:
+            dev_src, dev_dst = val[0], val[1]
     return cmd_num, cmd_type, dev_src, dev_dst, cmd_qual
 
 
@@ -4479,13 +4500,9 @@ def _parse_sms_concat(tpdu_bytes):
 
 
 def _parse_display_text(raw):
-    if raw[0] == 0xD0:
-        off = _skip_ber_len(raw, 1)
-        while off < len(raw) - 1:
-            tag, tlen = raw[off], raw[off + 1]
-            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-            if tag in (0x8D, 0x0D) and tlen >= 1:
-                return _decode_dcs_text(val)
+    for tag, val in _ber_tlv_list(_proactive_body(raw)):
+        if tag in (0x8D, 0x0D) and val:
+            return _decode_dcs_text(val)
     return None
 
 
@@ -4598,35 +4615,26 @@ def _parse_get_input(raw):
 def _parse_select_item(raw):
     items = []
     nai = None
-    if raw[0] == 0xD0:
-        off = _skip_ber_len(raw, 1)
-        while off < len(raw) - 1:
-            tag, tlen = raw[off], raw[off + 1]
-            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-            if tag in (0x85, 0x05) and tlen >= 1:
-                try:
-                    _title = _decode_stk_text(val)
-                except Exception:
-                    pass
-            elif tag in (0x8F, 0x0F) and tlen >= 2:
-                items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
-            elif tag in (0x18, 0x98) and tlen >= 1:
-                nai = val
+    for tag, val in _ber_tlv_list(_proactive_body(raw)):
+        if tag in (0x85, 0x05) and val:
+            try:
+                _title = _decode_stk_text(val)
+            except Exception:
+                pass
+        elif tag in (0x8F, 0x0F) and len(val) >= 2:
+            items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
+        elif tag in (0x18, 0x98) and val:
+            nai = val
     return _attach_nai(items, nai)
 
 
 def _parse_setup_menu_items(raw):
     items = []
     nai = None
-    if not raw or raw[0] != 0xD0:
-        return items
-    off = _skip_ber_len(raw, 1)
-    while off < len(raw) - 1:
-        tag, tlen = raw[off], raw[off + 1]
-        val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
-        if tag in (0x8F, 0x0F) and tlen >= 2:
+    for tag, val in _ber_tlv_list(_proactive_body(raw)):
+        if tag in (0x8F, 0x0F) and len(val) >= 2:
             items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
-        elif tag in (0x18, 0x98) and tlen >= 1:
+        elif tag in (0x18, 0x98) and val:
             nai = val
     return _attach_nai(items, nai)
 
@@ -4655,23 +4663,42 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
         fdata, sw = rv[0], rv[1]
         raw = bytes.fromhex(fdata) if fdata else None
         action = None
+        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
+        entry = None
         if raw:
-            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
-            entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
-        else:
-            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
-            entry = None
-        if raw and cmd_type in (0x03, 0x04):
-            _handle_card_poll_command(cmd_type, raw)
-        if on_fetch:
-            action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
+            # Every step is guarded: a decoder bug must never break the
+            # FETCH/TERMINAL RESPONSE conversation (live 2026-09-30: an
+            # IndexError in the header parser turned into a 500 with the
+            # card's command left unanswered).  The exception and the
+            # offending bytes go to the log; the TR is still sent.
+            try:
+                cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+            except Exception as e:
+                sys.stderr.write('FETCH parse error: %s (raw=%s)\n' % (e, raw.hex()))
+            try:
+                entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
+            except Exception as e:
+                sys.stderr.write('FETCH log error: %s (raw=%s)\n' % (e, raw.hex()))
+        try:
+            if raw and cmd_type in (0x03, 0x04):
+                _handle_card_poll_command(cmd_type, raw)
+            if on_fetch:
+                action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
+        except Exception as e:
+            sys.stderr.write('FETCH handler error: %s (raw=%s)\n' % (
+                e, raw.hex() if raw else '(none)'))
         paused = action == 'pause'
         if not paused:
             tr_tlv = None
-            if raw and cmd_type in (0x40, 0x41, 0x42, 0x43, 0x44):
-                tr_tlv = _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
-            if cmd_type == 0x27:
-                tr_tlv = _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
+            try:
+                if raw and cmd_type in (0x40, 0x41, 0x42, 0x43, 0x44):
+                    tr_tlv = _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
+                if cmd_type == 0x27:
+                    tr_tlv = _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
+            except Exception as e:
+                sys.stderr.write('FETCH handler error: %s (raw=%s)\n' % (
+                    e, raw.hex() if raw else '(none)'))
+                tr_tlv = None
             if tr_tlv is None:
                 tr_tlv = _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual)
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))

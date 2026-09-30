@@ -1749,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.56';
+const SIMPLE_VERSION = '3.6.57';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9170,6 +9170,7 @@ function ramExpandedGroups(report) {
 			groups.push(g);
 		}
 		g.compact = g.compact || !!r.compact;
+		g.transport = g.transport || !!r.transport;
 		if (r.form) {
 			const score = ((r.entries || 0) > 0 ? 100 : 0) +
 				(RAM_EXPANDED_FORMS.length - RAM_EXPANDED_FORMS.indexOf(r.form));
@@ -9204,7 +9205,10 @@ function ramExpandedReport(report) {
 		if (g.form) return;
 		const why = g.sw ? ' (' + g.sw + ')' : '';
 		if (!g.compact) {
-			parts.push(g.label + ': ' + (g.sw || t('no data')));
+			parts.push(g.label + ': ' + (g.transport && g.sw
+				? t('request error') + ' (' + g.sw + ')' : (g.sw || t('no data'))));
+		} else if (g.transport) {
+			parts.push(g.label + ': ' + t('request error') + why + ' \u2014 ' + t('compact listing used'));
 		} else if (g.p1 === '80') {
 			// cards commonly report nothing for the ISD in the expanded form
 			// (GPPro treats its 6A88/6A86 as 'no data to report')
@@ -9409,10 +9413,12 @@ async function ramExplore(sp) {
 			: RAM_EXPANDED_FORMS.slice();
 		if (p1 === '80') forms = [expandedForm || 'tags'];
 		let lastSw = '';
+		let lastTransport = false;
 		for (const form of forms) {
 			let data = '';
 			let sw = '';
 			let accepted = true;
+			let transportError = false;
 			const sendOne = async (apdu, what) => {
 				ramShowProgress(label + ' P1=' + p1 + ' ' + what + '...');
 				const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
@@ -9421,6 +9427,8 @@ async function ramExplore(sp) {
 				else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
 				if (!res.success || !res.por || !spPorAccepted(res.por)) {
 					accepted = false;
+					// a request/transport failure is not a remote status word
+					transportError = !res.por;
 					sw = res.por ? res.por.response_status : (res.error || t('no data'));
 					return '';
 				}
@@ -9451,16 +9459,19 @@ async function ramExplore(sp) {
 			const parsed = data ? parser(data) : [];
 			if (parsed.length) {
 				expandedForm = form;
-				return { form: form, parsed: parsed, sw: sw, entries: parsed.length };
+				return { form: form, parsed: parsed, sw: sw, entries: parsed.length,
+					transport: transportError };
 			}
 			lastSw = sw;
+			lastTransport = transportError;
 			if (!accepted) break;
 			if (ramRemoteSwOk(sw)) {
 				// accepted but empty: nothing to gain from another form
-				return { form: form, parsed: [], sw: sw, entries: 0 };
+				return { form: form, parsed: [], sw: sw, entries: 0,
+					transport: transportError };
 			}
 		}
-		return { form: null, parsed: [], sw: lastSw, entries: 0 };
+		return { form: null, parsed: [], sw: lastSw, entries: 0, transport: lastTransport };
 	}
 
 	async function paginate(p1, collector, parser, label, quiet) {
@@ -9533,7 +9544,8 @@ async function ramExplore(sp) {
 		if (collector.length === before || wantDetails) {
 			const out = await expandedPass(p1, label, parser, spi2);
 			expandedReport.push({ p1: p1, label: label, compact: collector.length > before,
-				form: out.form, sw: out.sw, entries: out.entries });
+				form: out.form, sw: out.sw, entries: out.entries,
+				transport: out.transport });
 			if (collector.length === before) {
 				// Nothing from the compact pass: the expanded result is the listing
 				collector.push(...out.parsed);
@@ -18766,6 +18778,7 @@ const LANG_RU = {
 	'Package versions come from the expanded registry query \u2014 this card did not return them.': 'Версии пакетов приходят из расширенного запроса реестра \u2014 эта карта их не вернула.',
 	'Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.': 'Версии пакетов есть только в формах расширенного запроса со списком тегов \u2014 эта карта приняла только форму без списка тегов.',
 	'from the app instance': 'от экземпляра апплета',
+	'request error': 'ошибка запроса',
 	'STK menu entry:': 'Пункт меню STK:',
 	'position': 'позиция',
 	'Other registry data:': 'Прочие данные реестра:',

@@ -32,6 +32,9 @@ from pysim_simple_server.server import (
     _parse_setup_menu_items,
     _calc_ud_offset,
     _find_sms_tpdu,
+    _parse_proactive_header,
+    _parse_display_text,
+    _tlv_map,
     _parse_response_scripting,
     _parse_sms_concat,
     _por_remote_sw,
@@ -1586,6 +1589,81 @@ class RamSendGpApduLoggingTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn('RAM C-APDU (LOAD (1/2)): 80E8800001AA', out)
         self.assertIn('RAM SECURED-PACKET (LOAD (1/2)): AABB', out)
+
+
+class ProactiveLongTlvTests(unittest.TestCase):
+    """BER long-form lengths in proactive command TLVs (v3.6.57).
+
+    The live card's SEND SHORT MESSAGE carries its 150-byte SMS TPDU as
+    `8B 81 96`: reading the length as one byte walked into the TPDU and
+    eventually indexed past the end (`IndexError: index out of range`, live
+    2026-09-30, 500 in the FETCH path with the command left unanswered)."""
+
+    # the live FETCH shape: command details + device identities + address +
+    # the long-form SMS TPDU TLV
+    TPDU = bytes.fromhex(
+        '410005812143f500f68c0700030302017100008d0a00000000000000bb0000029000e3284f10'
+        'a1130001180001ffffffff89a10039009f7001018410a1130001180001ffffffff89a1003908'
+        'e33a4f10a1130001180002fff7100e89040002009f7001018410a1130001180002fff7100e'
+        '89040002088410a1130001180002fff7100e89494d4508e3174f07f0414c464160019f7001')
+    RAW = (bytes.fromhex('d081ab8103011300820281838607919733824009f08b8196') +
+           TPDU + bytes(range(len(TPDU), 150)))
+
+    def test_header_parses_with_a_long_form_tlv(self):
+        self.assertEqual(_parse_proactive_header(self.RAW), (1, 0x13, 0x81, 0x83, 0))
+        # the long TLV is found as one TLV, not mis-walked into its value
+        self.assertEqual(sorted(_tlv_map(self.RAW[3:]).keys()), [0x81, 0x82, 0x86, 0x8B])
+        self.assertEqual(len(_find_sms_tpdu(self.RAW)), 150 * 2)
+
+    def test_a_truncated_tlv_does_not_raise(self):
+        # a declared length running past the data ends the walk
+        raw = bytes.fromhex('d004810381')
+        self.assertEqual(_parse_proactive_header(raw), (1, 0, 0x83, 0x81, None))
+        self.assertEqual(_tlv_map(bytes.fromhex('810381')), {})
+        # display text with a long-form text TLV (144 bytes -> 8D 81 90)
+        text = bytes([0x8D, 0x81, 0x90]) + b'\x00' * 0x90
+        head = bytes([0x81, 0x03, 0x01, 0x21, 0x00])
+        raw2 = bytes([0xD0, 0x81, len(head) + len(text)]) + head + text
+        self.assertIsNotNone(_parse_display_text(raw2))
+
+
+class ProactiveChainHardeningTests(unittest.TestCase):
+    """A decoder bug must never leave a FETCH unanswered (v3.6.57): every
+    step of the FETCH/TR loop is guarded and the TR is still sent."""
+
+    def test_a_raising_parser_still_gets_a_terminal_response(self):
+        from pysim_simple_server import server as srv
+
+        class FakeTp:
+            def __init__(self):
+                self.sent = []
+                self.proactive_handler = None
+
+            def send_apdu(self, apdu):
+                self.sent.append(apdu)
+                if apdu.startswith('80120000'):     # FETCH
+                    return ('d0048103011300', '9000')
+                return ('', '9000')
+
+        class FakeScc:
+            cat_cla = '80'
+
+            def __init__(self):
+                self._tp = FakeTp()
+
+        scc = FakeScc()
+        orig = srv._parse_proactive_header
+
+        def boom(raw):
+            raise IndexError('index out of range')
+
+        try:
+            srv._parse_proactive_header = boom
+            srv._run_proactive_chain(scc, '91A8', None, status_poll=False)
+        finally:
+            srv._parse_proactive_header = orig
+        self.assertTrue(any(a.startswith('80140000') for a in scc._tp.sent),
+                        'the FETCH must be answered: %r' % (scc._tp.sent,))
 
 
 class RamNvFootprintTests(unittest.TestCase):

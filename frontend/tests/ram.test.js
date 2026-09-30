@@ -666,6 +666,14 @@ test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
 		{ p1: '10', label: 'ELFs', compact: true, form: 'lean', sw: '9000', entries: 3 },
 		{ p1: '20', label: 'ELFs', compact: true, form: 'notags', sw: '9000', entries: 5 },
 	]), 'Expanded registry: lean tag list (ELFs)');
+	// a request/transport failure is not a remote status word
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000', entries: 9 },
+		{ p1: '10', label: 'ELFs', compact: true, form: null, sw: 'index out of range', transport: true },
+	]), 'Expanded registry: tag list + EA (Apps) \u00b7 ELFs: request error (index out of range) \u2014 compact listing used');
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '10', label: 'ELFs', compact: false, form: null, sw: 'index out of range', transport: true },
+	]), 'Expanded registry refused by the card \u2014 compact listing only (package versions unavailable) ELFs: request error (index out of range)');
 	assert.strictEqual(ramExpandedReport([]), '');
 	delete globalThis.t;
 });
@@ -707,6 +715,8 @@ test('the Explore detects the expanded query form and reports it', () => {
 	assert.ok(src.includes('ramChainGetResponse(apdu)'), '61xx must be answered with a chained GET RESPONSE');
 	assert.ok(!src.includes('00C00000'), 'no standalone GET RESPONSE (it answers 6700)');
 	assert.ok(src.includes('ramExpandedQueryApdu(p1, form, page > 1)'), '6310 must page');
+	// a transport failure must not be reported as a remote status word
+	assert.ok(src.includes('transportError'), 'request errors are marked as such');
 });
 
 test('ramParseAppStatus parses the expanded E3 listing (vendor traces)', () => {
