@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.48'
+VERSION = '3.6.49'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -868,6 +868,31 @@ def _cap_import_end(load_file_hex):
             return off + 3 + size
         off += 3 + size
     raise ValueError('no Import component in the load file')
+
+
+def _cap_import_aids(load_file_hex):
+    """The AIDs of the load file's Import component (upper-case hex)."""
+    data = bytes.fromhex(load_file_hex or '')
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            start = off + 3
+            end = start + size
+            out = []
+            p = start + 1
+            for _ in range(data[start]):
+                if p + 3 > end:
+                    break
+                aid_len = data[p + 2]
+                if p + 3 + aid_len > end:
+                    break
+                out.append(bytes(data[p + 3:p + 3 + aid_len]).hex().upper())
+                p += 3 + aid_len
+            return out
+        off += 3 + size
+    return []
 
 
 def _cap_compat_blocks(load_file_hex, block_size):
@@ -6888,9 +6913,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                 loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
 
                 probe_applied = None
+                probe_unmatched = []
                 probe = body.get('probe_imports') or {}
                 additions = body.get('probe_additions') or []
                 if probe or additions:
+                    original_aids = set(_cap_import_aids(loadfile_data))
                     try:
                         loadfile_data, probe_applied = _probe_import_versions(
                             loadfile_data, probe, additions)
@@ -6899,8 +6926,17 @@ class PysimHandler(BaseHTTPRequestHandler):
                         self._send_json(resp, 400)
                         self._log_resp(resp)
                         return
-                    sys.stderr.write('CAP-COMPAT: import probe applied: %s\n'
-                                     % json.dumps(probe_applied))
+                    known = original_aids | {
+                        str(a.get('aid', '')).replace(' ', '').upper()
+                        for a in additions}
+                    probe_unmatched = sorted(
+                        k for k in probe
+                        if str(k).lower() != 'all'
+                        and str(k).replace(' ', '').upper() not in known)
+                    sys.stderr.write('CAP-COMPAT: import probe applied: %s%s\n' % (
+                        json.dumps(probe_applied),
+                        (' (unmatched: %s)' % ', '.join(probe_unmatched))
+                        if probe_unmatched else ''))
 
                 block_size_req = body.get('load_block_size')
                 if block_size_req in (None, ''):
@@ -6961,6 +6997,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'boundary_block': boundary, 'total_blocks': total_blocks,
                         'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                         'ram_format': ram_format, 'probe_imports': probe_applied,
+                        'probe_unmatched': probe_unmatched,
                         'final_cntr': state['cntr'], 'load_block_size': block_size,
                         'load_block_size_requested': block_size_req}
                 if not ok:

@@ -9,8 +9,8 @@ import zipfile
 
 from pysim_simple_server import capmem
 from pysim_simple_server.server import (
-    _ber_len, _cap_apdu_sequence, _cap_compat_blocks, _cap_import_end,
-    _cap_info_body, _cap_parse, _probe_import_versions)
+    _ber_len, _cap_apdu_sequence, _cap_compat_blocks, _cap_import_aids,
+    _cap_import_end, _cap_info_body, _cap_parse, _probe_import_versions)
 
 
 # ─── synthetic CAP builder ───────────────────────────────────────────────
@@ -271,6 +271,10 @@ class ImportProbeTests(unittest.TestCase):
         # the Directory's array entry for tag 4 (index 3) follows the size
         self.assertEqual(data[3 + 3 * 2:3 + 3 * 2 + 2], import_size.to_bytes(2, 'big'))
         self.assertTrue(self._walk_ok(patched))
+
+    def test_cap_import_aids(self):
+        self.assertEqual(_cap_import_aids(self._load_file()),
+                         [JAVACARD_FRAMEWORK.hex().upper(), self.OTHER_AID.hex().upper()])
 
     def test_probe_rejects_bad_additions(self):
         load = self._load_file()

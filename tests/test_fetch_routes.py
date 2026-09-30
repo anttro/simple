@@ -157,6 +157,28 @@ class CardFreeGetTests(unittest.TestCase):
             self.assertNotIn(path, _CARD_FREE_GET)
 
 
+def _mini_cap_hex():
+    """A minimal parseable CAP archive (Header + Applet + one Import)."""
+    import io as _io
+    import struct as _struct
+    import zipfile as _zipfile
+
+    def comp(tag, payload):
+        return bytes([tag]) + _struct.pack('>H', len(payload)) + payload
+
+    aid = bytes.fromhex('0102030405')
+    header = comp(0x01, _struct.pack('>I', 0xDECAFFED) + bytes([1, 2, 0, 1, 2]) +
+                  bytes([len(aid)]) + aid)
+    applet = comp(0x03, bytes([1, len(aid)]) + aid + b'\x00\x01')
+    imports = comp(0x04, bytes([1]) + bytes([0, 1, 7]) + bytes.fromhex('A0000000620101'))
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, 'w') as z:
+        z.writestr('Header.cap', header)
+        z.writestr('Applet.cap', applet)
+        z.writestr('Import.cap', imports)
+    return buf.getvalue().hex().upper()
+
+
 class CapCompatHttpTests(unittest.TestCase):
     """POST /api/cap-compat exists (the CAP compatibility test, v3.6.48)."""
 
@@ -189,6 +211,15 @@ class CapCompatHttpTests(unittest.TestCase):
         status, resp = self._post('/api/cap-compat', {'cap_hex': '00'})
         self.assertEqual(status, 503, resp)
         self.assertIn('error', resp)
+
+    def test_cap_compat_rejects_a_bad_probe(self):
+        # a parseable CAP + a bad override -> 400 from the probe validation,
+        # before any card I/O (a dummy scc object is enough)
+        self.server.scc = object()
+        status, resp = self._post('/api/cap-compat',
+                                  {'cap_hex': _mini_cap_hex(), 'probe_imports': {'all': 'x'}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('import probe', resp['error'])
 
 
 if __name__ == '__main__':

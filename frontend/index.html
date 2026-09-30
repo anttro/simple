@@ -1745,7 +1745,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.48';
+const SIMPLE_VERSION = '3.6.49';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9515,9 +9515,8 @@ function ramProbeParse(text) {
 			map[m[2].toLowerCase() === 'all' ? 'all' : m[2].toUpperCase()] = ver;
 		}
 	}
-	if (!Object.keys(map).length && !additions.length) {
-		return { error: t('No import versions given') };
-	}
+	// an empty list is valid: the compatibility test then runs with the CAP's
+	// own versions (the basic "is this CAP compatible with this card?" question)
 	return { map: map, additions: additions };
 }
 
@@ -9541,14 +9540,48 @@ function ramProbeAllZero() {
 
 // Verdict line for the CAP compatibility test (pure).  The test covers the
 // LOAD/import gate only - the card checks the import list while it verifies
-// the load file; the link gate is what a real install checks later.
+// the load file; the link gate is what a real install checks later.  The
+// headline distinguishes where the run actually failed: a request error, the
+// format probe (the card not answering), the INSTALL [for load] request, or
+// the import list itself.
 function ramCompatVerdict(data) {
 	if (!data) return '';
+	const stepOk = s => !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
+	if (!data.steps || !data.steps.length) {
+		return t('Error') + ': ' + (data.error || t('no data'));
+	}
+	const formats = data.steps.filter(s => /^FORMAT CHECK/.test(String(s.name || '')));
+	if (formats.length && formats.every(s => !stepOk(s))) {
+		return t('The card did not answer the format probe') +
+			(data.error ? ' \u00b7 ' + data.error : '');
+	}
 	const scope = t('tested through LOAD') + ' ' + (data.boundary_block || '?') +
 		'/' + (data.total_blocks || '?');
 	if (data.imports_ok) return t('Import list accepted') + ' \u2014 ' + scope;
+	const failed = data.steps.find(s => !stepOk(s)) || {};
+	if (String(failed.name || '') === 'INSTALL [for load]') {
+		return t('Load request rejected') + ' \u2014 ' + (data.error || t('no data'));
+	}
 	return t('Import list rejected') + ' \u2014 ' + scope +
 		(data.error ? ' \u00b7 ' + data.error : '');
+}
+
+// The applied probe changes of a compatibility test (pure): version rewrites,
+// appended synthetic imports and override AIDs that matched nothing.
+function ramCompatProbeNote(data) {
+	const pa = (data && data.probe_imports) || [];
+	const added = pa.filter(p => p.from === null || p.from === undefined).length;
+	const changed = pa.filter(p => p.from !== null && p.from !== undefined);
+	const parts = [];
+	if (changed.length) {
+		const targets = Array.from(new Set(changed.map(p => p.to)));
+		parts.push(changed.length + ' ' + t('imports') + ' \u2192 ' +
+			(targets.length === 1 ? targets[0] : t('mixed')));
+	}
+	if (added) parts.push('+' + added + ' ' + t('appended'));
+	const unmatched = (data && data.probe_unmatched) || [];
+	if (unmatched.length) parts.push(t('unmatched') + ': ' + unmatched.join(', '));
+	return parts.length ? t('probe') + ': ' + parts.join(' \u00b7 ') : '';
 }
 
 // CAP compatibility test: run the load only as far as the Import component's
@@ -9570,8 +9603,12 @@ async function ramCompatTest(sp) {
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
 	};
-	const bs = parseInt(document.getElementById('ram-compat-block').value || '', 10);
-	if (bs >= 1 && bs <= 240) body.load_block_size = bs;
+	const bsRaw = (document.getElementById('ram-compat-block').value || '').trim();
+	if (bsRaw !== '') {
+		const bs = parseInt(bsRaw, 10);
+		if (!(bs >= 1 && bs <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
+		body.load_block_size = bs;
+	}
 
 	const data = await pysimFetch('/api/cap-compat', body);
 	ramHideProgress();
@@ -9583,7 +9620,8 @@ async function ramCompatTest(sp) {
 	stepsEl.classList.remove('hidden');
 	stepsEl.textContent = txt;
 	const resultEl = document.getElementById('ram-result');
-	resultEl.textContent = ramCompatVerdict(data);
+	const probeNote = ramCompatProbeNote(data);
+	resultEl.textContent = ramCompatVerdict(data) + (probeNote ? ' \u2014 ' + probeNote : '');
 	resultEl.classList.remove('hidden', 'text-green-600', 'text-red-600');
 	resultEl.classList.add(data.imports_ok ? 'text-green-600' : 'text-red-600');
 }
@@ -17537,6 +17575,10 @@ const LANG_RU = {
 	'probe': 'проба',
 	'imports': 'импортов',
 	'mixed': 'разные',
+	'appended': 'добавлено',
+	'unmatched': 'без совпадений',
+	'Load request rejected': 'Запрос загрузки отклонён',
+	'The card did not answer the format probe': 'Карта не ответила на пробу формата',
 	'completes': 'завершает',
 	'inside': 'внутри',
 	'the failed step completes': 'неудавшийся шаг завершает',

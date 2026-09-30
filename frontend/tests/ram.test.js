@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -787,8 +787,9 @@ test('ramProbeParse reads AID=version lines', () => {
 	// malformed lines and an empty field are errors
 	assert.ok(ramProbeParse('A0000000620101').error);
 	assert.ok(ramProbeParse('A0000000620101=x.y').error);
-	assert.ok(ramProbeParse('').error);
-	assert.ok(ramProbeParse('  \n# only comments\n').error);
+	// an empty list is valid: the test then runs with the CAP's own versions
+	assert.deepStrictEqual(ramProbeParse(''), { map: {}, additions: [] });
+	assert.deepStrictEqual(ramProbeParse('  \n# only comments\n'), { map: {}, additions: [] });
 	// '+AID=version' appends a synthetic import (a card-capability query)
 	r = ramProbeParse('+A0000000090005FFFFFFFF8912000000=1.11');
 	assert.deepStrictEqual(r.map, {});
@@ -800,15 +801,45 @@ test('ramProbeParse reads AID=version lines', () => {
 	assert.ok(ramProbeParse('+all=1.0').error);
 });
 
-test('ramCompatVerdict reports the import-gate verdict', () => {
+test('ramCompatVerdict distinguishes where the test failed', () => {
 	globalThis.t = s => s;
-	const ok = ramCompatVerdict({ imports_ok: true, boundary_block: 3, total_blocks: 240 });
-	assert.strictEqual(ok, 'Import list accepted \u2014 tested through LOAD 3/240');
-	const bad = ramCompatVerdict({ imports_ok: false, boundary_block: 3, total_blocks: 240,
-		error: 'remote SW 6438' });
-	assert.ok(bad.startsWith('Import list rejected \u2014 tested through LOAD 3/240'), bad);
-	assert.ok(bad.includes('remote SW 6438'), bad);
+	const step = (name, ok) => ok
+		? { name: name, por_status: 'por_ok', por_sw: '9000' }
+		: { name: name, por_status: 'por_ok', por_sw: '6438', por_error: 'remote SW 6438' };
+	assert.strictEqual(ramCompatVerdict({ imports_ok: true, boundary_block: 3, total_blocks: 240,
+		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', true), step('LOAD (3/240)', true)] }),
+		'Import list accepted \u2014 tested through LOAD 3/240');
+	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 3, total_blocks: 240,
+		error: 'remote SW 6438',
+		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', true), step('LOAD (3/240)', false)] }),
+		'Import list rejected \u2014 tested through LOAD 3/240 \u00b7 remote SW 6438');
+	// the card never answered the format probe
+	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 1, total_blocks: 240,
+		steps: [step('FORMAT CHECK (compact)', false), step('FORMAT CHECK (expanded)', false)] }),
+		'The card did not answer the format probe');
+	// the INSTALL [for load] request itself was refused
+	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 1, total_blocks: 240,
+		error: 'remote SW 6985',
+		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', false)] }),
+		'Load request rejected \u2014 remote SW 6985');
+	// a request error without steps
+	assert.strictEqual(ramCompatVerdict({ error: 'import probe: invalid version' }),
+		'Error: import probe: invalid version');
 	assert.strictEqual(ramCompatVerdict(null), '');
+});
+
+test('ramCompatProbeNote summarizes the applied probe', () => {
+	globalThis.t = s => s;
+	assert.strictEqual(ramCompatProbeNote({ probe_imports: [
+		{ aid: 'A1', from: '1.3', to: '0.0' }, { aid: 'A2', from: '1.4', to: '0.0' },
+		{ aid: 'A3', from: null, to: '1.0' }] }),
+		'probe: 2 imports \u2192 0.0 \u00b7 +1 appended');
+	assert.strictEqual(ramCompatProbeNote({ probe_imports: [
+		{ aid: 'A1', from: '1.3', to: '0.0' }, { aid: 'A2', from: '1.4', to: '1.0' }] }),
+		'probe: 2 imports \u2192 mixed');
+	assert.strictEqual(ramCompatProbeNote({ probe_imports: [], probe_unmatched: ['DEADBEEF'] }),
+		'probe: unmatched: DEADBEEF');
+	assert.strictEqual(ramCompatProbeNote({}), '');
 });
 
 test('ramExecute dispatches the compatibility test op', () => {
