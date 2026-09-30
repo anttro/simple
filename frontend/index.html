@@ -1750,7 +1750,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.58';
+const SIMPLE_VERSION = '3.7.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9184,6 +9184,7 @@ function ramExpandedGroups(report) {
 		}
 		g.compact = g.compact || !!r.compact;
 		g.transport = g.transport || !!r.transport;
+		g.more = g.more || !!r.more;
 		if (r.form) {
 			const score = ((r.entries || 0) > 0 ? 100 : 0) +
 				(RAM_EXPANDED_FORMS.length - RAM_EXPANDED_FORMS.indexOf(r.form));
@@ -9211,7 +9212,8 @@ function ramExpandedReport(report) {
 		: (f === 'noea' ? t('tag list') : (f === 'lean' ? t('lean tag list') : t('no tag list')));
 	const parts = [];
 	RAM_EXPANDED_FORMS.forEach(f => {
-		const labels = groups.filter(g => g.form === f).map(g => g.label);
+		const labels = groups.filter(g => g.form === f)
+			.map(g => g.label + (g.more ? ' (' + t('first page only') + ')' : ''));
 		if (labels.length) parts.push(formName(f) + ' (' + labels.join(', ') + ')');
 	});
 	groups.forEach(g => {
@@ -9298,6 +9300,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-blue-400">';
 			html += '<div>' + esc(t('AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '', 'isd') + '</div>';
+			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + esc(ramFmtVersion(o.version)) + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
 			if (o.sdAid) html += '<div>' + esc(t('SD AID:')) + ' ' + jcAidHtml(o.sdAid) + '</div>';
@@ -9315,6 +9318,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 			html += '<div class="flex-1 min-w-0">';
 			html += '<div>' + esc(t('Application / Instance AID:')) + ' ' + (o.aid ? jcAidHtml(o.aid) : '?') + '</div>';
 			html += '<div>' + esc(t('Lifecycle:')) + ' ' + ramFmtLifecycle(o.lifecycle || '', ramEntryKind(o)) + '</div>';
+			if (o.version) html += '<div>' + esc(t('Version:')) + ' ' + esc(ramFmtVersion(o.version)) + '</div>';
 			if (o.privileges) html += '<div>' + esc(t('Privileges:')) + ' ' + ramFmtPrivileges(o.privileges) + ' (' + o.privileges + ')</div>';
 			if (o.implicitSel) html += '<div>' + esc(t('Implicit sel:')) + ' ' + o.implicitSel + '</div>';
 			if (o.elfAid) html += '<div>' + esc(t('Load File AID / Package AID:')) + ' ' + jcAidHtml(o.elfAid) + '</div>';
@@ -9463,6 +9467,7 @@ async function ramExplore(sp) {
 				return res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
 			};
 			let page = 0;
+			let more = false;
 			while (accepted && page++ < 8) {
 				const apdu = ramExpandedQueryApdu(p1, form, page > 1);
 				const what = page > 1 ? 'P2=03 (' + form + ')' : 'P2=02 (' + form + ')';
@@ -9481,13 +9486,18 @@ async function ramExplore(sp) {
 				// more occurrences, and a '61xx' page may mask that signal
 				// (the GET RESPONSE's own SW replaces it) - try one more page
 				if (p1 === '80') break;
-				if (sw !== '6310' && !pending) break;
+				// continue only when the answer really says 'more occurrences'
+				// or the chained retry was accepted (a '61xx' page masks the
+				// 6310 signal with the GET RESPONSE's own SW); a refused retry
+				// must not cost another packet (v3.7.0)
+				if (sw !== '6310' && !(pending && ramRemoteSwOk(sw))) break;
+				more = true;
 			}
 			const parsed = data ? parser(data) : [];
 			if (parsed.length) {
 				expandedForm = form;
 				return { form: form, parsed: parsed, sw: sw, entries: parsed.length,
-					transport: transportError };
+					transport: transportError, more: more };
 			}
 			lastSw = sw;
 			lastTransport = transportError;
@@ -9495,10 +9505,11 @@ async function ramExplore(sp) {
 			if (ramRemoteSwOk(sw)) {
 				// accepted but empty: nothing to gain from another form
 				return { form: form, parsed: [], sw: sw, entries: 0,
-					transport: transportError };
+					transport: transportError, more: more };
 			}
 		}
-		return { form: null, parsed: [], sw: lastSw, entries: 0, transport: lastTransport };
+		return { form: null, parsed: [], sw: lastSw, entries: 0,
+			transport: lastTransport, more: false };
 	}
 
 	async function paginate(p1, collector, parser, label, quiet) {
@@ -9574,7 +9585,7 @@ async function ramExplore(sp) {
 			const out = await expandedPass(p1, label, parser, spi2);
 			expandedReport.push({ p1: p1, label: label, compact: collector.length > before,
 				form: out.form, sw: out.sw, entries: out.entries,
-				transport: out.transport });
+				transport: out.transport, more: out.more });
 			if (collector.length === before) {
 				// Nothing from the compact pass: the expanded result is the listing
 				collector.push(...out.parsed);
@@ -9627,10 +9638,61 @@ async function ramExplore(sp) {
 		await paginate('20', elfs, ramParseElfStatus, t('ELFs'), true);
 		if (!elfs.length) errors.push(...elfFailure);
 	}
+	// The ELF tag-list forms may be refused for P1=10 while P1=20 accepts
+	// them (a card's P1=10 implementation can be stricter): when the ELF rows
+	// have no version and the details pass never got a tag-list form, walk the
+	// ladder once more with P1=20 and merge by AID (v3.7.0).
+	async function elfTagListRetry() {
+		if (cntrLow || !elfs.length || elfs.some(o => o.version)) return;
+		const g = ramExpandedGroups(expandedReport).find(x => x.label === t('ELFs'));
+		if (g && ['tags', 'noea', 'lean'].indexOf(g.form) >= 0) return;
+		const saved = expandedForm;
+		expandedForm = null;   // start the ladder at the richest form
+		try {
+			const out = await expandedPass('20', t('ELFs'), ramParseElfStatus, ramListingSpi2('20'));
+			expandedReport.push({ p1: '20', label: t('ELFs'), compact: true,
+				form: out.form, sw: out.sw, entries: out.entries,
+				transport: out.transport, more: out.more });
+			if (out.parsed.length) ramMergeExpanded(elfs, out.parsed);
+		} finally {
+			if (expandedForm === null) expandedForm = saved;
+		}
+	}
+	await elfTagListRetry();
+
 	// A package whose own listing carries no version may still be known from
 	// its applet instance (the app entry carries the load file version and the
 	// package AID); the rows are annotated when this inference is used.
 	ramDeriveElfVersions(elfs, apps);
+
+	// Still missing versions: query the apps listing once per applet AID (the
+	// AID search qualifier selects one entity).  The apps tag list works even
+	// where the ELF one is refused, and an applet's CE is its package's
+	// version - the applet <-> package mapping is the AID prefix (v3.7.0).
+	async function elfPerAidVersions() {
+		const missing = elfs.filter(e => !e.version && e.aid);
+		for (const e of missing.slice(0, 6)) {
+			if (cntrLow) break;
+			const app = apps.find(a => a.aid && !a.version &&
+				String(a.aid).toUpperCase().indexOf(String(e.aid).toUpperCase()) === 0);
+			if (!app) continue;
+			ramShowProgress(t('Version') + ' ' + e.aid + '...');
+			const res = await sendOta(ramExpandedQueryApdu('40', 'tags', false, app.aid),
+				Object.assign({}, sp, { cntr, spi2: ramListingSpi2('40') }));
+			if (res.ram_format) sp.ram_format = res.ram_format;
+			if (res.final_cntr) cntr = res.final_cntr;
+			else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+			if (!res.success || !res.por || !spPorAccepted(res.por)) continue;
+			const data = res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
+			const parsed = data ? ramParseAppStatus(data) : [];
+			const hit = parsed.find(x => x.version);
+			if (hit) {
+				e.version = hit.version;
+				e.versionFrom = 'app';
+			}
+		}
+	}
+	await elfPerAidVersions();
 	// Only write the counter when a packet was actually accepted: a run whose
 	// start value was stale must never lower the preset counter.
 	if (cntr !== sp.cntr) ramSaveCntr(cntr);
@@ -11173,13 +11235,19 @@ function ramExpandedTags(p1, form) {
 	return base + (elf ? '84' : '');
 }
 
-// `next` = the next-occurrence page (P2.b1=1, GP 11.4.3.2) after a '6310'.
-function ramExpandedQueryApdu(p1, form, next) {
+// `next` = the next-occurrence page (P2.b1=1, GP 11.4.3.2) after a '6310';
+// `aidHex` = an AID search qualifier (`4F <len> <AID>`, GP 11.4.2.3
+// Table 11-35) that selects a single registry entity - used to fetch one
+// applet's entry when the listing cannot be paged (v3.7.0).
+function ramExpandedQueryApdu(p1, form, next, aidHex) {
 	const tags = ramExpandedTags(p1, form || 'tags');
 	const p2 = next ? '03' : '02';
-	if (!tags) return '80F2' + p1 + p2 + '02' + '4F00' + '00';
+	const aid = (aidHex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
-	return '80F2' + p1 + p2 + hex(tags.length / 2 + 4) + '4F005C' + hex(tags.length / 2) + tags + '00';
+	const filter = aid ? '4F' + hex(aid.length / 2) + aid : '4F00';
+	const lc = filter.length / 2 + (tags ? tags.length / 2 + 2 : 0);
+	return '80F2' + p1 + p2 + hex(lc) + filter +
+		(tags ? '5C' + hex(tags.length / 2) + tags : '') + '00';
 }
 
 // A '61xx' remote answer means the card holds the response data.  The live
@@ -18919,6 +18987,7 @@ const LANG_RU = {
 	'card counter': 'счётчик карты',
 	'the counter must be above it': 'счётчик должен быть больше',
 	'Go to preset': 'К пресету',
+	'first page only': 'только первая страница',
 	'the operation was stopped': 'операция остановлена',
 	'STK menu entry:': 'Пункт меню STK:',
 	'position': 'позиция',

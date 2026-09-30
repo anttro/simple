@@ -580,6 +580,12 @@ test('ramExpandedQueryApdu builds the expanded query forms', () => {
 	assert.strictEqual(ramExpandedQueryApdu('10', 'lean', true), '80F21003094F005C054F9F70CE8400');
 	assert.strictEqual(ramExpandedQueryApdu('10', 'notags', true), '80F21003024F0000');
 	assert.deepStrictEqual(RAM_EXPANDED_FORMS, ['tags', 'noea', 'lean', 'notags']);
+	// an AID search qualifier (4F <len> <AID>) selects one entity: used to
+	// fetch a single applet's entry when the listing cannot be paged
+	assert.strictEqual(ramExpandedQueryApdu('40', 'tags', false, 'A1130001180001FFFFFFFF89A1003908'),
+		'80F240021C4F10A1130001180001FFFFFFFF89A10039085C084F9F70C5C4CCCEEA00');
+	assert.strictEqual(ramExpandedQueryApdu('40', 'notags', false, 'A1130001180001'),
+		'80F24002094F07A113000118000100');
 });
 
 test('ramChainGetResponse chains the GET RESPONSE into the query string', () => {
@@ -667,6 +673,10 @@ test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
 		{ p1: '10', label: 'ELFs', compact: true, form: 'lean', sw: '9000', entries: 3 },
 		{ p1: '20', label: 'ELFs', compact: true, form: 'notags', sw: '9000', entries: 5 },
 	]), 'Expanded registry: lean tag list (ELFs)');
+	// an unfulfilled 6310 (the next-occurrence page was refused) is noted
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '6A86', entries: 2, more: true },
+	]), 'Expanded registry: tag list + EA (Apps (first page only))');
 	// a request/transport failure is not a remote status word
 	assert.strictEqual(ramExpandedReport([
 		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000', entries: 9 },
@@ -732,6 +742,26 @@ test('ramCntrLowHtml states the facts and offers the preset jump', () => {
 	// without a known preset the button still opens the tab (-1)
 	assert.ok(noPreset.includes('onclick="ramGoToPreset(-1)"'), noPreset);
 	assert.strictEqual(ramCntrLowHtml(null, 0), '');
+});
+
+test('the explorer shows versions on app and ISD rows too', () => {
+	globalThis.t = s => s;
+	const out = ramRenderExploreHtml(null,
+		[{ aid: 'A000000151000000', lifecycle: '0F', privileges: '82FC80', version: '0001' }],
+		[{ aid: 'A1130001180001FFFFFFFF89A1003908', lifecycle: '07', privileges: '000000', version: '0903' }],
+		[]);
+	delete globalThis.t;
+	assert.ok(out.includes('Version: 0.1'), out);
+	assert.ok(out.includes('Version: 9.3'), out);
+});
+
+test('the Explore retries the ELF tag lists with P1=20 and per applet AID', () => {
+	const src = extractFunc(html, 'ramExplore');
+	assert.ok(src.includes('elfTagListRetry'), 'the P1=20 tag-list retry must exist');
+	assert.ok(src.includes("expandedPass('20'"), 'the retry must query P1=20');
+	assert.ok(src.includes('elfPerAidVersions'), 'the per-AID version queries must exist');
+	assert.ok(src.includes("ramExpandedQueryApdu('40', 'tags', false, app.aid)"),
+		'the per-AID query must use the AID filter');
 });
 
 test('every SCP80/RAM flow checks the low counter and stops', () => {
