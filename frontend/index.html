@@ -695,6 +695,7 @@
 					<select id="ram-op" onchange="ramOpChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="explore" data-l10n="Explore Card (all GP data)">Explore Card (all GP data)</option>
 						<option value="install-cap" data-l10n="Install Package (.cap file)">Install Package (.cap file)</option>
+						<option value="compat" data-l10n="CAP compatibility test">CAP compatibility test</option>
 						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
 					</select>
@@ -704,32 +705,30 @@
 
 			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Runs one extra expanded query per listing (P2=02, tag list 4F 9F70 C5 C4 CC CE EA).  The compact listing carries AID/lifecycle/privileges/version only; the expanded pass adds the Load File AID, Security Domain AID and module lists.  It costs extra secured packets and some cards reject it - the Explore already uses it automatically when the compact listing returns nothing."><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600" onchange="ramExpandedDetailsChanged()"> <span data-l10n="Fetch expanded registry details (load-file / SD associations)">Fetch expanded registry details (load-file / SD associations)</span></label>
 
+			<div id="ram-cap-rows" class="hidden mb-3">
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
+				<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
+				<fieldset id="ram-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
+					<div id="ram-cap-body"></div>
+				</fieldset>
+			</div>
+			<div id="ram-compat-rows" class="hidden mb-3">
+				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3" data-l10n-title="Runs the load only as far as the block that completes the CAP's Import component: the card checks the import list there, so its answer says whether the card can satisfy it.  Nothing is installed and nothing is committed - the link gate is the real install's business.  Lines are AID=version (rewrites an import) or +AID=version (appends a synthetic import, to query the card for a package the CAP does not use).">
+					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import versions to test">Import versions to test</legend>
+					<textarea id="ram-probe-versions" rows="4" spellcheck="false" oninput="this.dataset.manual='1'" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="AID=version per line (+AID=version appends)"></textarea>
+					<div class="flex items-center gap-2 mt-1">
+						<button type="button" onclick="ramProbeAllZero()" data-l10n-title="Sets every AID=version line to 0.0; +AID=version lines keep their version." class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Set all 0.0">Set all 0.0</button>
+					</div>
+					<div class="text-xs text-gray-400 dark:text-slate-500 mt-1" data-l10n="The card checks the CAP's import list while it loads, so a rejection at the Import component usually means it cannot satisfy that list.">The card checks the CAP's import list while it loads, so a rejection at the Import component usually means it cannot satisfy that list.</div>
+					<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Press 'Set all 0.0' first: if the test now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.  A +AID=version line asks the card about a package the CAP does not use.">Press 'Set all 0.0' first: if the test now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.  A +AID=version line asks the card about a package the CAP does not use.</div>
+				</fieldset>
+				<label class="block mb-1 mt-2 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="LOAD block size (1..240, default 240)">LOAD block size (1..240, default 240)</label>
+				<input id="ram-compat-block" type="number" min="1" max="240" class="w-32 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="240">
+			</div>
 			<div id="ram-install-params" class="hidden mb-3">
-				<div id="ram-cap-rows">
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAP file (max 48 kB)">CAP file (max 48 kB)</label>
-					<input type="file" id="ram-cap-file" accept=".cap,.zip" onchange="ramCapFileChanged()" class="w-full text-sm text-gray-600 dark:text-slate-300">
-					<fieldset id="ram-cap-info" class="hidden mt-2 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs text-gray-500 dark:text-slate-400">
-						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
-						<div id="ram-cap-body"></div>
-					</fieldset>
-					<fieldset class="mt-2 border border-gray-200 dark:border-slate-700 rounded p-3">
-						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import probe (diagnostic)" data-l10n-title="Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.">Import probe (diagnostic)</legend>
-						<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer" data-l10n-title="Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.">
-							<input id="ram-probe-enable" type="checkbox" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800" onchange="ramProbeChanged()">
-							<span data-l10n="Enable import probe">Enable import probe</span>
-						</label>
-						<div id="ram-probe-body" class="hidden mt-2">
-							<textarea id="ram-probe-versions" rows="4" spellcheck="false" oninput="this.dataset.manual='1'" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="AID=version per line"></textarea>
-							<div class="flex items-center gap-2 mt-1">
-								<button type="button" onclick="ramProbeAllZero()" data-l10n-title="Sets every AID=version line to 0.0." class="px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Set all 0.0">Set all 0.0</button>
-							</div>
-							<div class="text-xs text-gray-400 dark:text-slate-500 mt-1" data-l10n="The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.">The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.</div>
-							<div class="text-xs text-gray-400 dark:text-slate-500" data-l10n="Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.">Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.</div>
-						</div>
-					</fieldset>
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300 mt-2" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
-					<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
-				</div>
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
+				<input id="ram-sd-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="A000000003000000" maxlength="32">
 				<div id="ram-app-rows" class="hidden">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Load File AID / Package AID (hex)">Load File AID / Package AID (hex)</label>
 					<input id="ram-app-loadfile" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="F0414C46416101" maxlength="32">
@@ -1746,7 +1745,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.47';
+const SIMPLE_VERSION = '3.6.48';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8294,15 +8293,17 @@ function ramOpChanged() {
 	if (_ramOpLast !== null && op !== _ramOpLast) ramClearResults();
 	_ramOpLast = op;
 	const isCap = op === 'install-cap';
+	const isCompat = op === 'compat';
 	const isApp = op === 'install-app' || op === 'make-selectable';
 	const setHidden = (id, hidden) => {
 		const el = document.getElementById(id);
 		if (el) el.classList.toggle('hidden', hidden);
 	};
 	setHidden('ram-install-params', !(isCap || isApp));
-	setHidden('ram-cap-rows', !isCap);
+	setHidden('ram-cap-rows', !(isCap || isCompat));
+	setHidden('ram-compat-rows', !isCompat);
 	setHidden('ram-app-rows', !isApp);
-	// The Execute button's .cap gate only applies to the install-cap op.
+	// The Execute button's .cap gate applies to the install-cap and compat ops.
 	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }
 
@@ -8427,7 +8428,8 @@ function capFileKey(file) {
 function capGateOk(kind) {
 	if (kind === 'ram') {
 		const op = document.getElementById('ram-op');
-		if (op && op.value !== 'install-cap') return true;   // only the install op is gated
+		// the install and the compatibility test both need the analysed CAP
+		if (op && op.value !== 'install-cap' && op.value !== 'compat') return true;
 	}
 	const st = _capAnalysis[kind];
 	return !!(st && st.status === 'ok');
@@ -9494,25 +9496,29 @@ function ramInstallFailHint(data, mem) {
 // rewriting the requested versions shows whether that list is what it refuses
 // - and, by lowering one entry at a time, which package and version it lacks.
 
-// 'AID=version' per line (or 'all=x.y'); blank/comment lines are ignored.
-// Pure: returns {map} or {error}.
+// 'AID=version' per line ('all=x.y' allowed) rewrites an import; a leading
+// '+' appends a synthetic import (a card-capability query); blank/comment
+// lines are ignored.  Pure: returns {map, additions} or {error}.
 function ramProbeParse(text) {
-	const out = {};
+	const map = {};
+	const additions = [];
 	for (const rawLine of String(text || '').split('\n')) {
 		const line = rawLine.split('#')[0].trim();
 		if (!line) continue;
-		const m = /^([0-9a-fA-F]{2,32}|all)\s*=\s*(\d{1,3})\.(\d{1,3})$/.exec(line);
+		const m = /^(\+?)([0-9a-fA-F]{2,32}|all)\s*=\s*(\d{1,3})\.(\d{1,3})$/.exec(line);
 		if (!m) return { error: t('Invalid line:') + ' ' + line };
-		const aid = m[1].toLowerCase() === 'all' ? 'all' : m[1].toUpperCase();
-		out[aid] = m[2] + '.' + m[3];
+		const ver = m[3] + '.' + m[4];
+		if (m[1]) {
+			if (m[2].toLowerCase() === 'all') return { error: t('Invalid line:') + ' ' + line };
+			additions.push({ aid: m[2].toUpperCase(), version: ver });
+		} else {
+			map[m[2].toLowerCase() === 'all' ? 'all' : m[2].toUpperCase()] = ver;
+		}
 	}
-	if (!Object.keys(out).length) return { error: t('No import versions given') };
-	return { map: out };
-}
-
-function ramProbeChanged() {
-	const on = document.getElementById('ram-probe-enable').checked;
-	document.getElementById('ram-probe-body').classList.toggle('hidden', !on);
+	if (!Object.keys(map).length && !additions.length) {
+		return { error: t('No import versions given') };
+	}
+	return { map: map, additions: additions };
 }
 
 // Prefill from the analysed CAP's import list unless the user edited it.
@@ -9528,9 +9534,58 @@ function ramProbeAllZero() {
 	if (!el) return;
 	el.value = String(el.value || '').split('\n').map(line => {
 		const m = /^([0-9a-fA-F]{2,32}|all)\s*=/.exec(line.trim());
-		return m ? m[1] + '=0.0' : line;
+		return m ? m[1] + '=0.0' : line;   // '+AID=' lines keep their version
 	}).join('\n');
 	el.dataset.manual = '1';
+}
+
+// Verdict line for the CAP compatibility test (pure).  The test covers the
+// LOAD/import gate only - the card checks the import list while it verifies
+// the load file; the link gate is what a real install checks later.
+function ramCompatVerdict(data) {
+	if (!data) return '';
+	const scope = t('tested through LOAD') + ' ' + (data.boundary_block || '?') +
+		'/' + (data.total_blocks || '?');
+	if (data.imports_ok) return t('Import list accepted') + ' \u2014 ' + scope;
+	return t('Import list rejected') + ' \u2014 ' + scope +
+		(data.error ? ' \u00b7 ' + data.error : '');
+}
+
+// CAP compatibility test: run the load only as far as the Import component's
+// end and report whether the card accepted the import list.  Nothing is
+// installed or committed (the install operation keeps the CAP's own versions).
+async function ramCompatTest(sp) {
+	const fileInput = document.getElementById('ram-cap-file');
+	const file = fileInput.files[0];
+	if (!file) { alert(t('Select a .cap file')); return; }
+	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+	const parsed = ramProbeParse(document.getElementById('ram-probe-versions').value);
+	if (parsed.error) { alert(parsed.error); return; }
+
+	ramClearResults();
+	ramShowProgress(t('Sending to server...'));
+	const body = {
+		cap_hex: await ramReadFileHex(file),
+		probe_imports: parsed.map, probe_additions: parsed.additions,
+		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
+		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
+	};
+	const bs = parseInt(document.getElementById('ram-compat-block').value || '', 10);
+	if (bs >= 1 && bs <= 240) body.load_block_size = bs;
+
+	const data = await pysimFetch('/api/cap-compat', body);
+	ramHideProgress();
+	if (data.final_cntr) ramSaveCntr(data.final_cntr);
+	const comps = _capAnalysis.ram.memory && _capAnalysis.ram.memory.components;
+	let txt = '';
+	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx, comps, data.load_block_size) + '\n'; });
+	const stepsEl = document.getElementById('ram-steps');
+	stepsEl.classList.remove('hidden');
+	stepsEl.textContent = txt;
+	const resultEl = document.getElementById('ram-result');
+	resultEl.textContent = ramCompatVerdict(data);
+	resultEl.classList.remove('hidden', 'text-green-600', 'text-red-600');
+	resultEl.classList.add(data.imports_ok ? 'text-green-600' : 'text-red-600');
 }
 
 async function ramInstallCap(sp) {
@@ -9538,14 +9593,6 @@ async function ramInstallCap(sp) {
 	const file = fileInput.files[0];
 	if (!file) { alert(t('Select a .cap file')); return; }
 	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
-
-	// Import probe (diagnostic): validated before the modal opens
-	let probe = null;
-	if (document.getElementById('ram-probe-enable').checked) {
-		const parsed = ramProbeParse(document.getElementById('ram-probe-versions').value);
-		if (parsed.error) { alert(parsed.error); return; }
-		probe = parsed.map;
-	}
 
 	const capPkg = (_capAnalysis.ram.memory && _capAnalysis.ram.memory.package_aid) || '';
 	ramOpModalBegin(t('Installing package') + (capPkg ? ' \u2014 ' + capPkg : ''));
@@ -9582,7 +9629,6 @@ async function ramInstallCap(sp) {
 		if (!(n >= 1 && n <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
 		body.load_block_size = n;
 	}
-	if (probe) body.probe_imports = probe;
 
 	const data = await pysimFetch('/api/ram-install', body);
 
@@ -9693,6 +9739,7 @@ async function ramExecute() {
 	try {
 		if (op === 'explore') await ramExplore(sp);
 		else if (op === 'install-cap') await ramInstallCap(sp);
+		else if (op === 'compat') await ramCompatTest(sp);
 		else if (op === 'install-app' || op === 'make-selectable') await ramInstallApp(sp, op);
 	} catch (e) {
 		const resultEl = document.getElementById('ram-result');
@@ -17474,13 +17521,17 @@ const LANG_RU = {
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
 	'Hint:': 'Подсказка:',
-	'Import probe (diagnostic)': 'Проба импортов (диагностика)',
-	'Enable import probe': 'Включить пробу импортов',
 	'Set all 0.0': 'Все 0.0',
-	'Diagnostic only: rewrites the two version bytes per import in the load file (same length); never used for a real install.': 'Только диагностика: переписывает два байта версии у каждого импорта в load-файле (длина не меняется); для настоящей установки не используется.',
-	'Sets every AID=version line to 0.0.': 'Заменяет все строки AID=version на 0.0.',
-	"The card checks the CAP's import list while it loads, so a LOAD rejection at the Import component usually means it cannot satisfy that list.": 'Карта проверяет список импортов CAP при загрузке, поэтому отказ LOAD на компоненте Import обычно означает, что она не может удовлетворить этот список.',
-	"Press 'Set all 0.0' first: if the LOAD now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.": 'Сначала нажмите «Все 0.0»: если LOAD теперь проходит, причина была в списке; затем возвращайте по одной строке, чтобы найти пакет и версию, которых не хватает карте.',
+	'CAP compatibility test': 'Проверка совместимости CAP',
+	'Import versions to test': 'Версии импортов для проверки',
+	"Runs the load only as far as the block that completes the CAP's Import component: the card checks the import list there, so its answer says whether the card can satisfy it.  Nothing is installed and nothing is committed - the link gate is the real install's business.  Lines are AID=version (rewrites an import) or +AID=version (appends a synthetic import, to query the card for a package the CAP does not use).": 'Выполняет загрузку только до блока, завершающего компонент Import CAP: именно там карта проверяет список импортов, поэтому её ответ показывает, может ли она их удовлетворить. Ничего не устанавливается и не фиксируется — проверка связывания остаётся за настоящей установкой. Строки: AID=version (переписать импорт) или +AID=version (добавить синтетический импорт, чтобы запросить у карты пакет, который CAP не использует).',
+	'Sets every AID=version line to 0.0; +AID=version lines keep their version.': 'Заменяет все строки AID=version на 0.0; строки +AID=version сохраняют свою версию.',
+	"The card checks the CAP's import list while it loads, so a rejection at the Import component usually means it cannot satisfy that list.": 'Карта проверяет список импортов CAP при загрузке, поэтому отказ на компоненте Import обычно означает, что она не может удовлетворить этот список.',
+	"Press 'Set all 0.0' first: if the test now passes, the list was the cause; then restore one line at a time to find the package and version the card lacks.  A +AID=version line asks the card about a package the CAP does not use.": 'Сначала нажмите «Все 0.0»: если проверка проходит, причина была в списке; затем возвращайте по одной строке, чтобы найти пакет и версию, которых не хватает карте. Строка +AID=version спрашивает карту о пакете, который CAP не использует.',
+	'LOAD block size (1..240, default 240)': 'Размер блока LOAD (1..240, по умолчанию 240)',
+	'Import list accepted': 'Список импортов принят',
+	'Import list rejected': 'Список импортов отклонён',
+	'tested through LOAD': 'проверено до LOAD',
 	'Invalid line:': 'Некорректная строка:',
 	'No import versions given': 'Версии импортов не заданы',
 	'probe': 'проба',

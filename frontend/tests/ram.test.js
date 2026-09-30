@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'parseTLV', '_parseE3Entry',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -789,6 +789,31 @@ test('ramProbeParse reads AID=version lines', () => {
 	assert.ok(ramProbeParse('A0000000620101=x.y').error);
 	assert.ok(ramProbeParse('').error);
 	assert.ok(ramProbeParse('  \n# only comments\n').error);
+	// '+AID=version' appends a synthetic import (a card-capability query)
+	r = ramProbeParse('+A0000000090005FFFFFFFF8912000000=1.11');
+	assert.deepStrictEqual(r.map, {});
+	assert.deepStrictEqual(r.additions,
+		[{ aid: 'A0000000090005FFFFFFFF8912000000', version: '1.11' }]);
+	r = ramProbeParse('A0000000620101=0.0\n+0102030405=1.0');
+	assert.deepStrictEqual(r.map, { 'A0000000620101': '0.0' });
+	assert.strictEqual(r.additions.length, 1);
+	assert.ok(ramProbeParse('+all=1.0').error);
+});
+
+test('ramCompatVerdict reports the import-gate verdict', () => {
+	globalThis.t = s => s;
+	const ok = ramCompatVerdict({ imports_ok: true, boundary_block: 3, total_blocks: 240 });
+	assert.strictEqual(ok, 'Import list accepted \u2014 tested through LOAD 3/240');
+	const bad = ramCompatVerdict({ imports_ok: false, boundary_block: 3, total_blocks: 240,
+		error: 'remote SW 6438' });
+	assert.ok(bad.startsWith('Import list rejected \u2014 tested through LOAD 3/240'), bad);
+	assert.ok(bad.includes('remote SW 6438'), bad);
+	assert.strictEqual(ramCompatVerdict(null), '');
+});
+
+test('ramExecute dispatches the compatibility test op', () => {
+	const src = extractFunc(html, 'ramExecute');
+	assert.ok(/op === 'compat'/.test(src), 'the compat op must be dispatched');
 });
 
 test('ramRenderExploreHtml counts apps and ELFs in the section headings', () => {

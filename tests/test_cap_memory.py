@@ -8,7 +8,9 @@ import unittest
 import zipfile
 
 from pysim_simple_server import capmem
-from pysim_simple_server.server import _cap_info_body, _cap_parse, _probe_import_versions
+from pysim_simple_server.server import (
+    _ber_len, _cap_apdu_sequence, _cap_compat_blocks, _cap_import_end,
+    _cap_info_body, _cap_parse, _probe_import_versions)
 
 
 # ─── synthetic CAP builder ───────────────────────────────────────────────
@@ -220,6 +222,80 @@ class ImportProbeTests(unittest.TestCase):
             load, {JAVACARD_FRAMEWORK.hex().upper(): '1.3', '0102030405': '1.0'})
         self.assertEqual(applied2, [])
         self.assertEqual(_same, load)
+
+    def _walk_ok(self, load_hex):
+        """The component sizes must cover the file exactly (a mis-patched
+        size field or Directory entry would overshoot/undershoot)."""
+        data = bytes.fromhex(load_hex)
+        off = 0
+        while off + 3 <= len(data):
+            size = int.from_bytes(data[off + 1:off + 3], 'big')
+            off += 3 + size
+        return off == len(data)
+
+    def test_probe_appends_synthetic_imports(self):
+        load = self._load_file()
+        patched, applied = _probe_import_versions(
+            load, {}, [{'aid': 'A0000000620102', 'version': '1.3'}])
+        self.assertGreater(len(patched), len(load))            # the file grew
+        entries = _import_entries(patched)
+        self.assertEqual(entries[-1], ('A0000000620102', 1, 3))
+        self.assertIsNone(applied[-1]['from'])
+        self.assertEqual(applied[-1]['to'], '1.3')
+        self.assertTrue(self._walk_ok(patched))
+        # an AID that is already imported becomes a version override
+        patched2, applied2 = _probe_import_versions(
+            load, {}, [{'aid': JAVACARD_FRAMEWORK.hex().upper(), 'version': '0.0'}])
+        self.assertEqual(len(patched2), len(load))
+        self.assertEqual([(maj, mn) for _a, maj, mn in _import_entries(patched2)][0], (0, 0))
+        self.assertEqual(applied2, [{'aid': JAVACARD_FRAMEWORK.hex().upper(),
+                                     'from': '1.3', 'to': '0.0'}])
+
+    def test_probe_append_patches_the_directory_size(self):
+        load = self._load_file()
+        directory = _component(0x02, b'\x00' * 28)     # sizes by tag, all zero
+        with_dir = (directory + bytes.fromhex(load)).hex().upper()
+        patched, _applied = _probe_import_versions(
+            with_dir, {}, [{'aid': 'A0000000620102', 'version': '1.0'}])
+        data = bytes.fromhex(patched)
+        off = 0
+        import_size = None
+        while off + 3 <= len(data):
+            tag = data[off]
+            size = int.from_bytes(data[off + 1:off + 3], 'big')
+            if tag == 0x04:
+                import_size = size
+                break
+            off += 3 + size
+        self.assertIsNotNone(import_size)
+        # the Directory's array entry for tag 4 (index 3) follows the size
+        self.assertEqual(data[3 + 3 * 2:3 + 3 * 2 + 2], import_size.to_bytes(2, 'big'))
+        self.assertTrue(self._walk_ok(patched))
+
+    def test_probe_rejects_bad_additions(self):
+        load = self._load_file()
+        with self.assertRaises(ValueError):
+            _probe_import_versions(load, {}, [{'aid': 'AB', 'version': '1.0'}])
+        with self.assertRaises(ValueError):
+            _probe_import_versions(load, {}, [{'aid': 'A0000000620102', 'version': 'x'}])
+
+    def test_compat_boundary_is_the_block_completing_the_import(self):
+        load = self._load_file()
+        load_aid = 'A0000000620100'
+        module_aid = 'A000000062010001'
+        import_end = _cap_import_end(load)
+        for bs in (10, 64, 240):
+            boundary, total = _cap_compat_blocks(load, bs)
+            # cross-check against the LOAD sequence: locate the Import's last
+            # byte in the concatenated C4 TLV and see which block holds it
+            seq = _cap_apdu_sequence(load_aid, module_aid, load, block_size=bs)
+            blocks = seq[1:-1]                     # the LOAD APDUs
+            self.assertEqual(len(blocks), total)
+            tlv = ''.join(b[10:] for b in blocks)  # 5-byte APDU header
+            header_chars = len(_ber_len(len(load) // 2))
+            pos = header_chars + (import_end - 1) * 2
+            self.assertEqual(pos // (bs * 2) + 1, boundary)
+            self.assertLessEqual(boundary, total)
 
     def test_probe_rejects_unknown_aids_and_bad_versions(self):
         load = self._load_file()

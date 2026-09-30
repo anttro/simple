@@ -157,5 +157,39 @@ class CardFreeGetTests(unittest.TestCase):
             self.assertNotIn(path, _CARD_FREE_GET)
 
 
+class CapCompatHttpTests(unittest.TestCase):
+    """POST /api/cap-compat exists (the CAP compatibility test, v3.6.48)."""
+
+    def setUp(self):
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = None
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _post(self, path, body):
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path),
+            data=json.dumps(body).encode(),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b'{}')
+
+    def test_cap_compat_route_exists(self):
+        # without a card session it answers 503 (route present), not 404
+        status, resp = self._post('/api/cap-compat', {'cap_hex': '00'})
+        self.assertEqual(status, 503, resp)
+        self.assertIn('error', resp)
+
+
 if __name__ == '__main__':
     unittest.main()

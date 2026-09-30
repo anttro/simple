@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.47'
+VERSION = '3.6.48'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -845,24 +845,70 @@ def _cap_parse(cap_hex):
     return loadfile_aid, module_aid, loadfile_data
 
 
-def _probe_import_versions(load_file_hex, overrides):
-    """Diagnostic probe: rewrite the version bytes of the load file's Import
-    component (JC VM spec 4.5.2 - the card must export every imported package
-    at >= the recorded version).
+def _version_pair(text):
+    """'x.y' -> (minor, major) as the CAP stores an import version."""
+    try:
+        major, minor = str(text).strip().split('.')
+        major, minor = int(major), int(minor)
+    except (TypeError, ValueError):
+        raise ValueError('invalid version %r (expected major.minor)' % (text,))
+    if not (0 <= major <= 255 and 0 <= minor <= 255):
+        raise ValueError('version out of range: %r' % (text,))
+    return minor, major
+
+
+def _cap_import_end(load_file_hex):
+    """Offset just past the Import component's last byte in the load file."""
+    data = bytes.fromhex(load_file_hex or '')
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            return off + 3 + size
+        off += 3 + size
+    raise ValueError('no Import component in the load file')
+
+
+def _cap_compat_blocks(load_file_hex, block_size):
+    """(boundary, total) LOAD block numbers for the compatibility test.
+
+    `boundary` is the block whose payload completes the Import component: the
+    JCRE verifies the import list when that component ends (the observed LOAD
+    rejections land exactly in that block), so a test stopping after it
+    answers the compatibility question without committing a load file.
+    `total` is the block count of the full load (for the report)."""
+    import_end = _cap_import_end(load_file_hex)
+    tlv = 'C4' + _ber_len(len(load_file_hex) // 2) + load_file_hex
+    header_chars = len(tlv) - len(load_file_hex)          # the C4 TLV header
+    last_byte = header_chars + (import_end - 1) * 2       # Import's last byte
+    boundary = last_byte // (block_size * 2) + 1
+    total = (len(tlv) + block_size * 2 - 1) // (block_size * 2)
+    return boundary, total
+
+
+def _probe_import_versions(load_file_hex, overrides, additions=None):
+    """Diagnostic probe: rewrite (and optionally append) the Import component
+    of the load file (JC VM spec 4.5.2 - the card must export every imported
+    package at >= the recorded version).
 
     The JCRE checks the import list while it verifies the load file, so a card
     that cannot satisfy one of the CAP's export versions rejects the LOAD as
     soon as the Import component is complete (live 2026-09-29: remote SW
     6438/6985 exactly in the block containing the component's last byte).
     Lowering the versions shows whether that list is the cause and, by
-    bisection, which package the card refuses.  Only the two version bytes per
-    entry change: the load file length, the component sizes, the Directory and
-    every offset stay untouched.
+    bisection, which package the card refuses; appending a synthetic entry
+    (`additions`) queries the card for a package/version the CAP does not use.
 
-    `overrides` is {'all': 'x.y'} or {aid_hex: 'x.y'} (lower/upper case and
-    spaces are tolerated).  Returns (patched_hex, applied) where `applied`
-    lists the entries actually changed.  Diagnostic only - never used for a
-    real install."""
+    `overrides` is {'all': 'x.y'} or {aid_hex: 'x.y'}; `additions` is a list
+    of {'aid': hex, 'version': 'x.y'} appended as new entries (append-only:
+    existing entries keep their positions, so the applet's constant-pool
+    import indices stay valid - an AID that is already present is treated as a
+    version override).  A version-only probe keeps the load file length
+    untouched; appends patch the component's size field and the Directory's
+    Import size.  Returns (patched_hex, applied) where `applied` lists the
+    entries changed or added ('from' is null for an appended entry).
+    Diagnostic only - never used for a real install."""
     data = bytearray.fromhex(load_file_hex or '')
     if not data:
         raise ValueError('empty load file')
@@ -871,16 +917,6 @@ def _probe_import_versions(load_file_hex, overrides):
     for key, value in (overrides or {}).items():
         k = str(key).replace(' ', '')
         norm['all' if k.lower() == 'all' else k.upper()] = value
-
-    def version_pair(text):
-        try:
-            major, minor = str(text).strip().split('.')
-            major, minor = int(major), int(minor)
-        except (TypeError, ValueError):
-            raise ValueError('invalid version %r (expected major.minor)' % (text,))
-        if not (0 <= major <= 255 and 0 <= minor <= 255):
-            raise ValueError('version out of range: %r' % (text,))
-        return minor, major          # the CAP stores [minor][major]
 
     # Walk the components to the Import one (tag 0x04; sizes exclude the
     # 3-byte component header).
@@ -898,31 +934,82 @@ def _probe_import_versions(load_file_hex, overrides):
         raise ValueError('no Import component in the load file')
     if end > len(data):
         raise ValueError('truncated Import component')
-    count = data[start]
+
+    # parse the entries once (bounds-checked)
+    entries = []
     p = start + 1
-    matched = 0
-    applied = []
-    for _ in range(count):
+    for _ in range(data[start]):
         if p + 3 > end:
             raise ValueError('truncated Import entry')
         minor, major, aid_len = data[p], data[p + 1], data[p + 2]
-        aid_hex = bytes(data[p + 3:p + 3 + aid_len]).hex().upper()
         if p + 3 + aid_len > end:
             raise ValueError('truncated Import entry AID')
-        override = norm.get(aid_hex, norm.get('all'))
-        if override is not None:
-            matched += 1
-            new_minor, new_major = version_pair(override)
-            if (new_minor, new_major) != (minor, major):
-                applied.append({'aid': aid_hex,
-                                'from': '%d.%d' % (major, minor),
-                                'to': '%d.%d' % (new_major, new_minor)})
-                data[p] = new_minor
-                data[p + 1] = new_major
+        aid_hex = bytes(data[p + 3:p + 3 + aid_len]).hex().upper()
+        entries.append([minor, major, aid_hex])
         p += 3 + aid_len
+
+    matched = 0
+    applied = []
+    for entry in entries:
+        override = norm.get(entry[2], norm.get('all'))
+        if override is None:
+            continue
+        matched += 1
+        new_minor, new_major = _version_pair(override)
+        if (new_minor, new_major) != (entry[0], entry[1]):
+            applied.append({'aid': entry[2],
+                            'from': '%d.%d' % (entry[1], entry[0]),
+                            'to': '%d.%d' % (new_major, new_minor)})
+            entry[0], entry[1] = new_minor, new_major
+
+    known = {e[2] for e in entries}
+    for item in (additions or []):
+        aid = str(item.get('aid', '')).replace(' ', '').upper()
+        if not aid or len(aid) % 2 or not re.fullmatch(r'[0-9A-F]+', aid):
+            raise ValueError('invalid AID in the additions: %r' % (item.get('aid'),))
+        if not 10 <= len(aid) <= 32:
+            raise ValueError('addition AID must be 5..16 bytes: %s' % aid)
+        new_minor, new_major = _version_pair(item.get('version'))
+        matched += 1
+        if aid in known:
+            # already imported: apply as a version override
+            for entry in entries:
+                if entry[2] == aid and (entry[0], entry[1]) != (new_minor, new_major):
+                    applied.append({'aid': aid,
+                                    'from': '%d.%d' % (entry[1], entry[0]),
+                                    'to': '%d.%d' % (new_major, new_minor)})
+                    entry[0], entry[1] = new_minor, new_major
+                    break
+            continue
+        known.add(aid)
+        entries.append([new_minor, new_major, aid])
+        applied.append({'aid': aid, 'from': None,
+                        'to': '%d.%d' % (new_major, new_minor)})
+
     if not matched:
         raise ValueError('no import matched the probe (give AIDs from the '
-                         'CAP analysis or "all")')
+                         'CAP analysis, "all" or "+AID=version" additions)')
+
+    rebuilt = bytes([len(entries)]) + b''.join(
+        bytes([e[0], e[1], len(e[2]) // 2]) + bytes.fromhex(e[2]) for e in entries)
+    if rebuilt != bytes(data[start:end]):
+        # sizes: the component header field and the Directory's array entry
+        # (index 3 = tag 4) carry the Import's data length
+        new_size = len(rebuilt)
+        if new_size > 0xFFFF:
+            raise ValueError('Import component too large')
+        data[start - 2:start] = new_size.to_bytes(2, 'big')
+        off = 0
+        while off + 3 <= len(data):
+            tag = data[off]
+            size = int.from_bytes(data[off + 1:off + 3], 'big')
+            if tag == 0x02:                      # Directory: sizes by tag
+                entry = off + 3 + 3 * 2          # index 3 = tag 4 (Import)
+                if entry + 2 <= off + 3 + size:
+                    data[entry:entry + 2] = new_size.to_bytes(2, 'big')
+                break
+            off += 3 + size
+        data[start:end] = rebuilt
     return data.hex().upper(), applied
 
 
@@ -4855,7 +4942,8 @@ _TEST_KIND_LABELS = {
 _TEST_BLOCKED_PATHS = frozenset([
     '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
     '/api/write', '/api/apdu', '/api/verify-adm', '/api/send-ota',
-    '/api/ram-install', '/api/ram-install-app', '/api/sp-verify', '/api/menu-select',
+    '/api/ram-install', '/api/ram-install-app', '/api/cap-compat',
+    '/api/sp-verify', '/api/menu-select',
     '/api/menu-respond', '/api/event-send', '/api/net-sim',
     '/api/net-state-refresh', '/api/status-poll', '/api/rescue',
     '/api/terminal-profile', '/api/poll-toggle', '/api/esim/chip',
@@ -6596,21 +6684,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # Parse .cap file
                 loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
 
-                # Optional diagnostic: rewrite the Import versions the card is
-                # asked to satisfy before the LOAD chain is built (v3.6.42)
-                probe_applied = None
-                probe = body.get('probe_imports')
-                if probe:
-                    try:
-                        loadfile_data, probe_applied = _probe_import_versions(loadfile_data, probe)
-                    except ValueError as e:
-                        resp = {'error': 'import probe: %s' % e}
-                        self._send_json(resp, 400)
-                        self._log_resp(resp)
-                        return
-                    sys.stderr.write('RAM-INSTALL: import probe applied: %s\n'
-                                     % json.dumps(probe_applied))
-
                 # SCP80 params
                 spi1 = body.get('spi1', '16')
                 spi2 = body.get('spi2', '01')
@@ -6691,7 +6764,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                             resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                                     'error': (state['encode_error'] or state['failure'].get('error')
                                               or ('%s failed' % step_name)),
-                                    'probe_imports': probe_applied,
                                     'final_cntr': state['cntr'], 'ram_format': ram_format,
                                     'load_file_aid': loadfile_aid, 'module_aid': module_aid,
                                     'load_block_size': block_size,
@@ -6705,8 +6777,7 @@ class PysimHandler(BaseHTTPRequestHandler):
 
                 resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
                         'module_aid': module_aid, 'final_cntr': state['cntr'],
-                        'ram_format': ram_format, 'probe_imports': probe_applied,
-                        'load_block_size': block_size,
+                        'ram_format': ram_format, 'load_block_size': block_size,
                         'load_block_size_requested': block_size_req,
                         'load_block_size_auto': not block_size_req}
                 sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
@@ -6792,6 +6863,116 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
             except Exception as e:
                 sys.stderr.write('RAM-INSTALL-APP error: %s\n' % e)
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
+                self._log_resp(err)
+        elif self.path == '/api/cap-compat':
+            # CAP compatibility test (v3.6.48): run the load only as far as the
+            # block that completes the Import component - the JCRE verifies the
+            # import list there, so the card's answer to that block says
+            # whether it can satisfy the CAP's imports.  Nothing is committed
+            # (no last-block flag, no INSTALL [for install]) and the probe
+            # overrides/additions are applied to the load file first.
+            body = self._read_body()
+            self._log_req(body)
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            try:
+                cap_hex = body.get('cap_hex', '').replace(' ', '')
+                if not cap_hex:
+                    self._send_json({'error': 'No cap_hex provided'}, 400)
+                    return
+                loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
+
+                probe_applied = None
+                probe = body.get('probe_imports') or {}
+                additions = body.get('probe_additions') or []
+                if probe or additions:
+                    try:
+                        loadfile_data, probe_applied = _probe_import_versions(
+                            loadfile_data, probe, additions)
+                    except ValueError as e:
+                        resp = {'error': 'import probe: %s' % e}
+                        self._send_json(resp, 400)
+                        self._log_resp(resp)
+                        return
+                    sys.stderr.write('CAP-COMPAT: import probe applied: %s\n'
+                                     % json.dumps(probe_applied))
+
+                block_size_req = body.get('load_block_size')
+                if block_size_req in (None, ''):
+                    block_size_req = None
+                else:
+                    try:
+                        block_size_req = int(block_size_req)
+                    except (TypeError, ValueError):
+                        block_size_req = -1
+                    if not 1 <= block_size_req <= 240:
+                        err = {'success': False, 'error': 'load_block_size must be 1..240'}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                block_size = block_size_req or 240
+                boundary, total_blocks = _cap_compat_blocks(loadfile_data, block_size)
+                sys.stderr.write('CAP-COMPAT: %s — the import list ends in LOAD %d/%d '
+                                 '(block size %d)\n' % (loadfile_aid, boundary,
+                                                        total_blocks, block_size))
+
+                spi1 = body.get('spi1', '16')
+                spi2 = body.get('spi2', '01')
+                kic = body.get('kic', '25')
+                kid = body.get('kid', '25')
+                tar = body.get('tar', '000000')
+                cntr = body.get('cntr', '00000000')
+                kic_key = body.get('kicKey', '')
+                kid_key = body.get('kidKey', '')
+                steps = []
+                state = {'steps': steps, 'encode_error': None, 'failure': {},
+                         'cntr': cntr}
+                sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
+                            'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
+                            'include_cpi': body.get('includeCpi', True)}
+
+                seq = _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data,
+                                         block_size=block_size)
+                run = seq[:1 + boundary]     # INSTALL [for load] + boundary blocks
+                _ram_progress_begin('cap-compat', len(run) + 1)
+                try:
+                    ram_format = _ram_normalize_format(body.get('ram_format'))
+                    if ram_format == 'auto':
+                        _ram_progress_step(0, 'FORMAT CHECK')
+                        ram_format = _ram_detect_format(self.server, scc, sp_state, state)
+                    ok = True
+                    for apdu_idx, gp_apdu in enumerate(run):
+                        step_name = ('INSTALL [for load]' if apdu_idx == 0
+                                     else 'LOAD (%d/%d)' % (apdu_idx, total_blocks))
+                        _ram_progress_step(apdu_idx + 1, step_name)
+                        if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
+                                                 step_name,
+                                                 _ram_format_apdu(gp_apdu, ram_format)):
+                            ok = False
+                            break
+                finally:
+                    _ram_progress_end()
+                resp = {'success': ok, 'imports_ok': ok, 'steps': steps,
+                        'boundary_block': boundary, 'total_blocks': total_blocks,
+                        'load_file_aid': loadfile_aid, 'module_aid': module_aid,
+                        'ram_format': ram_format, 'probe_imports': probe_applied,
+                        'final_cntr': state['cntr'], 'load_block_size': block_size,
+                        'load_block_size_requested': block_size_req}
+                if not ok:
+                    resp['error'] = (state['encode_error'] or state['failure'].get('error')
+                                     or 'the card rejected the import list')
+                    resp['failed_step'] = len(steps)
+                sys.stderr.write('CAP-COMPAT: %s — imports %s (LOADS to %d/%d)\n' % (
+                    loadfile_aid, 'OK' if ok else 'REJECTED', boundary, total_blocks))
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                sys.stderr.write('CAP-COMPAT error: %s\n' % e)
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)
