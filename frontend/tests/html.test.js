@@ -492,3 +492,15 @@ test('the RAM operation modal is wide enough for the step lines', () => {
     assert.ok(m, 'RAM op modal not found');
     assert.ok(m[1].includes('max-w-3xl'), 'the modal was widened to fit the step lines: ' + m[1]);
 });
+
+test('the toolkit parameters grid is three columns with the access row last', () => {
+    // 12 narrow fields fit in 4 rows (the MSL select makes a 13th cell, so
+    // the file-access group spans the full width as its own last row) - v3.6.50
+    const grid = /<div class="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">[\s\S]*?id="rc-tk-access-row"/.exec(html);
+    assert.ok(grid, 'toolkit grid must be 3 columns with the access row in it');
+    const row = /<div id="rc-tk-access-row" class="col-span-3 flex items-center gap-4">([\s\S]*?)<\/div>\s*<\/div>/.exec(html);
+    assert.ok(row, 'the access row spans the grid width');
+    for (const id of ['rc-tk-fsaccess-row', 'rc-tk-adfaccess-row', 'rc-tk-adfaid-row']) {
+        assert.ok(row[1].includes(id), id + ' must sit in the access row');
+    }
+});

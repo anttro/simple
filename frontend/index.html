@@ -780,7 +780,7 @@
 						</select>
 						<div id="rc-tk-mode-hint" class="hidden mt-1 text-xs text-blue-700 dark:text-blue-300"></div>
 					</div>
-					<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+					<div class="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
 						<div>
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Priority (0 = RFU)">Priority (0 = RFU)</label>
 							<input id="rc-tk-priority" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="255" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
@@ -840,21 +840,25 @@
 							<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300" data-l10n="Max services">Max services</label>
 							<input id="rc-tk-services" oninput="updateStkParamsHex()" type="number" min="0" max="255" value="0" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800">
 						</div>
-						<div id="rc-tk-fsaccess-row" class="col-span-2">
-							<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
-								<input id="rc-tk-fsaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
-								<span data-l10n="File system access (full)">File system access (full)</span>
-							</label>
-						</div>
-						<div id="rc-tk-adfaccess-row" class="col-span-2">
-							<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
-								<input id="rc-tk-adfaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
-								<span data-l10n="ADF.USIM access (full)">ADF.USIM access (full)</span>
-							</label>
-							<label class="block mb-1 mt-1 text-xs text-gray-500 dark:text-slate-400" data-l10n="ADF AID (hex)">ADF AID (hex)</label>
-							<div class="flex items-center gap-2">
-								<input id="rc-tk-adfaid" oninput="updateStkParamsHex()" value="A0000000871002" maxlength="32" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
-								<button type="button" id="rc-tk-adfaid-from-card" data-needs="card" onclick="ramAdfAidFromCard()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="From card">From card</button>
+						<div id="rc-tk-access-row" class="col-span-3 flex items-center gap-4">
+							<div id="rc-tk-fsaccess-row" class="flex items-center">
+								<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
+									<input id="rc-tk-fsaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
+									<span data-l10n="File system access (full)">File system access (full)</span>
+								</label>
+							</div>
+							<div id="rc-tk-adfaccess-row" class="flex items-center">
+								<label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-slate-300">
+									<input id="rc-tk-adfaccess" type="checkbox" onchange="updateStkParamsHex()" class="rounded border-gray-300 dark:border-slate-600 dark:bg-slate-800">
+									<span data-l10n="ADF.USIM access (full)">ADF.USIM access (full)</span>
+								</label>
+							</div>
+							<div id="rc-tk-adfaid-row" class="flex-1 min-w-0">
+								<label class="block mb-1 text-xs text-gray-500 dark:text-slate-400" data-l10n="ADF AID (hex)">ADF AID (hex)</label>
+								<div class="flex items-center gap-2">
+									<input id="rc-tk-adfaid" oninput="updateStkParamsHex()" value="A0000000871002" maxlength="32" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">
+									<button type="button" id="rc-tk-adfaid-from-card" data-needs="card" onclick="ramAdfAidFromCard()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="From card">From card</button>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -1745,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.49';
+const SIMPLE_VERSION = '3.6.50';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -2630,8 +2634,7 @@ function updateRcTkMode() {
 	const isSim = document.getElementById('rc-tk-mode').value === 'ca';
 	document.getElementById('rc-tk-ad-row').style.display = isSim ? '' : 'none';
 	document.getElementById('rc-tk-services-row').style.display = isSim ? 'none' : '';
-	document.getElementById('rc-tk-fsaccess-row').style.display = isSim ? 'none' : '';
-	document.getElementById('rc-tk-adfaccess-row').style.display = isSim ? 'none' : '';
+	document.getElementById('rc-tk-access-row').style.display = isSim ? 'none' : '';
 }
 
 // The install form's checkbox grants (privileges, toolkit enable, file

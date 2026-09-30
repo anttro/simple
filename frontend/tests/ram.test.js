@@ -892,3 +892,11 @@ test('the expanded-details checkbox is a sticky preference', () => {
 	assert.strictEqual(store['simple_ram_expanded'], '0');            // ticking stores it
 	delete globalThis.localStorage;
 });
+
+test('SIM toolkit mode hides the UICC file-access row', () => {
+    // the file-access group (checkboxes + ADF AID) is one spanning row now:
+    // it must follow the CA/EA visibility (v3.6.50)
+    const src = extractFunc(html, 'updateRcTkMode');
+    assert.ok(src.includes('rc-tk-access-row'),
+        'the access row must follow the CA/EA visibility');
+});
