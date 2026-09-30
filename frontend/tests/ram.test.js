@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport',
+	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramGetResponseApdu',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -549,7 +549,7 @@ test('ramCardIdxAfterRemove keeps the remembered index aligned', () => {
 	assert.strictEqual(ramCardIdxAfterRemove(null, 1), null);
 });
 
-test('ramExpandedQueryApdu builds the three expanded query forms', () => {
+test('ramExpandedQueryApdu builds the expanded query forms', () => {
 	// the reference trace form (richest: the tag list incl. the TS 102 226 EA)
 	for (const p1 of ['80', '40']) {
 		assert.strictEqual(ramExpandedQueryApdu(p1),
@@ -564,30 +564,50 @@ test('ramExpandedQueryApdu builds the three expanded query forms', () => {
 	// without EA: a card that errors on the requested-but-absent EA object
 	assert.strictEqual(ramExpandedQueryApdu('40', 'noea'), '80F240020B4F005C074F9F70C5C4CCCE00');
 	assert.strictEqual(ramExpandedQueryApdu('10', 'noea'), '80F210020C4F005C084F9F70C5C4CCCE8400');
+	// lean: only the objects valid for the kind - the load file version and
+	// modules for ELFs (C5 privileges / C4 ELF AID are application objects),
+	// pySim's field list for the ISD/apps
+	assert.strictEqual(ramExpandedQueryApdu('10', 'lean'), '80F21002094F005C054F9F70CE8400');
+	assert.strictEqual(ramExpandedQueryApdu('20', 'lean'), '80F22002094F005C054F9F70CE8400');
+	assert.strictEqual(ramExpandedQueryApdu('40', 'lean'), '80F24002094F005C054F9F70C5CC00');
+	assert.strictEqual(ramExpandedQueryApdu('80', 'lean'), '80F28002094F005C054F9F70C5CC00');
 	// no tag list at all (GPPro's GET STATUS data field: 4F00 only)
 	assert.strictEqual(ramExpandedQueryApdu('80', 'notags'), '80F28002024F0000');
 	assert.strictEqual(ramExpandedQueryApdu('10', 'notags'), '80F21002024F0000');
-	assert.deepStrictEqual(RAM_EXPANDED_FORMS, ['tags', 'noea', 'notags']);
+	// the next-occurrence page (P2.b1=1) keeps the form and its tag list
+	assert.strictEqual(ramExpandedQueryApdu('40', 'tags', true), '80F240030C4F005C084F9F70C5C4CCCEEA00');
+	assert.strictEqual(ramExpandedQueryApdu('10', 'lean', true), '80F21003094F005C054F9F70CE8400');
+	assert.strictEqual(ramExpandedQueryApdu('10', 'notags', true), '80F21003024F0000');
+	assert.deepStrictEqual(RAM_EXPANDED_FORMS, ['tags', 'noea', 'lean', 'notags']);
+});
+
+test('ramGetResponseApdu fetches a 61xx response (the announced length)', () => {
+	assert.strictEqual(ramGetResponseApdu('6131'), '00C0000031');
+	assert.strictEqual(ramGetResponseApdu('617F'), '00C000007F');
+	assert.strictEqual(ramGetResponseApdu('613f'), '00C000003F');
+	// not a 61xx: ask for all available data
+	assert.strictEqual(ramGetResponseApdu('9000'), '00C0000000');
+	assert.strictEqual(ramGetResponseApdu(''), '00C0000000');
 });
 
 test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
 	globalThis.t = s => s;
 	// every listing answered the reference form
 	assert.strictEqual(ramExpandedReport([
-		{ p1: '80', label: 'ISD', compact: true, form: 'tags', sw: '9000' },
-		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000' },
-		{ p1: '10', label: 'ELFs', compact: true, form: 'tags', sw: '9000' },
+		{ p1: '80', label: 'ISD', compact: true, form: 'tags', sw: '9000', entries: 1 },
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000', entries: 2 },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'tags', sw: '9000', entries: 4 },
 	]), 'Expanded registry: tag list + EA (ISD, Apps, ELFs)');
 	// the ISD commonly has no expanded data (6A88/6A86 is normal there)
 	assert.strictEqual(ramExpandedReport([
 		{ p1: '80', label: 'ISD', compact: true, form: null, sw: '6A88' },
-		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000' },
-		{ p1: '10', label: 'ELFs', compact: true, form: 'noea', sw: '9000' },
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000', entries: 2 },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'noea', sw: '9000', entries: 4 },
 	]), 'Expanded registry: tag list + EA (Apps) \u00b7 tag list (ELFs) \u00b7 ISD: no expanded data (6A88) \u2014 compact listing used');
 	// a listing the card refused entirely: the compact listing carried it
 	assert.strictEqual(ramExpandedReport([
 		{ p1: '40', label: 'Apps', compact: true, form: null, sw: '6A88' },
-		{ p1: '10', label: 'ELFs', compact: true, form: 'notags', sw: '9000' },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'notags', sw: '9000', entries: 4 },
 	]), 'Expanded registry: no tag list (ELFs) \u00b7 Apps: refused (6A88) \u2014 compact listing used');
 	// nothing answered: the headline says the versions are unavailable
 	assert.strictEqual(ramExpandedReport([
@@ -598,17 +618,49 @@ test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
 	assert.strictEqual(ramExpandedReport([
 		{ p1: '10', label: 'ELFs', compact: false, form: null, sw: '6A88' },
 	]), 'Expanded registry refused by the card \u2014 compact listing only (package versions unavailable) ELFs: 6A88');
+	// the ELF listing queried twice (P1=10 accepted-but-empty, then the P1=20
+	// fallback with data): one mention, from the pass that produced entries
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '10', label: 'ELFs', compact: false, form: 'notags', sw: '9000', entries: 0 },
+		{ p1: '20', label: 'ELFs', compact: false, form: 'notags', sw: '9000', entries: 5 },
+	]), 'Expanded registry: no tag list (ELFs)');
+	// a refusal followed by a pass with data is not reported as a refusal
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '10', label: 'ELFs', compact: false, form: null, sw: '6A88' },
+		{ p1: '20', label: 'ELFs', compact: false, form: 'lean', sw: '9000', entries: 5 },
+	]), 'Expanded registry: lean tag list (ELFs)');
+	// the richer form wins when both produced entries
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '10', label: 'ELFs', compact: true, form: 'lean', sw: '9000', entries: 3 },
+		{ p1: '20', label: 'ELFs', compact: true, form: 'notags', sw: '9000', entries: 5 },
+	]), 'Expanded registry: lean tag list (ELFs)');
 	assert.strictEqual(ramExpandedReport([]), '');
 	delete globalThis.t;
 });
 
-test('the explorer hints when the card returned no package versions', () => {
+test('ramExpandedElfForm names the ELF listing form for the version hint', () => {
 	globalThis.t = s => s;
-	const noVer = ramRenderExploreHtml(null, [], [], [{ aid: 'E1', lifecycle: '01', privileges: '00' }]);
-	const withVer = ramRenderExploreHtml(null, [], [], [{ aid: 'E1', lifecycle: '01', privileges: '00', version: '0100' }]);
+	assert.strictEqual(ramExpandedElfForm([
+		{ p1: '10', label: 'ELFs', compact: false, form: 'notags', sw: '9000', entries: 5 },
+	]), 'notags');
+	// an accepted-but-empty pass is no form for the hint
+	assert.strictEqual(ramExpandedElfForm([
+		{ p1: '10', label: 'ELFs', compact: false, form: 'notags', sw: '9000', entries: 0 },
+	]), '');
+	assert.strictEqual(ramExpandedElfForm([]), '');
 	delete globalThis.t;
-	assert.ok(noVer.includes('Package versions come from the expanded registry query'), noVer);
-	assert.ok(!withVer.includes('Package versions come from the expanded registry query'), withVer);
+});
+
+test('the explorer hints why the package versions are missing', () => {
+	globalThis.t = s => s;
+	const elfs = [{ aid: 'E1', lifecycle: '01', privileges: '00' }];
+	const noForm = ramRenderExploreHtml(null, [], [], elfs);
+	const noTags = ramRenderExploreHtml(null, [], [], elfs, '', '', 'notags');
+	const withVer = ramRenderExploreHtml(null, [], [], [{ aid: 'E1', lifecycle: '01', privileges: '00', version: '0100' }], '', '', 'notags');
+	delete globalThis.t;
+	assert.ok(noForm.includes('Package versions come from the expanded registry query'), noForm);
+	assert.ok(noTags.includes('only in the tag-list forms of the expanded registry query'), noTags);
+	assert.ok(!withVer.includes('Package versions'), withVer);
 });
 
 test('the Explore detects the expanded query form and reports it', () => {
@@ -619,6 +671,9 @@ test('the Explore detects the expanded query form and reports it', () => {
 	// the ISD gets a single attempt: its 6A88 must not poison the detection
 	assert.ok(src.includes("if (p1 === '80') forms = [expandedForm || 'tags'];"),
 		'the ISD must not walk the ladder');
+	// a 61xx answer holds the data (GET RESPONSE) and a 6310 pages
+	assert.ok(src.includes('ramGetResponseApdu(sw)'), '61xx must be answered with GET RESPONSE');
+	assert.ok(src.includes('ramExpandedQueryApdu(p1, form, page > 1)'), '6310 must page');
 });
 
 test('ramParseAppStatus parses the expanded E3 listing (vendor traces)', () => {

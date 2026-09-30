@@ -1749,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.54';
+const SIMPLE_VERSION = '3.6.55';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9154,36 +9154,66 @@ function ramMergeExpanded(collector, parsed) {
 	});
 }
 
-// Summary of the expanded-registry pass (pure).  `report` holds one entry per
-// listing: {label, compact, form, sw} - `form` is the query form the card
-// accepted ('tags' | 'noea' | 'notags') or null when it refused every form,
-// `compact` says whether that listing's compact query worked, `sw` the last
-// remote status word.  Shown in the explorer so a fallback to the compact
-// listing (and the missing package versions) is never silent.
-function ramExpandedReport(report) {
-	const rows = (report || []).filter(r => r && r.label);
-	if (!rows.length) return '';
-	const formName = f => f === 'tags' ? t('tag list + EA')
-		: (f === 'noea' ? t('tag list') : t('no tag list'));
-	const parts = [];
-	RAM_EXPANDED_FORMS.forEach(f => {
-		const labels = rows.filter(r => r.form === f).map(r => r.label);
-		if (labels.length) parts.push(formName(f) + ' (' + labels.join(', ') + ')');
-	});
-	rows.forEach(r => {
-		if (r.form) return;
-		const why = r.sw ? ' (' + r.sw + ')' : '';
-		if (!r.compact) {
-			parts.push(r.label + ': ' + (r.sw || t('no data')));
-		} else if (r.p1 === '80') {
-			// cards commonly report nothing for the ISD in the expanded form
-			// (GPPro treats its 6A88/6A86 as 'no data to report')
-			parts.push(r.label + ': ' + t('no expanded data') + why + ' \u2014 ' + t('compact listing used'));
+// Group the per-listing expanded outcomes (pure): one group per label, best
+// outcome wins (a pass that returned entries > an accepted-but-empty pass >
+// a refusal), so a listing queried twice (P1=10 and then the P1=20 fallback)
+// never appears twice in the report and a form that produced data is never
+// reported as a refusal.
+function ramExpandedGroups(report) {
+	const groups = [];
+	(report || []).forEach(r => {
+		if (!r || !r.label) return;
+		let g = groups.find(x => x.label === r.label);
+		if (!g) {
+			g = { p1: r.p1 || '', label: r.label, form: null, entries: 0, score: 0,
+				sw: '', compact: false, refused: false };
+			groups.push(g);
+		}
+		g.compact = g.compact || !!r.compact;
+		if (r.form) {
+			const score = ((r.entries || 0) > 0 ? 100 : 0) +
+				(RAM_EXPANDED_FORMS.length - RAM_EXPANDED_FORMS.indexOf(r.form));
+			if (score > g.score) {
+				g.form = r.form;
+				g.entries = r.entries || 0;
+				g.score = score;
+			}
 		} else {
-			parts.push(r.label + ': ' + t('refused') + why + ' \u2014 ' + t('compact listing used'));
+			g.refused = true;
+			if (r.sw) g.sw = r.sw;
 		}
 	});
-	const anyForm = rows.some(r => r.form);
+	return groups;
+}
+
+// Summary of the expanded-registry pass (pure): which query form the card
+// accepted per listing and where the run fell back to the compact listing.
+// Shown in the explorer so a fallback (and the missing package versions) is
+// never silent.
+function ramExpandedReport(report) {
+	const groups = ramExpandedGroups(report);
+	if (!groups.length) return '';
+	const formName = f => f === 'tags' ? t('tag list + EA')
+		: (f === 'noea' ? t('tag list') : (f === 'lean' ? t('lean tag list') : t('no tag list')));
+	const parts = [];
+	RAM_EXPANDED_FORMS.forEach(f => {
+		const labels = groups.filter(g => g.form === f).map(g => g.label);
+		if (labels.length) parts.push(formName(f) + ' (' + labels.join(', ') + ')');
+	});
+	groups.forEach(g => {
+		if (g.form) return;
+		const why = g.sw ? ' (' + g.sw + ')' : '';
+		if (!g.compact) {
+			parts.push(g.label + ': ' + (g.sw || t('no data')));
+		} else if (g.p1 === '80') {
+			// cards commonly report nothing for the ISD in the expanded form
+			// (GPPro treats its 6A88/6A86 as 'no data to report')
+			parts.push(g.label + ': ' + t('no expanded data') + why + ' \u2014 ' + t('compact listing used'));
+		} else {
+			parts.push(g.label + ': ' + t('refused') + why + ' \u2014 ' + t('compact listing used'));
+		}
+	});
+	const anyForm = groups.some(g => g.form);
 	const head = anyForm
 		? t('Expanded registry:')
 		: t('Expanded registry refused by the card') + ' \u2014 ' +
@@ -9191,8 +9221,25 @@ function ramExpandedReport(report) {
 	return head + ' ' + parts.join(' \u00b7 ');
 }
 
+// The form the ELF listing answered with ('' when it never produced entries):
+// the version hint is worded from it.
+function ramExpandedElfForm(report) {
+	const g = ramExpandedGroups(report).find(x => x.label === t('ELFs'));
+	return g && g.form && (g.entries || 0) > 0 ? g.form : '';
+}
+
+// Why the ELF rows show no version (pure).  The version exists only in the
+// tag-list forms of the expanded query: without a tag list the card builds the
+// default E3 (AID + life cycle + modules, GP 11.4.3.1).
+function ramElfVersionHint(elfForm) {
+	if (elfForm === 'notags') {
+		return t('Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.');
+	}
+	return t('Package versions come from the expanded registry query \u2014 this card did not return them.');
+}
+
 // Render the full explorer result as structured HTML
-function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded) {
+function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 	let html = '';
 	if (mem && (mem.appCount != null || mem.freeNV != null || mem.freeV != null)) {
 		html += '<div class="mb-4 p-3 bg-gray-50 dark:bg-slate-800 rounded">';
@@ -9255,7 +9302,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded) {
 		html += '<div class="mb-4">';
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + ' (' + elfs.length + ')</div>';
 		if (!elfs.some(o => o.version)) {
-			html += '<div class="mb-1 text-xs text-gray-500 dark:text-slate-400">' + esc(t('Package versions come from the expanded registry query \u2014 this card did not return them.')) + '</div>';
+			html += '<div class="mb-1 text-xs text-gray-500 dark:text-slate-400">' + esc(ramElfVersionHint(elfForm)) + '</div>';
 		}
 		elfs.forEach(o => {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-purple-400 flex items-start gap-3">';
@@ -9305,7 +9352,7 @@ function ramRenderExplorer() {
 		explorerEl.innerHTML = '';
 		return;
 	}
-	const html = ramRenderExploreHtml(_ramExplorerData.mem, _ramExplorerData.isd, _ramExplorerData.apps, _ramExplorerData.elfs, _ramExplorerData.fmt, _ramExplorerData.expanded);
+	const html = ramRenderExploreHtml(_ramExplorerData.mem, _ramExplorerData.isd, _ramExplorerData.apps, _ramExplorerData.elfs, _ramExplorerData.fmt, _ramExplorerData.expanded, _ramExplorerData.elfForm);
 	explorerEl.innerHTML = html || esc(t('(no data)'));
 	explorerEl.classList.remove('hidden');
 	pysimApplyAvailability();
@@ -9329,7 +9376,11 @@ async function ramExplore(sp) {
 	// the remembered form first, then the others.  The ISD gets a single
 	// attempt - cards commonly answer 6A88/6A86 there ("no data to report",
 	// GPPro), which must not poison the detection for the apps/ELF queries.
-	// Returns {form, parsed, sw}; form is null when every attempt was refused.
+	// A '61xx' answer means the card holds the response data (fetched with
+	// GET RESPONSE); a '6310' means more occurrences (re-issued as a
+	// next-occurrence page, P2.b1=1) - both are chained here, so an answer is
+	// only called empty or refused when it really is.  Returns
+	// {form, parsed, sw, entries}; form is null when no form produced data.
 	async function expandedPass(p1, label, parser, spi2) {
 		let forms = expandedForm
 			? [expandedForm].concat(RAM_EXPANDED_FORMS.filter(f => f !== expandedForm))
@@ -9337,30 +9388,48 @@ async function ramExplore(sp) {
 		if (p1 === '80') forms = [expandedForm || 'tags'];
 		let lastSw = '';
 		for (const form of forms) {
-			ramShowProgress(label + ' P1=' + p1 + ' P2=02 (' + form + ')...');
-			const res = await ramSendOta(ramExpandedQueryApdu(p1, form), Object.assign({}, sp, { cntr, spi2 }));
-			if (res.ram_format) sp.ram_format = res.ram_format;
-			if (res.final_cntr) cntr = res.final_cntr;
-			else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
-			if (!res.success || !res.por || !spPorAccepted(res.por)) {
-				// the packet itself was not accepted: another form will not help
-				lastSw = res.por ? res.por.response_status : (res.error || t('no data'));
-				break;
+			let data = '';
+			let sw = '';
+			let accepted = true;
+			const sendOne = async (apdu, what) => {
+				ramShowProgress(label + ' P1=' + p1 + ' ' + what + '...');
+				const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+				if (res.ram_format) sp.ram_format = res.ram_format;
+				if (res.final_cntr) cntr = res.final_cntr;
+				else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+				if (!res.success || !res.por || !spPorAccepted(res.por)) {
+					accepted = false;
+					sw = res.por ? res.por.response_status : (res.error || t('no data'));
+					return '';
+				}
+				sw = ((res.por.decoded && res.por.decoded.last_status_word) || '').toUpperCase();
+				return res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
+			};
+			let page = 0;
+			while (accepted && page++ < 8) {
+				data += await sendOne(ramExpandedQueryApdu(p1, form, page > 1),
+					page > 1 ? 'P2=03 (' + form + ')' : 'P2=02 (' + form + ')');
+				if (!accepted) break;
+				let rounds = 0;
+				while (/^61[0-9A-F]{2}$/.test(sw) && rounds++ < 4) {
+					data += await sendOne(ramGetResponseApdu(sw), 'GET RESPONSE');
+					if (!accepted) break;
+				}
+				if (!accepted || sw !== '6310') break;
 			}
-			const data = res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
-			const sw = ((res.por.decoded && res.por.decoded.last_status_word) || '').toUpperCase();
 			const parsed = data ? parser(data) : [];
 			if (parsed.length) {
 				expandedForm = form;
-				return { form: form, parsed: parsed, sw: sw };
+				return { form: form, parsed: parsed, sw: sw, entries: parsed.length };
 			}
 			lastSw = sw;
+			if (!accepted) break;
 			if (ramRemoteSwOk(sw)) {
 				// accepted but empty: nothing to gain from another form
-				return { form: form, parsed: [], sw: sw };
+				return { form: form, parsed: [], sw: sw, entries: 0 };
 			}
 		}
-		return { form: null, parsed: [], sw: lastSw };
+		return { form: null, parsed: [], sw: lastSw, entries: 0 };
 	}
 
 	async function paginate(p1, collector, parser, label, quiet) {
@@ -9433,7 +9502,7 @@ async function ramExplore(sp) {
 		if (collector.length === before || wantDetails) {
 			const out = await expandedPass(p1, label, parser, spi2);
 			expandedReport.push({ p1: p1, label: label, compact: collector.length > before,
-				form: out.form, sw: out.sw });
+				form: out.form, sw: out.sw, entries: out.entries });
 			if (collector.length === before) {
 				// Nothing from the compact pass: the expanded result is the listing
 				collector.push(...out.parsed);
@@ -9502,7 +9571,8 @@ async function ramExplore(sp) {
 	}
 
 	_ramExplorerData = { mem: mem, isd: isd, apps: apps, elfs: elfs, fmt: sp.ram_format || '',
-		expanded: ramExpandedReport(expandedReport) };
+		expanded: ramExpandedReport(expandedReport),
+		elfForm: ramExpandedElfForm(expandedReport) };
 	ramRenderExplorer();
 }
 
@@ -10897,10 +10967,13 @@ function ramGetStatusApdu(p1, p2) {
 // for the details pass (on by default: it carries the package versions, the
 // SD/load-file associations and the applet menu entries).
 //
-// Cards differ in what they accept, so the query is tried in three forms:
+// Cards differ in what they accept, so the query is tried in four forms:
 //   'tags'   - the reference trace tag list (`4F9F70C5C4CCCEEA`), the richest
 //   'noea'   - the same list without the TS 102 226 'EA' SCP Registry Data
-//              (a card that errors on the requested-but-absent EA object)
+//   'lean'   - only the objects valid for the kind: the load file version and
+//              modules for ELFs (the app-only C5/C4 make strict cards answer
+//              6A88), pySim's field list (AID, life cycle, privileges, SD AID)
+//              for the ISD/apps
 //   'notags' - no tag list (GPPro's GET STATUS data field `4F00` only): the
 //              card builds the default E3 (AID + life cycle + privileges or
 //              modules; cards commonly include the load file version anyway)
@@ -10908,15 +10981,32 @@ function ramGetStatusApdu(p1, p2) {
 // list present the card returns only the listed tags, so without it the
 // expanded fallback would list packages without their modules (no module rows
 // / Install buttons on cards that reject the compact form).
-const RAM_EXPANDED_FORMS = ['tags', 'noea', 'notags'];
+const RAM_EXPANDED_FORMS = ['tags', 'noea', 'lean', 'notags'];
 
-function ramExpandedQueryApdu(p1, form) {
-	const f = form || 'tags';
-	if (f === 'notags') return '80F2' + p1 + '02' + '02' + '4F00' + '00';
+// The tag list of one form for a listing ('' = the no-tag-list form).
+function ramExpandedTags(p1, form) {
 	const elf = p1 === '10' || p1 === '20';
-	const tags = (f === 'noea' ? '4F9F70C5C4CCCE' : '4F9F70C5C4CCCEEA') + (elf ? '84' : '');
+	if (form === 'notags') return '';
+	if (form === 'lean') return elf ? '4F9F70CE84' : '4F9F70C5CC';
+	const base = form === 'noea' ? '4F9F70C5C4CCCE' : '4F9F70C5C4CCCEEA';
+	return base + (elf ? '84' : '');
+}
+
+// `next` = the next-occurrence page (P2.b1=1, GP 11.4.3.2) after a '6310'.
+function ramExpandedQueryApdu(p1, form, next) {
+	const tags = ramExpandedTags(p1, form || 'tags');
+	const p2 = next ? '03' : '02';
+	if (!tags) return '80F2' + p1 + p2 + '02' + '4F00' + '00';
 	const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
-	return '80F2' + p1 + '02' + hex(tags.length / 2 + 4) + '4F005C' + hex(tags.length / 2) + tags + '00';
+	return '80F2' + p1 + p2 + hex(tags.length / 2 + 4) + '4F005C' + hex(tags.length / 2) + tags + '00';
+}
+
+// GET RESPONSE for a '61xx' remote status word: the card holds xx bytes of
+// response data (the compact path chains C0000000 for the same situation).
+function ramGetResponseApdu(sw) {
+	const s = String(sw || '').toUpperCase();
+	const len = /^61[0-9A-F]{2}$/.test(s) ? s.substr(2, 2) : '00';
+	return '00C00000' + len;
 }
 
 // The ISD (80) and memory responses fit the ENVELOPE; the Apps (40) and ELF
@@ -18632,12 +18722,14 @@ const LANG_RU = {
 	'tag list + EA': 'список тегов + EA',
 	'tag list': 'список тегов',
 	'no tag list': 'без списка тегов',
+	'lean tag list': 'сокращённый список тегов',
 	'refused': 'отказ',
 	'compact listing used': 'использован компактный список',
 	'no expanded data': 'нет расширенных данных',
 	'Expanded registry refused by the card': 'Карта отклонила расширенный реестр',
 	'compact listing only (package versions unavailable)': 'только компактный список (версии пакетов недоступны)',
 	'Package versions come from the expanded registry query \u2014 this card did not return them.': 'Версии пакетов приходят из расширенного запроса реестра \u2014 эта карта их не вернула.',
+	'Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.': 'Версии пакетов есть только в формах расширенного запроса со списком тегов \u2014 эта карта приняла только форму без списка тегов.',
 	'STK menu entry:': 'Пункт меню STK:',
 	'position': 'позиция',
 	'Other registry data:': 'Прочие данные реестра:',
