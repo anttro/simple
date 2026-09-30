@@ -29,7 +29,10 @@ function extractFunc(src, name) {
 const FNS = ['hexToBytes', 'bytesToHex', 'des3Keys', 'des3EncryptBlock', 'des3CbcEncrypt',
 	'xorBytes', 'zeroPad', 'crc32Bytes', 'cbcMac', 'aesCbcEncrypt', 'aesShiftLeft1', 'aesCmacSubkeys',
 	'aesCmac', '_genSpBuild', 'genSp', 'spNextCntr', 'scp80SegmentInfo', 'spSizeInfoText',
-	'spShowSizeInfo'];
+	'spShowSizeInfo',
+	// the key-version guard genSp runs before building (TS 102 225 A.2)
+	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
+	'spPresetIdx', 'spKeysetGuard'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['SCP80_MAX_SMS', 'SCP80_SINGLE_BYTES', 'SCP80_FIRST_BYTES', 'SCP80_NEXT_BYTES']) {

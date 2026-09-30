@@ -1419,20 +1419,62 @@ def _counter_valid(cntr):
     return bool(re.fullmatch(r'[0-9A-Fa-f]{1,10}', str(cntr or '')))
 
 
-def _preset_counter_persist(server, preset_id, cntr, source):
+def _kvn_of(kic_hex, kid_hex):
+    """The key version a packet uses: the b8..b5 nibble of KIc/KID (TS 102 225
+    5.1.2/A.2).  Returns ``(kvn, error)``: kvn is 0 when neither byte carries
+    one ('00' = no security, legal per A.2), error names a mismatch - A.2: the
+    versions shall be identical when different from 0, else the card rejects
+    the message - or a malformed byte."""
+    kic = str(kic_hex or '').strip().upper()
+    kid = str(kid_hex or '').strip().upper()
+    for name, value in (('KIc', kic), ('KID', kid)):
+        if value and not re.fullmatch(r'[0-9A-F]{2}', value):
+            return None, '%s must be one hex byte: %r' % (name, value)
+    kic_v = int(kic, 16) >> 4 if kic else 0
+    kid_v = int(kid, 16) >> 4 if kid else 0
+    if kic_v and kid_v and kic_v != kid_v:
+        return None, ('KIc and KID must carry the same key version '
+                      '(TS 102 225 A.2): %s / %s' % (kic, kid))
+    return (kic_v or kid_v), None
+
+
+def _preset_keyset_check(server, preset_id, kic, kid):
+    """The "the key version must be defined in the preset" rule: an error
+    string when the packet's (non-zero) key version has no keyset in the named
+    preset, else None.  Without a preset_id (a raw API caller) there is
+    nothing to check; '00'/'00' (no security) needs no keyset either."""
+    if not preset_id:
+        return None
+    kvn, err = _kvn_of(kic, kid)
+    if err:
+        return err
+    if not kvn:
+        return None
+    store = getattr(server, 'card_presets', None)
+    if store is None:
+        return None
+    if store.find_keyset(preset_id, kvn) is None:
+        preset = store.get(preset_id) or {}
+        return ('key version %d is not defined in preset %s - add it in the '
+                'Cards tab' % (kvn, preset.get('name') or preset_id))
+    return None
+
+
+def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
     """Persist the counter an operation accepted into the server-side preset
-    store (v3.8.0).  The counter is card state, so the server writes it with
-    the operation that consumed it - a closed tab, a lost response or a second
-    browser window can no longer lose an increment.  The store itself is
-    monotonic (a stale value never regresses it).  Best effort: a store
-    failure must never fail the card operation."""
+    store (v3.8.0), into the keyset of the key version it used (each key
+    version has its own dedicated counter, TS 102 225 A.1).  The counter is
+    card state, so the server writes it with the operation that consumed it - a
+    closed tab, a lost response or a second browser window can no longer lose
+    an increment.  The store itself is monotonic (a stale value never regresses
+    it).  Best effort: a store failure must never fail the card operation."""
     if not preset_id or not cntr:
         return
     store = getattr(server, 'card_presets', None)
     if store is None:
         return
     try:
-        store.set_counter(preset_id, cntr, source)
+        store.set_counter(preset_id, cntr, source, kvn)
     except Exception as e:
         sys.stderr.write('PRESETS: counter persist failed (%s): %s\n' % (source, e))
 
@@ -1635,7 +1677,8 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False)
         # crash mid-install cannot leave the preset behind the card (v3.8.0).
         if step.get('por_status') in ('por_ok', 'no_por'):
             _preset_counter_persist(server, state.get('preset_id'),
-                                    state['cntr'], 'ram-%s' % step_name.split()[0].lower())
+                                    state['cntr'], 'ram-%s' % step_name.split()[0].lower(),
+                                    state.get('kvn'))
         if step_error:
             if not silent:
                 state['failure']['error'] = '%s: %s' % (step_name, step_error)
@@ -5108,7 +5151,7 @@ _TEST_RUNNING = False
 _TEST_RUN = {
     'running': False, 'stop': False, 'name': None, 'status': None,
     'session': None, 'index': 0, 'total': 0, 'steps': [],
-    'preset': None, 'scp80_counter': None,
+    'preset': None, 'scp80_counter': None, 'scp80_counters': {},
     'started': None, 'finished': None, 'error': None,
 }
 _TEST_LOCK = threading.Lock()
@@ -5173,24 +5216,52 @@ def _increment_counter_hex(counter_hex):
     return '%0*X' % (width, (int(c, 16) + 1) & ((1 << (4 * width)) - 1))
 
 
-def _test_preset_error(script, preset):
-    """The SCP80 steps need a complete card preset; steps may override
-    TAR/SPI1/SPI2 only (KIc/KID and the counter stay preset-owned)."""
+def _preset_keysets(preset):
+    """The keysets of a preset dict - a v3.8.0 flat preset (kic/kid/kicKey/
+    kidKey/counter) counts as a single keyset, so old data keeps working."""
     preset = preset or {}
-    for key in ('kic', 'kid', 'kicKey', 'kidKey'):
-        if not preset.get(key):
-            return 'SCP80 preset is incomplete: %s is missing' % key
-    if not (preset.get('counter') or preset.get('cntr')):
-        return 'SCP80 preset has no counter'
+    keysets = [ks for ks in (preset.get('keysets') or []) if isinstance(ks, dict)]
+    if not keysets and (preset.get('kic') or preset.get('kid')):
+        keysets = [{'kic': preset.get('kic'), 'kid': preset.get('kid'),
+                    'kicKey': preset.get('kicKey'), 'kidKey': preset.get('kidKey'),
+                    'cntr': preset.get('counter') or preset.get('cntr') or ''}]
+    return keysets
+
+
+def _test_preset_error(script, preset):
+    """The SCP80 steps need at least one complete keyset in the card preset;
+    a step may override the keyset (kvn), the TAR, SPI1 and SPI2 only - the
+    KIc/KID keys and the counters stay preset-owned."""
+    preset = preset or {}
+    keysets = _preset_keysets(preset)
+    if not keysets:
+        return 'SCP80 preset is incomplete: no keyset is defined'
+    if not [ks for ks in keysets if _keyset_complete(ks)]:
+        return ('SCP80 preset is incomplete: a keyset needs KIc, KID, both keys '
+                'and a counter')
     for i, step in enumerate(script['steps']):
         if step['type'] != 'action' or step['kind'] != 'scp80':
             continue
         p = step['params']
+        if p.get('kvn') is not None:
+            want = int(p['kvn'])
+            ks = next((k for k in keysets if presets.keyset_kvn(k) == want), None)
+            if ks is None:
+                return 'step %d: key version %d is not defined in the preset' % (i + 1, want)
+            if not _keyset_complete(ks):
+                return ('step %d: key version %d is incomplete (KIc, KID, both '
+                        'keys and a counter)' % (i + 1, want))
         if not (p.get('tar') or preset.get('tar')):
             return 'step %d: no TAR (neither in the step nor in the preset)' % (i + 1)
         if not (p.get('spi1') or preset.get('spi1')) or not (p.get('spi2') or preset.get('spi2')):
             return 'step %d: no SPI1/SPI2 (neither in the step nor in the preset)' % (i + 1)
     return None
+
+
+def _keyset_complete(ks):
+    """A usable keyset: both key bytes, both keys and a counter."""
+    return bool(ks.get('kic') and ks.get('kid') and ks.get('kicKey')
+                and ks.get('kidKey') and ks.get('cntr'))
 
 
 def _test_check_result(label, ok, expected, actual, level, detail=None):
@@ -5308,17 +5379,40 @@ def _test_run_scp80(server, step, ctx):
     scc = server.scc
     preset = ctx['preset']
     p = step['params']
+    # The keyset: a step may name a key version (`kvn`), otherwise the preset's
+    # first keyset is used (a preset carries one keyset per key version, each
+    # with its own keys and counter - TS 102 225 Annex A.1).
+    keysets = _preset_keysets(preset)
+    keyset = None
+    if p.get('kvn') is not None:
+        want = int(p['kvn'])
+        keyset = next((ks for ks in keysets if presets.keyset_kvn(ks) == want), None)
+        if keyset is None:
+            raise testscript.ScriptError('key version %d is not defined in the '
+                                         'selected card preset' % want)
+    elif keysets:
+        keyset = keysets[0]
+    kic = p.get('kic') or (keyset or {}).get('kic') or ''
+    kid = p.get('kid') or (keyset or {}).get('kid') or ''
+    kic_key = p.get('kicKey') or (keyset or {}).get('kicKey') or ''
+    kid_key = p.get('kidKey') or (keyset or {}).get('kidKey') or ''
+    kvn, kvn_err = _kvn_of(kic, kid)
+    if kvn_err:
+        raise testscript.ScriptError(kvn_err)
     spi1 = p.get('spi1') or preset.get('spi1') or '16'
     spi2 = p.get('spi2') or preset.get('spi2') or '01'
     tar = p.get('tar') or preset.get('tar') or ''
-    counter = ctx['counter'] or '00000000'
+    counters = ctx.setdefault('counters', {})
+    if kvn and kvn not in counters:
+        counters[kvn] = (keyset or {}).get('cntr') or '00000000'
+    counter = counters.get(kvn) if kvn else (ctx.get('counter') or '00000000')
+    counter = counter or '00000000'
     if p.get('sp'):
         sp_hex = p['sp']
         source = 'sp'
     else:
-        sp_hex, _ = _build_secured_packet(spi1, spi2, preset.get('kic', ''), preset.get('kid', ''),
-                                          tar, counter, p['apdu'],
-                                          preset.get('kicKey', ''), preset.get('kidKey', ''))
+        sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, counter,
+                                          p['apdu'], kic_key, kid_key)
         source = 'apdu'
     result = _send_secured_packet(scc, sp_hex, server.sms_oa, sm_sc=server.sms_sc,
                                   handle_proactive=False)
@@ -5326,18 +5420,23 @@ def _test_run_scp80(server, step, ctx):
     data = result.get('response_data') or ''
     por = None
     if data:
-        por = _decode_por(spi1, spi2, preset.get('kic', ''), preset.get('kid', ''),
-                          counter, preset.get('kicKey', ''), preset.get('kidKey', ''), data)
-    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s' % (
-        source, tar or '-', spi1, spi2, counter)
+        por = _decode_por(spi1, spi2, kic, kid, counter, kic_key, kid_key, data)
+    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s' % (
+        source, tar or '-', spi1, spi2, counter,
+        (' kvn=%d' % kvn) if kvn else '')
     if sw:
         # The card answered, so the SCP80 counter was consumed: advance the
-        # working value and persist it into the server-side preset (v3.8.0 -
-        # the server owns the counter, so the run survives a lost response and
-        # the PWA's counter write-back dance is gone).
-        ctx['counter'] = _increment_counter_hex(counter)
-        _preset_counter_persist(server, (preset or {}).get('id'),
-                                ctx['counter'], 'test-run')
+        # working value of this key version and persist it into the server-side
+        # preset (v3.8.0 - the server owns the counters, so the run survives a
+        # lost response and the PWA's counter write-back dance is gone).
+        if kvn:
+            counters[kvn] = _increment_counter_hex(counter)
+            ctx['counter'] = counters[kvn]
+            _preset_counter_persist(server, preset.get('id'), counters[kvn],
+                                    'test-run', kvn)
+        else:
+            ctx['counter'] = _increment_counter_hex(counter)
+            _preset_counter_persist(server, preset.get('id'), ctx['counter'], 'test-run')
     return data, sw, sent, por, counter
 
 
@@ -5475,6 +5574,7 @@ def _test_run_execute(server, script, preset):
     scc = server.scc
     ctx = {'preset': dict(preset or {}),
            'counter': str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper(),
+           'counters': {},
            'uses_scp80': any(s['type'] == 'action' and s['kind'] == 'scp80'
                              for s in script['steps'])}
     if ctx['uses_scp80']:
@@ -5546,6 +5646,7 @@ def _test_run_execute(server, script, preset):
         _TEST_RUN['finished'] = time.time()
         if ctx['uses_scp80']:
             _TEST_RUN['scp80_counter'] = ctx['counter']
+            _TEST_RUN['scp80_counters'] = dict(ctx.get('counters') or {})
         if _TEST_RUN['status'] is None:
             levels = [s.get('status') for s in _TEST_RUN['steps']]
             if stopped:
@@ -5588,6 +5689,7 @@ def _test_run_start(server, script, preset):
             'session': getattr(server, 'card_session', 0), 'index': 0,
             'total': len(script['steps']), 'steps': [], 'started': time.time(),
             'finished': None, 'error': None, 'scp80_counter': None,
+            'scp80_counters': {},
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
         })
     _TEST_RUNNING = True
@@ -5652,6 +5754,19 @@ class PysimHandler(BaseHTTPRequestHandler):
         resp = {'error': 'preset store write failed: %s' % e}
         self._send_json(resp, 500)
         self._log_resp(resp)
+
+    def _keyset_guard(self, body, kic, kid):
+        """The key-version checks shared by the RAM operations: the KIc/KID
+        versions must agree (TS 102 225 A.2 - the card rejects a mismatch) and a
+        named preset must define the key version ("the keyset must exist").
+        Returns ``(kvn, error)``: kvn is None when the packet carries no key
+        version ('00'/'00' = no security, legal per A.2), error an error string
+        the caller answers with 400."""
+        kvn, err = _kvn_of(kic, kid)
+        if err:
+            return None, err
+        err = _preset_keyset_check(self.server, body.get('preset_id'), kic, kid)
+        return (kvn or None), err
 
     def _log_req(self, body=None):
         if self.server.log_requests:
@@ -6732,6 +6847,24 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': _err('reader_not_init', lang)}, 503)
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
+            # The packet's key version (b8..b5 of KIc/KID, TS 102 225 A.2) must
+            # be consistent - a mismatch is invalid input (the card rejects it
+            # with "Unidentified security error") - and, when a preset is named,
+            # defined in it.  Both are refused before anything is built (and
+            # before the format probe consumes a counter).
+            kvn, kvn_err = _kvn_of(body.get('kic', ''), body.get('kid', ''))
+            if kvn_err:
+                resp = {'error': kvn_err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            keyset_err = _preset_keyset_check(self.server, body.get('preset_id'),
+                                              body.get('kic', ''), body.get('kid', ''))
+            if keyset_err:
+                resp = {'error': keyset_err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             include_cpi = body.get('includeCpi', True)
             ram_format = None
             try:
@@ -6881,7 +7014,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
                 _preset_counter_persist(self.server, body.get('preset_id'),
-                                        resp.get('final_cntr'), 'send-ota')
+                                        resp.get('final_cntr'), 'send-ota',
+                                        kvn or None)
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -6947,6 +7081,16 @@ class PysimHandler(BaseHTTPRequestHandler):
                 make_selectable = body.get('make_selectable', True)
                 privileges_hex = body.get('privileges', '').replace(' ', '') or '00'
 
+                # The key version must be consistent and defined in the preset
+                # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
+                # before the format probe consumes a counter.
+                kvn, keyset_err = self._keyset_guard(body, kic, kid)
+                if keyset_err:
+                    err = {'success': False, 'error': keyset_err}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
+
                 # LOAD block size: the default 240-byte payload cannot be sent
                 # over SCP80 (pySim refuses a secured packet above one SMS).
                 # Fit it automatically, or honour an explicit override capped
@@ -6973,7 +7117,8 @@ class PysimHandler(BaseHTTPRequestHandler):
 
                 steps = []
                 state = {'steps': steps, 'encode_error': None, 'failure': {},
-                         'cntr': cntr, 'preset_id': body.get('preset_id')}
+                         'cntr': cntr, 'preset_id': body.get('preset_id'),
+                         'kvn': kvn}
                 sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
@@ -7106,8 +7251,18 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'tar': body.get('tar', '000000'), 'cntr': body.get('cntr', '00000000'),
                     'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                     'include_cpi': body.get('includeCpi', True)}
+                # The key version must be consistent and defined in the preset
+                # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
+                # before the format probe consumes a counter.
+                kvn, keyset_err = self._keyset_guard(body, sp_state['kic'], sp_state['kid'])
+                if keyset_err:
+                    err = {'success': False, 'error': keyset_err}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
                 state = {'steps': [], 'encode_error': None, 'failure': {},
-                         'cntr': sp_state['cntr'], 'preset_id': body.get('preset_id')}
+                         'cntr': sp_state['cntr'], 'preset_id': body.get('preset_id'),
+                         'kvn': kvn}
                 # Live progress for the PWA's operation modal (see /api/ram-install)
                 _ram_progress_begin('install-app', 2)
                 try:
@@ -7212,8 +7367,15 @@ class PysimHandler(BaseHTTPRequestHandler):
                 kic_key = body.get('kicKey', '')
                 kid_key = body.get('kidKey', '')
                 steps = []
+                kvn, keyset_err = self._keyset_guard(body, kic, kid)
+                if keyset_err:
+                    err = {'success': False, 'error': keyset_err}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
                 state = {'steps': steps, 'encode_error': None, 'failure': {},
-                         'cntr': cntr, 'preset_id': body.get('preset_id')}
+                         'cntr': cntr, 'preset_id': body.get('preset_id'),
+                         'kvn': kvn}
                 sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
@@ -7385,6 +7547,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'running': False, 'stop': False, 'name': None, 'status': None,
                         'session': None, 'index': 0, 'total': 0, 'steps': [],
                         'preset': None, 'scp80_counter': None,
+                        'scp80_counters': {},
                         'started': None, 'finished': None, 'error': None,
                     })
             if busy:

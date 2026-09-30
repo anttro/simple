@@ -27,6 +27,9 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
+	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
+	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
+	'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -806,7 +809,7 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	const go = extractFunc(html, 'ramGoToPreset');
 	assert.ok(go.includes("switchTab('cards')"), go);
 	assert.ok(go.includes('cardsEdit('), go);
-	assert.ok(go.includes("getElementById('cards-cntr')"), go);
+	assert.ok(go.includes("getElementById('cards-ks-' + row + '-cntr')"), go);
 });
 
 test('the Explore detects the expanded query form and reports it', () => {

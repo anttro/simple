@@ -527,6 +527,8 @@
 				<select id="sp-card-sel" onchange="cardsApply(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 					<option value="" data-l10n="— Select card —">— Select card —</option>
 				</select>
+				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 		</div>
 
 		<div class="flex gap-2 mb-3">
@@ -689,6 +691,10 @@
 					<select id="ram-card-sel" onchange="ramApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="" data-l10n="— Select card —">— Select card —</option>
 					</select>
+				</div>
+				<div class="flex-1">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+					<select id="ram-keyset-sel" onchange="ramKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Operation">Operation</label>
@@ -1536,7 +1542,7 @@
 
 
 		<div id="tab-cards" class="tab-content hidden">
-		<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="Card presets are stored locally in your browser. JSON export/import buttons are below the card list.">Card presets are stored locally in your browser. JSON export/import buttons are below the card list.</p>
+		<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.">Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.</p>
 		<div class="flex gap-2 mb-3">
 			<input id="cards-name" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Name (e.g. Foobar SIM)">
 			<input id="cards-iccid" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="ICCID (optional)">
@@ -1548,11 +1554,8 @@
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP80 (GSM 03.48, ETSI TS 102 225)">SCP80 (GSM 03.48, ETSI TS 102 225)</legend>
 			<div class="flex gap-2 mb-2 flex-wrap items-end">
-				<input id="cards-kic" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="KIc" maxlength="2">
-				<input id="cards-kid" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="KID" maxlength="2">
 				<input id="cards-spi1" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI1" maxlength="2">
 				<input id="cards-spi2" class="w-12 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" placeholder="SPI2" maxlength="2">
-				<input id="cards-cntr" class="w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono" placeholder="Counter" maxlength="10">
 				<div class="flex gap-2">
 					<div>
 						<label for="cards-tar" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">ISD TAR</label>
@@ -1568,10 +1571,12 @@
 					</div>
 				</div>
 			</div>
-			<div class="flex gap-2">
-				<input id="cards-kic-key" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="KIc key (32 hex chars)">
-				<input id="cards-kid-key" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="KID key (32 hex chars)">
+			<div class="mb-1 flex items-center justify-between">
+				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — one per key version, each with its own counter">OTA keysets — one per key version, each with its own counter</span>
+				<button type="button" onclick="cardsKeysetAdd()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Add keyset">Add keyset</button>
 			</div>
+			<div id="cards-keysets"></div>
+			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).">KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP81 (HTTP OTA)">SCP81 (HTTP OTA)</legend>
@@ -1586,12 +1591,10 @@
 				<thead><tr>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Name">Name</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="ICCID">ICCID</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KIc</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Keysets (key version: KIc/KID — counter)">Keysets (key version: KIc/KID \u2014 counter)</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI1</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI2</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR (ISD/UICC RFM/ADF RFM)</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Cntr">Cntr</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="SCP81">SCP81</th>
 					<th class="border-b border-gray-200 dark:border-slate-700"></th>
 				</tr></thead>
@@ -4898,6 +4901,10 @@ function crc32Bytes(data) {
 // CPL = octets from CHL to end incl. padding; CHL = 13 + len_sig (CC 8, RC 4).
 // CPI (0x70) and CHI (null) are NOT part of the SMS packet data.
 function genSp() {
+	// The packet's key version must be defined in the selected preset
+	// (TS 102 225 A.2 / the "keyset must exist" rule).
+	const ksErr = spKeysetGuard();
+	if (ksErr) { alert(ksErr); return; }
 	_genSpBuild();
 	spShowSizeInfo();
 }
@@ -7093,6 +7100,8 @@ function testStepRender() {
 				{v: 'apdu', l: t('C-APDU (built with the preset)')}, {v: 'sp', l: t('Pre-built secured packet')}], 'testStepKindChanged()'));
 			if (src === 'sp') html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
 			else html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
+			html += testFormRow('Key version (kvn, optional)',
+				testFormInput('test-f-kvn', p.kvn === undefined ? '' : p.kvn, t('empty = the preset\'s first keyset')));
 			html += testFormRow('TAR override (hex, optional)', testFormInput('test-f-tar', p.tar, 'B00000'));
 			html += testFormRow('SPI1 override (hex, optional)', testFormInput('test-f-spi1', p.spi1, '16'));
 			html += testFormRow('SPI2 override (hex, optional)', testFormInput('test-f-spi2', p.spi2, '01'));
@@ -7272,6 +7281,8 @@ function testStepCollect() {
 			else p.apdu = prev.apdu || '';
 			p.source = src;
 			['tar', 'spi1', 'spi2'].forEach(k => { const v = hexNoMask('test-f-' + k); if (v) p[k] = v; });
+			const kvn = (document.getElementById('test-f-kvn') || {}).value;
+			if (kvn !== undefined && String(kvn).trim() !== '') p.kvn = parseInt(String(kvn).trim(), 10);
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
 		step.params = p;
@@ -7489,8 +7500,13 @@ async function testPollRun() {
 
 function testWriteBackCounter() {
 	const st = _testRunState;
-	if (!st || st.running || !st.scp80_counter) return;
-	const next = String(st.scp80_counter).toUpperCase();
+	if (!st || st.running) return;
+	// The server persists every counter the run consumed (one per key version);
+	// this only keeps the local copies in step with what it reports.
+	const counters = (st.scp80_counters && typeof st.scp80_counters === 'object')
+		? st.scp80_counters : null;
+	const next = st.scp80_counter ? String(st.scp80_counter).toUpperCase() : '';
+	if (!counters && !next) return;
 	let idx = _testLastPresetIdx;
 	if (idx < 0 && st.preset) {
 		// A run started elsewhere (or observed after a page reload): the run
@@ -7506,6 +7522,21 @@ function testWriteBackCounter() {
 	const preset = cards[idx];
 	if (!preset) return;
 	_testLastPresetIdx = idx;
+	if (counters) {
+		let changed = false;
+		Object.keys(counters).forEach(kvn => {
+			const ks = spKeysetFor(preset, parseInt(kvn, 10));
+			const value = String(counters[kvn] || '').toUpperCase();
+			if (ks && value && String(ks.cntr || '').toUpperCase() !== value) {
+				ks.cntr = value;
+				changed = true;
+			}
+		});
+		if (!changed) return;
+		cardsRender();
+		ioStatus('test-io-status', t('SCP80 counters saved to the preset.'));
+		return;
+	}
 	if (String(preset.cntr || '').toUpperCase() === next) return;
 	preset.cntr = next;   // the server persisted it with the run (v3.8.0)
 	cardsRender();
@@ -8124,14 +8155,17 @@ function spCntrSyncPreset() {
 	if (idx < 0) return false;
 	const preset = cards[idx];
 	const value = (document.getElementById('sp-cntr').value || '').trim().toUpperCase();
-	preset.cntr = value;
+	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
+		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
+	const ks = spKeysetFor(preset, kvn);
+	if (ks) ks.cntr = value;
 	cardsRender();
-	if (preset.id) {
-		pysimFetch('/api/presets/update', { id: preset.id, fields: { cntr: value } })
+	if (preset.id && ks) {
+		pysimFetch('/api/presets/update', { id: preset.id, fields: { keysets: spKeysetList(preset) } })
 			.then(res => {
 				if (res && res.error) throw new Error(res.error);
 				// the store normalises the counter (fixed 10-hex form)
-				if (res && res.preset) { preset.cntr = res.preset.cntr; cardsRender(); }
+				if (res && res.preset) { cards[idx] = res.preset; cardsRender(); spKeysetSync(); }
 			})
 			.catch(e => ioStatus('cards-io', t('Counter not saved:') + ' ' + e.message));
 	}
@@ -8143,7 +8177,10 @@ function spCntrSyncPreset() {
 function spCntrLocalSync(value) {
 	const idx = spPresetIdx();
 	if (idx < 0) return;
-	cards[idx].cntr = value;
+	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
+		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
+	const ks = spKeysetFor(cards[idx], kvn);
+	if (ks) ks.cntr = value;
 	cardsRender();
 }
 
@@ -8205,6 +8242,8 @@ async function pysimSendOta() {
 	// (push/link triggers, applet OTA) - the preset sets it only when a card
 	// is picked or a chain is packed (v3.6.21).
 	spRefreshFromPreset('sp-card-sel', true);
+	const ksErr = spKeysetGuard();
+	if (ksErr) { alert(ksErr); return; }
 	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (!sp) { alert('No secured packet to send. Generate a secure packet first.'); return; }
 	const sendResultEl = document.getElementById('sp-send-result');
@@ -8760,7 +8799,10 @@ function ramSaveCntr(cntr) {
 	if (el) el.value = cntr;
 	const selIdx = parseInt((document.getElementById('ram-card-sel') || {}).value, 10);
 	if (!isNaN(selIdx) && cards[selIdx]) {
-		cards[selIdx].cntr = cntr;
+		const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
+			spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
+		const ks = spKeysetFor(cards[selIdx], kvn);
+		if (ks) ks.cntr = cntr;
 		cardsRender();
 		ramRender();
 	}
@@ -9867,6 +9909,8 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	// the operation so a stale form copy cannot send an already-consumed
 	// counter.
 	spRefreshFromPreset('ram-card-sel');
+	const ksErr = ramKeysetGuard();
+	if (ksErr) { alert(ksErr); return; }
 	const sp = getRamSpParams();
 	if (!sp.kicKey || !sp.kidKey) {
 		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
@@ -10478,7 +10522,16 @@ function ramGoToPreset(idx) {
 	switchTab('cards');
 	const i = Number(idx);
 	if (Number.isInteger(i) && i >= 0 && cards[i]) cardsEdit(i);
-	const el = document.getElementById('cards-cntr');
+	// Focus the counter of the key version the failed operation used (the
+	// keyset rows are keyed by their version; the first row otherwise).
+	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
+		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
+	let row = 0;
+	if (Number.isInteger(i) && i >= 0 && cards[i] && kvn) {
+		const at = spKeysetList(cards[i]).findIndex(ks => spKeysetKvnOf(ks.kic) === kvn);
+		if (at >= 0) row = at;
+	}
+	const el = document.getElementById('cards-ks-' + row + '-cntr');
 	if (el) {
 		if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
 		el.focus();
@@ -10947,6 +11000,234 @@ function cardsTarValue(key, value) {
 	return value || defaults[key] || '';
 }
 
+// ===== OTA keysets (one per GlobalPlatform key version) =====
+// A preset carries one keyset per key version: the b8..b5 nibble of KIc/KID
+// (TS 102 225 5.1.2/A.2).  The version is implicit in the bytes - the "key
+// index" - and each key version has its own counter on the card ("a dedicated
+// counter shall be associated to each key version", Annex A.1).  A packet may
+// use any key version the preset defines; '00'/'00' means no security (A.2)
+// and needs no keyset.
+
+// The key version of a KIc/KID byte, or null when it is not a hex byte.
+function spKeysetKvnOf(hex) {
+	const s = String(hex || '').trim().toUpperCase();
+	if (!/^[0-9A-F]{2}$/.test(s)) return null;
+	return (parseInt(s, 16) >> 4) & 0x0F;
+}
+
+// The keysets of a preset (a v3.8.0 flat preset converts to a single one).
+function spKeysetList(preset) {
+	if (!preset) return [];
+	if (Array.isArray(preset.keysets) && preset.keysets.length) return preset.keysets;
+	if (preset.kic || preset.kid) {
+		return [{ kic: preset.kic, kid: preset.kid, kicKey: preset.kicKey,
+			kidKey: preset.kidKey, cntr: preset.cntr }];
+	}
+	return [];
+}
+
+// The keyset of a preset for a key version, or null.
+function spKeysetFor(preset, kvn) {
+	return spKeysetList(preset).find(ks => spKeysetKvnOf(ks.kic) === kvn) || null;
+}
+
+// The packet's key-version rules (pure): '' when the pair is usable, else the
+// reason.  With a preset, the (non-zero) key version must be defined in it -
+// a packet may use any key version, but only one the preset defines.
+function spKeysetCheck(preset, kicHex, kidHex) {
+	const kic = String(kicHex || '').trim().toUpperCase();
+	const kid = String(kidHex || '').trim().toUpperCase();
+	for (const pair of [['KIc', kic], ['KID', kid]]) {
+		if (pair[1] && !/^[0-9A-F]{2}$/.test(pair[1])) {
+			return t(pair[0]) + ' ' + t('must be one hex byte') + ': ' + pair[1];
+		}
+	}
+	const kicV = spKeysetKvnOf(kic), kidV = spKeysetKvnOf(kid);
+	if (kicV && kidV && kicV !== kidV) {
+		return t('KIc and KID must carry the same key version (TS 102 225 A.2)') + ': ' + kic + ' / ' + kid;
+	}
+	const kvn = kicV || kidV || 0;
+	if (!kvn) return '';                      // '00'/'00': no security
+	if (preset && !spKeysetFor(preset, kvn)) {
+		return t('Key version') + ' ' + kvn + ' ' + t('is not defined in the preset') +
+			(preset.name ? ' \u2014 ' + preset.name : '');
+	}
+	return '';
+}
+
+// The <option> list of a keyset selector: the preset's keysets, plus the key
+// version currently in the form when the preset does not define it.
+function spKeysetOptionsHtml(preset, kicHex, kidHex) {
+	const kvn = spKeysetKvnOf(kicHex) || spKeysetKvnOf(kidHex) || 0;
+	let html = '';
+	let found = false;
+	spKeysetList(preset).forEach(ks => {
+		const v = spKeysetKvnOf(ks.kic);
+		if (v === null) return;
+		if (v === kvn) found = true;
+		html += '<option value="' + v + '"' + (v === kvn ? ' selected' : '') + '>' +
+			v + ' \u2014 ' + esc(ks.kic || '??') + '/' + esc(ks.kid || '??') +
+			' \u2014 ' + esc(t('counter')) + ' ' + esc(ks.cntr || '') + '</option>';
+	});
+	if (kvn && !found) {
+		html += '<option value="' + kvn + '" selected>' + kvn + ' \u2014 ' +
+			esc(t('not defined in the preset')) + '</option>';
+	}
+	if (!html) html = '<option value="">' + esc(t('\u2014 no keyset \u2014')) + '</option>';
+	return html;
+}
+
+// ===== Keyset editor (Cards form) =====
+let _cardsKeysetCount = 0;
+
+function cardsKeysetRowHtml(ks, i) {
+	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
+	const kvn = spKeysetKvnOf(ks.kic);
+	return '<div class="flex gap-2 items-center mb-1">' +
+		'<span id="cards-ks-' + i + '-kvn" class="w-10 text-xs font-mono text-center text-gray-500 dark:text-slate-400" title="' + esc(t('Key version (b8..b5 of KIc/KID)')) + '">' + (kvn === null ? '?' : kvn) + '</span>' +
+		'<input id="cards-ks-' + i + '-kic" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KIc" value="' + esc(ks.kic || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
+		'<input id="cards-ks-' + i + '-kid" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KID" value="' + esc(ks.kid || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
+		'<input id="cards-ks-' + i + '-kic-key" class="flex-1 ' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '">' +
+		'<input id="cards-ks-' + i + '-kid-key" class="flex-1 ' + cls + '" placeholder="KID key (hex)" value="' + esc(ks.kidKey || '') + '">' +
+		'<input id="cards-ks-' + i + '-cntr" class="w-24 ' + cls + '" maxlength="10" placeholder="Counter" value="' + esc(ks.cntr || '') + '">' +
+		'<button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-red-100 dark:hover:bg-red-900/40" title="' + esc(t('Remove keyset')) + '">\u2715</button>' +
+		'</div>';
+}
+
+function cardsKeysetRowsRender(keysets) {
+	const box = document.getElementById('cards-keysets');
+	if (!box) return;
+	const list = (keysets && keysets.length)
+		? keysets
+		: [{ kic: '', kid: '', kicKey: '', kidKey: '', cntr: '' }];
+	_cardsKeysetCount = list.length;
+	box.innerHTML = list.map((ks, i) => cardsKeysetRowHtml(ks, i)).join('');
+}
+
+function cardsKeysetAdd() {
+	cardsKeysetRowsRender(cardsKeysetsFromForm().concat([
+		{ kic: '', kid: '', kicKey: '', kidKey: '', cntr: '' }]));
+}
+
+function cardsKeysetRemove(i) {
+	const rows = cardsKeysetsFromForm();
+	rows.splice(i, 1);
+	cardsKeysetRowsRender(rows);
+}
+
+function cardsKeysetKvnUpdate(i) {
+	const el = document.getElementById('cards-ks-' + i + '-kvn');
+	if (!el) return;
+	const kic = (document.getElementById('cards-ks-' + i + '-kic') || {}).value;
+	const kid = (document.getElementById('cards-ks-' + i + '-kid') || {}).value;
+	const a = spKeysetKvnOf(kic), b = spKeysetKvnOf(kid);
+	const bad = (a !== null && b !== null && a !== b) || a === 0 || b === 0;
+	el.textContent = a === null ? '?' : a;
+	el.classList.toggle('text-red-500', !!bad);
+	el.title = bad ? t('KIc and KID must carry the same key version (TS 102 225 A.2)')
+		: t('Key version (b8..b5 of KIc/KID)');
+}
+
+// The keyset rows as preset entries (empty rows are dropped).
+function cardsKeysetsFromForm() {
+	const out = [];
+	for (let i = 0; i < _cardsKeysetCount; i++) {
+		const get = id => {
+			const el = document.getElementById('cards-ks-' + i + '-' + id);
+			return el ? String(el.value).trim() : '';
+		};
+		const ks = { kic: get('kic').toUpperCase(), kid: get('kid').toUpperCase(),
+			kicKey: get('kic-key').toUpperCase(), kidKey: get('kid-key').toUpperCase(),
+			cntr: get('cntr').toUpperCase() };
+		if (!ks.kic && !ks.kid && !ks.kicKey && !ks.kidKey) continue;
+		out.push(ks);
+	}
+	return out;
+}
+
+// ===== Keyset selectors (SCP80 / RAM) =====
+// The selector follows the KIc/KID bytes: a keyset of the selected preset that
+// matches their key version is selected; a version the preset does not define
+// shows as "not defined" (and the packet actions refuse it).
+function spKeysetSync() {
+	const spIdx = spPresetIdx();
+	const spPreset = spIdx >= 0 ? cards[spIdx] : null;
+	const kic = (document.getElementById('sp-kic-hex') || {}).value;
+	const kid = (document.getElementById('sp-kid-hex') || {}).value;
+	const spSel = document.getElementById('sp-keyset-sel');
+	if (spSel) spSel.innerHTML = spKeysetOptionsHtml(spPreset, kic, kid);
+	const ramSel = document.getElementById('ram-keyset-sel');
+	if (ramSel) {
+		const ramIdx = ramPresetIdx();
+		const ramPreset = ramIdx >= 0 ? cards[ramIdx] : null;
+		ramSel.innerHTML = spKeysetOptionsHtml(ramPreset, kic, kid);
+	}
+}
+
+function spKeysetApply(ks) {
+	if (!ks) return;
+	const set = (id, value) => {
+		const el = document.getElementById(id);
+		if (el) el.value = value;
+	};
+	const kic = parseInt(ks.kic, 16), kid = parseInt(ks.kid, 16);
+	set('sp-kic-idx', ((kic >> 4) & 0x0F).toString(16).toUpperCase());
+	set('sp-kic-alg', (kic & 0x0F).toString(16).padStart(2, '0').toUpperCase());
+	set('sp-kid-idx', ((kid >> 4) & 0x0F).toString(16).toUpperCase());
+	set('sp-kid-alg', (kid & 0x0F).toString(16).padStart(2, '0').toUpperCase());
+	updateSpKic();
+	updateSpKid();
+	set('sp-kic-key', ks.kicKey || '');
+	set('sp-kid-key', ks.kidKey || '');
+	set('sp-cntr', ks.cntr || '');
+	spInvalidate();
+	updateSp();
+}
+
+function spKeysetChanged() {
+	const sel = document.getElementById('sp-keyset-sel');
+	if (!sel) return;
+	const kvn = parseInt(sel.value, 10);
+	const idx = spPresetIdx();
+	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
+	if (ks) spKeysetApply(ks);
+	spKeysetSync();
+}
+
+function ramKeysetChanged() {
+	const sel = document.getElementById('ram-keyset-sel');
+	if (!sel) return;
+	const kvn = parseInt(sel.value, 10);
+	const idx = ramPresetIdx();
+	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
+	if (ks) spKeysetApply(ks);
+	spKeysetSync();
+}
+
+// The RAM view's preset index.
+function ramPresetIdx() {
+	const sel = document.getElementById('ram-card-sel');
+	const idx = sel ? parseInt(sel.value, 10) : NaN;
+	return (!isNaN(idx) && cards[idx]) ? idx : -1;
+}
+
+// '' when the SCP80 form may build a packet, else the reason.  With a preset
+// selected the key version must be one of its keysets; without one only the
+// byte rules apply (hand-entered keys stay possible, a workbench flow).
+function spKeysetGuard() {
+	const idx = spPresetIdx();
+	const kic = (document.getElementById('sp-kic-hex') || {}).value;
+	const kid = (document.getElementById('sp-kid-hex') || {}).value;
+	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+}
+
+function ramKeysetGuard() {
+	const idx = ramPresetIdx();
+	const kic = (document.getElementById('sp-kic-hex') || {}).value;
+	const kid = (document.getElementById('sp-kid-hex') || {}).value;
+	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+}
+
 function cardsFormValues() {
 	const val = id => {
 		const el = document.getElementById('cards-' + id);
@@ -10956,18 +11237,14 @@ function cardsFormValues() {
 		name: val('name'),
 		iccid: val('iccid'),
 		adm: val('adm').replace(/\s/g, '').toUpperCase(),
-		kic: val('kic'),
-		kid: val('kid'),
 		spi1: val('spi1'),
 		spi2: val('spi2'),
 		tar: val('tar'),
 		uiccTar: val('uicc-tar'),
 		usimTar: val('usim-tar'),
-		cntr: val('cntr'),
-		kicKey: val('kic-key'),
-		kidKey: val('kid-key'),
 		pskIdentity: val('psk-id'),
 		pskKey: val('psk-key').replace(/\s/g, '').toUpperCase(),
+		keysets: cardsKeysetsFromForm(),
 	};
 }
 
@@ -10979,8 +11256,7 @@ function cardsSetFormMode() {
 }
 
 function cardsClearForm() {
-	['name','iccid','adm','kic','kid','spi1','spi2','cntr','kic-key','kid-key',
-	 'psk-id','psk-key'].forEach(id => {
+	['name','iccid','adm','spi1','spi2','psk-id','psk-key'].forEach(id => {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = '';
 	});
@@ -10989,6 +11265,7 @@ function cardsClearForm() {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = cardsTarValue(key, '');
 	});
+	cardsKeysetRowsRender([]);
 }
 
 async function cardsAdd() {
@@ -10998,8 +11275,27 @@ async function cardsAdd() {
 	v.uiccTar = cardsTarValue('uiccTar', v.uiccTar);
 	v.usimTar = cardsTarValue('usimTar', v.usimTar);
 	if (!v.name) { alert(t('Name is required')); return; }
-	if (!v.kic || !v.kid) { alert('KIc and KID are required'); return; }
-	if (!v.kicKey || !v.kidKey) { alert('KIc key and KID key are required'); return; }
+	if (!v.keysets.length) {
+		alert(t('Define at least one keyset (KIc/KID and their keys)'));
+		return;
+	}
+	for (const ks of v.keysets) {
+		if (!ks.kic || !ks.kid || !ks.kicKey || !ks.kidKey) {
+			alert(t('Each keyset needs KIc, KID and both keys'));
+			return;
+		}
+		const ksErr = spKeysetCheck(null, ks.kic, ks.kid);
+		if (ksErr) { alert(ksErr); return; }
+		if (!spKeysetKvnOf(ks.kic) || !spKeysetKvnOf(ks.kid)) {
+			alert(t('Key version 00 means "no security" and is not a preset keyset'));
+			return;
+		}
+	}
+	const kvns = v.keysets.map(ks => spKeysetKvnOf(ks.kic));
+	if (new Set(kvns).size !== kvns.length) {
+		alert(t('Duplicate key version in the keysets'));
+		return;
+	}
 	if ((v.pskKey && !v.pskIdentity) || (!v.pskKey && v.pskIdentity)) {
 		alert(t('PSK identity and PSK key must be set together'));
 		return;
@@ -11035,13 +11331,13 @@ function cardsEdit(i) {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = value == null ? '' : value;
 	};
-	set('name', c.name); set('iccid', c.iccid); set('adm', c.adm); set('kic', c.kic); set('kid', c.kid);
-	set('spi1', c.spi1); set('spi2', c.spi2); set('cntr', c.cntr);
+	set('name', c.name); set('iccid', c.iccid); set('adm', c.adm);
+	set('spi1', c.spi1); set('spi2', c.spi2);
 	set('tar', cardsTarValue('tar', c.tar));
 	set('uicc-tar', cardsTarValue('uiccTar', c.uiccTar));
 	set('usim-tar', cardsTarValue('usimTar', c.usimTar));
-	set('kic-key', c.kicKey); set('kid-key', c.kidKey);
 	set('psk-id', c.pskIdentity); set('psk-key', c.pskKey);
+	cardsKeysetRowsRender(spKeysetList(c));
 	cardsSetFormMode();
 	document.getElementById('cards-name').focus();
 }
@@ -11092,12 +11388,15 @@ function cardsRender() {
 		html += '<tr class="border-b border-gray-100 dark:border-slate-700">';
 		html += '<td class="py-1 px-2 font-medium">' + esc(c.name) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.iccid) + '</td>';
-		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.kic) + '</td>';
-		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.kid) + '</td>';
+		const ksText = spKeysetList(c).map(ks => {
+			const kvn = spKeysetKvnOf(ks.kic);
+			return (kvn === null ? '?' : kvn) + ': ' + esc(ks.kic || '??') + '/' + esc(ks.kid || '??') +
+				' \u2014 ' + esc(ks.cntr || '');
+		}).join(' \u00b7 ') || '\u2014';
+		html += '<td class="py-1 px-2 font-mono text-xs">' + ksText + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi1) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs text-center">' + esc(c.spi2) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs" title="ISD / UICC RFM / ADF RFM">' + esc(cardsTarValue('tar', c.tar)) + ' ' + esc(cardsTarValue('uiccTar', c.uiccTar)) + ' ' + esc(cardsTarValue('usimTar', c.usimTar)) + '</td>';
-		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.cntr) + '</td>';
 		html += '<td class="py-1 px-2 text-center">' + ota + '</td>';
 		html += '<td class="py-1 px-2 whitespace-nowrap"><button onclick="cardsEdit(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">' + t('Edit') + '</button> '
 			+ '<button onclick="cardsRemove(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-red-600 text-white hover:bg-red-700">' + t('Remove') + '</button></td>';
@@ -11224,26 +11523,36 @@ function cardsApplyFields(idx, keepTar) {
 	const smSel = document.getElementById('sp-spi2-sm');
 	if (smSel) smSel.value = String((spi2Val >> 5) & 1);
 	document.getElementById('sp-spi2-hex').value = c.spi2;
-	const kicByte = parseInt(c.kic, 16);
-	document.getElementById('sp-kic-idx').value = ((kicByte >> 4) & 0x0F).toString(16).toUpperCase();
-	document.getElementById('sp-kic-alg').value = (kicByte & 0x0F).toString(16).padStart(2, '0');
-	updateSpKic();
-	const kidByte = parseInt(c.kid, 16);
-	document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
-	document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
-	updateSpKid();
+	// The keyset: keep the key version the form carries when this preset
+	// defines it, otherwise start from the preset's first keyset.
+	const kicNow = (document.getElementById('sp-kic-hex') || {}).value;
+	const kidNow = (document.getElementById('sp-kid-hex') || {}).value;
+	const kvnNow = spKeysetKvnOf(kicNow) || spKeysetKvnOf(kidNow) || 0;
+	const ks = (kvnNow && spKeysetFor(c, kvnNow)) || spKeysetList(c)[0] || null;
+	if (ks) {
+		const kicByte = parseInt(ks.kic, 16);
+		document.getElementById('sp-kic-idx').value = ((kicByte >> 4) & 0x0F).toString(16).toUpperCase();
+		document.getElementById('sp-kic-alg').value = (kicByte & 0x0F).toString(16).padStart(2, '0');
+		updateSpKic();
+		const kidByte = parseInt(ks.kid, 16);
+		document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
+		document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
+		updateSpKid();
+		document.getElementById('sp-cntr').value = ks.cntr || '';
+		document.getElementById('sp-kic-key').value = ks.kicKey || '';
+		document.getElementById('sp-kid-key').value = ks.kidKey || '';
+	}
 	if (!keepTar) document.getElementById('sp-tar').value = cardsTarValue(_spTarKey, c[_spTarKey]);
-	document.getElementById('sp-cntr').value = c.cntr;
-	document.getElementById('sp-kic-key').value = c.kicKey;
-	document.getElementById('sp-kid-key').value = c.kidKey;
 	spInvalidate();
 	updateSp();
+	spKeysetSync();
 	return true;
 }
 
 function cardsApply(idx, keepTar) {
 	if (!cardsApplyFields(idx, keepTar)) return;
-	genSp();
+	_genSpBuild();
+	spShowSizeInfo();
 }
 
 // SCP80/RAM operations re-read the selected preset before starting: the
@@ -19096,6 +19405,30 @@ const LANG_RU = {
 	'SCP81 HTTP OTA: the listener picks the key by the PSK identity the card sends in the TLS handshake. Cards without a PSK are ignored by the listener.': 'SCP81 HTTP OTA: слушатель выбирает ключ по PSK identity, которую карта присылает в TLS-рукопожатии. Карты без PSK слушателем игнорируются.',
 	'Card with this ICCID already exists': 'Карта с таким ICCID уже есть в списке',
 	'Card equipped but its ICCID is not readable': 'Карта подключена, но её ICCID не читается',
+	'OTA keysets — one per key version, each with its own counter': 'Наборы ключей OTA — по одному на версию ключа, у каждой свой счётчик',
+	'Add keyset': 'Добавить набор ключей',
+	'Remove keyset': 'Удалить набор ключей',
+	'Key version (keyset)': 'Версия ключа (набор ключей)',
+	'Key version': 'Версия ключа',
+	'Key version (b8..b5 of KIc/KID)': 'Версия ключа (биты b8..b5 KIc/KID)',
+	'Keysets (key version: KIc/KID — counter)': 'Наборы ключей (версия: KIc/KID — счётчик)',
+	'must be one hex byte': 'должен быть одним hex-байтом',
+	'KIc and KID must carry the same key version (TS 102 225 A.2)': 'KIc и KID должны содержать одну и ту же версию ключа (TS 102 225 A.2)',
+	'is not defined in the preset': 'не определена в предустановке',
+	'not defined in the preset': 'не определена в предустановке',
+	'— no keyset —': '— нет набора ключей —',
+	'counter': 'счётчик',
+	'Define at least one keyset (KIc/KID and their keys)': 'Определите хотя бы один набор ключей (KIc/KID и их ключи)',
+	'Each keyset needs KIc, KID and both keys': 'Каждому набору нужны KIc, KID и оба ключа',
+	'Key version 00 means "no security" and is not a preset keyset': 'Версия ключа 00 означает «без защиты» и не является набором ключей предустановки',
+	'Duplicate key version in the keysets': 'Дублирующаяся версия ключа в наборах',
+	'Select a card preset - its keysets define the key versions': 'Выберите предустановку карты — её наборы ключей определяют версии ключей',
+	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в предустановке.',
+	'Key version (kvn, optional)': 'Версия ключа (kvn, опционально)',
+	"empty = the preset's first keyset": 'пусто = первый набор ключей предустановки',
+	'Keysets (key version: KIc/KID — counter)': 'Наборы ключей (версия: KIc/KID — счётчик)',
+	'KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).': 'KIc и KID должны содержать одну и ту же версию ключа (старший ниббл) в диапазоне 01-0F — TS 102 225 A.2; у каждой версии ключа свой счётчик на карте (Annex A.1).',
+	'Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.': 'Предустановки карт хранятся на сервере. Кнопки экспорта/импорта JSON — под списком карт; предустановка содержит один набор ключей на версию, у каждой свой счётчик.',
 	'Save error': 'Ошибка сохранения',
 	'Delete error': 'Ошибка удаления',
 	'Counter not saved:': 'Счётчик не сохранён:',

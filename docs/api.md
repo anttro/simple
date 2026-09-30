@@ -190,28 +190,56 @@ A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
 
 ### Card presets (server-side store)
 
-Card presets (KIc/KID + keys, SPI, per-target TARs, counter, PSK pair, ADM)
-live on the server in `~/.pysim-simple-server/card_presets.json`
-(`--card-presets PATH` overrides it; `Path.home()` resolves the same way on
-Linux, macOS and Windows).  The file is written atomically and every counter
-change is appended to `card_presets.json.audit.jsonl`.
+Card presets (keysets, SPI, per-target TARs, PSK pair, ADM) live on the server
+in `~/.pysim-simple-server/card_presets.json` (`--card-presets PATH` overrides
+it; `Path.home()` resolves the same way on Linux, macOS and Windows).  The file
+is written atomically and every counter change is appended to
+`card_presets.json.audit.jsonl`.
 
-The store is the source of truth for the SCP80 counter: the operations below
-accept a `preset_id` and **persist the counter they consumed themselves**
-(monotonic - a stale value never regresses it), so a closed tab, a lost
-response or a second browser window can no longer lose an increment.  The
-Cards tab's export/import uses this API; the import also accepts presets
-exported by the older localStorage-based builds (the store assigns ids and
-applies the form defaults).
+**Keysets.**  A preset carries one keyset per GlobalPlatform key version — the
+`b8..b5` nibble of KIc/KID (TS 102 225 §5.1.2/A.2); the version is implicit in
+the bytes, there is no separate field:
 
-- `GET /api/presets` — `{"path": "…", "count": 2, "version": 1, "presets": [{…}]}`
+```json
+{"id": "…", "name": "Card A", "iccid": "…", "spi1": "16", "spi2": "01",
+ "tar": "000000", "uiccTar": "B00000", "usimTar": "B00001",
+ "pskIdentity": "", "pskKey": "", "adm": "",
+ "keysets": [
+   {"kic": "15", "kid": "15", "kicKey": "…", "kidKey": "…", "cntr": "0000000001"},
+   {"kic": "29", "kid": "29", "kicKey": "…", "kidKey": "…", "cntr": "0000000005"}
+ ]}
+```
+
+Rules (all refused with `400`): KIc and KID must carry the **same** key version
+(A.2 — the card rejects a mismatch with "Unidentified security error"), the
+version must be `01`–`0F` (`00` means "no security" and is a packet-level
+choice, not a preset keyset), no two keysets may share a version, both keys and
+a counter (1–10 hex digits) are required, and the counters are stored in the
+fixed-width 10-hex form.  A v3.8.0 flat preset (`kic`/`kid`/`kicKey`/`kidKey`/
+`cntr` at the top level) converts into a single keyset on load and on import,
+so old files and exports keep working.
+
+**Counters.**  The store is the source of truth for the SCP80 counters, one per
+key version ("a dedicated counter shall be associated to each key version",
+Annex A.1).  The operations below accept a `preset_id` and **persist the
+counter they consumed themselves** (monotonic per keyset — a stale value never
+regresses it), so a closed tab, a lost response or a second browser window can
+no longer lose an increment.  A request whose KIc/KID name a **non-zero key
+version the preset does not define** is refused (`400 {"error": "key version N
+is not defined in preset '…' - add it in the Cards tab"}`), and so is a
+KIc/KID version mismatch.  The Cards tab's export/import uses this API; the
+import also accepts presets exported by the older localStorage-based builds.
+
+- `GET /api/presets` — `{"path": "…", "count": 2, "version": 2, "presets": [{…}]}`
   (card-free: it answers while a long card operation runs).
-- `POST /api/presets` — body = the preset fields; returns `{"ok": true, "preset": {…}}`.
-  A duplicate ICCID (digits, spaced or raw EF hex are normalised to one form)
-  is refused with `400 {"error": "card with this ICCID already exists: …"}`.
+- `POST /api/presets` — body = the preset fields (`keysets` included); returns
+  `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced or raw EF
+  hex are normalised to one form) is refused with
+  `400 {"error": "card with this ICCID already exists: …"}`.
 - `POST /api/presets/update` — `{"id": "…", "fields": {…}}` (partial update;
-  a plain `{id, name, …}` body works too).  The counter is written as given -
-  this is the deliberate human edit; unknown ids answer `404`.
+  a plain `{id, name, …}` body works too, and `keysets` replaces the list).
+  A counter is written as given — this is the deliberate human edit; unknown
+  ids answer `404`.
 - `POST /api/presets/delete` — `{"id": "…"}` → `{"ok": true, "removed": true}`.
 - `POST /api/presets/import` — `{"presets": […], "mode": "merge"}` (or
   `"replace"`) → `{"ok": true, "added": N, "skipped": M, "errors": […]}`;
@@ -355,8 +383,10 @@ scripts) must not be wrapped.
 the counter that was sent, advanced by one when the card accepted the packet.
 A request without a `cntr` (nothing to advance) simply reports no
 `final_cntr` — it never fails the send.  With `preset_id` the server persists
-the counter into the card preset store (see *Card presets*), so a lost
-response or a closed tab cannot lose the increment.
+the counter into the keyset of the key version the packet used (see *Card
+presets*), so a lost response or a closed tab cannot lose the increment; the
+request is refused when KIc/KID carry different key versions (TS 102 225 A.2)
+or a non-zero key version the preset does not define.
 
 **Request body:**
 ```json

@@ -23,10 +23,22 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['cardsTarValue', 'cardsApplyFields', 'cardsApply',
-	'spRefreshFromPreset', 'spPorAccepted', 'spNextCntr']) {
+	'spRefreshFromPreset', 'spPorAccepted', 'spNextCntr', 'spPresetIdx',
+	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
+	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
+	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply',
+	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard',
+	'ramKeysetGuard',
+]) {
 	code += extractFunc(html, fn) + '\n';
 }
+code = 'var _cardsKeysetCount = 0;\n' + code;
+code = 'var _genSpBuildStub = function() {};\n' + code;
 eval(code);
+globalThis._genSpBuild = () => {};
+globalThis.spShowSizeInfo = () => {};
+globalThis.spKeysetSync = globalThis.spKeysetSync || (() => {});
 
 // The SP form is a working copy: the preset is the source of truth, and
 // every SCP80/RAM operation re-reads it before starting (v3.6.3).  The plain
@@ -49,6 +61,9 @@ function fakeEnv(selValue, selId, presetCntr) {
 	globalThis.updateSp = () => {};
 	let gen = 0;
 	globalThis.genSp = () => { gen++; };
+	// cardsApply refreshes the preview directly (the guarded genSp() is the
+	// Generate button's path), so the counter stub is _genSpBuild
+	globalThis._genSpBuild = () => { gen++; };
 	return { els, gen: () => gen };
 }
 

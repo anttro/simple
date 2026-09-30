@@ -31,9 +31,16 @@ for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr
 	'getRamSpParams', 'spPorAccepted', 'ramRemoteSwOk', 'ramShowProgress',
 	'ramHideProgress', 'ramDeleteFromExplorer',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
-	'escHtml', 'esc']) {
+	'escHtml', 'esc',
+	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
+	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
+	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard',
+	'ramKeysetGuard',
+]) {
 	code += extractFunc(html, fn) + '\n';
 }
+code = 'var _cardsKeysetCount = 0;\n' + code;
 eval(code);
 
 function fakeEnv(por, success) {
@@ -49,8 +56,11 @@ function fakeEnv(por, success) {
 	els['sp-kic-key'].value = 'AA';
 	els['sp-kid-key'].value = 'BB';
 	els['sp-spi2-hex'].value = '01';
+	els['sp-kic-hex'].value = '15';
+	els['sp-kid-hex'].value = '15';
 	globalThis.document = { getElementById: id => els[id] || null };
-	globalThis.cards = [{ id: 'preset-1', name: 'C', cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' }];
+	globalThis.cards = [{ id: 'preset-1', name: 'C', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000005' }] }];
 	const calls = { saved: 0, explored: null, removed: null, sent: null };
 	globalThis.cardsSave = () => { calls.saved++; };
 	globalThis.cardsRender = () => {};
@@ -59,8 +69,9 @@ function fakeEnv(por, success) {
 	globalThis.alert = () => {};
 	globalThis.confirm = () => true;
 	globalThis.spRefreshFromPreset = () => {
-		els['sp-cntr'].value = cards[0].cntr;
-		return cards[0].cntr;
+		const cntr = cards[0].keysets[0].cntr;
+		els['sp-cntr'].value = cntr;
+		return cntr;
 	};
 	globalThis.ramSendOta = async (apdu, sp) => {
 		calls.sent = { apdu: apdu, cntr: sp.cntr, spi2: sp.spi2, preset_id: sp.preset_id };
@@ -81,7 +92,7 @@ test('accepted delete persists the consumed counter and drops the record', async
 	assert.strictEqual(calls.sent.cntr, '0000000005');
 	assert.strictEqual(calls.sent.apdu, '80E40000094F07F0414C46416101');
 	assert.strictEqual(calls.sent.spi2, '01', 'the computed SPI2 byte must be used');
-	assert.strictEqual(cards[0].cntr, '0000000006',
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000006',
 		'the preset must carry the counter the card consumed');
 	assert.strictEqual(els['sp-cntr'].value, '0000000006');
 	assert.strictEqual(calls.sent.preset_id, 'preset-1',
@@ -94,7 +105,7 @@ test('accepted delete persists the consumed counter and drops the record', async
 test('a delete with no PoR is accepted (the envelope 9000 is the result)', async () => {
 	const { els, calls } = fakeEnv(undefined);
 	await ramDeleteFromExplorer('F0414C46416101', false);
-	assert.strictEqual(cards[0].cntr, '0000000006');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000006');
 	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
 	assert.strictEqual(els['ram-result'].textContent, 'OK');
 	assert.ok(els['ram-steps'].textContent.includes('no PoR'), els['ram-steps'].textContent);
@@ -103,7 +114,7 @@ test('a delete with no PoR is accepted (the envelope 9000 is the result)', async
 test('cntr_low leaves the preset untouched (the card did not consume the packet)', async () => {
 	const { calls } = fakeEnv({ response_status: 'cntr_low' });
 	await ramDeleteFromExplorer('F0414C46416101', false);
-	assert.strictEqual(cards[0].cntr, '0000000005');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000005');
 	assert.strictEqual(calls.saved, 0);
 	assert.strictEqual(calls.removed, null);
 });
@@ -112,20 +123,20 @@ test('a refused DELETE still advances the counter but drops nothing', async () =
 	const { calls } = fakeEnv({ response_status: 'por_ok',
 		decoded: { last_status_word: '6A88' } });
 	await ramDeleteFromExplorer('F0414C46416101', true);
-	assert.strictEqual(cards[0].cntr, '0000000006');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000006');
 	assert.strictEqual(calls.removed, null);
 });
 
 test('a delete accepted via actual_response_sms_submit advances and drops the record', async () => {
 	const { calls } = fakeEnv({ response_status: 'actual_response_sms_submit' });
 	await ramDeleteFromExplorer('F0414C46416101', false);
-	assert.strictEqual(cards[0].cntr, '0000000006');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000006');
 	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
 });
 
 test('a send failure leaves the preset untouched', async () => {
 	const { calls } = fakeEnv({ response_status: 'por_ok' }, false);
 	await ramDeleteFromExplorer('F0414C46416101', false);
-	assert.strictEqual(cards[0].cntr, '0000000005');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000005');
 	assert.strictEqual(calls.removed, null);
 });

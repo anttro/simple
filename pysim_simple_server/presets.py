@@ -9,6 +9,14 @@ owns the store: an accepted counter is persisted in the same operation, and a
 closed tab, a lost response or a second browser window can no longer lose an
 increment.
 
+A preset holds one **keyset per GlobalPlatform key version** (the b8..b5 nibble
+of KIc/KID, TS 102 225 5.1.2/A.2), each with its own KIc/KID keys and its own
+counter - "a dedicated counter shall be associated to each key version"
+(TS 102 225 Annex A.1).  The two bytes of a keyset must carry the same key
+version (A.2: the card rejects a mismatch with "Unidentified security error");
+key version '00' is reserved and not a keyset (it means "no security" in a
+packet, which is a form-level choice, not a preset).
+
 Layout (``--card-presets`` overrides the file; ``Path.home()`` resolves the
 same way on Linux, macOS and Windows)::
 
@@ -21,9 +29,11 @@ store.  Presets carry a stable uuid - never array indices.  The JSON is
 deliberately human-readable: hand-editing a counter or moving the file between
 machines is part of the workbench workflow, and the Cards tab's export/import
 uses the same shape (which is also how old localStorage presets move over -
-there is no automatic migration).
+there is no automatic migration).  v3.8.0's flat ``kic/kid/kicKey/kidKey/cntr``
+shape is converted into a single keyset on load and on import.
 """
 
+import copy
 import json
 import os
 import re
@@ -36,23 +46,39 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'card_presets.json'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # The fields a preset carries: the localStorage shape plus the id.  Defaults
-# mirror the Cards form (spi1/spi2/counter and the per-target TARs).
-PRESET_FIELDS = ('name', 'iccid', 'adm', 'kic', 'kid', 'spi1', 'spi2',
-                 'tar', 'uiccTar', 'usimTar', 'cntr', 'kicKey', 'kidKey',
-                 'pskIdentity', 'pskKey')
-HEX_FIELDS = ('adm', 'kic', 'kid', 'spi1', 'spi2', 'tar', 'uiccTar', 'usimTar',
-              'cntr', 'kicKey', 'kidKey', 'pskKey')
+# mirror the Cards form (spi1/spi2 and the per-target TARs).  The OTA key
+# material lives in `keysets` - one entry per GlobalPlatform key version (the
+# b8..b5 nibble of KIc/KID), each with its own counter (TS 102 225 Annex A.1:
+# "a dedicated counter shall be associated to each key version").
+PRESET_FIELDS = ('name', 'iccid', 'adm', 'spi1', 'spi2',
+                 'tar', 'uiccTar', 'usimTar', 'pskIdentity', 'pskKey')
+# The v3.8.0 flat key fields: converted into a single keyset on load/import.
+LEGACY_KEY_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
+KEYSET_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
+HEX_FIELDS = ('adm', 'spi1', 'spi2', 'tar', 'uiccTar', 'usimTar', 'pskKey')
+KEYSET_HEX_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 TAR_DEFAULTS = {'tar': '000000', 'uiccTar': 'B00000', 'usimTar': 'B00001'}
 COUNTER_BITS = 40      # the SCP80 counter is 5 bytes (TS 31.115)
 COUNTER_WIDTH = 10     # ... shown as 10 hex digits
+KVN_MAX = 0x0F         # key version '00' is reserved: no key set, no counter
 
 
 def default_path():
     """The default store: ``~/.pysim-simple-server/card_presets.json``."""
     return Path.home() / DEFAULT_DIR / DEFAULT_FILENAME
+
+
+def keyset_kvn(keyset):
+    """The key version of a keyset: the high nibble of KIc (bits b8..b5 of
+    KIc/KID, TS 102 225 5.1.2/A.2 - both bytes must agree, so KIc is enough).
+    None when the byte is unusable."""
+    kic = str((keyset or {}).get('kic') or '').strip().upper()
+    if not re.fullmatch(r'[0-9A-F]{2}', kic):
+        return None
+    return int(kic, 16) >> 4
 
 
 def _swap_nibbles(s):
@@ -183,12 +209,14 @@ class PresetStore:
         except OSError:
             pass
 
-    def _audit(self, pid, name, old, new, source):
-        """One JSONL line per counter change: the forensic trail for "did an
-        increment get lost?" questions."""
+    def _audit(self, pid, name, old, new, source, kvn=None):
+        """One JSONL line per counter change (the key version included - each
+        keyset has its own counter): the forensic trail for "did an increment
+        get lost?" questions."""
         try:
             line = json.dumps({'ts': time.strftime('%Y-%m-%dT%H:%M:%S'),
-                               'id': pid, 'name': name, 'old': old, 'new': new,
+                               'id': pid, 'name': name, 'kvn': kvn,
+                               'old': old, 'new': new,
                                'source': source}, ensure_ascii=False)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.audit_path, 'a', encoding='utf-8') as fh:
@@ -208,29 +236,51 @@ class PresetStore:
             out[k] = v
         out['spi1'] = out['spi1'] or '16'
         out['spi2'] = out['spi2'] or '01'
-        # the counter is kept as typed here and validated + padded in
-        # _validate(): a bad value must be refused, never silently masked
-        out['cntr'] = out['cntr'] or '1'
         for k, d in TAR_DEFAULTS.items():
             out[k] = out[k] or d
+        # Keysets: a v3.8.0 preset (flat kic/kid/kicKey/kidKey/cntr) converts
+        # into a single keyset, so old files and exports keep working.
+        raw = fields.get('keysets')
+        if not isinstance(raw, list):
+            raw = []
+            if any(str(fields.get(k) or '').strip() for k in LEGACY_KEY_FIELDS):
+                raw = [{k: fields.get(k) for k in LEGACY_KEY_FIELDS}]
+        out['keysets'] = [self._normalise_keyset(ks) for ks in raw
+                          if isinstance(ks, dict)]
         pid = str(fields.get('id') or '').strip().lower()
         out['id'] = pid or uuid.uuid4().hex
+        return out
+
+    def _normalise_keyset(self, ks):
+        """One keyset, cleaned.  The counter is kept as typed here and
+        validated + padded in _validate_keyset() - a bad value must be
+        refused, never silently masked."""
+        out = {}
+        for k in KEYSET_FIELDS:
+            v = ks.get(k)
+            v = '' if v is None else str(v).strip()
+            if k in KEYSET_HEX_FIELDS:
+                v = re.sub(r'\s', '', v).upper()
+            out[k] = v
+        out['cntr'] = out['cntr'] or '1'
         return out
 
     def _validate(self, p, skip_id=None):
         if not p['name']:
             raise PresetError('name is required')
-        for key in ('kic', 'kid', 'kicKey', 'kidKey'):
-            if not p[key]:
-                raise PresetError('%s is required' % key)
         if bool(p['pskIdentity']) != bool(p['pskKey']):
             raise PresetError('PSK identity and PSK key must be set together')
         if p['pskKey'] and not re.fullmatch(r'[0-9A-F]{32}', p['pskKey']):
             raise PresetError('PSK key must be 32 hex characters')
-        if not re.fullmatch(r'[0-9A-F]{1,10}', p['cntr']):
-            raise PresetError('counter must be 1-10 hex digits')
-        # validated: store the protocol's fixed-width form
-        p['cntr'] = counter_hex(p['cntr'])
+        if not p['keysets']:
+            raise PresetError('at least one keyset is required')
+        seen = set()
+        for ks in p['keysets']:
+            self._validate_keyset(ks)
+            kvn = keyset_kvn(ks)
+            if kvn in seen:
+                raise PresetError('duplicate key version %02X in this preset' % kvn)
+            seen.add(kvn)
         norm = normalize_iccid(p['iccid'])
         if norm:
             for other in self._presets:
@@ -240,6 +290,30 @@ class PresetStore:
                     raise PresetError('card with this ICCID already exists: %s'
                                       % (other['name'] or other['id']))
         return p
+
+    def _validate_keyset(self, ks):
+        """One keyset: KIc/KID carry the key version in b8..b5 and must agree
+        (TS 102 225 A.2 - a mismatch is rejected by the card), the version is
+        01-0F ('00' means "no security" and has no keys to define, so it is
+        not a preset keyset), both keys are present and the counter is
+        1-10 hex digits (the dedicated counter of that key version, A.1)."""
+        for key in ('kic', 'kid'):
+            if not re.fullmatch(r'[0-9A-F]{2}', ks[key]):
+                raise PresetError('%s must be one hex byte' % key)
+        kic_v, kid_v = int(ks['kic'], 16) >> 4, int(ks['kid'], 16) >> 4
+        if kic_v != kid_v:
+            raise PresetError('KIc and KID must carry the same key version '
+                              '(TS 102 225 A.2): %s / %s' % (ks['kic'], ks['kid']))
+        if not 1 <= kic_v <= KVN_MAX:
+            raise PresetError('key version must be 01-0F: %s' % ks['kic'])
+        for key in ('kicKey', 'kidKey'):
+            if not ks[key]:
+                raise PresetError('%s is required' % key)
+        if not re.fullmatch(r'[0-9A-F]{1,10}', ks['cntr']):
+            raise PresetError('counter must be 1-10 hex digits')
+        # validated: store the protocol's fixed-width form
+        ks['cntr'] = counter_hex(ks['cntr'])
+        return ks
 
     def _find(self, pid):
         want = str(pid or '').strip().lower()
@@ -253,12 +327,12 @@ class PresetStore:
     # -------------------------------------------------------------- public
     def list(self):
         with self._lock:
-            return [dict(p) for p in self._presets]
+            return [copy.deepcopy(p) for p in self._presets]
 
     def get(self, pid):
         with self._lock:
             p = self._find(pid)
-            return dict(p) if p else None
+            return copy.deepcopy(p) if p else None
 
     def find_by_iccid(self, iccid):
         norm = normalize_iccid(iccid)
@@ -267,7 +341,7 @@ class PresetStore:
         with self._lock:
             for p in self._presets:
                 if normalize_iccid(p['iccid']) == norm:
-                    return dict(p)
+                    return copy.deepcopy(p)
         return None
 
     def add(self, fields):
@@ -281,31 +355,36 @@ class PresetStore:
             self._presets.append(p)
             self._save()
             sys.stderr.write('PRESETS: added %s (%s)\n' % (p['name'], p['id']))
-            return dict(p)
+            return copy.deepcopy(p)
 
     def update(self, pid, fields):
-        """Partial or full update (the human edit path): the counter is written
-        as given - the Cards tab is the place to resync it deliberately.  The
-        counter an *operation* accepted goes through set_counter()."""
+        """Partial or full update (the human edit path): a counter in a keyset
+        is written as given - the Cards tab is the place to resync it
+        deliberately.  The counter an *operation* accepted goes through
+        set_counter()."""
         with self._lock:
             cur = self._find(pid)
             if cur is None:
                 return None
-            merged = dict(cur)
+            merged = copy.deepcopy(cur)
             for k in PRESET_FIELDS:
                 if isinstance(fields, dict) and k in fields:
                     merged[k] = fields[k]
+            if isinstance(fields, dict) and 'keysets' in fields:
+                merged['keysets'] = fields['keysets']
             new = self._normalise(merged)
             new['id'] = cur['id']
             self._validate(new, skip_id=cur['id'])
-            old_cntr = cur['cntr']
             self._presets[self._presets.index(cur)] = new
             self._save()
-            if new['cntr'] != old_cntr:
-                self._audit(new['id'], new['name'], old_cntr, new['cntr'], 'edit')
-                sys.stderr.write('PRESETS: counter %s %s -> %s (edit)\n'
-                                 % (new['name'], old_cntr, new['cntr']))
-            return dict(new)
+            for old_ks, new_ks in zip(cur['keysets'], new['keysets']):
+                if old_ks['cntr'] != new_ks['cntr']:
+                    kvn = keyset_kvn(new_ks)
+                    self._audit(new['id'], new['name'], old_ks['cntr'],
+                                new_ks['cntr'], 'edit', kvn)
+                    sys.stderr.write('PRESETS: counter %s kvn=%02X %s -> %s (edit)\n'
+                                     % (new['name'], kvn, old_ks['cntr'], new_ks['cntr']))
+            return copy.deepcopy(new)
 
     def remove(self, pid):
         with self._lock:
@@ -317,33 +396,65 @@ class PresetStore:
             sys.stderr.write('PRESETS: removed %s (%s)\n' % (p['name'], p['id']))
             return True
 
-    def set_counter(self, pid, cntr, source='operation'):
-        """Persist the counter an operation accepted.  Monotonic: the counter
-        only moves forward, so a stale caller can never regress it.  Returns
-        the stored preset (or None when the id is unknown)."""
+    def find_keyset(self, pid, kvn):
+        """The keyset of a preset for a key version (the b8..b5 nibble of
+        KIc/KID), or None when the preset or the key version is unknown."""
         with self._lock:
             p = self._find(pid)
             if p is None:
                 return None
+            for ks in p['keysets']:
+                if keyset_kvn(ks) == kvn:
+                    return copy.deepcopy(ks)
+        return None
+
+    def set_counter(self, pid, cntr, source='operation', kvn=None):
+        """Persist the counter an operation accepted, into the keyset of the
+        key version it used (each key version has its own dedicated counter,
+        TS 102 225 A.1).  Monotonic per keyset: the counter only moves
+        forward, so a stale caller can never regress it.  `kvn=None` picks the
+        preset's only keyset (a convenience for single-keyset callers).
+        Returns the stored preset (or None when the id is unknown)."""
+        with self._lock:
+            p = self._find(pid)
+            if p is None:
+                return None
+            ks = None
+            if kvn is not None:
+                for cand in p['keysets']:
+                    if keyset_kvn(cand) == kvn:
+                        ks = cand
+                        break
+                if ks is None:
+                    sys.stderr.write('PRESETS: no key version %s in %s (%s)\n'
+                                     % (kvn, p['name'], source))
+                    return copy.deepcopy(p)
+            elif len(p['keysets']) == 1:
+                ks = p['keysets'][0]
+            else:
+                sys.stderr.write('PRESETS: %s has several key versions - the '
+                                 'counter needs one (%s)\n' % (p['name'], source))
+                return copy.deepcopy(p)
             new = str(cntr or '').strip().upper()
             if not re.fullmatch(r'[0-9A-F]{1,10}', new):
                 sys.stderr.write('PRESETS: ignoring malformed counter %r (%s)\n'
                                  % (cntr, source))
-                return dict(p)
+                return copy.deepcopy(p)
             new = counter_hex(new)
-            if new == p['cntr']:
-                return dict(p)
-            if not counter_ahead(p['cntr'], new):
-                sys.stderr.write('PRESETS: ignoring backwards counter %s -> %s (%s)\n'
-                                 % (p['cntr'], new, source))
-                return dict(p)
-            old = p['cntr']
-            p['cntr'] = new
+            if new == ks['cntr']:
+                return copy.deepcopy(p)
+            if not counter_ahead(ks['cntr'], new):
+                sys.stderr.write('PRESETS: ignoring backwards counter kvn=%02X '
+                                 '%s -> %s (%s)\n'
+                                 % (keyset_kvn(ks), ks['cntr'], new, source))
+                return copy.deepcopy(p)
+            old = ks['cntr']
+            ks['cntr'] = new
             self._save()
-            self._audit(p['id'], p['name'], old, new, source)
-            sys.stderr.write('PRESETS: counter %s %s -> %s (%s)\n'
-                             % (p['name'], old, new, source))
-            return dict(p)
+            self._audit(p['id'], p['name'], old, new, source, keyset_kvn(ks))
+            sys.stderr.write('PRESETS: counter %s kvn=%02X %s -> %s (%s)\n'
+                             % (p['name'], keyset_kvn(ks), old, new, source))
+            return copy.deepcopy(p)
 
     def import_presets(self, items, mode='merge'):
         """Import exported (or old localStorage) presets: entries are validated

@@ -19,6 +19,7 @@ import urllib.request
 from unittest import mock
 
 from pysim_simple_server.__main__ import _build_http_server
+from pysim_simple_server import presets
 from pysim_simple_server.server import PysimHandler, _CARD_FREE_GET, _CARD_LOCK
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -479,8 +480,13 @@ class PresetStoreHttpTests(unittest.TestCase):
             e.close()
             return e.code, body
 
+    def _keyset(self, **kw):
+        ks = {'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB'}
+        ks.update(kw)
+        return ks
+
     def _preset(self, **kw):
-        p = {'name': 'C', 'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB'}
+        p = {'name': 'C', 'keysets': [self._keyset()]}
         p.update(kw)
         return p
 
@@ -497,7 +503,7 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         pid = resp['preset']['id']
         self.assertTrue(pid)
-        self.assertEqual(resp['preset']['cntr'], '0000000001')
+        self.assertEqual(resp['preset']['keysets'][0]['cntr'], '0000000001')
 
         # a duplicate ICCID (raw-hex form) is refused
         status, resp = self._post('/api/presets',
@@ -528,7 +534,9 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         self.assertEqual(resp['added'], 1)
         self.assertEqual(resp['skipped'], 1)
-        self.assertEqual(self.store.find_by_iccid('8970119000004600098')['cntr'], '0000000007')
+        imported = self.store.find_by_iccid('8970119000004600098')
+        self.assertEqual(imported['keysets'][0]['cntr'], '0000000007')
+        self.assertEqual(presets.keyset_kvn(imported['keysets'][0]), 1)
 
         status, resp = self._post('/api/presets/import', {'presets': 'nope'})
         self.assertEqual(status, 400, resp)
@@ -557,7 +565,7 @@ class PresetStoreHttpTests(unittest.TestCase):
                 patch.stop()
         self.assertEqual(status, 200, resp)
         self.assertEqual(resp['final_cntr'], '0000000002')
-        self.assertEqual(self.store.get(p['id'])['cntr'], '0000000002')
+        self.assertEqual(self.store.find_keyset(p['id'], 1)['cntr'], '0000000002')
 
     def test_a_counter_less_send_ota_body_still_answers(self):
         # a pre-built packet without a counter: no final_cntr, no persist,
@@ -581,7 +589,62 @@ class PresetStoreHttpTests(unittest.TestCase):
                 patch.stop()
         self.assertEqual(status, 200, resp)
         self.assertNotIn('final_cntr', resp)
-        self.assertEqual(self.store.get(p['id'])['cntr'], '0000000001')
+        self.assertEqual(self.store.find_keyset(p['id'], 1)['cntr'], '0000000001')
+
+    def test_send_ota_refuses_a_kic_kid_version_mismatch(self):
+        # TS 102 225 A.2: the versions must be identical - invalid input
+        self.server.app = object()
+        status, resp = self._post('/api/send-ota', {
+            'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '25',
+            'tar': '000000', 'cntr': '0000000001'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('same key version', resp['error'])
+
+    def test_send_ota_refuses_an_undefined_key_version(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        self.server.app = object()
+        status, resp = self._post('/api/send-ota', {
+            'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '35', 'kid': '35',
+            'tar': '000000', 'cntr': '0000000001', 'preset_id': p['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('key version 3 is not defined', resp['error'])
+
+    def test_the_counter_lands_in_the_keyset_of_the_packet(self):
+        p = self.store.add(self._preset(keysets=[
+            self._keyset(kic='15', kid='15'),
+            self._keyset(kic='29', kid='29', kicKey='CC', kidKey='DD', cntr='0000000005')]))
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': '027100000000'}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                'response_status': 'por_ok', 'tar': '000000', 'cntr': '0000000005',
+                'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': '',
+                'decoded': {'number_of_commands': 1, 'last_status_word': '9000',
+                            'last_response_data': ''}}),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '29', 'kid': '29',
+                'tar': '000000', 'cntr': '0000000005', 'kicKey': 'CC', 'kidKey': 'DD',
+                'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['final_cntr'], '0000000006')
+        self.assertEqual(self.store.find_keyset(p['id'], 2)['cntr'], '0000000006')
+        self.assertEqual(self.store.find_keyset(p['id'], 1)['cntr'], '0000000001')
+
+    def test_a_ram_install_refuses_an_undefined_key_version(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        status, resp = self._post('/api/ram-install', {
+            'cap_hex': _mini_cap_hex(), 'kic': '35', 'kid': '35', 'preset_id': p['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('key version 3 is not defined', resp['error'])
 
     def test_a_store_write_failure_answers_a_json_500(self):
         with mock.patch.object(self.store, 'add', side_effect=OSError('read-only file system')):

@@ -28,20 +28,41 @@ for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEd
 	'spPresetIdx', 'spCntrSyncPreset', 'spCntrLocalSync', 'ramSaveCntr',
 	'cardsApplyFields', 'cardsApply', 'ramApplyCard',
 	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
-	'spTarKeyForPack', 'spPresetTar', 'packToSp']) {
+	'spTarKeyForPack', 'spPresetTar', 'packToSp',
+	'esc', 'escHtml',
+	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
+	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
+	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
+	'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
+code = 'var _cardsKeysetCount = 0;\n' + code;
 eval(code);
 
-const CARD_IDS = ['cards-name','cards-iccid','cards-adm','cards-kic','cards-kid',
+const CARD_IDS = ['cards-name','cards-iccid','cards-adm',
 	'cards-spi1','cards-spi2','cards-tar','cards-uicc-tar','cards-usim-tar',
-	'cards-cntr','cards-kic-key','cards-kid-key','cards-psk-id','cards-psk-key',
-	'cards-add-btn','cards-cancel-btn'];
+	'cards-psk-id','cards-psk-key','cards-keysets',
+	'cards-add-btn','cards-cancel-btn',
+	// the keyset editor rows (two rows is enough for the tests)
+	'cards-ks-0-kvn','cards-ks-0-kic','cards-ks-0-kid','cards-ks-0-kic-key',
+	'cards-ks-0-kid-key','cards-ks-0-cntr',
+	'cards-ks-1-kvn','cards-ks-1-kic','cards-ks-1-kid','cards-ks-1-kic-key',
+	'cards-ks-1-kid-key','cards-ks-1-cntr'];
 const SP_IDS = ['sp-card-sel','sp-tar','sp-spi1','sp-spi2','sp-spi2-sm','sp-spi2-hex',
 	'sp-kic-idx','sp-kic-alg','sp-kic-hex','sp-kid-idx','sp-kid-alg','sp-kid-hex',
-	'sp-cntr','sp-kic-key','sp-kid-key','sp-apdu','sp-result','sp-spi1-hex'];
+	'sp-cntr','sp-kic-key','sp-kid-key','sp-apdu','sp-result','sp-spi1-hex',
+	'sp-keyset-sel','ram-keyset-sel'];
 const CHAIN_IDS = ['chain-sim-preview','chain-usim-preview','chain-ram-preview',
 	'ber-result','hota-preview'];
+
+function ksRow(els, i, ks) {
+	for (const field of ['kic', 'kid', 'kic-key', 'kid-key', 'cntr']) {
+		const id = 'cards-ks-' + i + '-' + field;
+		if (!els[id]) els[id] = fakeEl();
+		els[id].value = ks[field === 'kic-key' ? 'kicKey' : (field === 'kid-key' ? 'kidKey' : field)] || '';
+	}
+}
 
 function fakeEl() {
 	return {
@@ -63,8 +84,11 @@ function setup() {
 	globalThis.cards = [];
 	globalThis._cardsEditIdx = null;
 	globalThis._ramCardIdx = null;
+	globalThis._cardsKeysetCount = 1;
 	globalThis._spTarKey = 'tar';
 	globalThis.t = s => s;
+	globalThis.esc = s => s;
+	globalThis.escHtml = s => s;
 	globalThis.alert = () => {};
 	globalThis.cardsSave = () => {};
 	globalThis.cardsRender = () => {};
@@ -81,7 +105,10 @@ function setup() {
 	globalThis.spInvalidate = () => {};
 	globalThis.updateSp = () => {};
 	globalThis.genSp = () => {};
+	globalThis._genSpBuild = () => {};
+	globalThis.spShowSizeInfo = () => {};
 	globalThis.ramRender = () => {};
+	globalThis.switchTab = () => {};
 	// the server store is the source of truth (v3.8.0): the Cards tab talks to
 	// /api/presets* and reloads through cardsFetch()
 	apiCalls = [];
@@ -174,10 +201,8 @@ test('the form values carry the ADM and per-target TAR fields', () => {
 test('saving a preset posts the form with spec-default TARs', async () => {
 	const els = setup();
 	els['cards-name'].value = 'New card';
-	els['cards-kic'].value = '15';
-	els['cards-kid'].value = '15';
-	els['cards-kic-key'].value = 'AA';
-	els['cards-kid-key'].value = 'BB';
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	globalThis._cardsKeysetCount = 1;
 	els['cards-tar'].value = '';
 	els['cards-uicc-tar'].value = '';
 	els['cards-usim-tar'].value = '';
@@ -186,6 +211,8 @@ test('saving a preset posts the form with spec-default TARs', async () => {
 	assert.strictEqual(apiCalls.length, 1, JSON.stringify(apiCalls));
 	assert.strictEqual(apiCalls[0].path, '/api/presets');
 	assert.strictEqual(apiCalls[0].body.name, 'New card');
+	assert.deepStrictEqual(apiCalls[0].body.keysets, [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '' }]);
 	assert.strictEqual(apiCalls[0].body.tar, '000000');
 	assert.strictEqual(apiCalls[0].body.uiccTar, 'B00000');
 	assert.strictEqual(apiCalls[0].body.usimTar, 'B00001');
@@ -194,14 +221,12 @@ test('saving a preset posts the form with spec-default TARs', async () => {
 
 test('editing a preset updates it by its store id', async () => {
 	const els = setup();
-	globalThis.cards = [{ id: 'abc123', name: 'Old', kic: '15', kid: '15',
-		kicKey: 'AA', kidKey: 'BB' }];
+	globalThis.cards = [{ id: 'abc123', name: 'Old', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
 	globalThis._cardsEditIdx = 0;
 	els['cards-name'].value = 'Renamed';
-	els['cards-kic'].value = '15';
-	els['cards-kid'].value = '15';
-	els['cards-kic-key'].value = 'AA';
-	els['cards-kid-key'].value = 'BB';
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	globalThis._cardsKeysetCount = 1;
 	await cardsAdd();
 	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
 	assert.strictEqual(apiCalls[0].body.id, 'abc123');
@@ -235,19 +260,22 @@ test('import posts the entries to the server store', async () => {
 
 test('the SCP80 counter edit is written to the store, a reported counter only locally', () => {
 	const els = setup();
-	globalThis.cards = [{ id: 'abc123', name: 'C', cntr: '0000000001' }];
+	globalThis.cards = [{ id: 'abc123', name: 'C', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
 	els['sp-card-sel'].value = '0';
+	els['sp-kic-hex'].value = '15';
+	els['sp-kid-hex'].value = '15';
 	els['sp-cntr'].value = '0000000009';
 	assert.strictEqual(spCntrSyncPreset(), true);
-	assert.strictEqual(cards[0].cntr, '0000000009');
+	assert.strictEqual(cards[0].keysets[0].cntr, '0000000009');
 	assert.strictEqual(apiCalls.length, 1);
 	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
 	assert.strictEqual(apiCalls[0].body.id, 'abc123');
-	assert.deepStrictEqual(apiCalls[0].body.fields, { cntr: '0000000009' });
+	assert.strictEqual(apiCalls[0].body.fields.keysets[0].cntr, '0000000009');
 	// a counter the server already persisted: display only, no second write
 	apiCalls = [];
 	spCntrLocalSync('000000000A');
-	assert.strictEqual(cards[0].cntr, '000000000A');
+	assert.strictEqual(cards[0].keysets[0].cntr, '000000000A');
 	assert.strictEqual(apiCalls.length, 0);
 	// no preset selected: nothing to write
 	els['sp-card-sel'].value = '';

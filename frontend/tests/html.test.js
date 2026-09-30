@@ -135,8 +135,8 @@ test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', 
     const scp81 = fieldsets.find(f => /data-l10n="SCP81 \(HTTP OTA\)"/.test(f));
     assert.ok(scp80, 'SCP80 card fieldset not found');
     assert.ok(scp81, 'SCP81 card fieldset not found');
-    assert.match(scp80, /id="cards-kic"/);
-    assert.match(scp80, /id="cards-kid-key"/);
+    assert.match(scp80, /id="cards-keysets"/);
+    assert.match(scp80, /onclick="cardsKeysetAdd\(\)"/);
     assert.match(scp80, /id="cards-tar"[^>]*value="000000"/);
     assert.match(scp80, /id="cards-uicc-tar"[^>]*value="B00000"/);
     assert.match(scp80, /id="cards-usim-tar"[^>]*value="B00001"/);
@@ -144,8 +144,8 @@ test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', 
     assert.match(scp80, />ISD TAR<\/label>/);
     assert.match(scp80, />UICC RFM TAR<\/label>/);
     assert.match(scp80, />ADF RFM TAR<\/label>/);
-    assert.ok(scp80.indexOf('id="cards-cntr"') < scp80.indexOf('id="cards-tar"'),
-        'TAR fields must follow the Counter field');
+    assert.ok(scp80.indexOf('id="cards-spi1"') < scp80.indexOf('id="cards-tar"'),
+        'TAR fields must follow the SPI fields');
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
