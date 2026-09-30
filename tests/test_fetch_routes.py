@@ -613,7 +613,7 @@ class PresetStoreHttpTests(unittest.TestCase):
             'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '25',
             'tar': '000000', 'cntr': '0000000001'})
         self.assertEqual(status, 400, resp)
-        self.assertIn('same key version', resp['error'])
+        self.assertIn('same keyset number', resp['error'])
 
     def test_send_ota_refuses_an_undefined_key_version(self):
         p = self.store.add(self._preset(iccid='8970119000004600098'))
@@ -622,7 +622,7 @@ class PresetStoreHttpTests(unittest.TestCase):
             'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '35', 'kid': '35',
             'tar': '000000', 'cntr': '0000000001', 'preset_id': p['id']})
         self.assertEqual(status, 400, resp)
-        self.assertIn('key version 3 is not defined', resp['error'])
+        self.assertIn('keyset 3 is not defined', resp['error'])
 
     def test_the_counter_lands_in_the_keyset_of_the_packet(self):
         p = self.store.add(self._preset(keysets=[
@@ -659,7 +659,7 @@ class PresetStoreHttpTests(unittest.TestCase):
         status, resp = self._post('/api/ram-install', {
             'cap_hex': _mini_cap_hex(), 'kic': '35', 'kid': '35', 'preset_id': p['id']})
         self.assertEqual(status, 400, resp)
-        self.assertIn('key version 3 is not defined', resp['error'])
+        self.assertIn('keyset 3 is not defined', resp['error'])
 
     def test_a_keyless_send_leaves_every_counter_untouched(self):
         # SPI1 00: the counter is "present, ignored, never updated"

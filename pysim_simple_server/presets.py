@@ -9,13 +9,13 @@ owns the store: an accepted counter is persisted in the same operation, and a
 closed tab, a lost response or a second browser window can no longer lose an
 increment.
 
-A preset holds one **keyset per GlobalPlatform key version** (the b8..b5 nibble
-of KIc/KID, TS 102 225 5.1.2/A.2), each with its own KIc/KID keys and its own
+A preset holds **several keysets**; the b8..b5 nibble of KIc/KID numbers them
+(TS 102 225 5.1.2/A.2).  Each keyset has its own KIc/KID keys and its own
 counter - "a dedicated counter shall be associated to each key version"
-(TS 102 225 Annex A.1).  The two bytes of a keyset must carry the same key
-version (A.2: the card rejects a mismatch with "Unidentified security error");
-key version '00' is reserved and not a keyset (it means "no security" in a
-packet, which is a form-level choice, not a preset).
+(TS 102 225 Annex A.1, the spec's wording).  The two bytes of a keyset must
+carry the same number (A.2: the card rejects a mismatch with "Unidentified
+security error"); number '00' is reserved and not a keyset (it means "no
+security" in a packet, which is a form-level choice, not a preset).
 
 Layout (``--card-presets`` overrides the file; ``Path.home()`` resolves the
 same way on Linux, macOS and Windows)::
@@ -50,9 +50,9 @@ SCHEMA_VERSION = 2
 
 # The fields a preset carries: the localStorage shape plus the id.  Defaults
 # mirror the Cards form (spi1/spi2 and the per-target TARs).  The OTA key
-# material lives in `keysets` - one entry per GlobalPlatform key version (the
-# b8..b5 nibble of KIc/KID), each with its own counter (TS 102 225 Annex A.1:
-# "a dedicated counter shall be associated to each key version").
+# material lives in `keysets` - the b8..b5 nibble of KIc/KID numbers them,
+# each with its own counter (TS 102 225 Annex A.1: "a dedicated counter shall
+# be associated to each key version").
 PRESET_FIELDS = ('name', 'iccid', 'adm', 'spi1', 'spi2',
                  'tar', 'uiccTar', 'usimTar', 'pskIdentity', 'pskKey')
 # The v3.8.0 flat key fields: converted into a single keyset on load/import.
@@ -63,7 +63,7 @@ KEYSET_HEX_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 TAR_DEFAULTS = {'tar': '000000', 'uiccTar': 'B00000', 'usimTar': 'B00001'}
 COUNTER_BITS = 40      # the SCP80 counter is 5 bytes (TS 31.115)
 COUNTER_WIDTH = 10     # ... shown as 10 hex digits
-KVN_MAX = 0x0F         # key version '00' is reserved: no key set, no counter
+KVN_MAX = 0x0F         # keyset number '00' is reserved: no key set, no counter
 
 
 def default_path():
@@ -72,9 +72,9 @@ def default_path():
 
 
 def keyset_kvn(keyset):
-    """The key version of a keyset: the high nibble of KIc (bits b8..b5 of
-    KIc/KID, TS 102 225 5.1.2/A.2 - both bytes must agree, so KIc is enough).
-    None when the byte is unusable."""
+    """The keyset number: the high nibble of KIc (bits b8..b5 of KIc/KID,
+    TS 102 225 5.1.2/A.2 - both bytes must agree, so KIc is enough).  None
+    when the byte is unusable."""
     kic = str((keyset or {}).get('kic') or '').strip().upper()
     if not re.fullmatch(r'[0-9A-F]{2}', kic):
         return None
@@ -210,7 +210,7 @@ class PresetStore:
             pass
 
     def _audit(self, pid, name, old, new, source, kvn=None):
-        """One JSONL line per counter change (the key version included - each
+        """One JSONL line per counter change (the keyset number included - each
         keyset has its own counter): the forensic trail for "did an increment
         get lost?" questions."""
         try:
@@ -279,7 +279,7 @@ class PresetStore:
             self._validate_keyset(ks)
             kvn = keyset_kvn(ks)
             if kvn in seen:
-                raise PresetError('duplicate key version %02X in this preset' % kvn)
+                raise PresetError('duplicate keyset number %02X in this preset' % kvn)
             seen.add(kvn)
         norm = normalize_iccid(p['iccid'])
         if norm:
@@ -292,20 +292,20 @@ class PresetStore:
         return p
 
     def _validate_keyset(self, ks):
-        """One keyset: KIc/KID carry the key version in b8..b5 and must agree
-        (TS 102 225 A.2 - a mismatch is rejected by the card), the version is
+        """One keyset: KIc/KID carry its number in b8..b5 and must agree
+        (TS 102 225 A.2 - a mismatch is rejected by the card), the number is
         01-0F ('00' means "no security" and has no keys to define, so it is
         not a preset keyset), both keys are present and the counter is
-        1-10 hex digits (the dedicated counter of that key version, A.1)."""
+        1-10 hex digits (the dedicated counter of that keyset, A.1)."""
         for key in ('kic', 'kid'):
             if not re.fullmatch(r'[0-9A-F]{2}', ks[key]):
                 raise PresetError('%s must be one hex byte' % key)
         kic_v, kid_v = int(ks['kic'], 16) >> 4, int(ks['kid'], 16) >> 4
         if kic_v != kid_v:
-            raise PresetError('KIc and KID must carry the same key version '
+            raise PresetError('KIc and KID must carry the same keyset number '
                               '(TS 102 225 A.2): %s / %s' % (ks['kic'], ks['kid']))
         if not 1 <= kic_v <= KVN_MAX:
-            raise PresetError('key version must be 01-0F: %s' % ks['kic'])
+            raise PresetError('keyset number must be 01-0F: %s' % ks['kic'])
         for key in ('kicKey', 'kidKey'):
             if not ks[key]:
                 raise PresetError('%s is required' % key)
@@ -397,8 +397,8 @@ class PresetStore:
             return True
 
     def find_keyset(self, pid, kvn):
-        """The keyset of a preset for a key version (the b8..b5 nibble of
-        KIc/KID), or None when the preset or the key version is unknown."""
+        """The keyset of a preset with the given number (the b8..b5 nibble of
+        KIc/KID), or None when the preset or the number is unknown."""
         with self._lock:
             p = self._find(pid)
             if p is None:
@@ -409,9 +409,9 @@ class PresetStore:
         return None
 
     def set_counter(self, pid, cntr, source='operation', kvn=None):
-        """Persist the counter an operation accepted, into the keyset of the
-        key version it used (each key version has its own dedicated counter,
-        TS 102 225 A.1).  Monotonic per keyset: the counter only moves
+        """Persist the counter an operation accepted, into the keyset it used
+        (each keyset has its own dedicated counter, TS 102 225 A.1).
+        Monotonic per keyset: the counter only moves
         forward, so a stale caller can never regress it.  `kvn=None` picks the
         preset's only keyset (a convenience for single-keyset callers).
         Returns the stored preset (or None when the id is unknown)."""
@@ -426,13 +426,13 @@ class PresetStore:
                         ks = cand
                         break
                 if ks is None:
-                    sys.stderr.write('PRESETS: no key version %s in %s (%s)\n'
+                    sys.stderr.write('PRESETS: no keyset %s in %s (%s)\n'
                                      % (kvn, p['name'], source))
                     return copy.deepcopy(p)
             elif len(p['keysets']) == 1:
                 ks = p['keysets'][0]
             else:
-                sys.stderr.write('PRESETS: %s has several key versions - the '
+                sys.stderr.write('PRESETS: %s has several keysets - the '
                                  'counter needs one (%s)\n' % (p['name'], source))
                 return copy.deepcopy(p)
             new = str(cntr or '').strip().upper()

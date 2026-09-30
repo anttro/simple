@@ -528,7 +528,7 @@
 				<select id="sp-card-sel" onchange="cardsApply(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 					<option value="" data-l10n="— Select card —">— Select card —</option>
 				</select>
-				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
 				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 		</div>
 		<div id="sp-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
@@ -695,7 +695,7 @@
 					</select>
 				</div>
 				<div class="flex-1">
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
 					<select id="ram-keyset-sel" onchange="ramKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 				</div>
 				<div class="flex-1">
@@ -922,7 +922,7 @@
 					</select>
 				</div>
 				<div class="flex-1">
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
 					<select id="tar-keyset-sel" onchange="tarKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 				</div>
 			</div>
@@ -1580,7 +1580,7 @@
 
 
 		<div id="tab-cards" class="tab-content hidden">
-		<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.">Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.</p>
+		<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries several keysets, each with its own number and counter.">Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries several keysets, each with its own number and counter.</p>
 		<div class="flex gap-2 mb-3">
 			<input id="cards-name" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Name (e.g. Foobar SIM)">
 			<input id="cards-iccid" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" placeholder="ICCID (optional)">
@@ -1610,11 +1610,11 @@
 				</div>
 			</div>
 			<div class="mb-1 flex items-center justify-between">
-				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — one per key version, each with its own counter">OTA keysets — one per key version, each with its own counter</span>
+				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — each with its own number and counter">OTA keysets — each with its own number and counter</span>
 				<button type="button" onclick="cardsKeysetAdd()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Add keyset">Add keyset</button>
 			</div>
 			<div id="cards-keysets"></div>
-			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).">KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).</p>
+			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).">KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP81 (HTTP OTA)">SCP81 (HTTP OTA)</legend>
@@ -1629,7 +1629,7 @@
 				<thead><tr>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Name">Name</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="ICCID">ICCID</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Keysets (key version: KIc/KID — counter)">Keysets (key version: KIc/KID \u2014 counter)</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Keysets (number: KIc/KID — counter)">Keysets (number: KIc/KID \u2014 counter)</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI1</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">SPI2</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">TAR (ISD/UICC RFM/ADF RFM)</th>
@@ -4941,7 +4941,7 @@ function crc32Bytes(data) {
 // CPL = octets from CHL to end incl. padding; CHL = 13 + len_sig (CC 8, RC 4).
 // CPI (0x70) and CHI (null) are NOT part of the SMS packet data.
 function genSp() {
-	// The packet's key version must be defined in the selected preset
+	// The packet's keyset number must be defined in the selected preset
 	// (TS 102 225 A.2 / the "keyset must exist" rule).
 	const ksErr = spKeysetGuard();
 	if (ksErr) { alert(ksErr); return; }
@@ -7140,7 +7140,7 @@ function testStepRender() {
 				{v: 'apdu', l: t('C-APDU (built with the preset)')}, {v: 'sp', l: t('Pre-built secured packet')}], 'testStepKindChanged()'));
 			if (src === 'sp') html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
 			else html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
-			html += testFormRow('Key version (kvn, optional)',
+			html += testFormRow('Keyset number (optional)',
 				testFormInput('test-f-kvn', p.kvn === undefined ? '' : p.kvn, t('empty = the preset\'s first keyset')));
 			html += testFormRow('TAR override (hex, optional)', testFormInput('test-f-tar', p.tar, 'B00000'));
 			html += testFormRow('SPI1 override (hex, optional)', testFormInput('test-f-spi1', p.spi1, '16'));
@@ -7541,7 +7541,7 @@ async function testPollRun() {
 function testWriteBackCounter() {
 	const st = _testRunState;
 	if (!st || st.running) return;
-	// The server persists every counter the run consumed (one per key version);
+	// The server persists every counter the run consumed (one per keyset number);
 	// this only keeps the local copies in step with what it reports.
 	const counters = (st.scp80_counters && typeof st.scp80_counters === 'object')
 		? st.scp80_counters : null;
@@ -10823,7 +10823,7 @@ function ramGoToPreset(idx) {
 	switchTab('cards');
 	const i = Number(idx);
 	if (Number.isInteger(i) && i >= 0 && cards[i]) cardsEdit(i);
-	// Focus the counter of the key version the failed operation used (the
+	// Focus the counter of the keyset number the failed operation used (the
 	// keyset rows are keyed by their version; the first row otherwise).
 	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
 		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
@@ -11304,15 +11304,15 @@ function cardsTarValue(key, value) {
 	return value || defaults[key] || '';
 }
 
-// ===== OTA keysets (one per GlobalPlatform key version) =====
-// A preset carries one keyset per key version: the b8..b5 nibble of KIc/KID
+// ===== OTA keysets (one per keyset number) =====
+// A preset carries several keysets: a keyset's number is the b8..b5 nibble of KIc/KID
 // (TS 102 225 5.1.2/A.2).  The version is implicit in the bytes - the "key
-// index" - and each key version has its own counter on the card ("a dedicated
+// index" - and each keyset has its own counter on the card ("a dedicated
 // counter shall be associated to each key version", Annex A.1).  A packet may
-// use any key version the preset defines; '00'/'00' means no security (A.2)
+// use any keyset the preset defines; '00'/'00' means no security (A.2)
 // and needs no keyset.
 
-// The key version of a KIc/KID byte, or null when it is not a hex byte.
+// The keyset number of a KIc/KID byte, or null when it is not a hex byte.
 function spKeysetKvnOf(hex) {
 	const s = String(hex || '').trim().toUpperCase();
 	if (!/^[0-9A-F]{2}$/.test(s)) return null;
@@ -11340,14 +11340,14 @@ function spKeysetList(preset) {
 	return [];
 }
 
-// The keyset of a preset for a key version, or null.
+// The keyset of a preset with the given number, or null.
 function spKeysetFor(preset, kvn) {
 	return spKeysetList(preset).find(ks => spKeysetKvnOf(ks.kic) === kvn) || null;
 }
 
 // The packet's key-version rules (pure): '' when the pair is usable, else the
-// reason.  With a preset, the (non-zero) key version must be defined in it -
-// a packet may use any key version, but only one the preset defines.
+// reason.  With a preset, the (non-zero) keyset number must be defined in it -
+// a packet may use any keyset, but only one the preset defines.
 function spKeysetCheck(preset, kicHex, kidHex) {
 	const kic = String(kicHex || '').trim().toUpperCase();
 	const kid = String(kidHex || '').trim().toUpperCase();
@@ -11358,12 +11358,12 @@ function spKeysetCheck(preset, kicHex, kidHex) {
 	}
 	const kicV = spKeysetKvnOf(kic), kidV = spKeysetKvnOf(kid);
 	if (kicV && kidV && kicV !== kidV) {
-		return t('KIc and KID must carry the same key version (TS 102 225 A.2)') + ': ' + kic + ' / ' + kid;
+		return t('KIc and KID must carry the same keyset number (TS 102 225 A.2)') + ': ' + kic + ' / ' + kid;
 	}
 	const kvn = kicV || kidV || 0;
 	if (!kvn) return '';                      // '00'/'00': no security
 	if (preset && !spKeysetFor(preset, kvn)) {
-		return t('Key version') + ' ' + kvn + ' ' + t('is not defined in the preset') +
+		return t('Keyset') + ' ' + kvn + ' ' + t('is not defined in the preset') +
 			(preset.name ? ' \u2014 ' + preset.name : '');
 	}
 	return '';
@@ -11380,11 +11380,11 @@ function spKeysetOptionsHtml(preset, kicHex, kidHex) {
 		if (v === null) return;
 		if (v === kvn) found = true;
 		html += '<option value="' + v + '"' + (v === kvn ? ' selected' : '') + '>' +
-			v + ' \u2014 ' + esc(ks.kic || '??') + '/' + esc(ks.kid || '??') +
+			'Keyset ' + v + ' \u2014 ' + esc(ks.kic || '??') + '/' + esc(ks.kid || '??') +
 			' \u2014 ' + esc(t('counter')) + ' ' + esc(ks.cntr || '') + '</option>';
 	});
 	if (kvn && !found) {
-		html += '<option value="' + kvn + '" selected>' + kvn + ' \u2014 ' +
+		html += '<option value="' + kvn + '" selected>Keyset ' + kvn + ' \u2014 ' +
 			esc(t('not defined in the preset')) + '</option>';
 	}
 	if (!html) html = '<option value="">' + esc(t('\u2014 no keyset \u2014')) + '</option>';
@@ -11398,7 +11398,7 @@ function cardsKeysetRowHtml(ks, i) {
 	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
 	const kvn = spKeysetKvnOf(ks.kic);
 	return '<div class="flex gap-2 items-center mb-1">' +
-		'<span id="cards-ks-' + i + '-kvn" class="w-10 text-xs font-mono text-center text-gray-500 dark:text-slate-400" title="' + esc(t('Key version (b8..b5 of KIc/KID)')) + '">' + (kvn === null ? '?' : kvn) + '</span>' +
+		'<span id="cards-ks-' + i + '-kvn" class="w-10 text-xs font-mono text-center text-gray-500 dark:text-slate-400" title="' + esc(t('Keyset number (b8..b5 of KIc/KID)')) + '">' + (kvn === null ? '?' : kvn) + '</span>' +
 		'<input id="cards-ks-' + i + '-kic" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KIc" value="' + esc(ks.kic || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
 		'<input id="cards-ks-' + i + '-kid" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KID" value="' + esc(ks.kid || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
 		'<input id="cards-ks-' + i + '-kic-key" class="flex-1 ' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '">' +
@@ -11438,8 +11438,8 @@ function cardsKeysetKvnUpdate(i) {
 	const bad = (a !== null && b !== null && a !== b) || a === 0 || b === 0;
 	el.textContent = a === null ? '?' : a;
 	el.classList.toggle('text-red-500', !!bad);
-	el.title = bad ? t('KIc and KID must carry the same key version (TS 102 225 A.2)')
-		: t('Key version (b8..b5 of KIc/KID)');
+	el.title = bad ? t('KIc and KID must carry the same keyset number (TS 102 225 A.2)')
+		: t('Keyset number (b8..b5 of KIc/KID)');
 }
 
 // The keyset rows as preset entries (empty rows are dropped).
@@ -11461,7 +11461,7 @@ function cardsKeysetsFromForm() {
 
 // ===== Keyset selectors (SCP80 / RAM) =====
 // The selector follows the KIc/KID bytes: a keyset of the selected preset that
-// matches their key version is selected; a version the preset does not define
+// matches their keyset number is selected; a number the preset does not define
 // shows as "not defined" (and the packet actions refuse it).
 function spKeysetSync() {
 	const spIdx = spPresetIdx();
@@ -11574,7 +11574,7 @@ function ramPresetIdx() {
 }
 
 // '' when the SCP80 form may build a packet, else the reason.  With a preset
-// selected the key version must be one of its keysets; without one only the
+// selected the keyset number must be one of its keysets; without one only the
 // byte rules apply (hand-entered keys stay possible, a workbench flow).
 function spKeysetGuard() {
 	const idx = spPresetIdx();
@@ -11649,13 +11649,13 @@ async function cardsAdd() {
 		const ksErr = spKeysetCheck(null, ks.kic, ks.kid);
 		if (ksErr) { alert(ksErr); return; }
 		if (!spKeysetKvnOf(ks.kic) || !spKeysetKvnOf(ks.kid)) {
-			alert(t('Key version 00 means "no security" and is not a preset keyset'));
+			alert(t('Keyset 00 means "no security" and is not a preset keyset'));
 			return;
 		}
 	}
 	const kvns = v.keysets.map(ks => spKeysetKvnOf(ks.kic));
 	if (new Set(kvns).size !== kvns.length) {
-		alert(t('Duplicate key version in the keysets'));
+		alert(t('Duplicate keyset number in the keysets'));
 		return;
 	}
 	if ((v.pskKey && !v.pskIdentity) || (!v.pskKey && v.pskIdentity)) {
@@ -11887,7 +11887,7 @@ function cardsApplyFields(idx, keepTar) {
 	const smSel = document.getElementById('sp-spi2-sm');
 	if (smSel) smSel.value = String((spi2Val >> 5) & 1);
 	document.getElementById('sp-spi2-hex').value = c.spi2;
-	// The keyset: keep the key version the form carries when this preset
+	// The keyset: keep the keyset number the form carries when this preset
 	// defines it, otherwise start from the preset's first keyset.
 	const kicNow = (document.getElementById('sp-kic-hex') || {}).value;
 	const kidNow = (document.getElementById('sp-kid-hex') || {}).value;
@@ -18937,7 +18937,7 @@ const LANG_RU = {
 	'GET DATA tag': 'Tag GET DATA',
 	'Response data (hex)': 'Данные ответа (hex)',
 	'— Select command —': '— Выберите команду —',
-	'— select preset —': '— выберите предустановленный —',
+	'— select preset —': '— выберите пресет —',
 	'Error: specify SELECT parameters': 'Ошибка: укажите параметры SELECT',
 	'Error: unknown command': 'Ошибка: неизвестная команда',
 	'Error: specify data': 'Ошибка: укажите данные',
@@ -19771,28 +19771,27 @@ const LANG_RU = {
 	'SCP81 HTTP OTA: the listener picks the key by the PSK identity the card sends in the TLS handshake. Cards without a PSK are ignored by the listener.': 'SCP81 HTTP OTA: слушатель выбирает ключ по PSK identity, которую карта присылает в TLS-рукопожатии. Карты без PSK слушателем игнорируются.',
 	'Card with this ICCID already exists': 'Карта с таким ICCID уже есть в списке',
 	'Card equipped but its ICCID is not readable': 'Карта подключена, но её ICCID не читается',
-	'OTA keysets — one per key version, each with its own counter': 'Наборы ключей OTA — по одному на версию ключа, у каждой свой счётчик',
-	'Add keyset': 'Добавить набор ключей',
-	'Remove keyset': 'Удалить набор ключей',
-	'Key version (keyset)': 'Версия ключа (набор ключей)',
-	'Key version': 'Версия ключа',
-	'Key version (b8..b5 of KIc/KID)': 'Версия ключа (биты b8..b5 KIc/KID)',
-	'Keysets (key version: KIc/KID — counter)': 'Наборы ключей (версия: KIc/KID — счётчик)',
+	'OTA keysets — each with its own number and counter': 'OTA keysets — у каждого свой номер и счётчик',
+	'Add keyset': 'Добавить keyset',
+	'Remove keyset': 'Удалить keyset',
+	'Keyset': 'Keyset',
+	'Keyset number (b8..b5 of KIc/KID)': 'Номер keyset (b8..b5 KIc/KID)',
+	'Keysets (number: KIc/KID — counter)': 'Keysets (номер: KIc/KID — счётчик)',
 	'must be one hex byte': 'должен быть одним hex-байтом',
-	'KIc and KID must carry the same key version (TS 102 225 A.2)': 'KIc и KID должны содержать одну и ту же версию ключа (TS 102 225 A.2)',
-	'is not defined in the preset': 'не определена в предустановке',
-	'not defined in the preset': 'не определена в предустановке',
-	'— no keyset —': '— нет набора ключей —',
+	'KIc and KID must carry the same keyset number (TS 102 225 A.2)': 'KIc и KID должны содержать один и тот же номер keyset (TS 102 225 A.2)',
+	'is not defined in the preset': 'не определён в пресете',
+	'not defined in the preset': 'не определён в пресете',
+	'— no keyset —': '— нет keyset —',
 	'counter': 'счётчик',
-	'Define at least one keyset (KIc/KID and their keys)': 'Определите хотя бы один набор ключей (KIc/KID и их ключи)',
+	'Define at least one keyset (KIc/KID and their keys)': 'Определите хотя бы один keyset (KIc/KID и его ключи)',
 	'Each keyset needs KIc, KID and both keys': 'Каждому набору нужны KIc, KID и оба ключа',
-	'Key version 00 means "no security" and is not a preset keyset': 'Версия ключа 00 означает «без защиты» и не является набором ключей предустановки',
-	'Duplicate key version in the keysets': 'Дублирующаяся версия ключа в наборах',
-	'Select a card preset - its keysets define the key versions': 'Выберите предустановку карты — её наборы ключей определяют версии ключей',
-	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в предустановке.',
+	'Keyset 00 means "no security" and is not a preset keyset': 'keyset 00 означает «без защиты» и не является keyset пресета',
+	'Duplicate keyset number in the keysets': 'Повторяющийся номер keyset',
+	'Select a card preset - its keysets define the keyset numbers': 'Выберите пресет карты — его keysets задают номера keyset',
+	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в пресете.',
 	'counter not tracked (SPI1 has no counter check)': 'счётчик не отслеживается (в SPI1 нет проверки счётчика)',
 	'TAR probe': 'TAR-сканер',
-	'Sends one secured packet per selected TAR (TS 101 220 Annex D, Table D.1) carrying a harmless command, and classifies the card\'s answer - which OTA applications it has registered.  Every packet the card accepts consumes a counter, which is saved to the preset.': 'Отправляет по одному защищённому пакету на каждый выбранный TAR (TS 101 220 Annex D, Table D.1) с безобидной командой и классифицирует ответ карты — какие OTA-приложения на ней зарегистрированы. Каждый принятый картой пакет расходует счётчик, который сохраняется в предустановке.',
+	'Sends one secured packet per selected TAR (TS 101 220 Annex D, Table D.1) carrying a harmless command, and classifies the card\'s answer - which OTA applications it has registered.  Every packet the card accepts consumes a counter, which is saved to the preset.': 'Отправляет по одному защищённому пакету на каждый выбранный TAR (TS 101 220 Annex D, Table D.1) с безобидной командой и классифицирует ответ карты — какие OTA-приложения на ней зарегистрированы. Каждый принятый картой пакет расходует счётчик, который сохраняется в пресете.',
 	'TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1': 'TAR для пробы — TS 101 220 V18.3.0 Annex D, Table D.1',
 	'Select all': 'Выбрать все',
 	'Select none': 'Снять все',
@@ -19803,7 +19802,7 @@ const LANG_RU = {
 	'Probe TARs (registered OTA applications)': 'Проба TAR (зарегистрированные OTA-приложения)',
 	'Probe APDU (hex)': 'APDU пробы (hex)',
 	'TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)': 'TAR для пробы (hex, по одному в строке; пусто = все стандартные TAR из TS 101 220 Annex D)',
-	'One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.': 'Один защищённый пакет на каждый TAR: каждый принятый картой пакет расходует счётчик, который сохраняется в предустановке.',
+	'One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.': 'Один защищённый пакет на каждый TAR: каждый принятый картой пакет расходует счётчик, который сохраняется в пресете.',
 	'Specify the probe APDU': 'Укажите APDU пробы',
 	'Registered applications:': 'Зарегистрированные приложения:',
 	'Application': 'Приложение',
@@ -19815,14 +19814,14 @@ const LANG_RU = {
 	'accepted, no PoR': 'принято, нет PoR',
 	'No card presets defined — the SCP80/RAM views have no keys for the equipped card. Add one in the Cards tab.': 'Предустановки карт не заданы — в представлениях SCP80/RAM нет ключей для подключённой карты. Добавьте её на вкладке «Карты».',
 	'The equipped card': 'Подключённая карта',
-	'does not match any card preset — the selected preset may belong to another card. Add it in the Cards tab (From card).': 'не совпадает ни с одной предустановкой — выбранная предустановка может принадлежать другой карте. Добавьте её на вкладке «Карты» (кнопка «С карты»).',
-	"The selected preset is not the equipped card's": 'Выбранная предустановка не принадлежит подключённой карте',
+	'does not match any card preset — the selected preset may belong to another card. Add it in the Cards tab (From card).': 'не совпадает ни с одним пресетом — выбранный пресет может принадлежать другой карте. Добавьте его на вкладке «Карты» (кнопка «С карты»).',
+	"The selected preset is not the equipped card's": 'Выбранный пресет не принадлежит подключённой карте',
 	'check that its keys and counters belong to this card.': 'проверьте, что её ключи и счётчики относятся к этой карте.',
-	'Key version (kvn, optional)': 'Версия ключа (kvn, опционально)',
-	"empty = the preset's first keyset": 'пусто = первый набор ключей предустановки',
-	'Keysets (key version: KIc/KID — counter)': 'Наборы ключей (версия: KIc/KID — счётчик)',
-	'KIc and KID must carry the same key version (their high nibble) in the range 01-0F — TS 102 225 A.2; each key version has its own counter on the card (Annex A.1).': 'KIc и KID должны содержать одну и ту же версию ключа (старший ниббл) в диапазоне 01-0F — TS 102 225 A.2; у каждой версии ключа свой счётчик на карте (Annex A.1).',
-	'Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries one keyset per key version, each with its own counter.': 'Предустановки карт хранятся на сервере. Кнопки экспорта/импорта JSON — под списком карт; предустановка содержит один набор ключей на версию, у каждой свой счётчик.',
+	'Keyset number (optional)': 'Номер keyset (опционально)',
+	"empty = the preset's first keyset": 'пусто = первый keyset пресета',
+	'Keysets (number: KIc/KID — counter)': 'Keysets (номер: KIc/KID — счётчик)',
+	'KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).': 'KIc и KID должны содержать один и тот же номер keyset (старший ниббл) в диапазоне 01-0F — TS 102 225 A.2; у каждого keyset свой счётчик на карте (Annex A.1).',
+	'Card presets are stored on the server. JSON export/import buttons are below the card list; a preset carries several keysets, each with its own number and counter.': 'Пресеты карт хранятся на сервере. Кнопки экспорта/импорта JSON — под списком карт; пресет содержит несколько keysets, у каждого свой номер и счётчик.',
 	'Save error': 'Ошибка сохранения',
 	'Delete error': 'Ошибка удаления',
 	'Counter not saved:': 'Счётчик не сохранён:',
@@ -19883,9 +19882,9 @@ const LANG_RU = {
 	'Show link events (Channel status ENVELOPEs, TS 102 223 7.5.11)': 'Показывать события канала (ENVELOPE Channel status, TS 102 223 7.5.11)',
 	'ADM verified': 'ADM подтверждён',
 	'ADM not verified': 'ADM не подтверждён',
-	'ADM key in the card preset — verified': 'Ключ ADM в предустановке — подтверждён',
-	'ADM key in the card preset — not verified': 'Ключ ADM в предустановке — не подтверждён',
-	'ADM key in the card preset — click to verify': 'Ключ ADM в предустановке — нажмите для проверки',
+	'ADM key in the card preset — verified': 'Ключ ADM в пресете — подтверждён',
+	'ADM key in the card preset — not verified': 'Ключ ADM в пресете — не подтверждён',
+	'ADM key in the card preset — click to verify': 'Ключ ADM в пресете — нажмите для проверки',
 	'Verify ADM': 'Проверить ADM',
 	'Verifying ADM...': 'Проверка ADM...',
 	'ADM verification failed': 'Проверка ADM не удалась',
@@ -19895,8 +19894,8 @@ const LANG_RU = {
 	'This is the last attempt before the ADM is blocked. Try again?': 'Это последняя попытка — неверный ключ заблокирует ADM. Попробовать снова?',
 	'ADM is blocked': 'ADM заблокирован',
 	'ADM is blocked — unblock the card to try again': 'ADM заблокирован — разблокируйте карту, чтобы повторить',
-	'Verified — no ADM key in the card preset': 'Подтверждён — ключа ADM в предустановке нет',
-	'No ADM key in the card preset — not verified': 'Ключа ADM в предустановке нет — не подтверждён',
+	'Verified — no ADM key in the card preset': 'Подтверждён — ключа ADM в пресете нет',
+	'No ADM key in the card preset — not verified': 'Ключа ADM в пресете нет — не подтверждён',
 	'SCP80 preset complete': 'Предустановка SCP80 заполнена',
 	'SCP81 preset complete': 'Предустановка SCP81 заполнена',
 	'Network state': 'Сетевое состояние',

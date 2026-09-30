@@ -3,7 +3,7 @@
 The store replaces the localStorage presets; the ICCID normalisation must stay
 byte-compatible with the PWA's `cardsNormIccid` (digits / spaced / raw
 nibble-swapped EF hex), every keyset carries its own monotonic counter (one per
-key version, TS 102 225 Annex A.1), and the file must survive a corrupt store
+keyset number, TS 102 225 Annex A.1), and the file must survive a corrupt store
 without silently destroying it.
 """
 
@@ -122,7 +122,7 @@ class StoreCrudTests(unittest.TestCase):
         # TS 102 225 A.2: a mismatch is rejected by the card - refuse it here
         with self.assertRaises(presets.PresetError) as ctx:
             self.store.add(preset(keysets=[keyset(kic='15', kid='25')]))
-        self.assertIn('same key version', str(ctx.exception))
+        self.assertIn('same keyset number', str(ctx.exception))
 
     def test_key_version_00_and_duplicates_are_refused(self):
         with self.assertRaises(presets.PresetError) as ctx:
@@ -131,7 +131,7 @@ class StoreCrudTests(unittest.TestCase):
         with self.assertRaises(presets.PresetError) as ctx:
             self.store.add(preset(keysets=[keyset(kic='15', kid='15'),
                                            keyset(kic='15', kid='15')]))
-        self.assertIn('duplicate key version', str(ctx.exception))
+        self.assertIn('duplicate keyset number', str(ctx.exception))
         # the byte must be a full hex byte
         with self.assertRaises(presets.PresetError):
             self.store.add(preset(keysets=[keyset(kic='1', kid='1')]))
@@ -237,7 +237,7 @@ class StoreCounterTests(unittest.TestCase):
         self.assertEqual(self.counter(), '0000000005')
 
     def test_each_key_version_has_its_own_counter(self):
-        # TS 102 225 A.1: a dedicated counter per key version
+        # TS 102 225 A.1: a dedicated counter per keyset
         p = self.store.update(self.p['id'], {'keysets': [
             keyset(kic='15', kid='15', cntr='0000000002'),
             keyset(kic='29', kid='29', cntr='0000000007')]})

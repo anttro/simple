@@ -197,8 +197,8 @@ it; `Path.home()` resolves the same way on Linux, macOS and Windows).  The file
 is written atomically and every counter change is appended to
 `card_presets.json.audit.jsonl`.
 
-**Keysets.**  A preset carries one keyset per GlobalPlatform key version — the
-`b8..b5` nibble of KIc/KID (TS 102 225 §5.1.2/A.2); the version is implicit in
+**Keysets.**  A preset carries several keysets — a keyset's number is the
+`b8..b5` nibble of its KIc/KID (TS 102 225 §5.1.2/A.2); the number is implicit in
 the bytes, there is no separate field:
 
 ```json
@@ -211,24 +211,24 @@ the bytes, there is no separate field:
  ]}
 ```
 
-Rules (all refused with `400`): KIc and KID must carry the **same** key version
+Rules (all refused with `400`): KIc and KID must carry the **same** keyset number
 (A.2 — the card rejects a mismatch with "Unidentified security error"), the
-version must be `01`–`0F` (`00` means "no security" and is a packet-level
-choice, not a preset keyset), no two keysets may share a version, both keys and
+number must be `01`–`0F` (`00` means "no security" and is a packet-level
+choice, not a preset keyset), no two keysets may share a number, both keys and
 a counter (1–10 hex digits) are required, and the counters are stored in the
 fixed-width 10-hex form.  A v3.8.0 flat preset (`kic`/`kid`/`kicKey`/`kidKey`/
 `cntr` at the top level) converts into a single keyset on load and on import,
 so old files and exports keep working.
 
 **Counters.**  The store is the source of truth for the SCP80 counters, one per
-key version ("a dedicated counter shall be associated to each key version",
-Annex A.1).  The operations below accept a `preset_id` and **persist the
+keyset ("a dedicated counter shall be associated to each key version",
+Annex A.1 — the spec's wording).  The operations below accept a `preset_id` and **persist the
 counter they consumed themselves** (monotonic per keyset — a stale value never
 regresses it), so a closed tab, a lost response or a second browser window can
 no longer lose an increment.  A request whose KIc/KID name a **non-zero key
-version the preset does not define** is refused (`400 {"error": "key version N
+number the preset does not define** is refused (`400 {"error": "keyset N
 is not defined in preset '…' - add it in the Cards tab"}`), and so is a
-KIc/KID version mismatch.  The Cards tab's export/import uses this API; the
+KIc/KID number mismatch.  The Cards tab's export/import uses this API; the
 import also accepts presets exported by the older localStorage-based builds.
 
 - `GET /api/presets` — `{"path": "…", "count": 2, "version": 2, "presets": [{…}]}`
@@ -254,7 +254,7 @@ a `tars` list is given), each carrying a harmless C-APDU (`SELECT MF` by
 default), with the preset's keyset and SPI `16/01` (counter check + PoR).
 Every accepted packet consumes a counter, which is persisted into the keyset
 like any other operation, so the probe is refused when the SPI1 has no counter
-check (b5b4 = 00) or the named preset does not define the key version.
+check (b5b4 = 00) or the named preset does not define the keyset number.
 
 ```json
 {"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
@@ -413,10 +413,10 @@ scripts) must not be wrapped.
 the counter that was sent, advanced by one when the card accepted the packet.
 A request without a `cntr` (nothing to advance) simply reports no
 `final_cntr` — it never fails the send.  With `preset_id` the server persists
-the counter into the keyset of the key version the packet used (see *Card
+the counter into the keyset the packet used (see *Card
 presets*), so a lost response or a closed tab cannot lose the increment; the
-request is refused when KIc/KID carry different key versions (TS 102 225 A.2)
-or a non-zero key version the preset does not define.
+request is refused when KIc/KID carry different keyset numbers (TS 102 225 A.2)
+or a non-zero keyset number the preset does not define.
 
 **Counter tracking follows SPI1.b5b4** (TS 102 225 §5.1.1): with `00` the
 counter field is "present, ignored, never updated", so a packet whose SPI1 has

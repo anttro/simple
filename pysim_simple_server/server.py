@@ -1447,7 +1447,7 @@ def _counter_valid(cntr):
 
 
 def _kvn_of(kic_hex, kid_hex):
-    """The key version a packet uses: the b8..b5 nibble of KIc/KID (TS 102 225
+    """The keyset number a packet uses: the b8..b5 nibble of KIc/KID (TS 102 225
     5.1.2/A.2).  Returns ``(kvn, error)``: kvn is 0 when neither byte carries
     one ('00' = no security, legal per A.2), error names a mismatch - A.2: the
     versions shall be identical when different from 0, else the card rejects
@@ -1460,15 +1460,15 @@ def _kvn_of(kic_hex, kid_hex):
     kic_v = int(kic, 16) >> 4 if kic else 0
     kid_v = int(kid, 16) >> 4 if kid else 0
     if kic_v and kid_v and kic_v != kid_v:
-        return None, ('KIc and KID must carry the same key version '
+        return None, ('KIc and KID must carry the same keyset number '
                       '(TS 102 225 A.2): %s / %s' % (kic, kid))
     return (kic_v or kid_v), None
 
 
 def _preset_keyset_check(server, preset_id, kic, kid):
-    """The "the key version must be defined in the preset" rule: an error
-    string when the packet's (non-zero) key version has no keyset in the named
-    preset, else None.  Without a preset_id (a raw API caller) there is
+    """The "the keyset number must be defined in the preset" rule: an error
+    string when the packet's (non-zero) keyset number has no keyset in the
+    named preset, else None.  Without a preset_id (a raw API caller) there is
     nothing to check; '00'/'00' (no security) needs no keyset either."""
     if not preset_id:
         return None
@@ -1482,19 +1482,19 @@ def _preset_keyset_check(server, preset_id, kic, kid):
         return None
     if store.find_keyset(preset_id, kvn) is None:
         preset = store.get(preset_id) or {}
-        return ('key version %d is not defined in preset %s - add it in the '
+        return ('keyset %d is not defined in preset %s - add it in the '
                 'Cards tab' % (kvn, preset.get('name') or preset_id))
     return None
 
 
 def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
     """Persist the counter an operation accepted into the server-side preset
-    store (v3.8.0), into the keyset of the key version it used (each key
-    version has its own dedicated counter, TS 102 225 A.1).  The counter is
+    store (v3.8.0), into the keyset it used (each keyset has its own dedicated
+    counter, TS 102 225 A.1).  The counter is
     card state, so the server writes it with the operation that consumed it - a
     closed tab, a lost response or a second browser window can no longer lose
     an increment.  The store itself is monotonic (a stale value never regresses
-    it).  A key version is mandatory: a packet with no key version (KIc/KID
+    it).  A keyset number is mandatory: a packet with no number (KIc/KID
     '00', or a SPI1 without a counter check) has no counter to write.  Best
     effort: a store failure must never fail the card operation."""
     if not preset_id or not cntr or not kvn:
@@ -5313,9 +5313,9 @@ def _test_preset_error(script, preset):
             want = int(p['kvn'])
             ks = next((k for k in keysets if presets.keyset_kvn(k) == want), None)
             if ks is None:
-                return 'step %d: key version %d is not defined in the preset' % (i + 1, want)
+                return 'step %d: keyset %d is not defined in the preset' % (i + 1, want)
             if not _keyset_complete(ks):
-                return ('step %d: key version %d is incomplete (KIc, KID, both '
+                return ('step %d: keyset %d is incomplete (KIc, KID, both '
                         'keys and a counter)' % (i + 1, want))
         if not (p.get('tar') or preset.get('tar')):
             return 'step %d: no TAR (neither in the step nor in the preset)' % (i + 1)
@@ -5445,16 +5445,16 @@ def _test_run_scp80(server, step, ctx):
     scc = server.scc
     preset = ctx['preset']
     p = step['params']
-    # The keyset: a step may name a key version (`kvn`), otherwise the preset's
-    # first keyset is used (a preset carries one keyset per key version, each
-    # with its own keys and counter - TS 102 225 Annex A.1).
+    # The keyset: a step may name a keyset number (`kvn`), otherwise the
+    # preset's first keyset is used (each keyset has its own keys and counter -
+    # TS 102 225 Annex A.1).
     keysets = _preset_keysets(preset)
     keyset = None
     if p.get('kvn') is not None:
         want = int(p['kvn'])
         keyset = next((ks for ks in keysets if presets.keyset_kvn(ks) == want), None)
         if keyset is None:
-            raise testscript.ScriptError('key version %d is not defined in the '
+            raise testscript.ScriptError('keyset %d is not defined in the '
                                          'selected card preset' % want)
     elif keysets:
         keyset = keysets[0]
@@ -5823,11 +5823,11 @@ class PysimHandler(BaseHTTPRequestHandler):
         self._log_resp(resp)
 
     def _keyset_guard(self, body, kic, kid):
-        """The key-version checks shared by the RAM operations: the KIc/KID
-        versions must agree (TS 102 225 A.2 - the card rejects a mismatch) and a
-        named preset must define the key version ("the keyset must exist").
-        Returns ``(kvn, error)``: kvn is None when the packet carries no key
-        version ('00'/'00' = no security, legal per A.2), error an error string
+        """The keyset-number checks shared by the RAM operations: the KIc/KID
+        numbers must agree (TS 102 225 A.2 - the card rejects a mismatch) and a
+        named preset must define the number ("the keyset must exist").
+        Returns ``(kvn, error)``: kvn is None when the packet carries no number
+        ('00'/'00' = no security, legal per A.2), error an error string
         the caller answers with 400."""
         kvn, err = _kvn_of(kic, kid)
         if err:
@@ -6914,7 +6914,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': _err('reader_not_init', lang)}, 503)
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
-            # The packet's key version (b8..b5 of KIc/KID, TS 102 225 A.2) must
+            # The packet's keyset number (b8..b5 of KIc/KID, TS 102 225 A.2) must
             # be consistent - a mismatch is invalid input (the card rejects it
             # with "Unidentified security error") - and, when a preset is named,
             # defined in it.  Both are refused before anything is built (and
@@ -7160,7 +7160,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 make_selectable = body.get('make_selectable', True)
                 privileges_hex = body.get('privileges', '').replace(' ', '') or '00'
 
-                # The key version must be consistent and defined in the preset
+                # The keyset number must be consistent and defined in the preset
                 # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
                 # before the format probe consumes a counter.
                 kvn, keyset_err = self._keyset_guard(body, kic, kid)
@@ -7330,7 +7330,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'tar': body.get('tar', '000000'), 'cntr': body.get('cntr', '00000000'),
                     'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                     'include_cpi': body.get('includeCpi', True)}
-                # The key version must be consistent and defined in the preset
+                # The keyset number must be consistent and defined in the preset
                 # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
                 # before the format probe consumes a counter.
                 kvn, keyset_err = self._keyset_guard(body, sp_state['kic'], sp_state['kid'])

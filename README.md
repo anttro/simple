@@ -404,7 +404,7 @@ Decodes a raw command response: pick the command that was sent, enter the SW (e.
 
 ## SCP80 tab
 
-The **SCP80** top-level tab groups SCP80-related views, switched by two pills: **Secured Packet** and **RAM**. Assembles secured packets per ETSI TS 102 225. When a card is equipped the server reads its EF.ICCID (2FE2); if a preset carries the same number (digits, or the raw EF hex), it is selected automatically in both views.
+The **SCP80** top-level tab groups SCP80-related views, switched by three pills: **Secured Packet**, **RAM** and **TAR probe**. Assembles secured packets per ETSI TS 102 225. When a card is equipped the server reads its EF.ICCID (2FE2); if a preset carries the same number (digits, or the raw EF hex), it is selected automatically in all three SCP80 views.
 
 ### Secured Packet
 
@@ -515,9 +515,23 @@ Delete confirms via a browser prompt before sending the GP `DELETE` command via 
 
 ---
 
+### TAR probe
+
+The third SCP80 pill probes **which OTA applications the card has registered**: it sends one secured packet per
+selected TAR — the standard allocations of TS 101 220 V18.3.0 Annex D, Table D.1 (pre-filled and all checked) plus
+custom TARs added with **Add TAR** and kept in `localStorage` — each carrying a harmless C-APDU (`SELECT MF` by
+default), with the view's preset and keyset and SPI `16/01` (counter check + PoR). Every answer is classified:
+**registered** (ENVELOPE 9000 + a PoR carrying the application's own status word and data), **accepted, no answer**
+(a PoR without an R-APDU), **accepted, no PoR** (the packet was silently dropped) and **refused** (the ENVELOPE
+itself was rejected). Each packet the card accepts consumes a counter, which is saved into the preset's keyset; the
+probe is refused when SPI1 has no counter check or the named preset does not define the keyset number.
+`POST /api/tar-probe` (see `docs/api.md`).
+
+---
+
 ## Cards
 
-Stores saved card configurations (presets) in `localStorage`. A preset holds the cryptographic keys, SPI settings, TARs and replay counter for SCP80 operations, the optional **ADM** key, plus the **PSK identity / PSK key** pair used by the SCP81 HTTP OTA listener. Cards is a **top-level tab**. The form groups the fields into two bordered blocks — **SCP80 (GSM 03.48, ETSI TS 102 225)** and **SCP81 (HTTP OTA)** — with the optional **ADM** field in the top row. When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in both SCP80 views. The header shows gray **SCP80** / **SCP81** markers and a key glyph on the **ADM** badge when the preset matching the equipped card's ICCID has those settings filled in.
+Stores saved card configurations (presets) in a **server-side store** — `~/.pysim-simple-server/card_presets.json` (`--card-presets` overrides it). A preset holds the cryptographic keys, SPI settings, TARs and the replay counters for SCP80 operations, the optional **ADM** key, plus the **PSK identity / PSK key** pair used by the SCP81 HTTP OTA listener. A preset carries **several keysets** — a keyset's number is the `b8..b5` nibble of its KIc/KID (TS 102 225 §5.1.2/A.2): KIc and KID of a keyset must carry the same number (`01`–`0F`; A.2 rejects a mismatch), `00` (no security) is not a preset keyset, and each keyset has its own counter on the card (Annex A.1) — the server owns those counters, persists every consumed increment and appends it to an audit trail (`card_presets.json.audit.jsonl`). The list is loaded when the PWA connects; JSON export/import (which also accepts the old flat presets) is the migration path from the browser-local store. Cards is a **top-level tab**. The form groups the fields into two bordered blocks — **SCP80 (GSM 03.48, ETSI TS 102 225)** and **SCP81 (HTTP OTA)** — with the optional **ADM** field in the top row; the keysets are edited as rows (one per number, **Add keyset** / **Remove keyset**). When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in all three SCP80 views; when the equipped card matches **no** preset — or the selected preset belongs to another card — all three SCP80 views show an amber warning above the preset selector. The header shows gray **SCP80** / **SCP81** markers and a key glyph on the **ADM** badge when the preset matching the equipped card's ICCID has those settings filled in.
 
 | Field | Description |
 |---|---|
@@ -525,20 +539,20 @@ Stores saved card configurations (presets) in `localStorage`. A preset holds the
 | ICCID | Optional card identifier |
 | ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), stored for the file manager; not used by the SCP80/SCP81 views |
 | SPI1 / SPI2 | Security level and PoR settings |
-| KIc / KID index | Key version number (required together with the keys) |
+| KIc / KID index | Keyset number (`01`–`0F`, from the KIc/KID byte; required together with the keys) |
 | KIc / KID key | Encryption and MAC key hex |
 | ISD TAR | Issuer Security Domain TAR (TS 101 220 Annex D), used for RAM/GP operations; spec default `000000` |
 | UICC RFM TAR | UICC Shared File System RFM TAR (TS 102 226 §7.2), used by the SIM RFM view; spec default `B00000` |
 | ADF RFM TAR | ADF RFM TAR (TS 102 226 §7.3), linked to the ADF AID (ADF.USIM in the USIM RFM view); spec default `B00001` |
-| Counter (CNTR) | 10-digit hex replay counter, auto-incremented after each successful SCP80 send |
+| Counter (CNTR) | 10-digit hex replay counter, one per keyset; the server advances and saves it after each operation that consumes it (nothing is tracked when SPI1 b5 b4 = `00`, TS 102 225 §5.1.1) |
 | PSK identity | SCP81 HTTP OTA: the identity the card sends in the TLS handshake |
 | PSK key | SCP81 HTTP OTA: 32 hex chars (16 bytes); the listener picks it by the identity the card presents |
 
 The **SCP81** column shows whether the preset supplies a usable PSK pair: **✓** (identity and key), **⚠** (only one of the two — the listener ignores such a preset), **—** (no PSK). Identity and key must be set together.
 
-**Add a card:** fill in the name, ICCID (optional — **From card** fills it from the equipped card's EF.ICCID), the optional **ADM**, SPI1/SPI2, KIc/KID keys and indices, the three TARs, the SCP81 PSK pair (optional) and click **Add**. A duplicate ICCID (compared ignoring spaces and the raw-hex form) is refused, naming the conflicting preset. The card appears in the list and becomes available in the RAM tab's **Card preset** dropdown.
+**Add a card:** fill in the name, ICCID (optional — **From card** fills it from the equipped card's EF.ICCID), the optional **ADM**, SPI1/SPI2, one or more keysets (KIc/KID + keys per number, **Add keyset**), the three TARs, the SCP81 PSK pair (optional) and click **Add**. A duplicate ICCID (compared ignoring spaces and the raw-hex form) is refused, naming the conflicting preset. The card appears in the list and becomes available in the RAM tab's **Card preset** dropdown.
 
-**Edit / remove:** **Edit** loads a preset into the form (the Add button becomes **Save**; **Cancel** clears the form); **Remove** deletes the row from `localStorage`. A successful SCP80 send advances and stores the replay counter, and edits are pushed into a running SCP81 listener automatically.
+**Edit / remove:** **Edit** loads a preset into the form (the Add button becomes **Save**; **Cancel** clears the form); **Remove** deletes the preset from the server store. A successful SCP80 send advances and stores the counter of the keyset it used, and edits are pushed into a running SCP81 listener automatically.
 
 ---
 

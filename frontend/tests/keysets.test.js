@@ -38,13 +38,13 @@ const PRESET = {
 	],
 };
 
-test('spKeysetKvnOf reads the key version from the high nibble', () => {
+test('spKeysetKvnOf reads the keyset number from the high nibble', () => {
 	assert.strictEqual(spKeysetKvnOf('15'), 1);
 	assert.strictEqual(spKeysetKvnOf('29'), 2);
 	assert.strictEqual(spKeysetKvnOf('3A'), 3);
 	assert.strictEqual(spKeysetKvnOf('05'), 0);
 	assert.strictEqual(spKeysetKvnOf('ff'), 15);
-	// not a byte: no key version
+	// not a byte: no keyset number
 	assert.strictEqual(spKeysetKvnOf(''), null);
 	assert.strictEqual(spKeysetKvnOf('5'), null);
 	assert.strictEqual(spKeysetKvnOf('ZZ'), null);
@@ -60,15 +60,15 @@ test('spKeysetList converts a v3.8.0 flat preset into one keyset', () => {
 	assert.deepStrictEqual(spKeysetList({}), []);
 });
 
-test('spKeysetFor finds a keyset by key version', () => {
+test('spKeysetFor finds a keyset by number', () => {
 	assert.strictEqual(spKeysetFor(PRESET, 1).cntr, '0000000001');
 	assert.strictEqual(spKeysetFor(PRESET, 2).cntr, '0000000005');
 	assert.strictEqual(spKeysetFor(PRESET, 3), null);
 	assert.strictEqual(spKeysetFor(null, 1), null);
 });
 
-test('spKeysetCheck enforces the key-version rules', () => {
-	// a defined key version passes
+test('spKeysetCheck enforces the keyset-number rules', () => {
+	// a defined keyset number passes
 	assert.strictEqual(spKeysetCheck(PRESET, '15', '15'), '');
 	assert.strictEqual(spKeysetCheck(PRESET, '29', '29'), '');
 	// '00'/'00' means no security: no keyset needed (TS 102 225 A.2)
@@ -76,8 +76,8 @@ test('spKeysetCheck enforces the key-version rules', () => {
 	// ... and one zero byte with a defined version passes too
 	assert.strictEqual(spKeysetCheck(PRESET, '15', '00'), '');
 	// KIc/KID versions must agree when both are non-zero (A.2)
-	assert.match(spKeysetCheck(PRESET, '15', '25'), /same key version/);
-	// the key version must be defined in the preset
+	assert.match(spKeysetCheck(PRESET, '15', '25'), /same keyset number/);
+	// the keyset number must be defined in the preset
 	assert.match(spKeysetCheck(PRESET, '35', '35'), /3 .*not defined/);
 	// one zero byte: the other byte's version applies (keyset 2 is defined)
 	assert.strictEqual(spKeysetCheck(PRESET, '00', '25'), '');
@@ -90,7 +90,7 @@ test('spKeysetCheck enforces the key-version rules', () => {
 	assert.match(spKeysetCheck(PRESET, '15', 'ZZ'), /KID/);
 });
 
-test('spKeysetOptionsHtml lists the keysets and marks an undefined version', () => {
+test('spKeysetOptionsHtml lists the keysets and marks an undefined number', () => {
 	const html1 = spKeysetOptionsHtml(PRESET, '15', '15');
 	assert.match(html1, /value="1" selected/);
 	assert.match(html1, /value="2"/);
@@ -102,7 +102,7 @@ test('spKeysetOptionsHtml lists the keysets and marks an undefined version', () 
 	// a preset without keysets: the form's version shows as undefined
 	const html3 = spKeysetOptionsHtml({ keysets: [] }, '15', '15');
 	assert.match(html3, /not defined in the preset/);
-	// no key version in the form and no keysets at all
+	// no keyset number in the form and no keysets at all
 	assert.match(spKeysetOptionsHtml({}, '', ''), /no keyset/);
 });
 

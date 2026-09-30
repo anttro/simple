@@ -2116,7 +2116,7 @@ class NoSecurityAndCounterTrackingTests(unittest.TestCase):
         server = types.SimpleNamespace(card_presets=store)
         S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', None)
         S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', 0)
-        self.assertFalse(store.set_counter.called, 'no key version -> no write')
+        self.assertFalse(store.set_counter.called, 'no keyset number -> no write')
         S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', 2)
         store.set_counter.assert_called_once_with('pid', '0000000002', 'send-ota', 2)
 
