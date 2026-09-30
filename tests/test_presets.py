@@ -117,6 +117,27 @@ class StoreCrudTests(unittest.TestCase):
         self.assertFalse(self.store.remove(p['id']))
         self.assertEqual(self.store.list(), [])
 
+    def test_a_caller_supplied_id_never_collides(self):
+        first = self.store.add(preset())
+        second = self.store.add(dict(preset(name='B'), id=first['id']))
+        self.assertNotEqual(second['id'], first['id'])
+        self.assertEqual(len({p['id'] for p in self.store.list()}), 2)
+
+    def test_the_counter_must_be_hex_and_at_most_ten_digits(self):
+        for bad in ('ZZ', '00000000000000000000'):
+            with self.assertRaises(presets.PresetError) as ctx:
+                self.store.add(preset(cntr=bad))
+            self.assertIn('counter', str(ctx.exception))
+        # whitespace is cleaned and a short value is stored fixed-width
+        self.assertEqual(self.store.add(preset(cntr='12 34'))['cntr'], '0000001234')
+        self.assertEqual(self.store.add(preset(cntr='abc'))['cntr'], '0000000ABC')
+
+    def test_update_validates_the_counter_too(self):
+        p = self.store.add(preset())
+        with self.assertRaises(presets.PresetError):
+            self.store.update(p['id'], {'cntr': 'ZZ'})
+        self.assertEqual(self.store.get(p['id'])['cntr'], '0000000001')
+
     def test_find_by_iccid(self):
         p = self.store.add(preset(iccid=DIGITS))
         self.assertEqual(self.store.find_by_iccid(RAW_HEX)['id'], p['id'])
@@ -160,6 +181,14 @@ class StoreCounterTests(unittest.TestCase):
     def test_set_counter_on_unknown_id_is_none(self):
         self.assertIsNone(self.store.set_counter('nope', '0000000002'))
 
+    def test_set_counter_ignores_a_malformed_value(self):
+        self.store.set_counter(self.p['id'], 'ZZ', 'send-ota')
+        self.assertEqual(self.store.get(self.p['id'])['cntr'], '0000000001')
+        self.store.set_counter(self.p['id'], '00000000000000000000', 'send-ota')
+        self.assertEqual(self.store.get(self.p['id'])['cntr'], '0000000001')
+        self.store.set_counter(self.p['id'], '', 'send-ota')
+        self.assertEqual(self.store.get(self.p['id'])['cntr'], '0000000001')
+
     def test_counter_changes_are_audited(self):
         self.store.set_counter(self.p['id'], '0000000005', 'send-ota')
         lines = self.store.audit_path.read_text(encoding='utf-8').strip().splitlines()
@@ -189,10 +218,11 @@ class StorePersistenceTests(unittest.TestCase):
 
     def test_no_temporary_files_are_left_behind(self):
         store = make_store(self.tmp.name)
-        store.add(preset())
+        p = store.add(preset())
         store.add(preset(name='Second'))
+        store.set_counter(p['id'], '0000000005', 'send-ota')   # writes the audit file
         leftovers = [f.name for f in pathlib.Path(self.tmp.name).iterdir()
-                     if '.json.' in f.name]
+                     if f.name not in ('card_presets.json', 'card_presets.json.audit.jsonl')]
         self.assertEqual(leftovers, [])
 
     def test_a_corrupt_store_is_kept_and_the_store_starts_empty(self):

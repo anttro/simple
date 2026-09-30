@@ -351,6 +351,13 @@ packets consume counters).  Without the key the command data is sent
 byte-exact: applet-directed payloads (HTTP OTA triggers, §9 push, expanded
 scripts) must not be wrapped.
 
+`final_cntr` is reported for the plain `sp` path too (a pre-built packet):
+the counter that was sent, advanced by one when the card accepted the packet.
+A request without a `cntr` (nothing to advance) simply reports no
+`final_cntr` — it never fails the send.  With `preset_id` the server persists
+the counter into the card preset store (see *Card presets*), so a lost
+response or a closed tab cannot lose the increment.
+
 **Request body:**
 ```json
 {
@@ -363,6 +370,7 @@ scripts) must not be wrapped.
   "cntr": "0000000001",
   "kicKey": "D6FCC023...",
   "kidKey": "1B07E7E0...",
+  "preset_id": "7ee0367f3a444b28988fea5fbc50de9f",
   "ram_format": "auto"
 }
 ```

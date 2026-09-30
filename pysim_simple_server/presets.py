@@ -208,7 +208,9 @@ class PresetStore:
             out[k] = v
         out['spi1'] = out['spi1'] or '16'
         out['spi2'] = out['spi2'] or '01'
-        out['cntr'] = counter_hex(out['cntr'] or '1')
+        # the counter is kept as typed here and validated + padded in
+        # _validate(): a bad value must be refused, never silently masked
+        out['cntr'] = out['cntr'] or '1'
         for k, d in TAR_DEFAULTS.items():
             out[k] = out[k] or d
         pid = str(fields.get('id') or '').strip().lower()
@@ -225,6 +227,10 @@ class PresetStore:
             raise PresetError('PSK identity and PSK key must be set together')
         if p['pskKey'] and not re.fullmatch(r'[0-9A-F]{32}', p['pskKey']):
             raise PresetError('PSK key must be 32 hex characters')
+        if not re.fullmatch(r'[0-9A-F]{1,10}', p['cntr']):
+            raise PresetError('counter must be 1-10 hex digits')
+        # validated: store the protocol's fixed-width form
+        p['cntr'] = counter_hex(p['cntr'])
         norm = normalize_iccid(p['iccid'])
         if norm:
             for other in self._presets:
@@ -267,6 +273,10 @@ class PresetStore:
     def add(self, fields):
         with self._lock:
             p = self._normalise(fields or {})
+            if self._find(p['id']):
+                # a caller-supplied id that is already taken never wins: ids
+                # must stay unique (the same guard the import uses)
+                p['id'] = uuid.uuid4().hex
             self._validate(p)
             self._presets.append(p)
             self._save()
@@ -315,7 +325,12 @@ class PresetStore:
             p = self._find(pid)
             if p is None:
                 return None
-            new = counter_hex(cntr)
+            new = str(cntr or '').strip().upper()
+            if not re.fullmatch(r'[0-9A-F]{1,10}', new):
+                sys.stderr.write('PRESETS: ignoring malformed counter %r (%s)\n'
+                                 % (cntr, source))
+                return dict(p)
+            new = counter_hex(new)
             if new == p['cntr']:
                 return dict(p)
             if not counter_ahead(p['cntr'], new):

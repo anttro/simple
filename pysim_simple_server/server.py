@@ -1412,6 +1412,13 @@ def _ram_next_cntr(cntr, advance):
     return '%010X' % ((int(cntr, 16) + 1) % (2 ** 40))
 
 
+def _counter_valid(cntr):
+    """True when an SCP80 counter is usable (1-10 hex digits).  A caller
+    sending a pre-built packet may have no counter at all - the empty value
+    must never reach int() (v3.8.0 review fix)."""
+    return bool(re.fullmatch(r'[0-9A-Fa-f]{1,10}', str(cntr or '')))
+
+
 def _preset_counter_persist(server, preset_id, cntr, source):
     """Persist the counter an operation accepted into the server-side preset
     store (v3.8.0).  The counter is card state, so the server writes it with
@@ -1736,8 +1743,13 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
     from osmocom.utils import h2b, b2h
     if not response_hex:
         return None
-    otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
-    spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
+    try:
+        otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
+        spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
+    except Exception:
+        # a malformed counter/key (e.g. a hand-made request) is not a PoR
+        # either - the same rule as the decode below: never raise here.
+        return None
     try:
         data = h2b(response_hex)
         if not data or data[0] != 0x02:
@@ -5634,6 +5646,13 @@ class PysimHandler(BaseHTTPRequestHandler):
             return None
         return store
 
+    def _preset_store_error(self, e):
+        """A store I/O failure (read-only home, disk full, ...) answers a JSON
+        500 instead of escaping the handler as a dropped connection."""
+        resp = {'error': 'preset store write failed: %s' % e}
+        self._send_json(resp, 500)
+        self._log_resp(resp)
+
     def _log_req(self, body=None):
         if self.server.log_requests:
             if body is not None:
@@ -6777,6 +6796,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         resp = result
                         if ram_format is not None:
                             resp['ram_format'] = ram_format
+                        if _counter_valid(cntr):
                             resp['final_cntr'] = cntr
                         # A warning ENVELOPE may still carry the PoR (the
                         # card's counter verdict): decode it so the caller
@@ -6853,7 +6873,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                             resp['ram_format'] = ram_format
                         # The counter to use next, reported for the RAM and the
                         # plain SCP80 path alike; the server persists it (v3.8.0).
-                        resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
+                        # A pre-built packet may come without a counter - then
+                        # nothing is reported (and int('') never happens).
+                        if _counter_valid(cntr):
+                            resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
@@ -7384,6 +7407,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            except OSError as e:
+                self._preset_store_error(e)
+                return
             resp = {'ok': True, 'preset': preset}
             self._send_json(resp)
             self._log_resp(resp)
@@ -7403,6 +7429,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            except OSError as e:
+                self._preset_store_error(e)
+                return
             if preset is None:
                 resp = {'error': 'unknown preset id'}
                 self._send_json(resp, 404)
@@ -7417,7 +7446,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             store = self._preset_store_or_503()
             if store is None:
                 return
-            removed = store.remove(body.get('id'))
+            try:
+                removed = store.remove(body.get('id'))
+            except OSError as e:
+                self._preset_store_error(e)
+                return
             resp = {'ok': True, 'removed': removed}
             self._send_json(resp)
             self._log_resp(resp)
@@ -7434,7 +7467,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
                 return
             mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
-            resp = store.import_presets(items, mode)
+            try:
+                resp = store.import_presets(items, mode)
+            except OSError as e:
+                self._preset_store_error(e)
+                return
             resp['ok'] = True
             self._send_json(resp)
             self._log_resp(resp)

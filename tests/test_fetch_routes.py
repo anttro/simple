@@ -559,6 +559,36 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['final_cntr'], '0000000002')
         self.assertEqual(self.store.get(p['id'])['cntr'], '0000000002')
 
+    def test_a_counter_less_send_ota_body_still_answers(self):
+        # a pre-built packet without a counter: no final_cntr, no persist,
+        # and above all no int('') crash (v3.8.0 review fix)
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': ''}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: None),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertNotIn('final_cntr', resp)
+        self.assertEqual(self.store.get(p['id'])['cntr'], '0000000001')
+
+    def test_a_store_write_failure_answers_a_json_500(self):
+        with mock.patch.object(self.store, 'add', side_effect=OSError('read-only file system')):
+            status, resp = self._post('/api/presets', self._preset())
+        self.assertEqual(status, 500, resp)
+        self.assertIn('preset store write failed', resp['error'])
+
     def test_the_store_endpoints_answer_503_without_a_store(self):
         self.server.card_presets = None
         status, resp = self._get('/api/presets')
