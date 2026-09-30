@@ -37,7 +37,7 @@ for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEd
 	'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
-code = 'var _cardsKeysetCount = 0;\n' + code;
+code = 'var _cardsKeysetCount = 0;\nglobalThis.spPresetWarningRender = function() {};\n' + code;
 eval(code);
 
 const CARD_IDS = ['cards-name','cards-iccid','cards-adm',

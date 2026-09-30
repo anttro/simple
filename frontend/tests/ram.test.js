@@ -48,6 +48,7 @@ const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
 if (an) code += an[0].replace(/^const /, 'var ') + '\n';
 const ar = html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/);
 if (ar) code += ar[0].replace(/^const /, 'var ') + '\n';
+globalThis.spPresetWarningRender = () => {};
 eval(code);
 code += 'var _ramCardIdx = null;\nvar _ramOpLast = null;\nvar _ramExplorerData = null;\n';
 eval(code);

@@ -108,6 +108,9 @@ function setup() {
 	globalThis.isViewVisible = () => true;
 	globalThis.pysimProactiveLogRender = () => { calls.proactive++; };
 	globalThis.cardsAutoSelectByIccid = iccid => { calls.autoIccid.push(iccid); return -1; };
+	// the SCP80/RAM preset warning banner is DOM-bound (covered in
+	// preset_warning.test.js) - stub it for these state tests
+	globalThis.spPresetWarningRender = () => {};
 	return { el, adm, iccidEl, scp80El, scp81El, calls };
 }
 

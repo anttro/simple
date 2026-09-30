@@ -33,7 +33,7 @@ for (const fn of ['cardsTarValue', 'cardsApplyFields', 'cardsApply',
 ]) {
 	code += extractFunc(html, fn) + '\n';
 }
-code = 'var _cardsKeysetCount = 0;\n' + code;
+code = 'var _cardsKeysetCount = 0;\nglobalThis.spPresetWarningRender = function() {};\n' + code;
 code = 'var _genSpBuildStub = function() {};\n' + code;
 eval(code);
 globalThis._genSpBuild = () => {};

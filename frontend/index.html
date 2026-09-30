@@ -530,6 +530,7 @@
 				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
 				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 		</div>
+		<div id="sp-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
 		<div class="flex gap-2 mb-3">
 <div class="flex-1">			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300">SPI1 (Security Parameter Indicator)</label>
@@ -708,6 +709,7 @@
 				</div>
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
+			<div id="ram-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
 			<label class="flex items-center gap-1 mb-3 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Runs one extra expanded query per listing (P2=02; on by default).  The compact listing carries AID, life cycle and privileges only - it has no version; the expanded pass adds the Executable Load File version, the Load File AID, the Security Domain AID, the module lists and the applet STK menu entries (SCP Registry Data).  Cards differ in what they accept, so three query forms are tried (tag list with EA, tag list without EA, no tag list - the GPPro form); the explorer reports which form worked and where the run fell back to the compact listing (package versions are then unavailable).  It costs a few extra secured packets per Explore; untick to skip it."><input type="checkbox" id="ram-expanded-details" class="rounded border-gray-300 dark:border-slate-600" onchange="ramExpandedDetailsChanged()"> <span data-l10n="Fetch expanded registry details (load-file / SD associations)">Fetch expanded registry details (load-file / SD associations)</span></label>
 
@@ -8380,6 +8382,7 @@ function ramApplyCard(idx) {
 	if (!isNaN(i) && cards[i]) _ramCardIdx = i;
 	_spTarKey = 'tar';   // RAM/GP operations target the ISD
 	cardsApply(idx);
+	spPresetWarningRender();
 }
 
 function ramOpChanged() {
@@ -10961,6 +10964,7 @@ async function cardsFetch() {
 	cardsRebuildSelect();
 	cardsRender();
 	scp81PushPskMap();
+	spPresetWarningRender();
 	return true;
 }
 
@@ -11202,6 +11206,47 @@ function ramKeysetChanged() {
 	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
 	if (ks) spKeysetApply(ks);
 	spKeysetSync();
+}
+
+// A warning for the SCP80/RAM views when the equipped card and the selected
+// preset disagree (pure).  Autoselection keeps them in step, so this covers
+// what it cannot fix: a card with no preset at all, or a manually selected
+// preset that belongs to another card.  Returns '' when all is well (or when
+// there is no card session / no readable ICCID to compare against).
+function spPresetWarning(iccid, presets, selectedIdx) {
+	const list = presets || [];
+	const norm = cardsNormIccid(iccid);
+	if (!norm) return '';
+	const matched = list.findIndex(c => cardsNormIccid(c.iccid) === norm);
+	if (matched < 0) {
+		if (!list.length) {
+			return t('No card presets defined — the SCP80/RAM views have no keys '
+				+ 'for the equipped card. Add one in the Cards tab.');
+		}
+		return t('The equipped card') + ' ' + iccid + ' ' +
+			t('does not match any card preset — the selected preset may belong to '
+				+ 'another card. Add it in the Cards tab (From card).');
+	}
+	const sel = Number(selectedIdx);
+	if (Number.isInteger(sel) && sel >= 0 && sel < list.length && sel !== matched) {
+		return t('The selected preset is not the equipped card\'s') + ' (' +
+			(list[matched].name || iccid) + ') — ' +
+			t('check that its keys and counters belong to this card.');
+	}
+	return '';
+}
+
+// Render the banner in both SCP80 views (each has its own preset selection).
+function spPresetWarningRender() {
+	const iccid = _pysimCardIccid;
+	const show = (id, text) => {
+		const el = document.getElementById(id);
+		if (!el) return;
+		el.textContent = text || '';
+		el.classList.toggle('hidden', !text);
+	};
+	show('sp-preset-warning', spPresetWarning(iccid, cards, spPresetIdx()));
+	show('ram-preset-warning', spPresetWarning(iccid, cards, ramPresetIdx()));
 }
 
 // The RAM view's preset index.
@@ -11546,6 +11591,7 @@ function cardsApplyFields(idx, keepTar) {
 	spInvalidate();
 	updateSp();
 	spKeysetSync();
+	spPresetWarningRender();
 	return true;
 }
 
@@ -13366,6 +13412,7 @@ function pysimCardStateUpdate(status) {
 	pysimUpdateAdmIndicator(status);
 	pysimUpdateIccidIndicator(_pysimCardIccid);
 	pysimUpdatePresetIndicators(_pysimCardIccid);
+	spPresetWarningRender();
 	pysimApplyAvailability();
 	if (pysimProactiveSeqChanged(status.proactive_seq)
 		&& isViewVisible('tab-phone') && isViewVisible('phone-sub-phone')) {
@@ -19424,6 +19471,11 @@ const LANG_RU = {
 	'Duplicate key version in the keysets': 'Дублирующаяся версия ключа в наборах',
 	'Select a card preset - its keysets define the key versions': 'Выберите предустановку карты — её наборы ключей определяют версии ключей',
 	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в предустановке.',
+	'No card presets defined — the SCP80/RAM views have no keys for the equipped card. Add one in the Cards tab.': 'Предустановки карт не заданы — в представлениях SCP80/RAM нет ключей для подключённой карты. Добавьте её на вкладке «Карты».',
+	'The equipped card': 'Подключённая карта',
+	'does not match any card preset — the selected preset may belong to another card. Add it in the Cards tab (From card).': 'не совпадает ни с одной предустановкой — выбранная предустановка может принадлежать другой карте. Добавьте её на вкладке «Карты» (кнопка «С карты»).',
+	"The selected preset is not the equipped card's": 'Выбранная предустановка не принадлежит подключённой карте',
+	'check that its keys and counters belong to this card.': 'проверьте, что её ключи и счётчики относятся к этой карте.',
 	'Key version (kvn, optional)': 'Версия ключа (kvn, опционально)',
 	"empty = the preset's first keyset": 'пусто = первый набор ключей предустановки',
 	'Keysets (key version: KIc/KID — counter)': 'Наборы ключей (версия: KIc/KID — счётчик)',
