@@ -222,6 +222,31 @@ class CapCompatHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('import probe', resp['error'])
 
+    def test_cap_compat_reports_unmatched_probe_lines_with_versions(self):
+        # v3.6.52: probe overrides that match no Import entry come back as a
+        # per-AID list ({aid, version}) for the modal's detail block.
+        from pysim_simple_server import server as srv
+        self.server.scc = object()
+        patches = [
+            mock.patch.object(srv, '_ram_detect_format', lambda *a, **k: 'compact'),
+            mock.patch.object(srv, '_ram_send_gp_apdu', lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            status, resp = self._post('/api/cap-compat', {
+                'cap_hex': _mini_cap_hex(),
+                'probe_imports': {'A0000000620101': '0.0', 'dead beef': '1.2'},
+            })
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['success'], resp)
+        self.assertEqual(resp['probe_unmatched'], [{'aid': 'DEADBEEF', 'version': '1.2'}])
+        self.assertEqual(resp['probe_imports'],
+                         [{'aid': 'A0000000620101', 'from': '1.0', 'to': '0.0'}])
+
 
 class RamInstallNvFootprintHttpTests(unittest.TestCase):
     """The RAM install response carries the measured NV footprint (v3.6.51):

@@ -40,6 +40,7 @@ a 3.x PWA).
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
 | `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
+| `/api/cap-compat` | POST | CAP compatibility test: LOAD only to the block completing the Import component (nothing committed) |
 | `/api/test/run` | POST | Start a test script (actions + proactive expectations) |
 | `/api/test/status` | GET | Test script run state and per-step results |
 | `/api/test/stop` | POST | Request a running test script to stop |
@@ -621,6 +622,21 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 | `ram_format` | no | As in `/api/ram-install`: `auto` (default — a read-only probe step decides), `compact` or `expanded` |
 
 **Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "ram_format": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.
+
+### `POST /api/cap-compat`
+
+Run the **CAP compatibility test**: the format check, `INSTALL [for load]` and the LOAD blocks only up to the block that completes the **Import** component (the point where the JCRE verifies the import list, JC VM spec 4.5.2), then stop — no last-block flag and no `INSTALL [for install]`, so nothing is committed and nothing has to be deleted afterwards.  The verdict (`imports_ok`) covers the **LOAD/import gate only**; the link gate is what a real install checks at `INSTALL [for install]`.
+
+**Request body:** as `/api/ram-install` (`cap_hex`, the SCP80 fields, optional `load_block_size` and `ram_format`), plus:
+
+| Field | Req | Description |
+|---|---|---|
+| `probe_imports` | no | `{"all": "x.y"}` or `{aid_hex: "x.y"}`: rewrite the Import component's requested versions (diagnostic) |
+| `probe_additions` | no | `[{"aid": hex, "version": "x.y"}]`: append synthetic imports (card-capability queries; an AID already present becomes a version override) |
+
+**Response:** `{"success": bool, "imports_ok": bool, "steps": [...], "boundary_block": N, "total_blocks": M, "load_file_aid": "...", "module_aid": "...", "ram_format": "...", "probe_imports": [...], "probe_unmatched": [...], "final_cntr": "...", "load_block_size": N, "error": "...", "failed_step": N}`.
+
+`probe_imports` lists the entries changed or appended (`{"aid": "...", "from": "1.3", "to": "0.0"}`; `from: null` = an appended synthetic entry).  `probe_unmatched` lists override AIDs that matched no Import entry — the CAP does not import them, so the card is never asked about them — as `[{"aid": "...", "version": "0.0"}]` with the version the probe requested.  The PWA renders both as a per-AID list in the result popup, together with the failing block's CAP section and the remote status word's meaning.
 
 ### `POST /api/sp-verify`
 

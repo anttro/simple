@@ -22,7 +22,7 @@ function extractFunc(src, name) {
 }
 
 // Extract chain builder functions and dependencies
-const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
+const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
@@ -33,6 +33,8 @@ for (const f of FNS) {
 }
 const m = html.match(/const _chains = \{\};/);
 if (m) code += m[0].replace(/^const /, 'var ') + '\n';
+const swm = html.match(/const SW_MAP = \{[\s\S]*?\n\};/);
+if (swm) code += swm[0].replace(/^const /, 'var ') + '\n';
 const pn = html.match(/const PRIVILEGE_NAMES = \[[\s\S]*?\n\];/);
 if (pn) code += pn[0].replace(/^const /, 'var ') + '\n';
 const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
@@ -960,9 +962,9 @@ test('ramProbeParse reads AID=version lines', () => {
 
 test('ramCompatVerdict distinguishes where the test failed', () => {
 	globalThis.t = s => s;
-	const step = (name, ok) => ok
+	const step = (name, ok, sw) => ok
 		? { name: name, por_status: 'por_ok', por_sw: '9000' }
-		: { name: name, por_status: 'por_ok', por_sw: '6438', por_error: 'remote SW 6438' };
+		: { name: name, por_status: 'por_ok', por_sw: sw || '6438', por_error: 'remote SW ' + (sw || '6438') };
 	assert.strictEqual(ramCompatVerdict({ imports_ok: true, boundary_block: 3, total_blocks: 240,
 		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', true), step('LOAD (3/240)', true)] }),
 		'Import list accepted \u2014 tested through LOAD 3/240');
@@ -970,6 +972,11 @@ test('ramCompatVerdict distinguishes where the test failed', () => {
 		error: 'remote SW 6438',
 		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', true), step('LOAD (3/240)', false)] }),
 		'Import list rejected \u2014 tested through LOAD 3/240 \u00b7 remote SW 6438');
+	// the status word name is shown when the SW map knows it (GP 6985)
+	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 1, total_blocks: 12,
+		error: 'LOAD (1/12): remote SW 6985',
+		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', true), step('LOAD (1/12)', false, '6985')] }),
+		'Import list rejected \u2014 tested through LOAD 1/12 \u00b7 remote SW 6985 (Conditions of use not satisfied)');
 	// the card never answered the format probe
 	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 1, total_blocks: 240,
 		steps: [step('FORMAT CHECK (compact)', false), step('FORMAT CHECK (expanded)', false)] }),
@@ -977,8 +984,8 @@ test('ramCompatVerdict distinguishes where the test failed', () => {
 	// the INSTALL [for load] request itself was refused
 	assert.strictEqual(ramCompatVerdict({ imports_ok: false, boundary_block: 1, total_blocks: 240,
 		error: 'remote SW 6985',
-		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', false)] }),
-		'Load request rejected \u2014 remote SW 6985');
+		steps: [step('FORMAT CHECK (compact)', true), step('INSTALL [for load]', false, '6985')] }),
+		'Load request rejected \u2014 remote SW 6985 (Conditions of use not satisfied)');
 	// a request error without steps
 	assert.strictEqual(ramCompatVerdict({ error: 'import probe: invalid version' }),
 		'Error: import probe: invalid version');
@@ -994,9 +1001,145 @@ test('ramCompatProbeNote summarizes the applied probe', () => {
 	assert.strictEqual(ramCompatProbeNote({ probe_imports: [
 		{ aid: 'A1', from: '1.3', to: '0.0' }, { aid: 'A2', from: '1.4', to: '1.0' }] }),
 		'probe: 2 imports \u2192 mixed');
-	assert.strictEqual(ramCompatProbeNote({ probe_imports: [], probe_unmatched: ['DEADBEEF'] }),
-		'probe: unmatched: DEADBEEF');
+	// the unmatched AIDs are a list of their own in the modal detail, not a
+	// comma string in the summary line
+	assert.strictEqual(ramCompatProbeNote({ probe_imports: [], probe_unmatched: ['DEADBEEF'] }), '');
 	assert.strictEqual(ramCompatProbeNote({}), '');
+});
+
+test('ramCompatImportRows merges the CAP imports, the probe and the unmatched lines', () => {
+	const mem = {
+		imports: [
+			{ aid: 'A0000000620101', major: 1, minor: 3 },
+			{ aid: 'A0000000620102', major: 1, minor: 3 },
+			{ aid: 'A0000000090005FFFFFFFF8911000000', major: 1, minor: 2 },
+		],
+	};
+	const data = {
+		probe_imports: [
+			{ aid: 'A0000000620102', from: '1.3', to: '0.0' },
+			{ aid: 'A0000000620201', from: null, to: '1.0' },
+		],
+		probe_unmatched: [{ aid: 'A0000000090005FFFFFFFF8912000000', version: '0.0' }],
+	};
+	assert.deepStrictEqual(ramCompatImportRows(data, mem), [
+		{ aid: 'A0000000620101', capVersion: '1.3', testedVersion: '1.3', state: 'cap' },
+		{ aid: 'A0000000620102', capVersion: '1.3', testedVersion: '0.0', state: 'lowered' },
+		{ aid: 'A0000000090005FFFFFFFF8911000000', capVersion: '1.2', testedVersion: '1.2', state: 'cap' },
+		{ aid: 'A0000000620201', capVersion: null, testedVersion: '1.0', state: 'appended' },
+		{ aid: 'A0000000090005FFFFFFFF8912000000', capVersion: null, testedVersion: '0.0', state: 'unmatched' },
+	]);
+	// without the CAP analysis at hand the probe entries still produce rows
+	assert.deepStrictEqual(ramCompatImportRows(data, null).map(r => r.aid),
+		['A0000000620102', 'A0000000620201', 'A0000000090005FFFFFFFF8912000000']);
+});
+
+test('ramCompatRowsHtml lists AIDs with names, versions and probe state', () => {
+	globalThis.t = s => s;
+	const out = ramCompatRowsHtml([
+		{ aid: 'A0000000620101', capVersion: '1.3', testedVersion: '1.3', state: 'cap' },
+		{ aid: 'A0000000620102', capVersion: '1.3', testedVersion: '0.0', state: 'lowered' },
+		{ aid: 'A0000000620201', capVersion: null, testedVersion: '1.0', state: 'appended' },
+		{ aid: 'A0000000090005FFFFFFFF8912000000', capVersion: null, testedVersion: '0.0', state: 'unmatched' },
+	]);
+	delete globalThis.t;
+	assert.ok(out.includes('A0000000620101 <span class="text-gray-400 dark:text-slate-500">(javacard.framework)</span> \u2014 1.3'), out);
+	assert.ok(out.includes('1.3 \u2192 0.0 <span class="text-gray-500 dark:text-slate-400">(probe)</span>'), out);
+	assert.ok(out.includes('(appended \u2014 not in the CAP)'), out);
+	assert.ok(out.includes("(not in the CAP's import list)"), out);
+	assert.ok(out.includes('(uicc.toolkit)'), out);
+	assert.strictEqual(ramCompatRowsHtml([]), '');
+});
+
+test('ramCompatFailureHtml names the failing CAP section and the import list', () => {
+	globalThis.t = s => s;
+	const mem = {
+		imports: [
+			{ aid: 'A0000000620101', major: 1, minor: 3 },
+			{ aid: 'A0000000620102', major: 1, minor: 3 },
+			{ aid: 'A0000000871005FFFFFFFF8913200000', major: 1, minor: 9 },
+			{ aid: 'A0000000090005FFFFFFFF8911000000', major: 1, minor: 2 },
+		],
+		components: [
+			{ name: 'Header', size: 100 },
+			{ name: 'Directory', size: 100 },
+			{ name: 'Import', size: 40 },
+			{ name: 'Method', size: 200 },
+		],
+		code: { load_file: 440 },
+	};
+	const data = {
+		success: false, imports_ok: false, failed_step: 3, boundary_block: 1, total_blocks: 2,
+		load_block_size: 240, error: 'LOAD (1/2): remote SW 6985',
+		steps: [
+			{ name: 'FORMAT CHECK (compact)', por_status: 'por_ok', por_sw: '9000' },
+			{ name: 'INSTALL [for load]', por_status: 'por_ok', por_sw: '9000' },
+			{ name: 'LOAD (1/2)', por_status: 'por_ok', por_sw: '6985', por_error: 'remote SW 6985' },
+		],
+		probe_imports: [
+			{ aid: 'A0000000620102', from: '1.3', to: '0.0' },
+			{ aid: 'A0000000090005FFFFFFFF8911000000', from: '1.2', to: '0.0' },
+			{ aid: 'A0000000620201', from: null, to: '1.0' },
+		],
+		probe_unmatched: [{ aid: 'A0000000090005FFFFFFFF8912000000', version: '0.0' }],
+	};
+	const out = ramCompatFailureHtml(data, mem);
+	assert.ok(out.includes('Failed in: LOAD (1/2) \u2014 load-file bytes 0\u2013239 / 440 \u00b7 covers Header, Directory, Import \u00b7 completes Import'), out);
+	assert.ok(out.includes("The card verifies the load file's import list when the Import component is complete (JC VM spec 4.5.2)."), out);
+	assert.ok(out.includes('remote SW 6985 \u2014 Conditions of use not satisfied'), out);
+	assert.ok(out.includes('Import list under test (6):'), out);
+	assert.ok(out.includes('(javacard.framework)'), out);
+	// two imports are still at their CAP versions -> the lower-them hint
+	assert.ok(out.includes('lower the versions (Set all 0.0)'), out);
+	assert.ok(!out.includes('Every import was tested at 0.0'), out);
+	// a run with every import lowered: the list cannot be the cause
+	const allZero = Object.assign({}, data, {
+		probe_imports: mem.imports.map(im => ({ aid: im.aid, from: im.major + '.' + im.minor, to: '0.0' })),
+		probe_unmatched: [],
+	});
+	const out2 = ramCompatFailureHtml(allZero, mem);
+	assert.ok(out2.includes('Every import was tested at 0.0'), out2);
+	// a failure later in the file: the import list already passed
+	const later = Object.assign({}, data, {
+		failed_step: 4,
+		steps: [
+			{ name: 'FORMAT CHECK (compact)', por_status: 'por_ok', por_sw: '9000' },
+			{ name: 'INSTALL [for load]', por_status: 'por_ok', por_sw: '9000' },
+			{ name: 'LOAD (1/2)', por_status: 'por_ok', por_sw: '9000' },
+			{ name: 'LOAD (2/2)', por_status: 'por_ok', por_sw: '6581', por_error: 'remote SW 6581' },
+		],
+	});
+	const out3 = ramCompatFailureHtml(later, mem);
+	assert.ok(out3.includes('The import list already passed \u2014 the Import component completed at LOAD (1/2).'), out3);
+	assert.ok(out3.includes('remote SW 6581'), out3);
+	assert.ok(!out3.includes('4.5.2'), out3);
+	delete globalThis.t;
+	// not a LOAD failure at all: no block analysis
+	assert.strictEqual(ramCompatFailureHtml(Object.assign({}, data, {
+		failed_step: 1, steps: [{ name: 'FORMAT CHECK (compact)', por_status: 'por_error' }] }), mem), '');
+	assert.strictEqual(ramCompatFailureHtml({ success: true, imports_ok: true }, mem), '');
+});
+
+test('ramCompatDetailHtml shows the tested list on success and the analysis on failure', () => {
+	globalThis.t = s => s;
+	const mem = { imports: [{ aid: 'A0000000620101', major: 1, minor: 3 }] };
+	const ok = ramCompatDetailHtml({ imports_ok: true, probe_imports: [] }, mem);
+	assert.ok(ok.includes('Import list under test (1):'), ok);
+	assert.ok(ok.includes('(javacard.framework)'), ok);
+	assert.ok(!ok.includes('Failed in:'), ok);
+	const bad = ramCompatDetailHtml({ imports_ok: false, failed_step: 1, load_block_size: 240,
+		steps: [{ name: 'LOAD (1/1)', por_status: 'por_ok', por_sw: '6985', por_error: 'remote SW 6985' }] }, mem);
+	assert.ok(bad.includes('Failed in: LOAD (1/1)'), bad);
+	delete globalThis.t;
+	assert.strictEqual(ramCompatDetailHtml(null, mem), '');
+});
+
+test('the compatibility test runs in the modal like the install', () => {
+	const src = extractFunc(html, 'ramCompatTest');
+	assert.ok(src.includes('ramOpModalBegin'), 'must open the operation modal');
+	assert.ok(src.includes('ramOpModalFinish'), 'must finish it with the verdict');
+	assert.ok(src.includes('ramCompatDetailHtml'), 'the per-AID detail must reach the modal');
+	assert.ok(!src.includes('ramShowProgress'), 'the inline progress bar is replaced by the modal');
 });
 
 test('ramExecute dispatches the compatibility test op', () => {

@@ -10,7 +10,8 @@ import zipfile
 from pysim_simple_server import capmem
 from pysim_simple_server.server import (
     _ber_len, _cap_apdu_sequence, _cap_compat_blocks, _cap_import_aids,
-    _cap_import_end, _cap_info_body, _cap_parse, _probe_import_versions)
+    _cap_import_end, _cap_info_body, _cap_parse, _probe_import_versions,
+    _probe_unmatched)
 
 
 # ─── synthetic CAP builder ───────────────────────────────────────────────
@@ -275,6 +276,22 @@ class ImportProbeTests(unittest.TestCase):
     def test_cap_import_aids(self):
         self.assertEqual(_cap_import_aids(self._load_file()),
                          [JAVACARD_FRAMEWORK.hex().upper(), self.OTHER_AID.hex().upper()])
+
+    def test_probe_unmatched_reports_the_requested_version(self):
+        known = set(_cap_import_aids(self._load_file()))
+        # an override for an AID the CAP does not import: kept, with the
+        # version the probe asked for (the modal lists it per AID)
+        self.assertEqual(
+            _probe_unmatched({JAVACARD_FRAMEWORK.hex().upper(): '0.0',
+                              'DEADBEEF': '1.2', 'all': '0.0'}, known),
+            [{'aid': 'DEADBEEF', 'version': '1.2'}])
+        # matched AIDs and the 'all' override are not unmatched
+        self.assertEqual(_probe_unmatched({'all': '0.0'}, known), [])
+        self.assertEqual(_probe_unmatched({JAVACARD_FRAMEWORK.hex().lower(): '0.0'}, known), [])
+        # a lowercase / spaced unmatched AID is normalised for display
+        self.assertEqual(_probe_unmatched({'dead beef': '1.2'}, known),
+                         [{'aid': 'DEADBEEF', 'version': '1.2'}])
+        self.assertEqual(_probe_unmatched(None, known), [])
 
     def test_probe_rejects_bad_additions(self):
         load = self._load_file()

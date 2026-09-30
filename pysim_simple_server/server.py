@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.51'
+VERSION = '3.6.52'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -893,6 +893,23 @@ def _cap_import_aids(load_file_hex):
             return out
         off += 3 + size
     return []
+
+
+def _probe_unmatched(probe, known):
+    """Import-probe override AIDs that matched no Import entry: the CAP does
+    not import them, so the card is never asked about them.  Returns
+    [{'aid': hex, 'version': 'x.y'}] (the version the probe requested), sorted
+    by AID; the 'all' override is skipped."""
+    out = []
+    for key, version in (probe or {}).items():
+        k = str(key).replace(' ', '')
+        if k.lower() == 'all':
+            continue
+        if k.upper() in known:
+            continue
+        out.append({'aid': k.upper(), 'version': str(version)})
+    out.sort(key=lambda e: e['aid'])
+    return out
 
 
 def _cap_compat_blocks(load_file_hex, block_size):
@@ -6990,13 +7007,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     known = original_aids | {
                         str(a.get('aid', '')).replace(' ', '').upper()
                         for a in additions}
-                    probe_unmatched = sorted(
-                        k for k in probe
-                        if str(k).lower() != 'all'
-                        and str(k).replace(' ', '').upper() not in known)
+                    probe_unmatched = _probe_unmatched(probe, known)
                     sys.stderr.write('CAP-COMPAT: import probe applied: %s%s\n' % (
                         json.dumps(probe_applied),
-                        (' (unmatched: %s)' % ', '.join(probe_unmatched))
+                        (' (unmatched: %s)' % ', '.join(e['aid'] for e in probe_unmatched))
                         if probe_unmatched else ''))
 
                 block_size_req = body.get('load_block_size')

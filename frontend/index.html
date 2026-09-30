@@ -1749,7 +1749,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.51';
+const SIMPLE_VERSION = '3.6.52';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8368,7 +8368,7 @@ function ramOpProgress(p) {
 		(p.total ? Math.min(100, Math.round(p.step * 100 / p.total)) : 10) + '%';
 }
 
-function ramOpModalFinish(summary, ok, stepsText) {
+function ramOpModalFinish(summary, ok, content, asHtml) {
 	_ramOpActive = false;
 	window.removeEventListener('beforeunload', ramOpBeforeUnload);
 	document.getElementById('ram-op-spin').classList.add('hidden');
@@ -8376,7 +8376,13 @@ function ramOpModalFinish(summary, ok, stepsText) {
 	document.getElementById('ram-op-status').textContent = summary || '';
 	document.getElementById('ram-op-status').className = 'text-sm font-semibold ' +
 		(ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400');
-	if (stepsText !== undefined) document.getElementById('ram-op-steps').textContent = stepsText || '';
+	if (content !== undefined) {
+		// asHtml is only used by views that build escaped HTML (the
+		// compatibility-test detail); everything else stays plain text.
+		const el = document.getElementById('ram-op-steps');
+		if (asHtml) el.innerHTML = content || '';
+		else el.textContent = content || '';
+	}
 	document.getElementById('ram-op-warn').classList.add('hidden');
 	document.getElementById('ram-op-close').disabled = false;
 }
@@ -9674,7 +9680,7 @@ function ramProbeAllZero() {
 // the load file; the link gate is what a real install checks later.  The
 // headline distinguishes where the run actually failed: a request error, the
 // format probe (the card not answering), the INSTALL [for load] request, or
-// the import list itself.
+// the import list itself - and names the remote status word.
 function ramCompatVerdict(data) {
 	if (!data) return '';
 	const stepOk = s => !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
@@ -9688,17 +9694,21 @@ function ramCompatVerdict(data) {
 	}
 	const scope = t('tested through LOAD') + ' ' + (data.boundary_block || '?') +
 		'/' + (data.total_blocks || '?');
-	if (data.imports_ok) return t('Import list accepted') + ' \u2014 ' + scope;
 	const failed = data.steps.find(s => !stepOk(s)) || {};
+	const sw = String(failed.por_sw || '');
+	const swName = sw ? lookupSw(sw.substr(0, 2), sw.substr(2, 2), 'gp') : '';
+	const swText = sw ? t('remote SW') + ' ' + sw + (swName ? ' (' + swName + ')' : '')
+		: (data.error || t('no data'));
+	if (data.imports_ok) return t('Import list accepted') + ' \u2014 ' + scope;
 	if (String(failed.name || '') === 'INSTALL [for load]') {
-		return t('Load request rejected') + ' \u2014 ' + (data.error || t('no data'));
+		return t('Load request rejected') + ' \u2014 ' + swText;
 	}
-	return t('Import list rejected') + ' \u2014 ' + scope +
-		(data.error ? ' \u00b7 ' + data.error : '');
+	return t('Import list rejected') + ' \u2014 ' + scope + ' \u00b7 ' + swText;
 }
 
-// The applied probe changes of a compatibility test (pure): version rewrites,
-// appended synthetic imports and override AIDs that matched nothing.
+// The applied probe changes of a compatibility test (pure): version rewrites
+// and appended synthetic imports.  The unmatched override AIDs are a list of
+// their own in the modal detail (ramCompatDetailHtml).
 function ramCompatProbeNote(data) {
 	const pa = (data && data.probe_imports) || [];
 	const added = pa.filter(p => p.from === null || p.from === undefined).length;
@@ -9710,9 +9720,138 @@ function ramCompatProbeNote(data) {
 			(targets.length === 1 ? targets[0] : t('mixed')));
 	}
 	if (added) parts.push('+' + added + ' ' + t('appended'));
-	const unmatched = (data && data.probe_unmatched) || [];
-	if (unmatched.length) parts.push(t('unmatched') + ': ' + unmatched.join(', '));
 	return parts.length ? t('probe') + ': ' + parts.join(' \u00b7 ') : '';
+}
+
+// Import-list rows of a compatibility test (pure): one row per AID the run
+// touches - the CAP's imports (with the version the card was asked for, and
+// the CAP's own version when the probe lowered it), the appended synthetic
+// imports, and the probe override AIDs that matched nothing.
+// state: 'cap' | 'lowered' | 'appended' | 'unmatched'.
+function ramCompatImportRows(data, mem) {
+	const applied = (data && data.probe_imports) || [];
+	const unmatched = (data && data.probe_unmatched) || [];
+	const byAid = {};
+	applied.forEach(p => { const a = String(p.aid || '').toUpperCase(); if (a) byAid[a] = p; });
+	const rows = [];
+	const seen = {};
+	const push = r => { if (!r.aid || seen[r.aid]) return; seen[r.aid] = 1; rows.push(r); };
+	((mem && mem.imports) || []).forEach(im => {
+		const aid = String(im.aid || '').toUpperCase();
+		const capVer = (Number(im.major) || 0) + '.' + (Number(im.minor) || 0);
+		const ap = byAid[aid];
+		push({ aid: aid, capVersion: capVer, testedVersion: ap ? ap.to : capVer,
+		       state: ap ? 'lowered' : 'cap' });
+	});
+	applied.forEach(p => {
+		const aid = String(p.aid || '').toUpperCase();
+		const appended = (p.from === null || p.from === undefined);
+		push({ aid: aid, capVersion: appended ? null : p.from, testedVersion: p.to,
+		       state: appended ? 'appended' : 'lowered' });
+	});
+	unmatched.forEach(u => {
+		const aid = String((u && u.aid) || u || '').toUpperCase();
+		push({ aid: aid, capVersion: null, testedVersion: (u && u.version) || '',
+		       state: 'unmatched' });
+	});
+	return rows;
+}
+
+// One row per import: AID (resolved library name) - tested version, with the
+// probe state as a muted note.
+function ramCompatRowsHtml(rows) {
+	if (!rows || !rows.length) return '';
+	return '<div class="mt-1">' + rows.map(r => {
+		let ver = r.testedVersion ? esc(r.testedVersion) : '';
+		if (r.state === 'lowered' && r.capVersion) {
+			ver = esc(r.capVersion) + ' \u2192 ' + esc(r.testedVersion || '?');
+		}
+		let note = '';
+		if (r.state === 'lowered') note = t('probe');
+		else if (r.state === 'appended') note = t('appended') + ' \u2014 ' + t('not in the CAP');
+		else if (r.state === 'unmatched') note = t('not in the CAP\'s import list');
+		return '<div>' + jcAidHtml(r.aid) + (ver ? ' \u2014 ' + ver : '') +
+			(note ? ' <span class="text-gray-500 dark:text-slate-400">(' + esc(note) + ')</span>' : '') +
+			'</div>';
+	}).join('') + '</div>';
+}
+
+// Failure analysis of a rejected LOAD (pure HTML): which CAP section the
+// failing block covers and what it completes, what the card checks at that
+// point (JC VM spec 4.5.2), the remote status word, the import list as tested
+// and what the run's probe state implies.  Used by the compatibility test
+// modal (the install side reuses it in the next step).
+function ramCompatFailureHtml(data, mem) {
+	if (!data || data.success || data.imports_ok) return '';
+	const steps = data.steps || [];
+	const step = steps[(Number(data.failed_step) || 1) - 1] || null;
+	const name = step ? String(step.name || '') : '';
+	if (!/^(LOAD |INSTALL \[for load\])/.test(name)) return '';
+	const bs = Number(data.load_block_size) || 0;
+	const sc = ramStepComponents(name, mem && mem.components, bs);
+	const loadSize = (mem && mem.code) ? (Number(mem.code.load_file) || 0) : 0;
+	let html = '<div class="mt-2 pt-2 border-t border-gray-200 dark:border-slate-700">';
+	// where it failed: the block, its load-file byte range and CAP components
+	let where = t('Failed in:') + ' ' + name;
+	const m = /^LOAD \((\d+)\/(\d+)\)$/.exec(name);
+	if (m && bs) {
+		const start = (Number(m[1]) - 1) * bs;
+		const end = loadSize ? Math.min(loadSize, start + bs) - 1 : start + bs - 1;
+		where += ' \u2014 ' + t('load-file bytes') + ' ' + start + '\u2013' + end +
+			(loadSize ? ' / ' + loadSize : '');
+	}
+	if (sc) {
+		where += ' \u00b7 ' + t('covers') + ' ' + sc.names.join(', ');
+		if (sc.completed.length) where += ' \u00b7 ' + t('completes') + ' ' + sc.completed[sc.completed.length - 1];
+	}
+	html += '<div>' + esc(where) + '</div>';
+	// what the card checks at that point (JC VM spec 4.5.2)
+	const completesImport = !!(sc && sc.completed.indexOf('Import') >= 0);
+	let importDone = '';
+	steps.forEach(s => {
+		const c = ramStepComponents(String(s.name || ''), mem && mem.components, bs);
+		if (c && c.completed.indexOf('Import') >= 0) importDone = String(s.name || '');
+	});
+	if (completesImport) {
+		html += '<div>' + esc(t('The card verifies the load file\'s import list when the Import component is complete (JC VM spec 4.5.2).')) + '</div>';
+	} else if (importDone) {
+		html += '<div>' + esc(t('The import list already passed \u2014 the Import component completed at') + ' ' + importDone + '.') + '</div>';
+	}
+	// the status word
+	const sw = step && step.por_sw ? String(step.por_sw) : '';
+	if (sw) {
+		const swName = lookupSw(sw.substr(0, 2), sw.substr(2, 2), 'gp');
+		html += '<div>' + esc(t('remote SW') + ' ' + sw + (swName ? ' \u2014 ' + swName : '')) + '</div>';
+	}
+	// the import list as tested + what the probe state implies
+	const rows = ramCompatImportRows(data, mem);
+	if (rows.length) {
+		html += '<div class="mt-1">' + esc(t('Import list under test') + ' (' + rows.length + '):') + '</div>';
+		html += ramCompatRowsHtml(rows);
+		const capRows = rows.filter(r => r.state === 'cap' || r.state === 'lowered');
+		const atCap = capRows.filter(r => r.state === 'cap').length;
+		if (capRows.length && !atCap) {
+			html += '<div>' + esc(t('Every import was tested at 0.0 \u2014 a package the card does not have (or another load-file check, e.g. memory) is the cause.')) + '</div>';
+		} else if (capRows.length) {
+			html += '<div>' + esc(t('The card checks the whole list at that point \u2014 lower the versions (Set all 0.0) to test whether the list is the cause, then restore one line at a time to find the culprit.')) + '</div>';
+		}
+	}
+	html += '</div>';
+	return html;
+}
+
+// Modal detail of a compatibility test (pure HTML): the failure analysis when
+// the card refused, or the import list that passed.
+function ramCompatDetailHtml(data, mem) {
+	if (!data) return '';
+	if (data.imports_ok) {
+		const rows = ramCompatImportRows(data, mem);
+		if (!rows.length) return '';
+		return '<div class="mt-2 pt-2 border-t border-gray-200 dark:border-slate-700">' +
+			'<div>' + esc(t('Import list under test') + ' (' + rows.length + '):') + '</div>' +
+			ramCompatRowsHtml(rows) + '</div>';
+	}
+	return ramCompatFailureHtml(data, mem);
 }
 
 // CAP compatibility test: run the load only as far as the Import component's
@@ -9725,36 +9864,63 @@ async function ramCompatTest(sp) {
 	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
 	const parsed = ramProbeParse(document.getElementById('ram-probe-versions').value);
 	if (parsed.error) { alert(parsed.error); return; }
+	const bsRaw = (document.getElementById('ram-compat-block').value || '').trim();
+	let blockSize = null;
+	if (bsRaw !== '') {
+		const bs = parseInt(bsRaw, 10);
+		if (!(bs >= 1 && bs <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
+		blockSize = bs;
+	}
 
+	const mem = (_capAnalysis.ram && _capAnalysis.ram.memory) || null;
+	const capPkg = (mem && mem.package_aid) || '';
 	ramClearResults();
-	ramShowProgress(t('Sending to server...'));
+	// The run holds the card lock; the modal carries the live progress (the
+	// server reports ram_progress for cap-compat) and the failure analysis.
+	ramOpModalBegin(t('CAP compatibility test') + (capPkg ? ' \u2014 ' + capPkg : ''));
+	ramOpModalStatus(t('Reading CAP file...'));
 	const body = {
 		cap_hex: await ramReadFileHex(file),
 		probe_imports: parsed.map, probe_additions: parsed.additions,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
 	};
-	const bsRaw = (document.getElementById('ram-compat-block').value || '').trim();
-	if (bsRaw !== '') {
-		const bs = parseInt(bsRaw, 10);
-		if (!(bs >= 1 && bs <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
-		body.load_block_size = bs;
-	}
+	if (blockSize !== null) body.load_block_size = blockSize;
+	ramOpModalStatus(t('Sending to server...'));
 
-	const data = await pysimFetch('/api/cap-compat', body);
-	ramHideProgress();
+	let data;
+	try {
+		data = await pysimFetch('/api/cap-compat', body);
+	} catch (e) {
+		const msg = t('Error') + ': ' + e.message;
+		const el = document.getElementById('ram-result');
+		el.textContent = msg;
+		el.classList.remove('hidden', 'text-green-600');
+		el.classList.add('text-red-600');
+		ramOpModalFinish(msg, false, '');
+		return;
+	}
 	if (data.final_cntr) ramSaveCntr(data.final_cntr);
-	const comps = _capAnalysis.ram.memory && _capAnalysis.ram.memory.components;
+	// Inline at the bottom of the form: the verdict, the short probe note and
+	// the step lines; the per-AID detail lives in the modal.
+	const comps = mem && mem.components;
 	let txt = '';
 	(data.steps || []).forEach((s, idx) => { txt += ramStepLine(s, idx, comps, data.load_block_size) + '\n'; });
 	const stepsEl = document.getElementById('ram-steps');
 	stepsEl.classList.remove('hidden');
 	stepsEl.textContent = txt;
-	const resultEl = document.getElementById('ram-result');
+	const verdict = ramCompatVerdict(data);
 	const probeNote = ramCompatProbeNote(data);
-	resultEl.textContent = ramCompatVerdict(data) + (probeNote ? ' \u2014 ' + probeNote : '');
+	const resultEl = document.getElementById('ram-result');
+	resultEl.textContent = verdict + (probeNote ? ' \u2014 ' + probeNote : '');
 	resultEl.classList.remove('hidden', 'text-green-600', 'text-red-600');
 	resultEl.classList.add(data.imports_ok ? 'text-green-600' : 'text-red-600');
+	// Modal: the step lines (escaped) plus the probe summary and the per-AID
+	// detail (the failure analysis when the card refused).
+	let modal = esc(txt);
+	if (probeNote) modal += '<div class="mt-2 text-gray-500 dark:text-slate-400">' + esc(probeNote) + '</div>';
+	modal += ramCompatDetailHtml(data, mem);
+	ramOpModalFinish(verdict, !!data.imports_ok, modal, true);
 }
 
 async function ramInstallCap(sp) {
@@ -17729,6 +17895,17 @@ const LANG_RU = {
 	'unmatched': 'без совпадений',
 	'Load request rejected': 'Запрос загрузки отклонён',
 	'The card did not answer the format probe': 'Карта не ответила на пробу формата',
+	'Sending to server...': 'Отправка на сервер...',
+	'Failed in:': 'Ошибка в:',
+	'load-file bytes': 'байты load-файла',
+	'covers': 'охватывает',
+	'Import list under test': 'Список импортов под проверкой',
+	'not in the CAP': 'нет в CAP',
+	"not in the CAP's import list": 'нет в списке импортов CAP',
+	"The card verifies the load file's import list when the Import component is complete (JC VM spec 4.5.2).": 'Карта проверяет список импортов load-файла, когда компонент Import завершён (JC VM spec 4.5.2).',
+	'The import list already passed \u2014 the Import component completed at': 'Список импортов уже пройден \u2014 компонент Import завершён на',
+	'Every import was tested at 0.0 \u2014 a package the card does not have (or another load-file check, e.g. memory) is the cause.': 'Все импорты проверены с версией 0.0 \u2014 причина в пакете, которого нет на карте (или в другой проверке load-файла, например памяти).',
+	'The card checks the whole list at that point \u2014 lower the versions (Set all 0.0) to test whether the list is the cause, then restore one line at a time to find the culprit.': 'Карта проверяет весь список в этой точке \u2014 понизьте версии («Все 0.0»), чтобы проверить, в списке ли причина, затем возвращайте по одной строке, чтобы найти виновника.',
 	'completes': 'завершает',
 	'inside': 'внутри',
 	'the failed step completes': 'неудавшийся шаг завершает',
