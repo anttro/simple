@@ -207,9 +207,9 @@ test('hex fields strip mask wildcards, check values keep them', () => {
 });
 
 test('the counter write-back finds the preset by name after a reload', () => {
-	let saved = 0;
+	let renders = 0;
 	globalThis.cards = [{ name: 'Card 1', iccid: '8970119000004600098', cntr: '0000000A' }];
-	globalThis.cardsSave = () => { saved++; };
+	globalThis.cardsRender = () => { renders++; };
 	globalThis.ioStatus = () => {};
 	// the name lookup must win: the ICCID helpers are not even called
 	globalThis.cardsNormIccid = () => { throw new Error('ICCID lookup for a name'); };
@@ -218,15 +218,15 @@ test('the counter write-back finds the preset by name after a reload', () => {
 	_testRunState = { running: false, scp80_counter: '0000000B', preset: 'Card 1' };
 	testWriteBackCounter();
 	assert.strictEqual(cards[0].cntr, '0000000B');
-	assert.strictEqual(saved, 1);
+	assert.strictEqual(renders, 1);
 	testWriteBackCounter();                       // idempotent
-	assert.strictEqual(saved, 1);
+	assert.strictEqual(renders, 1);
 });
 
 test('the counter write-back falls back to an ICCID snapshot', () => {
-	let saved = 0;
+	let renders = 0;
 	globalThis.cards = [{ name: 'Other', iccid: '8970119000004600098', cntr: '0000000A' }];
-	globalThis.cardsSave = () => { saved++; };
+	globalThis.cardsRender = () => { renders++; };
 	globalThis.ioStatus = () => {};
 	globalThis.cardsNormIccid = v => String(v).replace(/\D/g, '');
 	globalThis.cardsFindByIccid = v => (globalThis.cardsNormIccid(v) === '8970119000004600098' ? 0 : -1);
@@ -234,7 +234,7 @@ test('the counter write-back falls back to an ICCID snapshot', () => {
 	_testRunState = { running: false, scp80_counter: '0000000C', preset: '8970119000004600098' };
 	testWriteBackCounter();
 	assert.strictEqual(cards[0].cntr, '0000000C');
-	assert.strictEqual(saved, 1);
+	assert.strictEqual(renders, 1);
 });
 
 test('the item text check offers contains/exact only', () => {

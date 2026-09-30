@@ -21,6 +21,7 @@ from pysim_simple_server import scp81
 from pysim_simple_server import esim
 from pysim_simple_server import capmem
 from pysim_simple_server import testscript
+from pysim_simple_server import presets
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
 
@@ -31,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.7.1'
+VERSION = '3.8.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1411,6 +1412,24 @@ def _ram_next_cntr(cntr, advance):
     return '%010X' % ((int(cntr, 16) + 1) % (2 ** 40))
 
 
+def _preset_counter_persist(server, preset_id, cntr, source):
+    """Persist the counter an operation accepted into the server-side preset
+    store (v3.8.0).  The counter is card state, so the server writes it with
+    the operation that consumed it - a closed tab, a lost response or a second
+    browser window can no longer lose an increment.  The store itself is
+    monotonic (a stale value never regresses it).  Best effort: a store
+    failure must never fail the card operation."""
+    if not preset_id or not cntr:
+        return
+    store = getattr(server, 'card_presets', None)
+    if store is None:
+        return
+    try:
+        store.set_counter(preset_id, cntr, source)
+    except Exception as e:
+        sys.stderr.write('PRESETS: counter persist failed (%s): %s\n' % (source, e))
+
+
 # RAM command formats (TS 102 226 5.2.1): the bare C-APDU (compact) or the
 # Command TLV '22' inside the 'AA' scripting template (expanded) - the form
 # the reference terminal traces use.  The format is detected per operation
@@ -1448,7 +1467,7 @@ def _ram_detect_format(server, scc, sp, state):
     for fmt, apdu in (('compact', _RAM_PROBE_APDU),
                       ('expanded', _wrap_expanded_apdu(_RAM_PROBE_APDU))):
         scratch = {'steps': [], 'encode_error': None, 'failure': {},
-                   'cntr': state['cntr']}
+                   'cntr': state['cntr'], 'preset_id': state.get('preset_id')}
         ok = _ram_send_gp_apdu(server, scc, sp, scratch,
                                'FORMAT CHECK (%s)' % fmt, apdu)
         state['steps'].extend(scratch['steps'])
@@ -1605,6 +1624,11 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False)
         # Advance the counter only for an accepted packet
         state['cntr'] = _ram_next_cntr(
             state['cntr'], step.get('por_status') in ('por_ok', 'no_por'))
+        # ... and persist it right away: the server owns the counter now, so a
+        # crash mid-install cannot leave the preset behind the card (v3.8.0).
+        if step.get('por_status') in ('por_ok', 'no_por'):
+            _preset_counter_persist(server, state.get('preset_id'),
+                                    state['cntr'], 'ram-%s' % step_name.split()[0].lower())
         if step_error:
             if not silent:
                 state['failure']['error'] = '%s: %s' % (step_name, step_error)
@@ -5105,7 +5129,7 @@ _CARD_FREE_GET = frozenset([
     '/api/stk-status', '/api/poll-status', '/api/proactive-log',
     '/api/menu', '/api/events', '/api/terminal-profile',
     '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
-    '/api/net-state', '/api/mcc-mnc',
+    '/api/net-state', '/api/mcc-mnc', '/api/presets',
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
 ])
@@ -5296,8 +5320,12 @@ def _test_run_scp80(server, step, ctx):
         source, tar or '-', spi1, spi2, counter)
     if sw:
         # The card answered, so the SCP80 counter was consumed: advance the
-        # working value (the PWA writes the final one back to the preset).
+        # working value and persist it into the server-side preset (v3.8.0 -
+        # the server owns the counter, so the run survives a lost response and
+        # the PWA's counter write-back dance is gone).
         ctx['counter'] = _increment_counter_hex(counter)
+        _preset_counter_persist(server, (preset or {}).get('id'),
+                                ctx['counter'], 'test-run')
     return data, sw, sent, por, counter
 
 
@@ -5594,6 +5622,17 @@ class PysimHandler(BaseHTTPRequestHandler):
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
         return json.loads(self.rfile.read(length))
+
+    def _preset_store_or_503(self):
+        """The card preset store, or None after answering 503 (a server built
+        without one - e.g. a test harness - must not crash the endpoints)."""
+        store = getattr(self.server, 'card_presets', None)
+        if store is None:
+            resp = {'error': 'preset store not initialized'}
+            self._send_json(resp, 503)
+            self._log_resp(resp)
+            return None
+        return store
 
     def _log_req(self, body=None):
         if self.server.log_requests:
@@ -5956,6 +5995,15 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/scp81/script':
             self._log_req()
             resp = _scp81_script_state()
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets':
+            self._log_req()
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            resp = store.info()
+            resp['presets'] = store.list()
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path.startswith('/api/'):
@@ -6688,7 +6736,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                         ram_format = _ram_normalize_format(body.get('ram_format'))
                         if ram_format == 'auto':
                             probe_state = {'steps': [], 'encode_error': None,
-                                           'failure': {}, 'cntr': cntr}
+                                           'failure': {}, 'cntr': cntr,
+                                           'preset_id': body.get('preset_id')}
                             sp_probe = {'spi1': spi1, 'spi2': spi2, 'kic': kic,
                                         'kid': kid, 'tar': tar, 'kic_key': kic_key,
                                         'kid_key': kid_key,
@@ -6701,6 +6750,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 else:
                     # Regular SCP80: use pre-built secured packet
                     sp_hex = sp
+                    cntr = body.get('cntr', '')
                 spi2_val = int(body.get('spi2', '00'), 16)
                 # Capture the PoR from either transport: inline in the
                 # ENVELOPE response or as a proactive SEND SHORT MESSAGE (some
@@ -6797,14 +6847,18 @@ class PysimHandler(BaseHTTPRequestHandler):
                             sys.stderr.write('OTA PoR[%s]: undecodable raw=%s\n' % (por_src, str(por_hex)))
                         else:
                             sys.stderr.write('OTA PoR[%s]: none\n' % por_src)
+                        accepted = ((por is None) or por.get('response_status') in
+                                    ('por_ok', 'actual_response_sms_submit'))
                         if ram_format is not None:
-                            accepted = ((por is None) or por.get('response_status') in
-                                        ('por_ok', 'actual_response_sms_submit'))
                             resp['ram_format'] = ram_format
-                            resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
+                        # The counter to use next, reported for the RAM and the
+                        # plain SCP80 path alike; the server persists it (v3.8.0).
+                        resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
+                _preset_counter_persist(self.server, body.get('preset_id'),
+                                        resp.get('final_cntr'), 'send-ota')
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -6896,7 +6950,7 @@ class PysimHandler(BaseHTTPRequestHandler):
 
                 steps = []
                 state = {'steps': steps, 'encode_error': None, 'failure': {},
-                         'cntr': cntr}
+                         'cntr': cntr, 'preset_id': body.get('preset_id')}
                 sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
@@ -7030,7 +7084,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                     'include_cpi': body.get('includeCpi', True)}
                 state = {'steps': [], 'encode_error': None, 'failure': {},
-                         'cntr': sp_state['cntr']}
+                         'cntr': sp_state['cntr'], 'preset_id': body.get('preset_id')}
                 # Live progress for the PWA's operation modal (see /api/ram-install)
                 _ram_progress_begin('install-app', 2)
                 try:
@@ -7136,7 +7190,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 kid_key = body.get('kidKey', '')
                 steps = []
                 state = {'steps': steps, 'encode_error': None, 'failure': {},
-                         'cntr': cntr}
+                         'cntr': cntr, 'preset_id': body.get('preset_id')}
                 sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
@@ -7316,6 +7370,73 @@ class PysimHandler(BaseHTTPRequestHandler):
             else:
                 resp = _test_state_snapshot()
                 self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            try:
+                preset = store.add(body)
+            except presets.PresetError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True, 'preset': preset}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets/update':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            fields = body.get('fields')
+            if not isinstance(fields, dict):
+                fields = {k: v for k, v in body.items() if k not in ('id', 'fields')}
+            try:
+                preset = store.update(body.get('id'), fields)
+            except presets.PresetError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            if preset is None:
+                resp = {'error': 'unknown preset id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True, 'preset': preset}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets/delete':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            removed = store.remove(body.get('id'))
+            resp = {'ok': True, 'removed': removed}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets/import':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            items = body.get('presets')
+            if not isinstance(items, list) or len(items) > 1000:
+                resp = {'error': 'presets must be a list of at most 1000 entries'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
+            resp = store.import_presets(items, mode)
+            resp['ok'] = True
+            self._send_json(resp)
             self._log_resp(resp)
         else:
             self._send_json({'error': _err('not_found', lang)}, 404)

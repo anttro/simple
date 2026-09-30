@@ -50,7 +50,7 @@ function fakeEnv(por, success) {
 	els['sp-kid-key'].value = 'BB';
 	els['sp-spi2-hex'].value = '01';
 	globalThis.document = { getElementById: id => els[id] || null };
-	globalThis.cards = [{ name: 'C', cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' }];
+	globalThis.cards = [{ id: 'preset-1', name: 'C', cntr: '0000000005', kicKey: 'AA', kidKey: 'BB' }];
 	const calls = { saved: 0, explored: null, removed: null, sent: null };
 	globalThis.cardsSave = () => { calls.saved++; };
 	globalThis.cardsRender = () => {};
@@ -63,7 +63,7 @@ function fakeEnv(por, success) {
 		return cards[0].cntr;
 	};
 	globalThis.ramSendOta = async (apdu, sp) => {
-		calls.sent = { apdu: apdu, cntr: sp.cntr, spi2: sp.spi2 };
+		calls.sent = { apdu: apdu, cntr: sp.cntr, spi2: sp.spi2, preset_id: sp.preset_id };
 		return { success: success !== false, por: por };
 	};
 	globalThis.ramExplore = async sp => { calls.explored = sp.cntr; };
@@ -84,7 +84,8 @@ test('accepted delete persists the consumed counter and drops the record', async
 	assert.strictEqual(cards[0].cntr, '0000000006',
 		'the preset must carry the counter the card consumed');
 	assert.strictEqual(els['sp-cntr'].value, '0000000006');
-	assert.ok(calls.saved > 0, 'cardsSave() must persist it');
+	assert.strictEqual(calls.sent.preset_id, 'preset-1',
+		'the operation must name the server-side preset that persists the counter');
 	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });
 	assert.strictEqual(calls.explored, null, 'no re-explore: the record is dropped locally');
 	assert.strictEqual(els['ram-result'].textContent, 'OK');

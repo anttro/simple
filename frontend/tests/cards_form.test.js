@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-function extractFunc(src, name) {
+function extractFunc(src, name, asyncFn) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
 	if (!m) throw new Error('function ' + name + ' not found');
@@ -18,15 +18,18 @@ function extractFunc(src, name) {
 			if (depth === 0) break;
 		}
 	}
-	return src.slice(m.index, i + 1);
+	return (asyncFn ? 'async ' : '') + src.slice(m.index, i + 1);
 }
 
 let code = '';
+const ASYNC_FNS = ['cardsAdd', 'cardsImport', 'cardsRemove'];
 for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEdit',
-	'cardsAdd', 'cardsImport', 'cardsApplyFields', 'cardsApply', 'ramApplyCard',
+	'cardsAdd', 'cardsImport', 'cardsRemove', 'ramCardIdxAfterRemove',
+	'spPresetIdx', 'spCntrSyncPreset', 'spCntrLocalSync', 'ramSaveCntr',
+	'cardsApplyFields', 'cardsApply', 'ramApplyCard',
 	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
 	'spTarKeyForPack', 'spPresetTar', 'packToSp']) {
-	code += extractFunc(html, fn) + '\n';
+	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 eval(code);
 
@@ -51,12 +54,15 @@ function fakeEl() {
 	};
 }
 
+let apiCalls = [];
+
 function setup() {
 	const els = {};
 	for (const id of CARD_IDS.concat(SP_IDS, CHAIN_IDS)) els[id] = fakeEl();
 	globalThis.document = { getElementById: id => els[id] || null, querySelectorAll: () => [] };
 	globalThis.cards = [];
 	globalThis._cardsEditIdx = null;
+	globalThis._ramCardIdx = null;
 	globalThis._spTarKey = 'tar';
 	globalThis.t = s => s;
 	globalThis.alert = () => {};
@@ -75,6 +81,19 @@ function setup() {
 	globalThis.spInvalidate = () => {};
 	globalThis.updateSp = () => {};
 	globalThis.genSp = () => {};
+	globalThis.ramRender = () => {};
+	// the server store is the source of truth (v3.8.0): the Cards tab talks to
+	// /api/presets* and reloads through cardsFetch()
+	apiCalls = [];
+	globalThis.pysimFetchOk = async (path, body) => {
+		apiCalls.push({ path: path, body: body });
+		return { ok: true, added: 1, skipped: 0 };
+	};
+	globalThis.pysimFetch = async (path, body) => {
+		apiCalls.push({ path: path, body: body });
+		return { ok: true };
+	};
+	globalThis.cardsFetch = async () => true;
 	return els;
 }
 
@@ -152,7 +171,7 @@ test('the form values carry the ADM and per-target TAR fields', () => {
 	assert.strictEqual(v.adm, '00112233');
 });
 
-test('saving a preset stores spec defaults for empty TARs', () => {
+test('saving a preset posts the form with spec-default TARs', async () => {
 	const els = setup();
 	els['cards-name'].value = 'New card';
 	els['cards-kic'].value = '15';
@@ -163,30 +182,77 @@ test('saving a preset stores spec defaults for empty TARs', () => {
 	els['cards-uicc-tar'].value = '';
 	els['cards-usim-tar'].value = '';
 	els['cards-adm'].value = 'aa bb';
-	cardsAdd();
-	assert.strictEqual(cards.length, 1);
-	assert.strictEqual(cards[0].tar, '000000');
-	assert.strictEqual(cards[0].uiccTar, 'B00000');
-	assert.strictEqual(cards[0].usimTar, 'B00001');
-	assert.strictEqual(cards[0].adm, 'AABB');
-	assert.strictEqual(cards[0].spi1, '16');
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 1, JSON.stringify(apiCalls));
+	assert.strictEqual(apiCalls[0].path, '/api/presets');
+	assert.strictEqual(apiCalls[0].body.name, 'New card');
+	assert.strictEqual(apiCalls[0].body.tar, '000000');
+	assert.strictEqual(apiCalls[0].body.uiccTar, 'B00000');
+	assert.strictEqual(apiCalls[0].body.usimTar, 'B00001');
+	assert.strictEqual(apiCalls[0].body.adm, 'AABB');
 });
 
-test('import fills missing TARs with spec defaults and normalizes ADM', () => {
+test('editing a preset updates it by its store id', async () => {
+	const els = setup();
+	globalThis.cards = [{ id: 'abc123', name: 'Old', kic: '15', kid: '15',
+		kicKey: 'AA', kidKey: 'BB' }];
+	globalThis._cardsEditIdx = 0;
+	els['cards-name'].value = 'Renamed';
+	els['cards-kic'].value = '15';
+	els['cards-kid'].value = '15';
+	els['cards-kic-key'].value = 'AA';
+	els['cards-kid-key'].value = 'BB';
+	await cardsAdd();
+	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
+	assert.strictEqual(apiCalls[0].body.id, 'abc123');
+	assert.strictEqual(apiCalls[0].body.fields.name, 'Renamed');
+});
+
+test('removing a preset deletes it in the store', async () => {
 	setup();
-	cardsImport(JSON.stringify([
+	globalThis.cards = [{ id: 'abc123', name: 'A' }, { id: 'def456', name: 'B' }];
+	await cardsRemove(0);
+	assert.strictEqual(apiCalls.length, 1);
+	assert.strictEqual(apiCalls[0].path, '/api/presets/delete');
+	assert.strictEqual(apiCalls[0].body.id, 'abc123');
+});
+
+test('import posts the entries to the server store', async () => {
+	setup();
+	await cardsImport(JSON.stringify([
 		{ name: 'Imported', kic: '15', kid: '15', adm: ' aa bb ' },
-		{ name: 'Explicit', tar: '000009', uiccTar: 'B0000C', usimTar: 'B0000D', adm: 'cc' },
+		{ name: 'Explicit', tar: '000009' },
 	]));
-	assert.strictEqual(cards.length, 2);
-	assert.strictEqual(cards[0].tar, '000000');
-	assert.strictEqual(cards[0].uiccTar, 'B00000');
-	assert.strictEqual(cards[0].usimTar, 'B00001');
-	assert.strictEqual(cards[0].adm, 'AABB');
-	assert.strictEqual(cards[1].tar, '000009');
-	assert.strictEqual(cards[1].uiccTar, 'B0000C');
-	assert.strictEqual(cards[1].usimTar, 'B0000D');
-	assert.strictEqual(cards[1].adm, 'CC');
+	assert.strictEqual(apiCalls.length, 1);
+	assert.strictEqual(apiCalls[0].path, '/api/presets/import');
+	assert.strictEqual(apiCalls[0].body.presets.length, 2);
+	assert.strictEqual(apiCalls[0].body.presets[0].name, 'Imported');
+	// a payload that is not an array never reaches the server
+	apiCalls = [];
+	await cardsImport('{"nope": 1}');
+	assert.strictEqual(apiCalls.length, 0);
+});
+
+test('the SCP80 counter edit is written to the store, a reported counter only locally', () => {
+	const els = setup();
+	globalThis.cards = [{ id: 'abc123', name: 'C', cntr: '0000000001' }];
+	els['sp-card-sel'].value = '0';
+	els['sp-cntr'].value = '0000000009';
+	assert.strictEqual(spCntrSyncPreset(), true);
+	assert.strictEqual(cards[0].cntr, '0000000009');
+	assert.strictEqual(apiCalls.length, 1);
+	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
+	assert.strictEqual(apiCalls[0].body.id, 'abc123');
+	assert.deepStrictEqual(apiCalls[0].body.fields, { cntr: '0000000009' });
+	// a counter the server already persisted: display only, no second write
+	apiCalls = [];
+	spCntrLocalSync('000000000A');
+	assert.strictEqual(cards[0].cntr, '000000000A');
+	assert.strictEqual(apiCalls.length, 0);
+	// no preset selected: nothing to write
+	els['sp-card-sel'].value = '';
+	assert.strictEqual(spCntrSyncPreset(), false);
+	assert.strictEqual(apiCalls.length, 0);
 });
 
 test('applying a preset uses the TAR of the current operation', () => {

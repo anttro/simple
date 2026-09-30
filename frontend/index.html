@@ -1750,7 +1750,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.7.1';
+const SIMPLE_VERSION = '3.8.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -1768,7 +1768,7 @@ function switchTab(name) {
 	active.classList.add('bg-blue-600', 'text-white', 'dark:bg-blue-500', 'dark:text-white');
 	if (name === 'c-apdu') cApduSwitchSubtab('sim');
 	else if (name === 'scp80') setHelpAnchor(scp80HelpAnchor);
-	else if (name === 'cards') { cardsRender(); setHelpAnchor('cards'); }
+	else if (name === 'cards') { cardsRender(); cardsFetch(); setHelpAnchor('cards'); }
 	else if (name === 'pysim') { setHelpAnchor(pysimHelpAnchor); pysimFsFitTree(); }
 	else if (name === 'profiler') { profilerSetView('list'); setHelpAnchor('profiler'); }
 	else if (name === 'phone') phoneSwitchSubtab('phone');
@@ -7507,8 +7507,8 @@ function testWriteBackCounter() {
 	if (!preset) return;
 	_testLastPresetIdx = idx;
 	if (String(preset.cntr || '').toUpperCase() === next) return;
-	preset.cntr = next;
-	cardsSave();
+	preset.cntr = next;   // the server persisted it with the run (v3.8.0)
+	cardsRender();
 	ioStatus('test-io-status', t('SCP80 counter saved to the preset:') + ' ' + next);
 }
 
@@ -7557,6 +7557,14 @@ async function pysimFetch(path, body) {
 	if (body) opts.body = JSON.stringify(body);
 	const res = await fetch(url, opts);
 	return await res.json();
+}
+
+// The same call, but a response carrying `error` (the server's 400/404/503
+// bodies) throws - the caller shows the message instead of silently using it.
+async function pysimFetchOk(path, body) {
+	const data = await pysimFetch(path, body);
+	if (data && data.error) throw new Error(data.error);
+	return data;
 }
 
 // ===== UI availability (server / card) =====
@@ -7981,6 +7989,7 @@ async function pysimConnect() {
 		pysimFsRefresh();
 		pysimPollStatusInit();
 		pysimStartBackendPoll();
+		cardsFetch();   // the server store holds the card presets (v3.8.0)
 		btn.textContent = t('Connected');
 		stkCheckMenu();
 	} catch (e) {
@@ -8099,20 +8108,49 @@ function spNextCntr(value) {
 	return ((v + 1) % 0x10000000000).toString(16).toUpperCase().padStart(10, '0');
 }
 
-function spCntrSyncPreset() {
-	// Persist the counter into the selected card preset: the OTA counter is
-	// part of the card's state and must survive reloads.
+// The index of the preset selected in the SCP80 (Secured packet) view.
+function spPresetIdx() {
 	const sel = document.getElementById('sp-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
-	if (isNaN(idx) || !cards[idx]) return false;
-	cards[idx].cntr = document.getElementById('sp-cntr').value;
-	cardsSave();
+	return (!isNaN(idx) && cards[idx]) ? idx : -1;
+}
+
+// The SCP80 form's counter input: a deliberate human edit, written to the
+// server-side preset (v3.8.0).  The counter an *operation* accepted is
+// persisted by the server itself - the send/RAM flows only sync the local copy
+// through spCntrLocalSync().
+function spCntrSyncPreset() {
+	const idx = spPresetIdx();
+	if (idx < 0) return false;
+	const preset = cards[idx];
+	const value = (document.getElementById('sp-cntr').value || '').trim().toUpperCase();
+	preset.cntr = value;
 	cardsRender();
+	if (preset.id) {
+		pysimFetch('/api/presets/update', { id: preset.id, fields: { cntr: value } })
+			.then(res => {
+				if (res && res.error) throw new Error(res.error);
+				// the store normalises the counter (fixed 10-hex form)
+				if (res && res.preset) { preset.cntr = res.preset.cntr; cardsRender(); }
+			})
+			.catch(e => ioStatus('cards-io', t('Counter not saved:') + ' ' + e.message));
+	}
 	return true;
 }
 
+// Keep the selected preset in step with a counter the server already persisted
+// (the operations report it as final_cntr): display only, no write.
+function spCntrLocalSync(value) {
+	const idx = spPresetIdx();
+	if (idx < 0) return;
+	cards[idx].cntr = value;
+	cardsRender();
+}
+
 function spParams() {
+	const idx = spPresetIdx();
 	const p = {
+		preset_id: idx >= 0 ? (cards[idx].id || '') : '',
 		spi1: document.getElementById('sp-spi1').value,
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
@@ -8219,8 +8257,8 @@ async function pysimSendOta() {
 				msg += ' | CNTR -> ' + cntrEl.value;
 				document.getElementById('sp-result').value = '';
 				spShowSizeInfo();
-				// keep the selected card preset in sync with the new counter
-				spCntrSyncPreset();
+				// the server persisted the accepted counter; sync the display
+				spCntrLocalSync(cntrEl.value);
 			} else {
 				msg += ' | CNTR unchanged (' + ((por && por.response_status) || 'PoR error') + ')';
 			}
@@ -8692,7 +8730,13 @@ function scriptsCapFileChanged() {
 
 // Collect SP params from the SP form (populated by ramApplyCard -> cardsApply)
 function getRamSpParams() {
+	// `preset_id` names the server-side preset the operation belongs to: the
+	// server persists the counter it consumes there (v3.8.0).
+	const sel = document.getElementById('ram-card-sel');
+	const idx = sel ? parseInt(sel.value, 10) : NaN;
+	const preset = (!isNaN(idx) && cards[idx]) ? cards[idx] : null;
 	return {
+		preset_id: (preset && preset.id) || '',
 		spi1: document.getElementById('sp-spi1').value,
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
@@ -8710,12 +8754,13 @@ function ramIncrementCntr(cntr) {
 }
 
 function ramSaveCntr(cntr) {
+	// Keep the local copy in step with the counter the server persisted for the
+	// operation (v3.8.0): display only - the store already holds it.
 	const el = document.getElementById('sp-cntr');
-	el.value = cntr;
-	const selIdx = parseInt(document.getElementById('ram-card-sel').value, 10);
+	if (el) el.value = cntr;
+	const selIdx = parseInt((document.getElementById('ram-card-sel') || {}).value, 10);
 	if (!isNaN(selIdx) && cards[selIdx]) {
 		cards[selIdx].cntr = cntr;
-		cardsSave();
 		cardsRender();
 		ramRender();
 	}
@@ -10226,6 +10271,7 @@ async function ramCompatTest(sp) {
 	const body = {
 		cap_hex: await ramReadFileHex(file),
 		probe_imports: parsed.map, probe_additions: parsed.additions,
+		preset_id: sp.preset_id,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
 	};
@@ -10298,6 +10344,7 @@ async function ramInstallCap(sp) {
 
 	const body = {
 		cap_hex: capHex,
+		preset_id: sp.preset_id,
 		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
 		install_params: (ramInstallParamsPrefix() +
@@ -10350,6 +10397,7 @@ async function ramInstallApp(sp, op) {
 	}
 	const body = {
 		mode: mode,
+		preset_id: sp.preset_id,
 		loadfile_aid: loadfile,
 		module_aid: module,
 		instance_aid: instance,
@@ -10839,16 +10887,35 @@ let cards = [];
 let _cardsEditIdx = null;
 
 function cardsLoad() {
-	try {
-		const d = localStorage.getItem('simple_cards');
-		cards = d ? JSON.parse(d) : [];
-	} catch (e) { cards = []; }
+	// Presets live on the server now (v3.8.0): /api/presets fills this array
+	// on connect.  localStorage is deliberately ignored - the Cards tab's
+	// export/import (the same JSON shape) moves old browser presets over.
+	cards = [];
 	cardsRebuildSelect();
 	cardsRender();
 }
 
+// Load the presets from the server store.  Called on connect, after every
+// Cards-tab mutation and when the tab is opened; operations keep the local
+// copy in step through the counter they report back.
+async function cardsFetch() {
+	try {
+		const data = await pysimFetchOk('/api/presets');
+		cards = Array.isArray(data.presets) ? data.presets : [];
+	} catch (e) {
+		return false;   // server optional at this point; the tab fills on connect
+	}
+	cardsRebuildSelect();
+	cardsRender();
+	scp81PushPskMap();
+	return true;
+}
+
 function cardsSave() {
-	localStorage.setItem('simple_cards', JSON.stringify(cards));
+	// Nothing to persist here: the server store is the source of truth (the
+	// Cards tab writes through /api/presets*, operations persist their own
+	// accepted counters).  Kept as the "the list changed" hook for the
+	// selects, the table and the SCP81 PSK map.
 	cardsRebuildSelect();
 	cardsRender();
 	scp81PushPskMap();
@@ -10924,7 +10991,7 @@ function cardsClearForm() {
 	});
 }
 
-function cardsAdd() {
+async function cardsAdd() {
 	const v = cardsFormValues();
 	// empty TAR fields fall back to the per-target spec defaults
 	v.tar = cardsTarValue('tar', v.tar);
@@ -10946,16 +11013,17 @@ function cardsAdd() {
 		alert(t('Card with this ICCID already exists') + ': ' + (cards[dupIdx].name || ('Card ' + dupIdx)));
 		return;
 	}
-	if (_cardsEditIdx !== null && cards[_cardsEditIdx]) {
-		cards[_cardsEditIdx] = Object.assign({}, cards[_cardsEditIdx], v);
-	} else {
-		cards.push(Object.assign({}, v, {
-			spi1: v.spi1 || '16',
-			spi2: v.spi2 || '01',
-			cntr: v.cntr || '0000000001',
-		}));
+	// The server store is the source of truth (v3.8.0): create or update
+	// through the API, then reload - it also enforces the duplicate-ICCID rule.
+	const editing = (_cardsEditIdx !== null && cards[_cardsEditIdx]) ? cards[_cardsEditIdx] : null;
+	try {
+		if (editing) await pysimFetchOk('/api/presets/update', { id: editing.id, fields: v });
+		else await pysimFetchOk('/api/presets', v);
+	} catch (e) {
+		alert(t('Save error') + ': ' + e.message);
+		return;
 	}
-	cardsSave();
+	await cardsFetch();
 	cardsCancelEdit();
 }
 
@@ -10990,12 +11058,19 @@ function ramCardIdxAfterRemove(idx, removedIdx) {
 	return idx > removedIdx ? idx - 1 : idx;
 }
 
-function cardsRemove(i) {
+async function cardsRemove(i) {
+	const c = cards[i];
+	if (!c) return;
+	try {
+		await pysimFetchOk('/api/presets/delete', { id: c.id });
+	} catch (e) {
+		alert(t('Delete error') + ': ' + e.message);
+		return;
+	}
 	_ramCardIdx = ramCardIdxAfterRemove(_ramCardIdx, i);
-	cards.splice(i, 1);
 	if (_cardsEditIdx === i) _cardsEditIdx = null;
 	else if (_cardsEditIdx !== null && _cardsEditIdx > i) _cardsEditIdx--;
-	cardsSave();
+	await cardsFetch();
 }
 
 function cardsRender() {
@@ -11322,36 +11397,22 @@ function cardsExportFile() {
 	downloadJson('simple-cards.json', cards);
 }
 
-function cardsImport(text) {
+async function cardsImport(text) {
+	let imported;
 	try {
-		const imported = JSON.parse(text);
+		imported = JSON.parse(text);
 		if (!Array.isArray(imported)) throw new Error('Expected an array');
-		let added = 0;
-		for (const entry of imported) {
-			if (!entry.name) continue;
-			if (entry.iccid && cards.some(c => c.iccid === entry.iccid)) continue;
-			cards.push({
-				name: entry.name,
-				iccid: entry.iccid,
-				adm: (entry.adm || '').replace(/\s/g, '').toUpperCase(),
-				kic: entry.kic || '15',
-				kid: entry.kid || '15',
-				spi1: entry.spi1 || '16',
-				spi2: entry.spi2 || '01',
-				tar: cardsTarValue('tar', entry.tar),
-				uiccTar: cardsTarValue('uiccTar', entry.uiccTar),
-				usimTar: cardsTarValue('usimTar', entry.usimTar),
-				cntr: entry.cntr || '0000000001',
-				kicKey: entry.kicKey || '',
-				kidKey: entry.kidKey || '',
-				pskIdentity: entry.pskIdentity || '',
-				pskKey: (entry.pskKey || '').replace(/\s/g, '').toUpperCase(),
-			});
-			added++;
-		}
-		cardsSave();
-		cardsRender();
-		ioStatus('cards-io', 'Imported ' + added + ' cards.');
+	} catch (e) {
+		alert('Import error: ' + e.message);
+		return;
+	}
+	try {
+		// The server validates and normalises the entries (the old localStorage
+		// export shape included) and reports what it skipped.
+		const res = await pysimFetchOk('/api/presets/import', { presets: imported });
+		await cardsFetch();
+		ioStatus('cards-io', 'Imported ' + res.added + ' cards'
+			+ (res.skipped ? ' (' + res.skipped + ' skipped)' : '') + '.');
 	} catch (e) {
 		alert('Import error: ' + e.message);
 	}
@@ -19035,6 +19096,9 @@ const LANG_RU = {
 	'SCP81 HTTP OTA: the listener picks the key by the PSK identity the card sends in the TLS handshake. Cards without a PSK are ignored by the listener.': 'SCP81 HTTP OTA: слушатель выбирает ключ по PSK identity, которую карта присылает в TLS-рукопожатии. Карты без PSK слушателем игнорируются.',
 	'Card with this ICCID already exists': 'Карта с таким ICCID уже есть в списке',
 	'Card equipped but its ICCID is not readable': 'Карта подключена, но её ICCID не читается',
+	'Save error': 'Ошибка сохранения',
+	'Delete error': 'Ошибка удаления',
+	'Counter not saved:': 'Счётчик не сохранён:',
 	'Saved.': 'Сохранено.',
 	'Invalid APDU': 'Некорректный APDU',
 	'Add at least one APDU': 'Добавьте хотя бы один APDU',

@@ -31,6 +31,11 @@ a 3.x PWA).
 | `/api/write` | POST | Write raw hex data to a file |
 | `/api/apdu` | POST | Raw APDU send |
 | `/api/verify-adm` | POST | Verify the card's ADM PIN (from the matched card preset) |
+| `/api/presets` | GET | Card preset store: all presets + the store path |
+| `/api/presets` | POST | Create a card preset (server-side store) |
+| `/api/presets/update` | POST | Update a preset (`{id, fields}`; the counter may be raised) |
+| `/api/presets/delete` | POST | Delete a preset (`{id}`) |
+| `/api/presets/import` | POST | Import presets (`{presets: [...], mode: merge\|replace}`) |
 | `/api/esim/chip` | GET | eUICC chip details (EID, EUICCInfo1/2, configured addresses) |
 | `/api/esim/profiles` | GET | Installed eSIM profiles with their metadata |
 | `/api/esim/notifications` | GET | Pending eSIM notifications (read-only) |
@@ -182,6 +187,35 @@ On a wrong key (`63Cx`, x attempts left):
 
 A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
 "blocked": true}` and cannot be recovered without the card's unblock key.
+
+### Card presets (server-side store)
+
+Card presets (KIc/KID + keys, SPI, per-target TARs, counter, PSK pair, ADM)
+live on the server in `~/.pysim-simple-server/card_presets.json`
+(`--card-presets PATH` overrides it; `Path.home()` resolves the same way on
+Linux, macOS and Windows).  The file is written atomically and every counter
+change is appended to `card_presets.json.audit.jsonl`.
+
+The store is the source of truth for the SCP80 counter: the operations below
+accept a `preset_id` and **persist the counter they consumed themselves**
+(monotonic - a stale value never regresses it), so a closed tab, a lost
+response or a second browser window can no longer lose an increment.  The
+Cards tab's export/import uses this API; the import also accepts presets
+exported by the older localStorage-based builds (the store assigns ids and
+applies the form defaults).
+
+- `GET /api/presets` — `{"path": "…", "count": 2, "version": 1, "presets": [{…}]}`
+  (card-free: it answers while a long card operation runs).
+- `POST /api/presets` — body = the preset fields; returns `{"ok": true, "preset": {…}}`.
+  A duplicate ICCID (digits, spaced or raw EF hex are normalised to one form)
+  is refused with `400 {"error": "card with this ICCID already exists: …"}`.
+- `POST /api/presets/update` — `{"id": "…", "fields": {…}}` (partial update;
+  a plain `{id, name, …}` body works too).  The counter is written as given -
+  this is the deliberate human edit; unknown ids answer `404`.
+- `POST /api/presets/delete` — `{"id": "…"}` → `{"ok": true, "removed": true}`.
+- `POST /api/presets/import` — `{"presets": […], "mode": "merge"}` (or
+  `"replace"`) → `{"ok": true, "added": N, "skipped": M, "errors": […]}`;
+  invalid entries and duplicates are skipped and reported, never fatal.
 
 ### eSIM / LPA (local ES10 operations)
 

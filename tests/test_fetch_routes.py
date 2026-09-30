@@ -25,10 +25,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _pwa_calls():
-    """[(path, has_body)] for every literal pysimFetch() call in the PWA."""
+    """[(path, has_body)] for every literal pysimFetch()/pysimFetchOk() call in
+    the PWA."""
     html = (ROOT / 'frontend' / 'index.html').read_text(encoding='utf-8')
     return [(m.group(1).split('?')[0], m.group(2) == ',')
-            for m in re.finditer(r"pysimFetch\(\s*'([^']+)'\s*(,|\))", html)]
+            for m in re.finditer(r"pysimFetch(?:Ok)?\(\s*'([^']+)'\s*(,|\))", html)]
 
 
 def _server_routes():
@@ -425,6 +426,145 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         self.assertTrue(resp['cntr_low'], resp)
         self.assertEqual(resp['card_cntr'], '00000000BB')
         self.assertEqual(resp['suggested_cntr'], '00000000BC')
+
+
+class PresetStoreHttpTests(unittest.TestCase):
+    """The card preset endpoints (v3.8.0): the PWA's Cards tab talks to the
+    server store instead of localStorage, and the counter an operation
+    accepted is persisted server-side."""
+
+    def setUp(self):
+        import tempfile
+        from pysim_simple_server import presets
+        from pysim_simple_server import server as srv
+        self.srv = srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = presets.PresetStore(pathlib.Path(self.tmp.name) / 'card_presets.json')
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = object()
+        self.server.sms_oa = '12345'
+        self.server.sms_sc = '12345678912'
+        self.server.card_presets = self.store
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def _post(self, path, body):
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path),
+            data=json.dumps(body).encode(),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read() or b'{}')
+            e.close()
+            return e.code, body
+
+    def _get(self, path, timeout=5):
+        try:
+            with urllib.request.urlopen(
+                    'http://127.0.0.1:%d%s' % (self.port, path), timeout=timeout) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read() or b'{}')
+            e.close()
+            return e.code, body
+
+    def _preset(self, **kw):
+        p = {'name': 'C', 'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB'}
+        p.update(kw)
+        return p
+
+    def test_the_get_route_is_card_free_and_reports_the_store(self):
+        self.assertIn('/api/presets', _CARD_FREE_GET)
+        with _CARD_LOCK:
+            status, resp = self._get('/api/presets')
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['presets'], [])
+        self.assertEqual(resp['path'], str(self.store.path))
+
+    def test_create_update_delete_round_trip(self):
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        self.assertTrue(pid)
+        self.assertEqual(resp['preset']['cntr'], '0000000001')
+
+        # a duplicate ICCID (raw-hex form) is refused
+        status, resp = self._post('/api/presets',
+                                  self._preset(name='Other', iccid='980711090000640090F8'))
+        self.assertEqual(status, 400, resp)
+        self.assertIn('already exists', resp['error'])
+
+        status, resp = self._post('/api/presets/update',
+                                  {'id': pid, 'fields': {'name': 'Renamed'}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['preset']['name'], 'Renamed')
+        self.assertEqual(resp['preset']['id'], pid)
+
+        status, resp = self._post('/api/presets/update', {'id': 'nope', 'fields': {}})
+        self.assertEqual(status, 404, resp)
+
+        status, resp = self._post('/api/presets/delete', {'id': pid})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['removed'])
+        self.assertEqual(self.store.list(), [])
+
+    def test_import_accepts_the_old_localstorage_export(self):
+        status, resp = self._post('/api/presets/import', {'presets': [
+            {'name': 'A', 'iccid': '8970119000004600098', 'kic': '15', 'kid': '15',
+             'kicKey': 'AA', 'kidKey': 'BB', 'cntr': '0000000007'},
+            {'name': 'Broken'},
+        ]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 1)
+        self.assertEqual(resp['skipped'], 1)
+        self.assertEqual(self.store.find_by_iccid('8970119000004600098')['cntr'], '0000000007')
+
+        status, resp = self._post('/api/presets/import', {'presets': 'nope'})
+        self.assertEqual(status, 400, resp)
+
+    def test_the_counter_an_operation_accepted_is_persisted(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': '027100000000'}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                'response_status': 'por_ok', 'tar': '000000', 'cntr': '0000000001',
+                'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': '',
+                'decoded': {'number_of_commands': 1, 'last_status_word': '9000',
+                            'last_response_data': ''}}),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'cntr': '0000000001', 'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['final_cntr'], '0000000002')
+        self.assertEqual(self.store.get(p['id'])['cntr'], '0000000002')
+
+    def test_the_store_endpoints_answer_503_without_a_store(self):
+        self.server.card_presets = None
+        status, resp = self._get('/api/presets')
+        self.assertEqual(status, 503, resp)
+        status, resp = self._post('/api/presets', self._preset())
+        self.assertEqual(status, 503, resp)
 
 
 if __name__ == '__main__':

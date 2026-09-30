@@ -14,6 +14,7 @@ from pySim.cards import UiccCardBase
 from .shell import load_pysim_app
 from . import fastinit
 from . import gsmtap
+from . import presets
 from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter
 
 
@@ -63,6 +64,8 @@ def main():
     parser.add_argument('--mcc-mnc-list', default=_default_mcc_mnc_list(), metavar='PATH',
                         help='Worldwide MCC/MNC operator list (JSON) for the network-simulation operator picker (default: the bundled data/mcc-mnc-list.json)')
     parser.add_argument('--log-requests', action='store_true', default=False, help='Log request/response payloads to stderr')
+    parser.add_argument('--card-presets', default=None, metavar='PATH',
+                        help='Card preset store (default: ~/.pysim-simple-server/card_presets.json)')
     parser.add_argument('--sms-oa', default='12345', metavar='DIGITS',
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
     parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
@@ -278,6 +281,12 @@ def main():
     server.cli_terminal_profile = opts.terminal_profile
     server.web_dir = opts.web_dir
     server.mcc_mnc_path = opts.mcc_mnc_list
+    # Card presets live server-side (the SCP80 counter is card state the server
+    # persists with the operation that consumed it); --card-presets overrides
+    # the default store in the user's home.
+    server.card_presets = presets.PresetStore(opts.card_presets)
+    sys.stderr.write('PRESETS: %s (%d presets)\n'
+                     % (server.card_presets.path, len(server.card_presets.list())))
     server.sim_menu = sim_menu
     server.event_list = event_list
     server.menu_active = False
