@@ -429,6 +429,21 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         self.assertEqual(resp['suggested_cntr'], '00000000BC')
 
 
+class TarProbeListTests(unittest.TestCase):
+    """The PWA's TAR checklist must match the server's TAR_PROBE_TARS - the
+    panel is pre-populated client-side, the server's list is the API fallback,
+    and both must describe the same allocations (TS 101 220 Annex D)."""
+
+    def test_the_pwa_and_the_server_share_the_standard_tar_list(self):
+        from pysim_simple_server import server as srv
+        html = (ROOT / 'frontend' / 'index.html').read_text(encoding='utf-8')
+        block = html[html.index('const TAR_PROBE_TARS = ['):]
+        block = block[:block.index('\n];')]
+        pwa = re.findall(r"tar:\s*'([0-9A-F]{6})',\s*label:\s*'([^']*)'", block)
+        self.assertEqual(pwa, list(srv.TAR_PROBE_TARS))
+        self.assertTrue(pwa, 'the PWA list must not be empty')
+
+
 class PresetStoreHttpTests(unittest.TestCase):
     """The card preset endpoints (v3.8.0): the PWA's Cards tab talks to the
     server store instead of localStorage, and the counter an operation

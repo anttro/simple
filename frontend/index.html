@@ -520,6 +520,7 @@
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
 			<button class="scp80-subtab px-4 py-1.5 text-sm rounded-full bg-blue-600 text-white" data-scp80-sub="sp" onclick="scp80SwitchSubtab('sp')" data-l10n="Secured packet">Secured packet</button>
 			<button class="scp80-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-scp80-sub="ram" onclick="scp80SwitchSubtab('ram')" data-l10n="RAM">RAM</button>
+			<button class="scp80-subtab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-scp80-sub="tar" onclick="scp80SwitchSubtab('tar')" data-l10n="TAR probe">TAR probe</button>
 		</div>
 		<div id="scp80-sub-sp">
 		<div class="mb-3">
@@ -705,7 +706,6 @@
 						<option value="compat" data-l10n="CAP compatibility test">CAP compatibility test</option>
 						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
-						<option value="tar-probe" data-l10n="Probe TARs (registered OTA applications)">Probe TARs (registered OTA applications)</option>
 					</select>
 				</div>
 				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
@@ -721,13 +721,6 @@
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="CAP details">CAP details</legend>
 					<div id="ram-cap-body"></div>
 				</fieldset>
-			</div>
-			<div id="ram-tar-rows" class="hidden mb-3">
-				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Probe APDU (hex)">Probe APDU (hex)</label>
-				<input id="ram-tar-apdu" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono" value="00A40000023F00">
-				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)">TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)</label>
-				<textarea id="ram-tar-list" rows="4" placeholder="000000&#10;B20100&#10;B00000&#10;…" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono"></textarea>
-				<p class="text-xs text-amber-600 dark:text-amber-400 mt-1" data-l10n="One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.">One secured packet per TAR: each packet the card accepts consumes a counter, which is saved to the preset.</p>
 			</div>
 			<div id="ram-compat-rows" class="hidden mb-3">
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3" data-l10n-title="Runs the load only as far as the block that completes the CAP's Import component: the card checks the import list there, so its answer says whether the card can satisfy it.  Nothing is installed and nothing is committed - the link gate is the real install's business.  Lines are AID=version (rewrites an import) or +AID=version (appends a synthetic import, to query the card for a package the CAP does not use).">
@@ -917,6 +910,41 @@
 			<div id="ram-cntr-low" class="mt-2 hidden"></div>
 			<div id="ram-explorer" class="mt-2 text-xs font-mono hidden"></div>
 			<div id="ram-steps" class="mt-2 text-xs font-mono whitespace-pre-wrap hidden"></div>
+		</div>
+		<div id="scp80-sub-tar" class="hidden">
+			<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="Sends one secured packet per selected TAR (TS 101 220 Annex D, Table D.1) carrying a harmless command, and classifies the card's answer - which OTA applications it has registered.  Every packet the card accepts consumes a counter, which is saved to the preset.">Sends one secured packet per selected TAR (TS 101 220 Annex D, Table D.1) carrying a harmless command, and classifies the card's answer - which OTA applications it has registered.  Every packet the card accepts consumes a counter, which is saved to the preset.</p>
+
+			<div class="mb-3 flex gap-2 items-end">
+				<div class="flex-1">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Card preset">Card preset</label>
+					<select id="tar-card-sel" onchange="tarApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						<option value="" data-l10n="— Select card —">— Select card —</option>
+					</select>
+				</div>
+				<div class="flex-1">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Key version (keyset)">Key version (keyset)</label>
+					<select id="tar-keyset-sel" onchange="tarKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
+				</div>
+			</div>
+			<div id="tar-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
+
+			<div class="mb-1 flex items-center justify-between">
+				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1">TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1</span>
+				<span class="flex gap-1">
+					<button type="button" onclick="tarProbeSelectAll(true)" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Select all">Select all</button>
+					<button type="button" onclick="tarProbeSelectAll(false)" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Select none">Select none</button>
+				</span>
+			</div>
+			<div id="tar-list" class="mb-2 border border-gray-200 dark:border-slate-700 rounded p-2 max-h-64 overflow-y-auto"></div>
+			<div class="flex gap-2 items-center mb-3">
+				<input id="tar-custom" class="w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="6" placeholder="AABBCC">
+				<input id="tar-custom-note" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="description (optional)">
+				<button type="button" onclick="tarProbeAddCustom()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 whitespace-nowrap" data-l10n="Add TAR">Add TAR</button>
+			</div>
+			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Probe APDU (hex)">Probe APDU (hex)</label>
+			<input id="tar-apdu" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono mb-3" value="00A40000023F00">
+			<button data-needs="card" onclick="tarExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+			<div id="tar-result" class="mt-2 text-base font-semibold font-mono hidden"></div>
 		</div>
 	</div>
 
@@ -1801,8 +1829,10 @@ function scp80SwitchSubtab(name) {
 	});
 	document.getElementById('scp80-sub-sp').classList.toggle('hidden', name !== 'sp');
 	document.getElementById('scp80-sub-ram').classList.toggle('hidden', name !== 'ram');
+	document.getElementById('scp80-sub-tar').classList.toggle('hidden', name !== 'tar');
 	if (name === 'ram') ramRender();
-	scp80HelpAnchor = { sp: 'secured-packet', ram: 'ram' }[name] || 'secured-packet';
+	if (name === 'tar') tarProbeRender();
+	scp80HelpAnchor = { sp: 'secured-packet', ram: 'ram', tar: 'tar-probe' }[name] || 'secured-packet';
 	setHelpAnchor(scp80HelpAnchor);
 }
 
@@ -8412,7 +8442,6 @@ function ramOpChanged() {
 	const isCap = op === 'install-cap';
 	const isCompat = op === 'compat';
 	const isApp = op === 'install-app' || op === 'make-selectable';
-	const isProbe = op === 'tar-probe';
 	const setHidden = (id, hidden) => {
 		const el = document.getElementById(id);
 		if (el) el.classList.toggle('hidden', hidden);
@@ -8421,7 +8450,6 @@ function ramOpChanged() {
 	setHidden('ram-cap-rows', !(isCap || isCompat));
 	setHidden('ram-compat-rows', !isCompat);
 	setHidden('ram-app-rows', !isApp);
-	setHidden('ram-tar-rows', !isProbe);
 	// The Execute button's .cap gate applies to the install-cap and compat ops.
 	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }
@@ -8793,10 +8821,11 @@ function scriptsCapFileChanged() {
 }
 
 // Collect SP params from the SP form (populated by ramApplyCard -> cardsApply)
-function getRamSpParams() {
+function getRamSpParams(selId) {
 	// `preset_id` names the server-side preset the operation belongs to: the
-	// server persists the counter it consumes there (v3.8.0).
-	const sel = document.getElementById('ram-card-sel');
+	// server persists the counter it consumes there (v3.8.0).  `selId` picks
+	// the view's preset selector (RAM by default, the TAR probe its own).
+	const sel = document.getElementById(selId || 'ram-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
 	const preset = (!isNaN(idx) && cards[idx]) ? cards[idx] : null;
 	return {
@@ -10493,14 +10522,112 @@ async function ramInstallApp(sp, op) {
 // the list field is empty.  Each packet the card accepts consumes a counter,
 // which the server persists into the keyset (one per accepted TAR).
 
-function ramTarVerdictLabel(verdict) {
+// TAR values allocated by ETSI (TS 101 220 V18.3.0 Annex D, Table D.1) with
+// the document each allocation comes from.  Kept in sync with the server's
+// TAR_PROBE_TARS by a test; custom TARs live in localStorage (best effort).
+const TAR_PROBE_TARS = [
+	{ tar: '000000', label: 'Issuer Security Domain (compact)', doc: 'TS 102 226' },
+	{ tar: 'B20100', label: 'Issuer Security Domain (expanded)', doc: 'TS 102 226' },
+	{ tar: 'B00000', label: 'UICC shared file system RFM (compact)', doc: 'TS 102 226' },
+	{ tar: 'B00001', label: 'ADF RFM (compact)', doc: 'TS 131 116' },
+	{ tar: 'B00010', label: 'SIM file system RFM (compact)', doc: 'TS 131 116' },
+	{ tar: 'B00120', label: 'UICC shared file system RFM (expanded)', doc: 'TS 102 226' },
+	{ tar: 'B00130', label: 'SIM file system RFM (expanded)', doc: 'TS 131 116' },
+	{ tar: 'B00140', label: 'ADF RFM (expanded)', doc: 'TS 131 116' },
+	{ tar: 'B20000', label: 'USAT interpreter', doc: 'TS 131 114' },
+	{ tar: 'B20200', label: 'Multiplexing application', doc: 'TS 102 225' },
+	{ tar: 'B20201', label: 'Controlling Authority Security Domain', doc: 'GP Amendment A' },
+	{ tar: 'B20202', label: 'OMA BCAST audience measurement', doc: 'OMA' },
+	{ tar: 'B20203', label: 'OMA DM LWM2M application', doc: 'OMA' },
+	{ tar: 'B00200', label: 'RFU (control)', doc: '' },
+];
+const TAR_PROBE_STORAGE = 'simple_tar_probe';
+
+// The custom TARs added by the user (best effort: losing them is harmless).
+function tarProbeCustomLoad() {
+	try {
+		const d = JSON.parse(localStorage.getItem(TAR_PROBE_STORAGE) || '[]');
+		if (!Array.isArray(d)) return [];
+		return d.filter(e => e && /^[0-9A-F]{6}$/.test(String(e.tar || '').toUpperCase()))
+			.map(e => ({ tar: String(e.tar).toUpperCase(), label: String(e.label || ''), custom: true }));
+	} catch (e) {
+		return [];
+	}
+}
+
+function tarProbeCustomSave(list) {
+	try {
+		localStorage.setItem(TAR_PROBE_STORAGE, JSON.stringify(
+			(list || []).map(e => ({ tar: e.tar, label: e.label || '' }))));
+	} catch (e) { /* best effort */ }
+}
+
+// The standard rows plus the custom ones.
+function tarProbeAllRows() {
+	return TAR_PROBE_TARS.concat(tarProbeCustomLoad());
+}
+
+// The checklist rows (pure): a checkbox per TAR, checked by default, the spec
+// document in the tooltip and a remove button on custom rows.
+function tarProbeRowsHtml(rows) {
+	return (rows || []).map(r => {
+		const title = r.doc ? ' title="' + esc(r.doc) + '"' : '';
+		return '<label class="flex items-center gap-2 py-0.5"' + title + '>' +
+			'<input type="checkbox" class="rounded border-gray-300 dark:border-slate-600" value="' + esc(r.tar) + '" checked>' +
+			'<span class="font-mono text-xs">' + esc(r.tar) + '</span>' +
+			'<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(r.label || '') + '</span>' +
+			(r.custom
+				? '<button type="button" onclick="tarProbeRemoveCustom(\'' + esc(r.tar) + '\')" class="ml-auto px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-red-100 dark:hover:bg-red-900/40" title="' + esc(t('Remove TAR')) + '">\u2715</button>'
+				: '') +
+			'</label>';
+	}).join('');
+}
+
+// The selected TARs, in list order (pure read of the DOM).
+function tarProbeChecked() {
+	return Array.from(document.querySelectorAll('#tar-list input[type="checkbox"]'))
+		.filter(cb => cb.checked)
+		.map(cb => String(cb.value).toUpperCase());
+}
+
+function tarProbeRender() {
+	const box = document.getElementById('tar-list');
+	if (box) box.innerHTML = tarProbeRowsHtml(tarProbeAllRows());
+}
+
+function tarProbeSelectAll(on) {
+	document.querySelectorAll('#tar-list input[type="checkbox"]').forEach(cb => { cb.checked = !!on; });
+}
+
+function tarProbeAddCustom() {
+	const el = document.getElementById('tar-custom');
+	const noteEl = document.getElementById('tar-custom-note');
+	const tar = (el && el.value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (!/^[0-9A-F]{6}$/.test(tar)) { alert(t('A TAR is three hex bytes, e.g. B00001')); return; }
+	const custom = tarProbeCustomLoad();
+	if (!custom.some(e => e.tar === tar)) {
+		custom.push({ tar: tar, label: (noteEl && noteEl.value || '').trim(), custom: true });
+		tarProbeCustomSave(custom);
+	}
+	if (el) el.value = '';
+	if (noteEl) noteEl.value = '';
+	tarProbeRender();
+}
+
+function tarProbeRemoveCustom(tar) {
+	const want = String(tar || '').toUpperCase();
+	tarProbeCustomSave(tarProbeCustomLoad().filter(e => e.tar !== want));
+	tarProbeRender();
+}
+
+function tarProbeVerdictLabel(verdict) {
 	return { registered: 'registered', no_answer: 'accepted, no answer',
 		no_por: 'accepted, no PoR', refused: 'refused' }[verdict] || verdict;
 }
 
 // The probe result table (pure): TAR, application, ENVELOPE SW, verdict, the
 // application's status word and data.
-function ramTarProbeHtml(data) {
+function tarProbeHtml(data) {
 	if (!data || !Array.isArray(data.results)) return '';
 	let html = '<div class="mb-2 text-sm">' + esc(t('Registered applications:')) + ' <b>' +
 		(data.registered || 0) + ' / ' + (data.total || 0) + '</b>' +
@@ -10518,7 +10645,7 @@ function ramTarProbeHtml(data) {
 			'<td class="py-1 px-2 font-mono">' + esc(r.tar) + '</td>' +
 			'<td class="py-1 px-2">' + esc(r.label || '') + '</td>' +
 			'<td class="py-1 px-2 font-mono">' + esc(r.sw || '-') + '</td>' +
-			'<td class="py-1 px-2 ' + tone + '">' + esc(t(ramTarVerdictLabel(r.verdict))) + '</td>' +
+			'<td class="py-1 px-2 ' + tone + '">' + esc(t(tarProbeVerdictLabel(r.verdict))) + '</td>' +
 			'<td class="py-1 px-2 font-mono">' + esc(r.por_sw || '-') + '</td>' +
 			'<td class="py-1 px-2 font-mono">' + esc(r.por_data || '-') + '</td></tr>';
 	});
@@ -10526,53 +10653,107 @@ function ramTarProbeHtml(data) {
 	return html;
 }
 
-async function ramTarProbe(sp) {
-	const apdu = (document.getElementById('ram-tar-apdu').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+// The probe result line (shared by the success and failure paths).
+function tarProbeResult(text, ok) {
+	const el = document.getElementById('tar-result');
+	el.textContent = text;
+	el.classList.remove('hidden', 'text-green-600', 'text-red-600');
+	el.classList.add(ok ? 'text-green-600' : 'text-red-600');
+	return text;
+}
+
+async function tarProbe(sp, tars) {
+	const apdu = (document.getElementById('tar-apdu').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (!apdu) { alert(t('Specify the probe APDU')); return; }
-	const tars = (document.getElementById('ram-tar-list').value || '')
-		.split(/[\s,;]+/).map(s => s.trim().toUpperCase())
-		.filter(s => /^[0-9A-F]{6}$/.test(s));
+	if (!tars || !tars.length) { alert(t('Select at least one TAR')); return; }
 	const body = {
 		preset_id: sp.preset_id,
 		spi1: sp.spi1, spi2: '01',
 		kic: sp.kic, kid: sp.kid, kicKey: sp.kicKey, kidKey: sp.kidKey,
-		cntr: sp.cntr, apdu: apdu,
+		cntr: sp.cntr, apdu: apdu, tars: tars,
 	};
-	if (tars.length) body.tars = tars;
-	ramClearResults();
-	ramOpModalBegin(t('Probe TARs (registered OTA applications)'));
+	ramOpModalBegin(t('TAR probe'));
 	ramOpModalStatus(t('Sending to card...'));
 	let data;
 	try {
 		data = await pysimFetch('/api/tar-probe', body);
 	} catch (e) {
-		const msg = t('Error') + ': ' + e.message;
-		const el = document.getElementById('ram-result');
-		el.textContent = msg;
-		el.classList.remove('hidden', 'text-green-600');
-		el.classList.add('text-red-600');
-		ramOpModalFinish(msg, false, '');
+		ramOpModalFinish(tarProbeResult(t('Error') + ': ' + e.message, false), false, '');
 		return;
 	}
-	ramHideProgress();
 	if (data.final_cntr) ramSaveCntr(data.final_cntr);
 	if (!data.success) {
-		const msg = t('Error') + ': ' + (data.error || '?');
-		const el = document.getElementById('ram-result');
-		el.textContent = msg;
-		el.classList.remove('hidden', 'text-green-600');
-		el.classList.add('text-red-600');
-		ramOpModalFinish(msg, false, '');
+		ramOpModalFinish(tarProbeResult(t('Error') + ': ' + (data.error || '?'), false), false, '');
 		return;
 	}
-	const html = ramTarProbeHtml(data);
-	const resultEl = document.getElementById('ram-result');
-	resultEl.textContent = t('Registered applications:') + ' ' + data.registered + ' / ' + data.total;
-	resultEl.classList.remove('hidden', 'text-red-600');
-	resultEl.classList.add('text-green-600');
-	const stepsEl = document.getElementById('ram-steps');
-	stepsEl.classList.add('hidden');
-	ramOpModalFinish(resultEl.textContent, true, html, true);
+	const text = tarProbeResult(t('Registered applications:') + ' ' + data.registered + ' / ' + data.total, true);
+	ramOpModalFinish(text, true, tarProbeHtml(data), true);
+}
+
+// The TAR-probe view's preset selector (populated from cards[], like the RAM one).
+function tarRender() {
+	const sel = document.getElementById('tar-card-sel');
+	if (!sel) return;
+	const prev = parseInt(sel.value, 10);
+	const keep = (!isNaN(prev) && cards[prev]) ? prev : -1;
+	sel.innerHTML = '<option value="" data-l10n="— Select card —">— Select card —</option>';
+	cards.forEach((c, i) => {
+		const opt = document.createElement('option');
+		opt.value = i;
+		opt.textContent = c.name || ('Card ' + i);
+		sel.appendChild(opt);
+	});
+	if (keep >= 0) sel.value = String(keep);
+	spKeysetSync();
+}
+
+function tarPresetIdx() {
+	const sel = document.getElementById('tar-card-sel');
+	const idx = sel ? parseInt(sel.value, 10) : NaN;
+	return (!isNaN(idx) && cards[idx]) ? idx : -1;
+}
+
+function tarApplyCard(idx) {
+	// copy the selected preset into the shared SP form fields (the probe reads
+	// kic/kid/keys/counter from there, like the RAM view does)
+	const i = parseInt(idx, 10);
+	if (!isNaN(i) && cards[i]) _ramCardIdx = i;
+	_spTarKey = 'tar';
+	cardsApply(idx);
+	spPresetWarningRender();
+}
+
+function tarKeysetChanged() {
+	const sel = document.getElementById('tar-keyset-sel');
+	if (!sel) return;
+	const kvn = parseInt(sel.value, 10);
+	const idx = tarPresetIdx();
+	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
+	if (ks) spKeysetApply(ks);
+	spKeysetSync();
+}
+
+function tarKeysetGuard() {
+	const idx = tarPresetIdx();
+	const kic = (document.getElementById('sp-kic-hex') || {}).value;
+	const kid = (document.getElementById('sp-kid-hex') || {}).value;
+	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+}
+
+async function tarExecute() {
+	const tars = tarProbeChecked();
+	if (!tars.length) { alert(t('Select at least one TAR')); return; }
+	const cardIdx = parseInt(document.getElementById('tar-card-sel').value, 10);
+	if (!isNaN(cardIdx) && cards[cardIdx]) _ramCardIdx = cardIdx;
+	spRefreshFromPreset('tar-card-sel');
+	const ksErr = tarKeysetGuard();
+	if (ksErr) { alert(ksErr); return; }
+	const sp = getRamSpParams('tar-card-sel');
+	if (!sp.kicKey || !sp.kidKey) {
+		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
+		return;
+	}
+	await tarProbe(sp, tars);
 }
 
 // Measured NV footprint of an install operation: the server reads GET DATA
@@ -10723,7 +10904,6 @@ async function ramExecute() {
 	}
 	try {
 		if (op === 'explore') await ramExplore(sp);
-		else if (op === 'tar-probe') await ramTarProbe(sp);
 		else if (op === 'install-cap') await ramInstallCap(sp);
 		else if (op === 'compat') await ramCompatTest(sp);
 		else if (op === 'install-app' || op === 'make-selectable') await ramInstallApp(sp, op);
@@ -11075,6 +11255,7 @@ async function cardsFetch() {
 	}
 	cardsRebuildSelect();
 	cardsRender();
+	tarRender();
 	scp81PushPskMap();
 	spPresetWarningRender();
 	return true;
@@ -11087,6 +11268,7 @@ function cardsSave() {
 	// selects, the table and the SCP81 PSK map.
 	cardsRebuildSelect();
 	cardsRender();
+	tarRender();
 	scp81PushPskMap();
 }
 
@@ -11288,6 +11470,12 @@ function spKeysetSync() {
 		const ramPreset = ramIdx >= 0 ? cards[ramIdx] : null;
 		ramSel.innerHTML = spKeysetOptionsHtml(ramPreset, kic, kid);
 	}
+	const tarSel = document.getElementById('tar-keyset-sel');
+	if (tarSel) {
+		const tarIdx = tarPresetIdx();
+		const tarPreset = tarIdx >= 0 ? cards[tarIdx] : null;
+		tarSel.innerHTML = spKeysetOptionsHtml(tarPreset, kic, kid);
+	}
 }
 
 function spKeysetApply(ks) {
@@ -11369,6 +11557,7 @@ function spPresetWarningRender() {
 	};
 	show('sp-preset-warning', spPresetWarning(iccid, cards, spPresetIdx()));
 	show('ram-preset-warning', spPresetWarning(iccid, cards, ramPresetIdx()));
+	show('tar-preset-warning', spPresetWarning(iccid, cards, tarPresetIdx()));
 }
 
 // The RAM view's preset index.
@@ -19594,6 +19783,15 @@ const LANG_RU = {
 	'Select a card preset - its keysets define the key versions': 'Выберите предустановку карты — её наборы ключей определяют версии ключей',
 	'SCP80 counters saved to the preset.': 'Счётчики SCP80 сохранены в предустановке.',
 	'counter not tracked (SPI1 has no counter check)': 'счётчик не отслеживается (в SPI1 нет проверки счётчика)',
+	'TAR probe': 'TAR-сканер',
+	'Sends one secured packet per selected TAR (TS 101 220 Annex D, Table D.1) carrying a harmless command, and classifies the card\'s answer - which OTA applications it has registered.  Every packet the card accepts consumes a counter, which is saved to the preset.': 'Отправляет по одному защищённому пакету на каждый выбранный TAR (TS 101 220 Annex D, Table D.1) с безобидной командой и классифицирует ответ карты — какие OTA-приложения на ней зарегистрированы. Каждый принятый картой пакет расходует счётчик, который сохраняется в предустановке.',
+	'TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1': 'TAR для пробы — TS 101 220 V18.3.0 Annex D, Table D.1',
+	'Select all': 'Выбрать все',
+	'Select none': 'Снять все',
+	'Add TAR': 'Добавить TAR',
+	'Remove TAR': 'Удалить TAR',
+	'A TAR is three hex bytes, e.g. B00001': 'TAR — это три hex-байта, например B00001',
+	'Select at least one TAR': 'Выберите хотя бы один TAR',
 	'Probe TARs (registered OTA applications)': 'Проба TAR (зарегистрированные OTA-приложения)',
 	'Probe APDU (hex)': 'APDU пробы (hex)',
 	'TARs to probe (hex, one per line; empty = all standard TARs of TS 101 220 Annex D)': 'TAR для пробы (hex, по одному в строке; пусто = все стандартные TAR из TS 101 220 Annex D)',
