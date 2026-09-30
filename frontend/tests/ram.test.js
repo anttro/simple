@@ -25,6 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
+	'ramExpandedReport',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -35,6 +36,8 @@ const m = html.match(/const _chains = \{\};/);
 if (m) code += m[0].replace(/^const /, 'var ') + '\n';
 const swm = html.match(/const SW_MAP = \{[\s\S]*?\n\};/);
 if (swm) code += swm[0].replace(/^const /, 'var ') + '\n';
+const ef = html.match(/const RAM_EXPANDED_FORMS = \[[^\]]*\];/);
+if (ef) code += ef[0].replace(/^const /, 'var ') + '\n';
 const pn = html.match(/const PRIVILEGE_NAMES = \[[\s\S]*?\n\];/);
 if (pn) code += pn[0].replace(/^const /, 'var ') + '\n';
 const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
@@ -546,19 +549,76 @@ test('ramCardIdxAfterRemove keeps the remembered index aligned', () => {
 	assert.strictEqual(ramCardIdxAfterRemove(null, 1), null);
 });
 
-test('ramExpandedQueryApdu matches the reference trace bytes', () => {
-	// TCA Loader: `AA14 2212 80F28002 0C 4F00 5C08 4F9F70C5C4CCCEEA 00`
+test('ramExpandedQueryApdu builds the three expanded query forms', () => {
+	// the reference trace form (richest: the tag list incl. the TS 102 226 EA)
 	for (const p1 of ['80', '40']) {
 		assert.strictEqual(ramExpandedQueryApdu(p1),
 			'80F2' + p1 + '020C4F005C084F9F70C5C4CCCEEA00');
+		assert.strictEqual(ramExpandedQueryApdu(p1, 'tags'), ramExpandedQueryApdu(p1));
 	}
-	// The ELF queries add '84' (Executable Module AIDs): with a tag list the
-	// card returns only the listed tags, so the expanded fallback would
-	// otherwise list packages without their modules (v3.6.51).
+	// the ELF queries add '84' (Executable Module AIDs)
 	for (const p1 of ['20', '10']) {
 		assert.strictEqual(ramExpandedQueryApdu(p1),
 			'80F2' + p1 + '020D4F005C094F9F70C5C4CCCEEA8400');
 	}
+	// without EA: a card that errors on the requested-but-absent EA object
+	assert.strictEqual(ramExpandedQueryApdu('40', 'noea'), '80F240020B4F005C074F9F70C5C4CCCE00');
+	assert.strictEqual(ramExpandedQueryApdu('10', 'noea'), '80F210020C4F005C084F9F70C5C4CCCE8400');
+	// no tag list at all (GPPro's GET STATUS data field: 4F00 only)
+	assert.strictEqual(ramExpandedQueryApdu('80', 'notags'), '80F28002024F0000');
+	assert.strictEqual(ramExpandedQueryApdu('10', 'notags'), '80F21002024F0000');
+	assert.deepStrictEqual(RAM_EXPANDED_FORMS, ['tags', 'noea', 'notags']);
+});
+
+test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
+	globalThis.t = s => s;
+	// every listing answered the reference form
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '80', label: 'ISD', compact: true, form: 'tags', sw: '9000' },
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000' },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'tags', sw: '9000' },
+	]), 'Expanded registry: tag list + EA (ISD, Apps, ELFs)');
+	// the ISD commonly has no expanded data (6A88/6A86 is normal there)
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '80', label: 'ISD', compact: true, form: null, sw: '6A88' },
+		{ p1: '40', label: 'Apps', compact: true, form: 'tags', sw: '9000' },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'noea', sw: '9000' },
+	]), 'Expanded registry: tag list + EA (Apps) \u00b7 tag list (ELFs) \u00b7 ISD: no expanded data (6A88) \u2014 compact listing used');
+	// a listing the card refused entirely: the compact listing carried it
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '40', label: 'Apps', compact: true, form: null, sw: '6A88' },
+		{ p1: '10', label: 'ELFs', compact: true, form: 'notags', sw: '9000' },
+	]), 'Expanded registry: no tag list (ELFs) \u00b7 Apps: refused (6A88) \u2014 compact listing used');
+	// nothing answered: the headline says the versions are unavailable
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '80', label: 'ISD', compact: true, form: null, sw: '6A88' },
+		{ p1: '10', label: 'ELFs', compact: true, form: null, sw: '6A86' },
+	]), 'Expanded registry refused by the card \u2014 compact listing only (package versions unavailable) ISD: no expanded data (6A88) \u2014 compact listing used \u00b7 ELFs: refused (6A86) \u2014 compact listing used');
+	// a listing with no compact data either reports its own status word
+	assert.strictEqual(ramExpandedReport([
+		{ p1: '10', label: 'ELFs', compact: false, form: null, sw: '6A88' },
+	]), 'Expanded registry refused by the card \u2014 compact listing only (package versions unavailable) ELFs: 6A88');
+	assert.strictEqual(ramExpandedReport([]), '');
+	delete globalThis.t;
+});
+
+test('the explorer hints when the card returned no package versions', () => {
+	globalThis.t = s => s;
+	const noVer = ramRenderExploreHtml(null, [], [], [{ aid: 'E1', lifecycle: '01', privileges: '00' }]);
+	const withVer = ramRenderExploreHtml(null, [], [], [{ aid: 'E1', lifecycle: '01', privileges: '00', version: '0100' }]);
+	delete globalThis.t;
+	assert.ok(noVer.includes('Package versions come from the expanded registry query'), noVer);
+	assert.ok(!withVer.includes('Package versions come from the expanded registry query'), withVer);
+});
+
+test('the Explore detects the expanded query form and reports it', () => {
+	const src = extractFunc(html, 'ramExplore');
+	assert.ok(src.includes('RAM_EXPANDED_FORMS'), 'the form ladder must be used');
+	assert.ok(src.includes('expandedReport.push'), 'each listing outcome must be recorded');
+	assert.ok(src.includes('ramExpandedReport(expandedReport)'), 'the report must reach the explorer');
+	// the ISD gets a single attempt: its 6A88 must not poison the detection
+	assert.ok(src.includes("if (p1 === '80') forms = [expandedForm || 'tags'];"),
+		'the ISD must not walk the ladder');
 });
 
 test('ramParseAppStatus parses the expanded E3 listing (vendor traces)', () => {
@@ -1199,13 +1259,16 @@ test('the expanded-details checkbox is a sticky preference', () => {
 	};
 	els['ram-expanded-details'].checked = false;
 	ramExpandedDetailsInit();
-	assert.strictEqual(els['ram-expanded-details'].checked, false);   // default: off
+	assert.strictEqual(els['ram-expanded-details'].checked, true);    // default: on (versions live there)
+	store['simple_ram_expanded'] = '0';
+	ramExpandedDetailsInit();
+	assert.strictEqual(els['ram-expanded-details'].checked, false);   // an explicit opt-out is honoured
 	store['simple_ram_expanded'] = '1';
 	ramExpandedDetailsInit();
 	assert.strictEqual(els['ram-expanded-details'].checked, true);    // stored choice applied
 	els['ram-expanded-details'].checked = false;
 	ramExpandedDetailsChanged();
-	assert.strictEqual(store['simple_ram_expanded'], '0');            // ticking stores it
+	assert.strictEqual(store['simple_ram_expanded'], '0');            // unticking stores it
 	delete globalThis.localStorage;
 });
 
