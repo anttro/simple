@@ -4,9 +4,17 @@ set -e
 # pysim-simple-server start script
 # Starts the server, preferring the venv if it exists.
 # Auto-detects PC/SC reader if available.
+# Every run is mirrored to simple_lastrun.log (overwritten on each start) so the
+# latest server output can be read without copy-pasting the console.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
+
+# Console + log file.  The log contains card keys and request payloads (test
+# cards) - it is gitignored and must not be committed.
+LOG_FILE="$SCRIPT_DIR/simple_lastrun.log"
+exec > >(tee "$LOG_FILE") 2>&1
+export PYTHONUNBUFFERED=1   # keep the log live: a piped stdout is block-buffered
 
 # Auto-detect reader
 READER_ARGS=""
@@ -27,6 +35,7 @@ elif command -v pysim-simple-server &> /dev/null; then
     SERVER="pysim-simple-server"
 elif [ -f "$SCRIPT_DIR/pysim_simple_server/__main__.py" ]; then
     echo "Starting pysim-simple-server from source on http://127.0.0.1:8080"
+    echo "Log: simple_lastrun.log (overwritten on each start)."
     cd "$SCRIPT_DIR" && python3 -m pysim_simple_server --http-port 8080 $READER_ARGS "$@"
     exit $?
 else
@@ -37,6 +46,7 @@ else
 fi
 
 echo "Starting pysim-simple-server on http://127.0.0.1:8080"
+echo "Log: simple_lastrun.log (overwritten on each start)."
 echo "Press Ctrl+C to stop."
 echo "Extra arguments are passed to the server (e.g. ./start.sh --gsmtap)."
 $SERVER --http-port 8080 $READER_ARGS "$@"
