@@ -31,7 +31,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.6.57'
+VERSION = '3.6.58'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1136,8 +1136,12 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
     # Late-PoR fallback: only after the last segment of a packet (a
     # concatenated download cannot have produced its PoR before the card got
     # every part, and polling mid-packet made spurious STATUS exchanges).
-    if (handle_proactive and poll_status and sw == '9000' and submit_handler
-            and not submit_handler.submit_tpdu_hex and not data):
+    if (handle_proactive and poll_status and submit_handler
+            and not submit_handler.submit_tpdu_hex and not data
+            and (sw == '9000' or sw[:2] in ('62', '63'))):
+        # A warning answer (the live card answers 6200 to a low-counter
+        # packet) can hold the PoR too: poll once so the card's verdict is
+        # captured instead of a bare 'ENVELOPE failed' (v3.6.58).
         sys.stderr.write('STATUS poll (PoR not captured)\n')
         st_data, st_sw = _send_status(scc)
         sys.stderr.write('STATUS -> %s\n' % st_sw)
@@ -1337,8 +1341,13 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
                                   handle_proactive=handle_proactive,
                                   poll_status=(i == total - 1))
         if sw != '9000' and not sw.startswith('91'):
+            # A warning (62xx/63xx, e.g. the live card's 6200 for a low
+            # counter) may still hold the PoR: pass it on so the caller can
+            # name the card's verdict instead of a bare ENVELOPE failure.
+            late_por = _sms_submit_por(submit_handler) if submit_handler else ''
             return {'success': False, 'sw': sw, 'bytes': len(pkt),
                     'segments': total,
+                    'response_data': (data or late_por or None),
                     'error': 'ENVELOPE failed at segment %d' % (i + 1)}
     return {'success': True, 'bytes': len(pkt), 'segments': total, 'sw': sw,
             'response_data': data if data else None}
@@ -1368,6 +1377,27 @@ def _por_remote_sw(por):
         if r.get('status_word'):
             return str(r['status_word']).upper()
     return ''
+
+
+def _cntr_low_fields(status, cntr_hex):
+    """The card's `cntr_low` verdict as plain data: the card's own counter and
+    the next valid value (the packet counter must be above it).  {} when the
+    verdict is not a low counter.
+
+    A low counter is NOT recoverable by retrying: every further packet with a
+    counter <= the card's is rejected again, so operations must stop and the
+    user must raise the preset counter (v3.6.58)."""
+    if str(status or '') != 'cntr_low':
+        return {}
+    card = str(cntr_hex or '').upper()
+    suggested = None
+    if card:
+        try:
+            width = 4 * len(card)
+            suggested = '%0*X' % (len(card), (int(card, 16) + 1) % (1 << width))
+        except ValueError:
+            suggested = None
+    return {'cntr_low': True, 'card_cntr': card, 'suggested_cntr': suggested}
 
 
 def _ram_next_cntr(cntr, advance):
@@ -6698,6 +6728,25 @@ class PysimHandler(BaseHTTPRequestHandler):
                         if ram_format is not None:
                             resp['ram_format'] = ram_format
                             resp['final_cntr'] = cntr
+                        # A warning ENVELOPE may still carry the PoR (the
+                        # card's counter verdict): decode it so the caller
+                        # sees 'cntr_low' instead of a bare failure.
+                        failed_por_hex = result.get('response_data') or ''
+                        if not failed_por_hex and submit_handler:
+                            failed_por_hex = _sms_submit_por(submit_handler)
+                        failed_por = _decode_por(body.get('spi1', ''), body.get('spi2', ''),
+                                                 body.get('kic', ''), body.get('kid', ''),
+                                                 body.get('cntr', ''), body.get('kicKey', ''),
+                                                 body.get('kidKey', ''), failed_por_hex)
+                        if failed_por:
+                            resp['por'] = failed_por
+                            low = _cntr_low_fields(failed_por.get('response_status'),
+                                                   failed_por.get('cntr'))
+                            if low:
+                                resp.update(low)
+                                sys.stderr.write('OTA CNTR-LOW: card counter %s '
+                                                 '(the packet counter must be above it)\n'
+                                                 % low['card_cntr'])
                         sys.stderr.write('OTA SEND FAILED: %s\n' % result.get('error'))
                     else:
                         resp = {'success': True, 'sw': result['sw'],
@@ -6728,6 +6777,14 @@ class PysimHandler(BaseHTTPRequestHandler):
                         sys.stderr.write('RAM RESPONSE-PACKET: %s\n' % (por_hex if por_hex else 'empty'))
                         if por:
                             resp['por'] = por
+                            low = _cntr_low_fields(por.get('response_status'), por.get('cntr'))
+                            if low:
+                                # a 9000/91xx ENVELOPE can still carry a
+                                # cntr_low PoR (the live card does)
+                                resp.update(low)
+                                sys.stderr.write('OTA CNTR-LOW: card counter %s '
+                                                 '(the packet counter must be above it)\n'
+                                                 % low['card_cntr'])
                             extra = ''
                             if por.get('decoded'):
                                 extra = ' (compact: %s cmd, last SW %s)' % (por['decoded'].get('number_of_commands', '?'),
@@ -6895,6 +6952,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                                     'load_block_size_requested': block_size_req,
                                     'load_block_size_auto': not block_size_req}
                             resp.update(_ram_nv_fields(nv_before, nv_after))
+                            failed_rec = steps[-1] if steps else {}
+                            resp.update(_cntr_low_fields(failed_rec.get('por_status'),
+                                                         failed_rec.get('por_cntr')))
+                            if resp.get('cntr_low'):
+                                sys.stderr.write('RAM-INSTALL: low counter - card counter %s, '
+                                                 'the preset counter must be above it\n'
+                                                 % resp.get('card_cntr'))
                             self._send_json(resp)
                             self._log_resp(resp)
                             return
@@ -6989,6 +7053,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     resp['error'] = (state['encode_error'] or state['failure'].get('error')
                                      or ('%s failed' % step_name))
                     resp['failed_step'] = len(state['steps'])
+                    failed_rec = state['steps'][-1] if state['steps'] else {}
+                    resp.update(_cntr_low_fields(failed_rec.get('por_status'),
+                                                 failed_rec.get('por_cntr')))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -7106,6 +7173,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     resp['error'] = (state['encode_error'] or state['failure'].get('error')
                                      or 'the card rejected the import list')
                     resp['failed_step'] = len(steps)
+                    failed_rec = steps[-1] if steps else {}
+                    resp.update(_cntr_low_fields(failed_rec.get('por_status'),
+                                                 failed_rec.get('por_cntr')))
                 sys.stderr.write('CAP-COMPAT: %s — imports %s (LOADS to %d/%d)\n' % (
                     loadfile_aid, 'OK' if ok else 'REJECTED', boundary, total_blocks))
                 self._send_json(resp)

@@ -334,5 +334,98 @@ class RamInstallNvFootprintHttpTests(unittest.TestCase):
             self.assertNotIn(key, resp)
 
 
+class CntrLowGuardHttpTests(unittest.TestCase):
+    """The low-counter guard on the HTTP paths (v3.6.58): /api/send-ota
+    reports the card's verdict as data, and a RAM chain stops at it."""
+
+    def setUp(self):
+        from pysim_simple_server import server as srv
+        self.srv = srv
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = object()
+        self.server.sms_oa = '12345'
+        self.server.sms_sc = '12345678912'
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _post(self, path, body):
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path),
+            data=json.dumps(body).encode(),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b'{}')
+
+    def test_send_ota_reports_the_low_counter_verdict(self):
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': '027100000b0a00000000000000bb0002'}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                'response_status': 'cntr_low', 'tar': '000000', 'cntr': '00000000BB',
+                'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': ''}),
+        ]
+        self.server.app = object()      # the send path only checks truthiness
+        for p in patches:
+            p.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'cntr': '00000000BB'})
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['cntr_low'], resp)
+        self.assertEqual(resp['card_cntr'], '00000000BB')
+        self.assertEqual(resp['suggested_cntr'], '00000000BC')
+
+    def test_the_ram_chain_stops_at_a_low_counter(self):
+        calls = []
+
+        def fake_send(server, scc, sp, state, name, apdu, silent=False):
+            calls.append(name)
+            if len(calls) == 2:
+                # the card's verdict: stop - no further step may be sent
+                state['steps'].append({'name': name, 'por_status': 'cntr_low',
+                                       'por_cntr': '00000000BB'})
+                return False
+            state['steps'].append({'name': name, 'por_status': 'por_ok', 'por_sw': '9000'})
+            return True
+
+        patches = [
+            mock.patch.object(self.srv, '_cap_parse',
+                              lambda cap_hex: ('F0414C46416101', 'F0414C4641610101', b'\x01\x02')),
+            mock.patch.object(self.srv, '_cap_apdu_sequence',
+                              lambda *a, **k: ['80E60200', '80E80000', '80E80000', '80E60000']),
+            mock.patch.object(self.srv, '_ram_detect_format', lambda *a, **k: 'compact'),
+            mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_send),
+            mock.patch.object(self.srv, '_ram_read_ff21', lambda *a, **k: None),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            status, resp = self._post('/api/ram-install', {'cap_hex': 'AA'})
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertFalse(resp['success'], resp)
+        self.assertEqual(len(calls), 2, calls)          # nothing after the verdict
+        self.assertTrue(resp['cntr_low'], resp)
+        self.assertEqual(resp['card_cntr'], '00000000BB')
+        self.assertEqual(resp['suggested_cntr'], '00000000BC')
+
+
 if __name__ == '__main__':
     unittest.main()

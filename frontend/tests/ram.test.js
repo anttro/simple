@@ -26,6 +26,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions',
+	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -701,6 +702,52 @@ test('the explorer hints why the package versions are missing', () => {
 	assert.ok(noForm.includes('Package versions come from the expanded registry query'), noForm);
 	assert.ok(noTags.includes('only in the tag-list forms of the expanded registry query'), noTags);
 	assert.ok(!withVer.includes('Package versions'), withVer);
+});
+
+test('spCntrLow reads the low-counter verdict of a send response', () => {
+	// the server's explicit fields
+	const a = spCntrLow({ cntr_low: true, card_cntr: '00000000BB', suggested_cntr: '00000000BC' });
+	assert.deepStrictEqual(a, { card_cntr: '00000000BB', suggested: '00000000BC' });
+	// derived from the PoR alone (a 9000/91xx ENVELOPE can carry a cntr_low PoR)
+	const b = spCntrLow({ por: { response_status: 'cntr_low', cntr: '00000000BB' } });
+	assert.deepStrictEqual(b, { card_cntr: '00000000BB', suggested: '00000000BC' });
+	// the counter is 40-bit: the wrap keeps the width
+	const c = spCntrLow({ por: { response_status: 'cntr_low', cntr: 'FFFFFFFFFF' } });
+	assert.strictEqual(c.suggested, '0000000000');
+	// every other verdict (and a missing response) is not a low counter
+	assert.strictEqual(spCntrLow({ por: { response_status: 'por_ok', cntr: '01' } }), null);
+	assert.strictEqual(spCntrLow({ por: { response_status: 'cntr_high' } }), null);
+	assert.strictEqual(spCntrLow({}), null);
+	assert.strictEqual(spCntrLow(null), null);
+});
+
+test('ramCntrLowHtml states the facts and offers the preset jump', () => {
+	globalThis.t = s => s;
+	const out = ramCntrLowHtml({ card_cntr: '00000000BB', suggested: '00000000BC' }, 2);
+	const noPreset = ramCntrLowHtml({ card_cntr: '00000000BB' }, -1);
+	delete globalThis.t;
+	assert.ok(out.includes('Low counter \u2014 the card rejected the packet (card counter 00000000BB) \u2014 the counter must be above it'), out);
+	assert.ok(out.includes('onclick="ramGoToPreset(2)"'), out);
+	assert.ok(out.includes('Go to preset'), out);
+	// without a known preset the button still opens the tab (-1)
+	assert.ok(noPreset.includes('onclick="ramGoToPreset(-1)"'), noPreset);
+	assert.strictEqual(ramCntrLowHtml(null, 0), '');
+});
+
+test('every SCP80/RAM flow checks the low counter and stops', () => {
+	// the Explore: the guarded sender, the loop guards and the final branch
+	const explore = extractFunc(html, 'ramExplore');
+	assert.ok(explore.includes('spCntrLow(res)'), 'the Explore must check every send');
+	assert.ok(explore.includes('if (cntrLow) break;'), 'the loops must stop');
+	assert.ok(explore.includes('ramShowCntrLow(cntrLow)'), 'the verdict must be shown');
+	// the delete flow and the plain send check it too
+	assert.ok(extractFunc(html, 'ramDeleteFromExplorer').includes('spCntrLow(res)'),
+		'the delete flow must stop');
+	// the preset jump opens the Cards tab, selects the preset and focuses the counter
+	const go = extractFunc(html, 'ramGoToPreset');
+	assert.ok(go.includes("switchTab('cards')"), go);
+	assert.ok(go.includes('cardsEdit('), go);
+	assert.ok(go.includes("getElementById('cards-cntr')"), go);
 });
 
 test('the Explore detects the expanded query form and reports it', () => {

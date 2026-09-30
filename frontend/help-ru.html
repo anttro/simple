@@ -279,7 +279,7 @@
 </section>
 <section class="mb-10">
 	<h2 id="scp80" class="text-xl font-semibold mb-3 border-b border-gray-300 dark:border-slate-700 pb-1">3. Вкладка SCP80</h2>
-	<p class="mb-3">Верхнеуровневая вкладка <strong>SCP80</strong> объединяет разделы, связанные с SCP80. Переключение — двумя переключателями: <strong>Secured Packet</strong> и <strong>RAM</strong>. Собирает защищённые пакеты SCP80 по ETSI TS 102 225. При подключении карты сервер читает её <strong>EF.ICCID</strong> (2FE2); если в предустановке указан тот же номер (цифрами или сырым hex из EF), она автоматически выбирается в обоих представлениях.</p>
+	<p class="mb-3">Верхнеуровневая вкладка <strong>SCP80</strong> объединяет разделы, связанные с SCP80. Переключение — двумя переключателями: <strong>Secured Packet</strong> и <strong>RAM</strong>. Собирает защищённые пакеты SCP80 по ETSI TS 102 225. При подключении карты сервер читает её <strong>EF.ICCID</strong> (2FE2); если в предустановке указан тот же номер (цифрами или сырым hex из EF), она автоматически выбирается в обоих представлениях. Вердикт <strong>низкого счётчика</strong> (<code class="font-mono text-sm">cntr_low</code> или предупреждающий ответ ENVELOPE, в котором всё ещё есть такой PoR) <em>не</em> исправляется повторной отправкой: любая операция SCP80/RAM немедленно останавливается, результат показывает счётчик карты и кнопку <strong>К пресету</strong>, открывающую соответствующий пресет на вкладке Cards, где счётчик нужно поднять выше &mdash; автоматически ничего не записывается.</p>
 
 	<h3 id="secured-packet" class="text-lg font-medium mb-2">3.1 Secured Packet</h3>
 	<p class="mb-2">Собирает защищённые пакеты SCP80 по ETSI TS 102 225.</p>

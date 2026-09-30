@@ -32,6 +32,7 @@ from pysim_simple_server.server import (
     _parse_setup_menu_items,
     _calc_ud_offset,
     _find_sms_tpdu,
+    _cntr_low_fields,
     _parse_proactive_header,
     _parse_display_text,
     _tlv_map,
@@ -1589,6 +1590,61 @@ class RamSendGpApduLoggingTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn('RAM C-APDU (LOAD (1/2)): 80E8800001AA', out)
         self.assertIn('RAM SECURED-PACKET (LOAD (1/2)): AABB', out)
+
+
+class CntrLowGuardTests(unittest.TestCase):
+    """The low-counter guard (v3.6.58): the card's verdict is plain data and a
+    warning ENVELOPE answer still gets its PoR polled."""
+
+    def test_cntr_low_fields(self):
+        self.assertEqual(_cntr_low_fields('cntr_low', '00000000BB'),
+                         {'cntr_low': True, 'card_cntr': '00000000BB',
+                          'suggested_cntr': '00000000BC'})
+        # the counter field is fixed-width: the wrap keeps it
+        self.assertEqual(_cntr_low_fields('cntr_low', 'FFFFFFFFFF'),
+                         {'cntr_low': True, 'card_cntr': 'FFFFFFFFFF',
+                          'suggested_cntr': '0000000000'})
+        # only the low-counter verdict counts
+        self.assertEqual(_cntr_low_fields('por_ok', '01'), {})
+        self.assertEqual(_cntr_low_fields('cntr_high', '01'), {})
+        self.assertEqual(_cntr_low_fields(None, None), {})
+
+    def test_a_warning_envelope_answer_polls_for_the_por(self):
+        from pysim_simple_server import server as srv
+        # the live PoR TPDU (response status 02 = cntr_low, card counter BB)
+        tpdu = '410005812143f500f610027100000b0a00000000000000bb0002'
+        fetch = 'd02e8103011300820281838607919733824009f08b1a' + tpdu
+
+        class FakeTp:
+            def __init__(self):
+                self.sent = []
+                self.proactive_handler = None
+                self.status_calls = 0
+
+            def send_apdu(self, apdu):
+                self.sent.append(apdu)
+                if apdu.startswith('80c20000'):
+                    return ('', '6200')          # the live warning answer
+                if apdu.startswith('80f2000c'):
+                    self.status_calls += 1
+                    return ('', '9130' if self.status_calls == 1 else '9000')
+                if apdu.startswith('80120000'):
+                    return (fetch, '9000')
+                return ('', '9000')
+
+        class FakeScc:
+            cat_cla = '80'
+
+            def __init__(self):
+                self._tp = FakeTp()
+
+        scc = FakeScc()
+        handler = srv.PoRSubmitHandler()
+        _data, sw = srv._send_envelope(tpdu, scc, submit_handler=handler)
+        self.assertEqual(sw, '6200')             # the ENVELOPE's own answer
+        self.assertIn('80f2000c00', scc._tp.sent)  # the late-PoR poll ran
+        self.assertTrue(handler.submit_tpdu_hex, scc._tp.sent)
+        self.assertIn('bb0002', handler.submit_tpdu_hex.lower())
 
 
 class ProactiveLongTlvTests(unittest.TestCase):

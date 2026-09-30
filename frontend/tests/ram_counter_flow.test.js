@@ -29,7 +29,9 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr',
 	'getRamSpParams', 'spPorAccepted', 'ramRemoteSwOk', 'ramShowProgress',
-	'ramHideProgress', 'ramDeleteFromExplorer']) {
+	'ramHideProgress', 'ramDeleteFromExplorer',
+	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
+	'escHtml', 'esc']) {
 	code += extractFunc(html, fn) + '\n';
 }
 eval(code);

@@ -898,6 +898,7 @@
 			</div>
 
 			<div id="ram-result" class="mt-2 text-base font-semibold font-mono hidden"></div>
+			<div id="ram-cntr-low" class="mt-2 hidden"></div>
 			<div id="ram-explorer" class="mt-2 text-xs font-mono hidden"></div>
 			<div id="ram-steps" class="mt-2 text-xs font-mono whitespace-pre-wrap hidden"></div>
 		</div>
@@ -1749,7 +1750,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.6.57';
+const SIMPLE_VERSION = '3.6.58';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -8176,6 +8177,16 @@ async function pysimSendOta() {
 	porStatusEl.classList.add('hidden');
 	try {
 		const data = await pysimFetch('/api/send-ota', { sp, ...spParams() });
+		// low counter: not recoverable by retrying (v3.6.58)
+		const low = spCntrLow(data);
+		if (low) {
+			sendResultEl.textContent = t('Low counter') + ' — ' + t('the card rejected the packet') +
+				(low.card_cntr ? ' (' + t('card counter') + ' ' + low.card_cntr + ')' : '');
+			sendResultEl.classList.remove('text-gray-500', 'text-green-600');
+			sendResultEl.classList.add('text-red-600');
+			ramShowCntrLow(low);
+			return;
+		}
 		if (data.success) {
 			if (data.por && data.por.decoded) {
 				document.getElementById('resp-sw').value = data.por.decoded.last_status_word || '';
@@ -8403,6 +8414,8 @@ function ramClearResults() {
 	document.getElementById('ram-explorer').innerHTML = '';
 	document.getElementById('ram-steps').classList.add('hidden');
 	document.getElementById('ram-steps').textContent = '';
+	const cntrLowEl = document.getElementById('ram-cntr-low');
+	if (cntrLowEl) { cntrLowEl.innerHTML = ''; cntrLowEl.classList.add('hidden'); }
 }
 
 // Read a File as a hex string via FileReader (client-side, no upload)
@@ -9397,6 +9410,19 @@ async function ramExplore(sp) {
 	// outcome report shown in the explorer.
 	let expandedForm = null;
 	const expandedReport = [];
+	// Low counter: the card rejected a packet whose counter is not above its
+	// own - a retry cannot help, so the run stops immediately and the user is
+	// told to raise the preset counter (v3.6.58).  Every send of the run goes
+	// through sendOta() so the verdict is caught wherever it appears.
+	let cntrLow = null;
+	async function sendOta(apdu, params) {
+		const res = await ramSendOta(apdu, params);
+		if (!cntrLow) {
+			const low = spCntrLow(res);
+			if (low) cntrLow = low;
+		}
+		return res;
+	}
 
 	// One expanded query with the form ladder (see RAM_EXPANDED_FORMS): try
 	// the remembered form first, then the others.  The ISD gets a single
@@ -9415,6 +9441,7 @@ async function ramExplore(sp) {
 		let lastSw = '';
 		let lastTransport = false;
 		for (const form of forms) {
+			if (cntrLow) break;
 			let data = '';
 			let sw = '';
 			let accepted = true;
@@ -9440,7 +9467,7 @@ async function ramExplore(sp) {
 				const apdu = ramExpandedQueryApdu(p1, form, page > 1);
 				const what = page > 1 ? 'P2=03 (' + form + ')' : 'P2=02 (' + form + ')';
 				data += await sendOne(apdu, what);
-				if (!accepted) break;
+				if (cntrLow || !accepted) break;
 				// '61xx': the card holds the response data - the GET RESPONSE
 				// must ride in the same compact command string (a standalone
 				// one answers 6700 on the live card); the expanded AA/22
@@ -9448,7 +9475,7 @@ async function ramExplore(sp) {
 				const pending = /^61[0-9A-F]{2}$/.test(sw);
 				if (pending && sp.ram_format !== 'expanded') {
 					data += await sendOne(ramChainGetResponse(apdu), what + ' + GET RESPONSE');
-					if (!accepted) break;
+					if (cntrLow || !accepted) break;
 				}
 				// the ISD is a single occurrence (GP 11.4.2.2); '6310' means
 				// more occurrences, and a '61xx' page may mask that signal
@@ -9475,6 +9502,7 @@ async function ramExplore(sp) {
 	}
 
 	async function paginate(p1, collector, parser, label, quiet) {
+		if (cntrLow) return;   // the run was stopped by a low counter
 		// Compact listing format (GP 11.4.2.2: P2.b2=0) with the chained GET
 		// RESPONSE - see ramGetStatusApdu().  The card's SCP80 layer runs both
 		// commands, so the PoR carries the listing; ramListingSpi2() picks the
@@ -9487,7 +9515,8 @@ async function ramExplore(sp) {
 		while (guard++ < 32) {
 			const apdu = ramGetStatusApdu(p1, p2);
 			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
-			const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+			const res = await sendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+			if (cntrLow) break;
 			// Reuse the format detected for the first packet of this run
 			if (res.ram_format) sp.ram_format = res.ram_format;
 			// A packet the card accepted advances the counter even when the
@@ -9561,7 +9590,8 @@ async function ramExplore(sp) {
 
 	 ramShowProgress(t('Card resources (GET DATA FF21)') + '...');
 	try {
-		const memRes = await ramSendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
+		if (cntrLow) throw new Error(t('Low counter'));
+		const memRes = await sendOta('80CAFF2100', Object.assign({}, sp, { spi2: '01' }));
 		if (memRes.ram_format) sp.ram_format = memRes.ram_format;
 		if (memRes.success && memRes.por && memRes.por.response_status === 'por_ok') {
 			cntr = memRes.final_cntr || ramIncrementCntr(cntr);
@@ -9606,7 +9636,12 @@ async function ramExplore(sp) {
 	if (cntr !== sp.cntr) ramSaveCntr(cntr);
 	ramHideProgress();
 
-	if (errors.length) {
+	if (cntrLow) {
+		// the run was stopped: state the verdict, do not retry
+		resultEl.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
+		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
+		ramShowCntrLow(cntrLow);
+	} else if (errors.length) {
 		resultEl.textContent = t('Partial') + ' — ' + errors.join('; ');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 		stepsEl.classList.remove('hidden');
@@ -9707,6 +9742,15 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	ramShowProgress(label + ' ' + aid + '...');
 	const res = await ramSendOta(apdu, sp);
 	ramHideProgress();
+	// low counter: stop - retrying cannot help (v3.6.58)
+	const low = spCntrLow(res);
+	if (low) {
+		const el = document.getElementById('ram-result');
+		el.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
+		el.classList.remove('hidden', 'text-green-600'); el.classList.add('text-red-600');
+		ramShowCntrLow(low);
+		return;
+	}
 	// The card consumes the counter as soon as it accepts the packet, even
 	// when the remote command fails; a rejected packet (cntr_low, PoR error)
 	// leaves it untouched.
@@ -10128,6 +10172,11 @@ async function ramCompatTest(sp) {
 	let modal = esc(txt);
 	if (probeNote) modal += '<div class="mt-2 text-gray-500 dark:text-slate-400">' + esc(probeNote) + '</div>';
 	modal += ramCompatDetailHtml(data, mem);
+	const low = spCntrLow(data);
+	if (low) {
+		modal += ramCntrLowHtml(low, ramCntrLowPresetIdx());
+		ramShowCntrLow(low);
+	}
 	ramOpModalFinish(verdict, !!data.imports_ok, modal, true);
 }
 
@@ -10239,6 +10288,64 @@ function ramNvLine(data) {
 	return label + ' ~' + Math.abs(used) + ' B (' + t('free') + ' ' + data.nv_before + ' \u2192 ' + data.nv_after + ')';
 }
 
+// The preset the failed operation used (the RAM form's selection, else the
+// SCP80 form's) - the "Go to preset" target.
+function ramCntrLowPresetIdx() {
+	const pick = id => {
+		const el = document.getElementById(id);
+		const i = el && el.value !== '' ? parseInt(el.value, 10) : NaN;
+		return (!isNaN(i) && cards[i]) ? i : -1;
+	};
+	const ram = pick('ram-card-sel');
+	return ram >= 0 ? ram : pick('sp-card-sel');
+}
+
+// Low-counter notice (pure HTML): the facts plus a button that opens the
+// failed operation's preset in the Cards tab, where the user raises the
+// counter - nothing is written automatically.
+function ramCntrLowHtml(info, presetIdx) {
+	if (!info) return '';
+	const idx = Number.isInteger(presetIdx) && presetIdx >= 0 ? presetIdx : -1;
+	let text = t('Low counter') + ' \u2014 ' + t('the card rejected the packet');
+	if (info.card_cntr) text += ' (' + t('card counter') + ' ' + esc(info.card_cntr) + ')';
+	if (info.suggested) text += ' \u2014 ' + t('the counter must be above it');
+	return '<div class="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">' +
+		'<span>' + text + '</span>' +
+		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 whitespace-nowrap">' +
+		esc(t('Go to preset')) + '</button></div>';
+}
+
+// Show the low-counter notice in the RAM result area (and, when the operation
+// modal is still open, in its detail block).
+function ramShowCntrLow(info, presetIdx) {
+	if (!info) return;
+	const idx = presetIdx === undefined ? ramCntrLowPresetIdx() : presetIdx;
+	const html = ramCntrLowHtml(info, idx);
+	const el = document.getElementById('ram-cntr-low');
+	if (el && el.classList) {
+		el.innerHTML = html;
+		el.classList.remove('hidden');
+	}
+	if (typeof _ramOpActive !== 'undefined' && _ramOpActive) {
+		const steps = document.getElementById('ram-op-steps');
+		if (steps) steps.innerHTML += html;
+	}
+}
+
+// Open a preset in the Cards tab for editing (the user fixes the counter):
+// select it, scroll to the counter field and focus it.
+function ramGoToPreset(idx) {
+	switchTab('cards');
+	const i = Number(idx);
+	if (Number.isInteger(i) && i >= 0 && cards[i]) cardsEdit(i);
+	const el = document.getElementById('cards-cntr');
+	if (el) {
+		if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+		el.focus();
+		if (el.select) el.select();
+	}
+}
+
 // Shared result rendering for /api/ram-install and /api/ram-install-app: the
 // per-step lines, the counter the card consumed, and the verdict.  A failure
 // at a LOAD / INSTALL [for load] step also gets the same block analysis as
@@ -10280,6 +10387,13 @@ function ramShowInstallResult(data, okText, capMem) {
 	// successful run and for failures that are not LOAD/INSTALL [for load]).
 	let modal = esc(txt);
 	modal += ramCompatDetailHtml(data, capMem || null);
+	// low counter: not recoverable by retrying - state it and point at the
+	// preset, where the user raises the counter (v3.6.58)
+	const low = spCntrLow(data);
+	if (low) {
+		modal += ramCntrLowHtml(low, ramCntrLowPresetIdx());
+		ramShowCntrLow(low);
+	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
 }
 
@@ -10987,6 +11101,27 @@ function spRefreshFromPreset(selId, keepTar) {
 function spPorAccepted(por) {
 	return !por || por.response_status === 'por_ok' ||
 		por.response_status === 'actual_response_sms_submit';
+}
+
+// The card's low-counter verdict of a send response (v3.6.58).  Every further
+// packet with a counter <= the card's is rejected again, so the operation must
+// stop and the preset counter must be raised - a retry cannot recover it.
+// Returns {card_cntr, suggested} or null.
+function spCntrLow(res) {
+	if (!res) return null;
+	const por = res.por || null;
+	const status = (por && por.response_status) || '';
+	if (!res.cntr_low && status !== 'cntr_low') return null;
+	const card = String(res.card_cntr || (por && por.cntr) || '').toUpperCase();
+	let suggested = String(res.suggested_cntr || '').toUpperCase();
+	if (!suggested && /^[0-9A-F]+$/.test(card)) {
+		try {
+			// the SCP80 counter field is fixed-width: wrap like the server does
+			const mod = 16n ** BigInt(card.length);
+			suggested = ((BigInt('0x' + card) + 1n) % mod).toString(16).toUpperCase().padStart(card.length, '0');
+		} catch (e) { suggested = ''; }
+	}
+	return { card_cntr: card, suggested: suggested };
 }
 
 // Remote-command status words that count as success (mirrors the server's
@@ -18779,6 +18914,12 @@ const LANG_RU = {
 	'Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.': 'Версии пакетов есть только в формах расширенного запроса со списком тегов \u2014 эта карта приняла только форму без списка тегов.',
 	'from the app instance': 'от экземпляра апплета',
 	'request error': 'ошибка запроса',
+	'Low counter': 'Низкий счётчик',
+	'the card rejected the packet': 'карта отклонила пакет',
+	'card counter': 'счётчик карты',
+	'the counter must be above it': 'счётчик должен быть больше',
+	'Go to preset': 'К пресету',
+	'the operation was stopped': 'операция остановлена',
 	'STK menu entry:': 'Пункт меню STK:',
 	'position': 'позиция',
 	'Other registry data:': 'Прочие данные реестра:',
