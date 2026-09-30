@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions',
+	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
@@ -618,6 +618,31 @@ test('ramDeriveElfVersions reads a package version from its applet instance', ()
 	assert.strictEqual(elfs[2].version, undefined);
 });
 
+test('ramElfAppletCandidate maps a package to its applet instance', () => {
+	// live 2026-09-30: the applet instance AIDs are the package's module AIDs
+	// (they differ from the package AID in the last byte)
+	const apps = [
+		{ aid: 'A1130001180002FFF7100E8904000208' },
+		{ aid: 'A1130001180002FFF7100E89494D4508' },
+		{ aid: 'F0414C4641600101' },
+		{ aid: 'A1130001180001FFFFFFFF89A1003908', version: '0903' },
+	];
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'A1130001180002FFF7100E8904000200',
+		moduleAids: ['A1130001180002FFF7100E8904000208', 'A1130001180002FFF7100E89494D4508'] }, apps).aid,
+		'A1130001180002FFF7100E8904000208');
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'F0414C46416001',
+		moduleAids: ['F0414C4641600101'] }, apps).aid, 'F0414C4641600101');
+	// an applet that already carries a version is skipped, and a package whose
+	// module is that applet has no other candidate
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'A1130001180001FFFFFFFF89A1003900',
+		moduleAids: ['A1130001180001FFFFFFFF89A1003908'] }, apps), null);
+	// a package with no applet at all
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'A00000006203010101', moduleAids: [] }, apps), null);
+	assert.strictEqual(ramElfAppletCandidate(null, apps), null);
+	// the shared-prefix rule is the fallback
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'ABCD' }, [{ aid: 'ABCDEF' }]).aid, 'ABCDEF');
+});
+
 test('the explorer annotates a derived package version', () => {
 	globalThis.t = s => s;
 	const out = ramRenderExploreHtml(null, [], [],
@@ -762,6 +787,10 @@ test('the Explore retries the ELF tag lists with P1=20 and per applet AID', () =
 	assert.ok(src.includes('elfPerAidVersions'), 'the per-AID version queries must exist');
 	assert.ok(src.includes("ramExpandedQueryApdu('40', 'tags', false, app.aid)"),
 		'the per-AID query must use the AID filter');
+	assert.ok(src.includes('ramElfAppletCandidate(e, apps)'),
+		'the module->applet mapping must be used');
+	assert.ok(src.includes('ramChainGetResponse(apdu)'),
+		'the single-AID 61xx answer must be fetched with a chained GET RESPONSE');
 });
 
 test('every SCP80/RAM flow checks the low counter and stops', () => {
