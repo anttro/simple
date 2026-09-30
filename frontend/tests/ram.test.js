@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramGetResponseApdu',
+	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -581,13 +581,45 @@ test('ramExpandedQueryApdu builds the expanded query forms', () => {
 	assert.deepStrictEqual(RAM_EXPANDED_FORMS, ['tags', 'noea', 'lean', 'notags']);
 });
 
-test('ramGetResponseApdu fetches a 61xx response (the announced length)', () => {
-	assert.strictEqual(ramGetResponseApdu('6131'), '00C0000031');
-	assert.strictEqual(ramGetResponseApdu('617F'), '00C000007F');
-	assert.strictEqual(ramGetResponseApdu('613f'), '00C000003F');
-	// not a 61xx: ask for all available data
-	assert.strictEqual(ramGetResponseApdu('9000'), '00C0000000');
-	assert.strictEqual(ramGetResponseApdu(''), '00C0000000');
+test('ramChainGetResponse chains the GET RESPONSE into the query string', () => {
+	// the live card rejects a standalone GET RESPONSE with 6700; the compact
+	// command string (query + C0000000) is how the compact path fetches too
+	assert.strictEqual(ramChainGetResponse('80F280020C4F005C084F9F70C5C4CCCEEA00'),
+		'80F280020C4F005C084F9F70C5C4CCCEEA00C0000000');
+	assert.strictEqual(ramChainGetResponse('80F21002094F005C054F9F70CE8400'),
+		'80F21002094F005C054F9F70CE8400C0000000');
+});
+
+test('ramDeriveElfVersions reads a package version from its applet instance', () => {
+	// the app entry carries CE (the load file version) and C4 (the package
+	// AID), so an ELF whose own listing refused every tag list still gets one
+	const elfs = [
+		{ aid: 'A1130001180001FFFFFFFF89A1003900', lifecycle: '01', privileges: '00' },
+		{ aid: 'F0414C46416001', lifecycle: '01', privileges: '00', version: '0100' },
+		{ aid: 'DEADBEEF', lifecycle: '01', privileges: '00' },
+	];
+	const apps = [
+		{ aid: 'A1130001180001FFFFFFFF89A1003908', version: '0903', elfAid: 'A1130001180001FFFFFFFF89A1003900' },
+		{ aid: 'A0000005591010FFFFFFFF8900001200', version: '0001', elfAid: 'A0000005591010FFFFFFFF8900000E00' },
+	];
+	ramDeriveElfVersions(elfs, apps);
+	assert.strictEqual(elfs[0].version, '0903');
+	assert.strictEqual(elfs[0].versionFrom, 'app');
+	// an own version is never overwritten, and an unmatched package stays bare
+	assert.strictEqual(elfs[1].version, '0100');
+	assert.strictEqual(elfs[1].versionFrom, undefined);
+	assert.strictEqual(elfs[2].version, undefined);
+});
+
+test('the explorer annotates a derived package version', () => {
+	globalThis.t = s => s;
+	const out = ramRenderExploreHtml(null, [], [],
+		[{ aid: 'E1', lifecycle: '01', privileges: '00', version: '0903', versionFrom: 'app' }]);
+	const plain = ramRenderExploreHtml(null, [], [],
+		[{ aid: 'E1', lifecycle: '01', privileges: '00', version: '0903' }]);
+	delete globalThis.t;
+	assert.ok(out.includes('Version: 9.3 <span class="text-gray-500 dark:text-slate-400">(from the app instance)</span>'), out);
+	assert.ok(!plain.includes('from the app instance'), plain);
 });
 
 test('ramExpandedReport summarizes the query forms and the fallbacks', () => {
@@ -671,8 +703,9 @@ test('the Explore detects the expanded query form and reports it', () => {
 	// the ISD gets a single attempt: its 6A88 must not poison the detection
 	assert.ok(src.includes("if (p1 === '80') forms = [expandedForm || 'tags'];"),
 		'the ISD must not walk the ladder');
-	// a 61xx answer holds the data (GET RESPONSE) and a 6310 pages
-	assert.ok(src.includes('ramGetResponseApdu(sw)'), '61xx must be answered with GET RESPONSE');
+	// a 61xx answer holds the data (chained GET RESPONSE) and a 6310 pages
+	assert.ok(src.includes('ramChainGetResponse(apdu)'), '61xx must be answered with a chained GET RESPONSE');
+	assert.ok(!src.includes('00C00000'), 'no standalone GET RESPONSE (it answers 6700)');
 	assert.ok(src.includes('ramExpandedQueryApdu(p1, form, page > 1)'), '6310 must page');
 });
 
