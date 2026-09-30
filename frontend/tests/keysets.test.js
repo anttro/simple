@@ -23,7 +23,8 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'spCounterTracked', 'esc', 'escHtml']) {
+	'spKeysetOptionsHtml', 'spCounterTracked', 'spPresetIdx', 'ramPresetIdx',
+	'tarPresetIdx', 'spKeysetSync', 'ramRender', 'esc', 'escHtml']) {
 	code += extractFunc(html, fn) + '\n';
 }
 code += 'function t(s){return s;}\n';
@@ -130,4 +131,47 @@ test('spCounterTracked follows SPI1 b5b4 (TS 102 225 5.1.1)', () => {
 		assert.strictEqual(spCounterTracked(spi1), true, spi1);
 	}
 	assert.strictEqual(spCounterTracked('zz'), false);
+});
+
+test('ramRender rebuilds the keyset selector from the remembered preset', () => {
+	// regression: the auto-selection runs before the RAM select has options, so
+	// its keyset list was built with no preset and stayed on "not defined"
+	const els = {
+		'ram-card-sel': { value: '', innerHTML: '', appendChild() {} },
+		'ram-keyset-sel': { value: '', innerHTML: '' },
+		'sp-keyset-sel': { value: '', innerHTML: '' },
+		'tar-keyset-sel': { value: '', innerHTML: '' },
+		'sp-kic-hex': { value: '25' },
+		'sp-kid-hex': { value: '25' },
+	};
+	globalThis.document = {
+		getElementById: id => els[id] || null,
+		createElement: () => ({ value: '', textContent: '' }),
+	};
+	globalThis.cards = [{ name: 'EP', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' },
+		{ kic: '25', kid: '25', kicKey: 'CC', kidKey: 'DD', cntr: '0000000184' }] }];
+	globalThis._ramCardIdx = 0;
+	globalThis.ramOpChanged = () => {};
+	globalThis.ramExpandedDetailsInit = () => {};
+	ramRender();
+	assert.strictEqual(els['ram-card-sel'].value, '0',
+		'the preset select keeps the remembered card');
+	assert.match(els['ram-keyset-sel'].innerHTML, /value="2" selected/);
+	assert.ok(!els['ram-keyset-sel'].innerHTML.includes('not defined'),
+		'the keyset selector must not show a stale "not defined" entry');
+});
+
+test('the RAM and TAR views rebuild their keyset lists when their preset is known', () => {
+	// ramRender() syncs the keyset selectors once the preset is set ...
+	const ram = html.slice(html.indexOf('function ramRender()'),
+		html.indexOf('function ramRender()') + 1400);
+	assert.ok(ram.includes('spKeysetSync();'), 'ramRender must rebuild the keyset lists');
+	// ... tarRender() already does, and keeps the remembered selection
+	const tar = html.slice(html.indexOf('function tarRender()'),
+		html.indexOf('function tarRender()') + 1200);
+	assert.ok(tar.includes('spKeysetSync();'));
+	assert.ok(tar.includes(': _ramCardIdx;'), 'tarRender keeps the remembered preset');
+	// opening the TAR pill populates both its selectors
+	assert.ok(html.includes("if (name === 'tar') { tarRender(); tarProbeRender(); }"));
 });

@@ -34,7 +34,8 @@ const RAW_HEX = '980711090000640090F8';
 const DIGITS = '8970119000004600098';
 
 function fakeDoc() {
-	const els = { 'sp-card-sel': { value: '' }, 'ram-card-sel': { value: '' }, 'cards-iccid': { value: '' } };
+	const els = { 'sp-card-sel': { value: '' }, 'ram-card-sel': { value: '' },
+		'tar-card-sel': { value: '' }, 'cards-iccid': { value: '' } };
 	globalThis.document = { getElementById: id => els[id] || null };
 	return els;
 }
@@ -78,6 +79,8 @@ test('cardsAutoSelectByIccid selects the preset in both SCP80 views', () => {
 	assert.strictEqual(idx, 0);
 	assert.strictEqual(els['sp-card-sel'].value, '0');
 	assert.strictEqual(els['ram-card-sel'].value, '0');
+	assert.strictEqual(els['tar-card-sel'].value, '0',
+		'the TAR probe view gets the equipped card\'s preset too');
 	assert.deepStrictEqual(applied, ['0']);
 	assert.strictEqual(globalThis._ramCardIdx, 0);
 });
@@ -162,5 +165,7 @@ test('the From card button and the duplicate refusal are wired into the form', (
 test('the card-state update wires the ICCID into the preset selection', () => {
 	assert.ok(html.includes('cardsAutoSelectByIccid(status.iccid);'));
 	assert.ok(html.includes('_cardsAutoIccid = null;'));
+	assert.ok(html.includes("getElementById('tar-card-sel')"),
+		'the auto-selection must cover the TAR probe view');
 	assert.ok(html.includes("(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '')"));
 });

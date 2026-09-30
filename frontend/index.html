@@ -1831,7 +1831,7 @@ function scp80SwitchSubtab(name) {
 	document.getElementById('scp80-sub-ram').classList.toggle('hidden', name !== 'ram');
 	document.getElementById('scp80-sub-tar').classList.toggle('hidden', name !== 'tar');
 	if (name === 'ram') ramRender();
-	if (name === 'tar') tarProbeRender();
+	if (name === 'tar') { tarRender(); tarProbeRender(); }
 	scp80HelpAnchor = { sp: 'secured-packet', ram: 'ram', tar: 'tar-probe' }[name] || 'secured-packet';
 	setHelpAnchor(scp80HelpAnchor);
 }
@@ -8402,6 +8402,10 @@ function ramRender() {
 		sel.appendChild(opt);
 	});
 	if (keep !== null && keep !== undefined && cards[keep]) sel.value = String(keep);
+	// the keyset selector is built from this view's preset: rebuild it now that
+	// the preset is known (the auto-selection runs before the select has its
+	// options, which used to leave a stale "not defined in the preset" entry)
+	spKeysetSync();
 	ramOpChanged();
 	ramExpandedDetailsInit();
 }
@@ -10695,7 +10699,9 @@ function tarRender() {
 	const sel = document.getElementById('tar-card-sel');
 	if (!sel) return;
 	const prev = parseInt(sel.value, 10);
-	const keep = (!isNaN(prev) && cards[prev]) ? prev : -1;
+	// keep the current/remembered selection across rebuilds (the auto-selection
+	// sets _ramCardIdx before this select has its options)
+	const keep = (!isNaN(prev) && cards[prev]) ? prev : _ramCardIdx;
 	sel.innerHTML = '<option value="" data-l10n="— Select card —">— Select card —</option>';
 	cards.forEach((c, i) => {
 		const opt = document.createElement('option');
@@ -10703,7 +10709,7 @@ function tarRender() {
 		opt.textContent = c.name || ('Card ' + i);
 		sel.appendChild(opt);
 	});
-	if (keep >= 0) sel.value = String(keep);
+	if (keep !== null && keep !== undefined && cards[keep]) sel.value = String(keep);
 	spKeysetSync();
 }
 
@@ -11849,6 +11855,8 @@ function cardsAutoSelectByIccid(iccid) {
 	if (sp) sp.value = String(idx);
 	const ram = document.getElementById('ram-card-sel');
 	if (ram) ram.value = String(idx);
+	const tar = document.getElementById('tar-card-sel');
+	if (tar) tar.value = String(idx);
 	_ramCardIdx = idx;
 	cardsApply(String(idx));
 	return idx;
