@@ -149,3 +149,40 @@ test('the data connection event can carry the current date-time', () => {
 	assert.strictEqual(build({ status: '0', type: '0', ti: '00', loc_status: '0' }),
 		'9D0100AA01001C01009B0100');
 });
+
+test('encBcdDigits and eventAddressTlv build the EFADN number coding', () => {
+	assert.strictEqual(encBcdDigits('12345'), '2143F5');
+	assert.strictEqual(encBcdDigits('79001234567'), '9700214365F7');
+	// international number -> TON/NPI 0x91, length = 1 + 6 bytes
+	assert.strictEqual(eventAddressTlv('79001234567', '1'), '8607919700214365F7');
+	assert.strictEqual(eventAddressTlv('', '1'), '');
+});
+
+test('the call events build their 31.111 object sets', () => {
+	// MT call: source network, TI + Address + Subaddress + IMS URI + Media Type
+	assert.strictEqual(EVENT_FORMS[0x00].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x00].build({ ti: '85', number: '79001234567', ton: '1',
+		sub: '12', ims_uri: 'sip:a@b', media: '1' }),
+		'1C01858607919700214365F7880112B1077369703A614062FE0101');
+	// call connected: source is the form's field, TI + optional Media Type
+	assert.strictEqual(EVENT_FORMS[0x01].srcField, 'src');
+	assert.strictEqual(EVENT_FORMS[0x01].build({ ti: '00', media: '0' }), '1C0100FE0100');
+	assert.strictEqual(EVENT_FORMS[0x01].build({ ti: '00', media: '' }), '1C0100');
+	// call disconnected: radio link timeout = zero-length cause, custom = bytes
+	assert.strictEqual(EVENT_FORMS[0x02].build({ ti: '00', cause_mode: 'rlt', media: '' }), '1C01009A00');
+	assert.strictEqual(EVENT_FORMS[0x02].build({ ti: '00', cause_mode: 'custom', cause: '10', media: '' }), '1C01009A0110');
+});
+
+test('the browser, WLAN and CSG events build their object sets', () => {
+	assert.strictEqual(EVENT_FORMS[0x08].build({ cause: '1' }), 'B40101');
+	assert.strictEqual(EVENT_FORMS[0x11].build({ status: '2' }), 'CB0102');
+	// CSG: source network, access tech + status/mechanism + ID + name + PLMN
+	assert.strictEqual(EVENT_FORMS[0x15].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x15].build({ status: '1', mech: 'manual', tech: '8',
+		csg: '00000001', hnb: 'MyCSG', mcc: '250', mnc: '01' }),
+		'BF0108D5020141D60400000001D7054D79435347890352F010');
+});
+
+test('every event type has a parameter form now', () => {
+	assert.ok(!html.includes("note: 'not_yet'"), 'no event may stay unimplemented');
+});

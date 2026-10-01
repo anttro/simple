@@ -4276,12 +4276,20 @@ def _verify_adm(scc, app, adm_hex):
             'error': 'Security status not satisfied' if sw == '6982' else 'Error'}
 
 
-def _send_event_download(scc, event_type, event_data=None, drain=True):
+def _send_event_download(scc, event_type, event_data=None, drain=True, src=None):
     """Send ENVELOPE(Event Download) for the given event type.
-    Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 82 81 [extra])"""
+    Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 <src> 81 [extra]).
+    `src` is the source device identity (TS 102 223 8.7: '82' terminal,
+    '83' network); the default is the terminal."""
+    src_byte = 0x82
+    if src:
+        try:
+            src_byte = int(str(src), 16) & 0xFF
+        except (TypeError, ValueError):
+            src_byte = 0x82
     inner = bytearray()
     inner.extend([0x99, 0x01, event_type])
-    inner.extend([0x82, 0x02, 0x82, 0x81])
+    inner.extend([0x82, 0x02, src_byte, 0x81])
     if event_data:
         inner.extend(event_data)
     if len(inner) < 0x80:
@@ -6849,8 +6857,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'event_type is required'}, 400)
                 return
             event_data = bytes.fromhex(event_data_hex) if event_data_hex else None
+            event_src = body.get('event_src')
             try:
-                data, sw = _send_event_download(scc, event_type, event_data)
+                data, sw = _send_event_download(scc, event_type, event_data, src=event_src)
                 try:
                     ev_type = int(event_type)
                 except (TypeError, ValueError):

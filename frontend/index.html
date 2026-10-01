@@ -13049,6 +13049,27 @@ function eventDateTimeTlv(d) {
 		hx(semi(d.getSeconds())) + hx(tz);
 }
 
+// EFADN number coding (TS 31.102 / TS 24.008 10.5.4.7): digit pairs in
+// swapped semi-octets, an odd number of digits padded with 'F'.
+function encBcdDigits(digits) {
+	const d = String(digits || '').replace(/\D/g, '');
+	let out = '';
+	for (let i = 0; i < d.length; i += 2) {
+		out += ((i + 1 < d.length ? d[i + 1] : 'F') + d[i]).toUpperCase();
+	}
+	return out;
+}
+
+// Address object (TS 102 223 8.1): TON/NPI byte + the number in the EFADN
+// coding.  NPI = ISDN/telephony (1), TON per the form (0 = unknown).
+function eventAddressTlv(number, ton) {
+	const bcd = encBcdDigits(number);
+	if (!bcd) return '';
+	const tonNpi = (0x80 | ((parseInt(ton, 10) & 0x07) << 4) | 0x01);
+	const value = tonNpi.toString(16).padStart(2, '0') + bcd;
+	return '86' + (value.length / 2).toString(16).padStart(2, '0') + value;
+}
+
 const ACCESSTECH = [
 	{v:0,l:'GSM'},{v:1,l:'TIA/EIA-553-A'},{v:2,l:'TIA/EIA-136-270'},{v:3,l:'UTRAN'},
 	{v:4,l:'TETRA'},{v:5,l:'TIA/EIA-95-B'},{v:6,l:'CDMA2000 1x'},{v:7,l:'CDMA2000 HRPD'},
@@ -13056,9 +13077,70 @@ const ACCESSTECH = [
 ];
 
 const EVENT_FORMS = {
-	0x00: { title: 'MT call', note: 'not_yet' },
-	0x01: { title: 'Call connected', note: 'not_yet' },
-	0x02: { title: 'Call disconnected', note: 'not_yet' },
+	0x00: { title: 'MT call', src: '83',
+		fields: [
+			{ id: 'ti', label: 'Transaction identifier', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, e.g. 00' },
+			{ id: 'number', label: 'Calling party number (optional)', type: 'text', pattern: '\\d{1,20}', placeholder: 'digits, e.g. 79001234567' },
+			{ id: 'ton', label: 'Type of number', type: 'select',
+			  opts: [{v:0,l:'Unknown'},{v:1,l:'International'},{v:2,l:'National'},{v:3,l:'Network specific'}] },
+			{ id: 'sub', label: 'Subaddress (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,40}', placeholder: 'e.g. 1234' },
+			{ id: 'ims_uri', label: 'IMS URI (optional)', type: 'text', placeholder: 'e.g. sip:user@example.com' },
+			{ id: 'media', label: 'Media Type (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:0,l:'00 \u2014 voice'},{v:1,l:'01 \u2014 video'}] },
+		],
+		build(v) {
+			let d = '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			d += eventAddressTlv(v.number, v.ton);
+			if (v.sub) {
+				const h = v.sub.replace(/[^0-9a-fA-F]/g, '');
+				d += '88' + (h.length / 2).toString(16).padStart(2, '0') + h;
+			}
+			if (v.ims_uri) {
+				const b = new TextEncoder().encode(v.ims_uri).slice(0, 100);
+				d += 'B1' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+			}
+			if (v.media !== '' && v.media !== undefined)
+				d += 'FE01' + ((parseInt(v.media) || 0) & 0xFF).toString(16).padStart(2, '0');
+			return d.toUpperCase();
+		}
+	},
+	0x01: { title: 'Call connected', srcField: 'src',
+		fields: [
+			{ id: 'src', label: 'Source', type: 'select',
+			  opts: [{v:'82',l:'terminal \u2014 near end (MT call)'},{v:'83',l:'network \u2014 far end (MO call)'}] },
+			{ id: 'ti', label: 'Transaction identifier', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, e.g. 00' },
+			{ id: 'media', label: 'Media Type (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:0,l:'00 \u2014 voice'},{v:1,l:'01 \u2014 video'}] },
+		],
+		build(v) {
+			let d = '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			if (v.media !== '' && v.media !== undefined)
+				d += 'FE01' + ((parseInt(v.media) || 0) & 0xFF).toString(16).padStart(2, '0');
+			return d.toUpperCase();
+		}
+	},
+	0x02: { title: 'Call disconnected', srcField: 'src',
+		fields: [
+			{ id: 'src', label: 'Source', type: 'select',
+			  opts: [{v:'82',l:'terminal \u2014 near end (terminal-initiated)'},{v:'83',l:'network \u2014 far end (network-initiated)'}] },
+			{ id: 'ti', label: 'Transaction identifier', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, e.g. 00' },
+			{ id: 'cause_mode', label: 'Cause', type: 'select', onchange: 'updateCallCauseFields()',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:'rlt',l:'radio link timeout (zero length)'},{v:'custom',l:'custom (hex)'}] },
+			{ id: 'cause', label: 'Cause bytes (hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,60}', placeholder: 'e.g. 10', g: 'custom' },
+			{ id: 'media', label: 'Media Type (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:0,l:'00 \u2014 voice'},{v:1,l:'01 \u2014 video'}] },
+		],
+		build(v) {
+			let d = '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			const cause = (v.cause || '').replace(/[^0-9a-fA-F]/g, '');
+			if (v.cause_mode === 'rlt') d += '9A00';
+			else if (v.cause_mode === 'custom' && cause)
+				d += '9A' + (cause.length / 2).toString(16).padStart(2, '0') + cause;
+			if (v.media !== '' && v.media !== undefined)
+				d += 'FE01' + ((parseInt(v.media) || 0) & 0xFF).toString(16).padStart(2, '0');
+			return d.toUpperCase();
+		}
+	},
 	0x03: { title: 'Location status',
 		fields: [
 			{ id: 'status', label: 'Service Status', type: 'select',
@@ -13081,7 +13163,13 @@ const EVENT_FORMS = {
 		],
 		build(v) { const b = new TextEncoder().encode(v.lang||'en'); return b.length.toString(16).padStart(2,'0') + bytesToHex(Array.from(b)); }
 	},
-	0x08: { title: 'Browser termination', note: 'not_yet' },
+	0x08: { title: 'Browser termination',
+		fields: [
+			{ id: 'cause', label: 'Browser termination cause', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 user termination'},{v:1,l:'01 \u2014 error termination'}] },
+		],
+		build(v) { return 'B401' + ((parseInt(v.cause) || 0) & 0xFF).toString(16).padStart(2, '0'); }
+	},
 	0x09: null,
 	0x0A: { title: 'Channel status',
 		fields: [
@@ -13114,7 +13202,15 @@ const EVENT_FORMS = {
 	0x0E: null,
 	0x0F: null,
 	0x10: null,
-	0x11: { title: 'I-WLAN Access Status', note: 'not_yet' },
+	0x11: { title: 'I-WLAN Access Status',
+		fields: [
+			{ id: 'status', label: 'Access status', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 no current (I-)WLAN coverage'},
+			         {v:1,l:'01 \u2014 coverage available, no current connection'},
+			         {v:2,l:'02 \u2014 coverage available, connection on-going'}] },
+		],
+		build(v) { return 'CB01' + ((parseInt(v.status) || 0) & 0xFF).toString(16).padStart(2, '0'); }
+	},
 	0x12: { title: 'Network Rejection',
 		fields: [
 			{ id: 'reg_type', label: 'Registration type', type: 'select', onchange: 'updateNetRejectionFields()',
@@ -13166,7 +13262,40 @@ const EVENT_FORMS = {
 		           opts: [{v:0,l:'GSM'},{v:3,l:'UTRAN'},{v:8,l:'E-UTRAN'},{v:10,l:'NG-RAN'}] }],
 		build(v) { return 'BF01' + (v.tech|0).toString(16).padStart(2,'0'); }
 	},
-	0x15: { title: 'CSG cell selection', note: 'not_yet' },
+	0x15: { title: 'CSG cell selection', src: '83',
+		fields: [
+			{ id: 'status', label: 'CSG cell selection status', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 not camped on an Allowed / Operator CSG cell'},
+			         {v:1,l:'01 \u2014 camped on an Allowed / Operator CSG cell'}] },
+			{ id: 'mech', label: 'Selection mechanism', type: 'select',
+			  opts: [{v:'',l:'\u2014 none \u2014'},{v:'manual',l:'manual CSG selection'},
+			         {v:'other',l:'another CSG selection type'}] },
+			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
+			{ id: 'csg', label: 'CSG ID (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,16}', placeholder: 'e.g. 00000001' },
+			{ id: 'hnb', label: 'HNB name (optional)', type: 'text', placeholder: 'e.g. MyCSG' },
+			{ id: 'mcc', label: 'MCC (PLMN ID, optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 250' },
+			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01' },
+		],
+		build(v) {
+			let d = '';
+			if (v.tech !== '' && v.tech !== undefined)
+				d += 'BF01' + ((parseInt(v.tech) || 0) & 0xFF).toString(16).padStart(2, '0');
+			const mech = v.mech === 'manual' ? 0x40 : (v.mech === 'other' ? 0x80 : 0x00);
+			d += 'D502' + ((parseInt(v.status) || 0) & 0xFF).toString(16).padStart(2, '0') +
+				(0x01 | mech).toString(16).padStart(2, '0');
+			if (v.csg) {
+				const h = v.csg.replace(/[^0-9a-fA-F]/g, '');
+				d += 'D6' + (h.length / 2).toString(16).padStart(2, '0') + h;
+			}
+			if (v.hnb) {
+				const b = new TextEncoder().encode(v.hnb).slice(0, 60);
+				d += 'D7' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+			}
+			if (v.mcc) d += '8903' + encPlmn(v.mcc, v.mnc || '01');
+			return d.toUpperCase();
+		}
+	},
 	0x16: null,
 	0x17: null,
 	0x1C: { title: 'Poll interval negotiation',
@@ -13690,8 +13819,21 @@ function pysimEventSendForm(eventType) {
 		body.innerHTML = html;
 		btn.classList.remove('hidden');
 		if (eventType === 0x12) updateNetRejectionFields();
+		if (eventType === 0x02) updateCallCauseFields();
 	}
 	modal.classList.remove('hidden');
+}
+
+// The call-disconnected form's Cause bytes are shown only for a custom cause
+// (the radio-link-timeout form is the zero-length object).
+function updateCallCauseFields() {
+	const sel = document.getElementById('ev-f-cause_mode');
+	if (!sel) return;
+	const g = sel.value;
+	document.querySelectorAll('#event-send-body .event-field').forEach(div => {
+		const groups = div.getAttribute('data-groups') || '';
+		div.style.display = (groups === '' || groups.indexOf(g) >= 0) ? '' : 'none';
+	});
 }
 
 function updateNetRejectionFields() {
@@ -13715,6 +13857,9 @@ async function pysimEventSend() {
 
 	const cfg = EVENT_FORMS[_eventFormType];
 	let eventData = null;
+	// The device-identities source (TS 102 223 8.7): a fixed per-event value
+	// or a form field (the call events differ near/far end).
+	let eventSrc = (cfg && cfg.src) || null;
 
 	if (cfg && cfg.build) {
 		const values = {};
@@ -13733,6 +13878,7 @@ async function pysimEventSend() {
 		if (!valid) return;
 		try {
 			eventData = cfg.build(values);
+			if (cfg.srcField && values[cfg.srcField]) eventSrc = values[cfg.srcField];
 		} catch (e) {
 			err.textContent = 'Error: ' + e.message;
 			err.classList.remove('hidden');
@@ -13743,7 +13889,7 @@ async function pysimEventSend() {
 	btn.disabled = true;
 	btn.textContent = t('Sending...');
 	try {
-		const resp = await pysimFetch('/api/event-send', { event_type: _eventFormType, event_data: eventData });
+		const resp = await pysimFetch('/api/event-send', { event_type: _eventFormType, event_data: eventData, event_src: eventSrc });
 		if (resp.sw === '9000') {
 			result.textContent = (eventData ? t('Event data sent.') : t('Event sent.')) + ' SW: ' + resp.sw;
 			if (resp.negotiation) {

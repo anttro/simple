@@ -789,7 +789,7 @@ class TestProactiveDecode(unittest.TestCase):
 class TestEventDownload(unittest.TestCase):
     """ENVELOPE (EVENT DOWNLOAD) assembly, TS 102 223 7.5.11."""
 
-    def _send(self, event_type, event_data):
+    def _send(self, event_type, event_data, src=None):
         import pysim_simple_server.server as srv
         calls = []
 
@@ -802,7 +802,7 @@ class TestEventDownload(unittest.TestCase):
             cat_cla = '80'
             _tp = Tp()
 
-        data, sw = srv._send_event_download(Scc(), event_type, event_data)
+        data, sw = srv._send_event_download(Scc(), event_type, event_data, src=src)
         return calls[0], sw
 
     def test_channel_status_event(self):
@@ -816,6 +816,15 @@ class TestEventDownload(unittest.TestCase):
         apdu, sw = self._send(0x05, None)
         self.assertEqual(sw, '9000')
         self.assertEqual(apdu, '80c2000009d60799010582028281')
+
+    def test_event_source_device_identity_can_be_overridden(self):
+        # MT call / CSG cell selection come from the network (TS 102 223 8.7)
+        apdu, sw = self._send(0x00, None, src='83')
+        self.assertEqual(sw, '9000')
+        self.assertEqual(apdu, '80c2000009d60799010082028381')
+        # an invalid source falls back to the terminal
+        apdu, sw = self._send(0x00, None, src='zz')
+        self.assertEqual(apdu, '80c2000009d60799010082028281')
 
     def test_event_with_long_data_uses_the_ber_long_form(self):
         # 128+ bytes of event data: the D6 length becomes '81' <len> (the
