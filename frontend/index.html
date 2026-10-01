@@ -529,7 +529,7 @@
 					<option value="" data-l10n="— Select card —">— Select card —</option>
 				</select>
 				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
+				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
 		</div>
 		<div id="sp-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
@@ -696,7 +696,7 @@
 				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-					<select id="ram-keyset-sel" onchange="ramKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
+					<select id="ram-keyset-sel" onchange="ramKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
 				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Operation">Operation</label>
@@ -923,7 +923,7 @@
 				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-					<select id="tar-keyset-sel" onchange="tarKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
+					<select id="tar-keyset-sel" onchange="tarKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
 				</div>
 			</div>
 			<div id="tar-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
@@ -11464,24 +11464,27 @@ function cardsKeysetsFromForm() {
 // matches their keyset number is selected; a number the preset does not define
 // shows as "not defined" (and the packet actions refuse it).
 function spKeysetSync() {
-	const spIdx = spPresetIdx();
-	const spPreset = spIdx >= 0 ? cards[spIdx] : null;
 	const kic = (document.getElementById('sp-kic-hex') || {}).value;
 	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	const spSel = document.getElementById('sp-keyset-sel');
-	if (spSel) spSel.innerHTML = spKeysetOptionsHtml(spPreset, kic, kid);
-	const ramSel = document.getElementById('ram-keyset-sel');
-	if (ramSel) {
-		const ramIdx = ramPresetIdx();
-		const ramPreset = ramIdx >= 0 ? cards[ramIdx] : null;
-		ramSel.innerHTML = spKeysetOptionsHtml(ramPreset, kic, kid);
-	}
-	const tarSel = document.getElementById('tar-keyset-sel');
-	if (tarSel) {
-		const tarIdx = tarPresetIdx();
-		const tarPreset = tarIdx >= 0 ? cards[tarIdx] : null;
-		tarSel.innerHTML = spKeysetOptionsHtml(tarPreset, kic, kid);
-	}
+	// A keyset only exists inside a card preset: with no preset selected the
+	// selector is disabled and cleared, so a stale "not defined in the preset"
+	// entry can never linger.
+	const sync = (selId, idxFn) => {
+		const sel = document.getElementById(selId);
+		if (!sel) return;
+		const idx = idxFn();
+		const preset = idx >= 0 ? cards[idx] : null;
+		if (!preset) {
+			sel.disabled = true;
+			sel.innerHTML = '<option value="">' + esc(t('\u2014 select a card preset \u2014')) + '</option>';
+			return;
+		}
+		sel.disabled = false;
+		sel.innerHTML = spKeysetOptionsHtml(preset, kic, kid);
+	};
+	sync('sp-keyset-sel', spPresetIdx);
+	sync('ram-keyset-sel', ramPresetIdx);
+	sync('tar-keyset-sel', tarPresetIdx);
 }
 
 function spKeysetApply(ks) {
@@ -11915,7 +11918,13 @@ function cardsApplyFields(idx, keepTar) {
 }
 
 function cardsApply(idx, keepTar) {
-	if (!cardsApplyFields(idx, keepTar)) return;
+	if (!cardsApplyFields(idx, keepTar)) {
+		// "— Select card —": there is no keyset to choose, and the preset
+		// warning must not outlive the selection it described.
+		spKeysetSync();
+		spPresetWarningRender();
+		return;
+	}
 	_genSpBuild();
 	spShowSizeInfo();
 }
@@ -19834,6 +19843,7 @@ const LANG_RU = {
 	'is not defined in the preset': 'не определён в пресете',
 	'not defined in the preset': 'не определён в пресете',
 	'— no keyset —': '— нет keyset —',
+	'— select a card preset —': '— выберите пресет карты —',
 	'counter': 'счётчик',
 	'Define at least one keyset (KIc/KID and their keys)': 'Определите хотя бы один keyset (KIc/KID и его ключи)',
 	'Each keyset needs KIc, KID and both keys': 'Каждому набору нужны KIc, KID и оба ключа',

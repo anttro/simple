@@ -28,7 +28,7 @@ for (const fn of ['cardsTarValue', 'cardsApplyFields', 'cardsApply',
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply',
-	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard',
+	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard',
 	'ramKeysetGuard',
 ]) {
 	code += extractFunc(html, fn) + '\n';

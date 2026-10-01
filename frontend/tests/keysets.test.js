@@ -175,3 +175,45 @@ test('the RAM and TAR views rebuild their keyset lists when their preset is know
 	// opening the TAR pill populates both its selectors
 	assert.ok(html.includes("if (name === 'tar') { tarRender(); tarProbeRender(); }"));
 });
+
+test('the keyset selector is disabled and cleared while no preset is selected', () => {
+	const els = {
+		'sp-keyset-sel': { value: '', innerHTML: '' },
+		'ram-keyset-sel': { value: '', innerHTML: '' },
+		'tar-keyset-sel': { value: '', innerHTML: '' },
+		'sp-card-sel': { value: '' },
+		'ram-card-sel': { value: '' },
+		'tar-card-sel': { value: '' },
+		'sp-kic-hex': { value: '' },
+		'sp-kid-hex': { value: '' },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	globalThis.cards = [];
+	spKeysetSync();
+	for (const id of ['sp-keyset-sel', 'ram-keyset-sel', 'tar-keyset-sel']) {
+		assert.strictEqual(els[id].disabled, true, id + ' must be disabled');
+		assert.match(els[id].innerHTML, /select a card preset/);
+		assert.ok(!els[id].innerHTML.includes('not defined'), id);
+	}
+	// a selected preset enables the selector and lists its keysets
+	globalThis.cards = [{ name: 'EP', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
+	els['sp-card-sel'].value = '0';
+	els['ram-card-sel'].value = '0';
+	els['tar-card-sel'].value = '0';
+	els['sp-kic-hex'].value = '15';
+	els['sp-kid-hex'].value = '15';
+	spKeysetSync();
+	for (const id of ['sp-keyset-sel', 'ram-keyset-sel', 'tar-keyset-sel']) {
+		assert.strictEqual(els[id].disabled, false, id + ' must be enabled');
+		assert.match(els[id].innerHTML, /value="1" selected/);
+	}
+});
+
+test('clearing the preset selection clears the keyset selectors', () => {
+	const at = html.indexOf('function cardsApply(');
+	assert.ok(at > 0);
+	const body = html.slice(at, at + 600);
+	assert.ok(body.includes('spKeysetSync();'),
+		'cardsApply must sync the keyset selectors when no preset is selected');
+});

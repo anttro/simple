@@ -34,7 +34,7 @@ for (const fn of ['cardsTarValue', 'cardsFormValues', 'cardsClearForm', 'cardsEd
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
-	'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard']) {
+	'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard', 'ramKeysetGuard']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 code = 'var _cardsKeysetCount = 0;\nglobalThis.spPresetWarningRender = function() {};\n' + code;
