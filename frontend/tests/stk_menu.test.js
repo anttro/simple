@@ -194,3 +194,9 @@ test('stkMenuLabel shows the card title or a generic label', () => {
 	assert.strictEqual(stkMenuLabel({ items: [] }), '');
 	assert.strictEqual(stkMenuLabel(null), '');
 });
+
+test('the STK menu button shows the title without an STK: prefix', () => {
+	// the block's legend already says "STK menu" - the prefix was redundant
+	assert.match(html, /id="stk-menu-btn"[^>]*><span id="stk-menu-title"><\/span><\/button>/);
+	assert.ok(!/>STK: </.test(html), 'the redundant "STK: " prefix must be gone');
+});
