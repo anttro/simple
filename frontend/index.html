@@ -8965,6 +8965,19 @@ const JC_AID_RIDS = {
 	'A000000151': 'GlobalPlatform RID',
 };
 
+// The card's ETSI release, inferred from its installed uicc.toolkit package
+// version - the same table the CAP analysis uses (capmem.ETSI_TOOLKIT_RELEASE,
+// drift-guarded by tests/test_cap_memory.py; the basis is the workspace
+// sim-tools corpus: the REL-7/REL-12 prepared trees and the TS 102 241
+// package-version table).  Only uicc.toolkit has a documented mapping -
+// SIM-only cards get no label, the same rule as SIM-only CAPs.
+const UICC_TOOLKIT_AID = 'A0000000090005FFFFFFFF8912000000';
+const ETSI_TOOLKIT_RELEASE = {
+	'1.0': 'REL-6/7', '1.1': 'REL-7', '1.2': 'REL-7', '1.3': 'REL-8',
+	'1.4': 'REL-7', '1.5': 'REL-9', '1.11': 'REL-12',
+	'1.12': 'REL-15/16/17', '1.13': 'REL-17', '1.14': 'REL-17/18',
+};
+
 // Normalise an AID (strip spacing, uppercase) and reject malformed input;
 // '' when it cannot be an AID (5-16 bytes).
 function jcAidNorm(aid) {
@@ -9436,6 +9449,20 @@ function ramElfVersionHint(elfForm) {
 	return t('Package versions come from the expanded registry query \u2014 this card did not return them.');
 }
 
+// The card's ETSI release from its installed uicc.toolkit package (pure):
+// {release, basis} when the version maps, {release: '', basis} when the
+// version is outside the table, {release: '', basis: ''} when the package
+// carries no version (the compact listing has none - the expanded registry's
+// CE tag provides it), and null when the card has no uicc.toolkit package at
+// all (SIM-only cards get no label, the same rule as SIM-only CAPs).
+function cardEtsiRelease(elfs) {
+	const tk = (elfs || []).find(e => (e.aid || '').toUpperCase() === UICC_TOOLKIT_AID);
+	if (!tk) return null;
+	const v = String(tk.version || '').trim();
+	if (!v) return { release: '', basis: '' };
+	return { release: ETSI_TOOLKIT_RELEASE[v] || '', basis: 'uicc.toolkit ' + v };
+}
+
 // The applet instance that belongs to a package (pure).  The package's module
 // AIDs are the applet instance AIDs - they can differ from the package AID in
 // the last byte (live 2026-09-30: package A113...0200 with modules ...0208 /
@@ -9479,6 +9506,15 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 		html += '<div>' + esc(t('Applications:')) + ' ' + (mem.appCount != null ? mem.appCount : '?') + '</div>';
 		html += '<div>' + esc(t('Free NV:')) + ' ' + (mem.freeNV != null ? mem.freeNV + ' B' : '?') + '</div>';
 		html += '<div>' + esc(t('Free Volatile:')) + ' ' + (mem.freeV != null ? mem.freeV + ' B' : '?') + '</div>';
+		const etsi = cardEtsiRelease(elfs);
+		if (etsi) {
+			let val;
+			if (etsi.release) val = etsi.release + (etsi.basis ? ' (' + etsi.basis + ')' : '');
+			else if (etsi.basis) val = t('unknown') + ' (' + etsi.basis + ')';
+			else val = t('unknown') + ' \u2014 ' + ramElfVersionHint(elfForm);
+			html += '<div title="' + esc(t('Inferred from the card\'s installed uicc.toolkit package version (the same table as the CAP analysis); the expanded registry query provides the versions.')) + '">' +
+				esc(t('ETSI release:')) + ' ' + esc(val) + '</div>';
+		}
 		if (fmt) {
 			html += '<div title="' + esc(t('compact = the TS 102 226 5.2.1 command string (one C-APDU per secured packet, e.g. GET STATUS + GET RESPONSE); expanded = the AA/22 Command Scripting template (5.2.1.0).  Detected per operation with a read-only GET STATUS probe; a card that rejects the deprecated compact P2.b2=0 form answers the expanded one.')) + '">' +
 				esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
@@ -19603,6 +19639,9 @@ const LANG_RU = {
 	'Executable Module AIDs / Applet Class AIDs:': 'AID исполняемых модулей / классов апплетов:',
 	'Applications:': 'Приложения:',
 	'Free NV:': 'Свободно NV:',
+	'ETSI release:': 'Релиз ETSI:',
+	'unknown': 'неизвестно',
+	'Inferred from the card\'s installed uicc.toolkit package version (the same table as the CAP analysis); the expanded registry query provides the versions.': 'Определяется по версии установленного на карте пакета uicc.toolkit (та же таблица, что и в анализе CAP); версии даёт расширенный запрос реестра.',
 	'Free Volatile:': 'Свободно volatile:',
 	'AID:': 'AID:',
 	'Lifecycle:': 'Жизненный цикл:',

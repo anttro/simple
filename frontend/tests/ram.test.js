@@ -26,7 +26,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'ramFormatIsExpanded', 'ramFmtLadder',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
+	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
@@ -50,6 +50,10 @@ const an = html.match(/const JC_AID_NAMES = \{[\s\S]*?\n\};/);
 if (an) code += an[0].replace(/^const /, 'var ') + '\n';
 const ar = html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/);
 if (ar) code += ar[0].replace(/^const /, 'var ') + '\n';
+const et = html.match(/const ETSI_TOOLKIT_RELEASE = \{[\s\S]*?\n\};/);
+if (et) code += et[0].replace(/^const /, 'var ') + '\n';
+const ua = html.match(/const UICC_TOOLKIT_AID = '[^']*';/);
+if (ua) code += ua[0].replace(/^const /, 'var ') + '\n';
 globalThis.spPresetWarningRender = () => {};
 globalThis.pysimApplyAvailability = () => {};
 eval(code);
@@ -699,6 +703,36 @@ test('ramFmtLadder orders the registry command formats cautiously', () => {
 	// a format that already served data is tried first and never repeated
 	assert.deepStrictEqual(ramFmtLadder('compact', 'expanded'), ['expanded', 'expanded-ae']);
 	assert.deepStrictEqual(ramFmtLadder('expanded-ae', 'expanded-ae'), ['expanded-ae', 'expanded', 'compact']);
+});
+
+test('cardEtsiRelease infers the card ETSI release from uicc.toolkit', () => {
+	const tk = v => ({ aid: 'A0000000090005FFFFFFFF8912000000', version: v });
+	assert.deepStrictEqual(cardEtsiRelease([tk('1.12')]),
+		{ release: 'REL-15/16/17', basis: 'uicc.toolkit 1.12' });
+	assert.deepStrictEqual(cardEtsiRelease([tk('1.11')]),
+		{ release: 'REL-12', basis: 'uicc.toolkit 1.11' });
+	assert.deepStrictEqual(cardEtsiRelease([tk('1.5')]),
+		{ release: 'REL-9', basis: 'uicc.toolkit 1.5' });
+	// a version outside the table: the basis is still named
+	assert.deepStrictEqual(cardEtsiRelease([tk('9.9')]),
+		{ release: '', basis: 'uicc.toolkit 9.9' });
+	// the compact listing carries no versions (the expanded CE tag does)
+	assert.deepStrictEqual(cardEtsiRelease([tk('')]), { release: '', basis: '' });
+	// no uicc.toolkit (SIM-only card): no label, like SIM-only CAPs
+	assert.strictEqual(cardEtsiRelease([{ aid: 'A0000000090003FFFFFFFF8910710002', version: '2.6' }]), null);
+	assert.strictEqual(cardEtsiRelease(null), null);
+});
+
+test('the explorer shows the inferred ETSI release', () => {
+	globalThis.t = s => s;
+	const out = ramRenderExploreHtml({ appCount: 1, freeNV: 2, freeV: 3 }, [], [],
+		[{ aid: 'A0000000090005FFFFFFFF8912000000', version: '1.12' }], 'compact', '', '');
+	delete globalThis.t;
+	assert.ok(out.includes('ETSI release: REL-15/16/17 (uicc.toolkit 1.12)'), out);
+	globalThis.t = s => s;
+	const none = ramRenderExploreHtml({ appCount: 1, freeNV: 2, freeV: 3 }, [], [], [], 'compact', '', '');
+	delete globalThis.t;
+	assert.ok(!none.includes('ETSI release:'), none);
 });
 
 test('ramExpandedReport names the expanded serving format', () => {

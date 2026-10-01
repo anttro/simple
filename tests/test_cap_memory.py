@@ -407,6 +407,20 @@ class TestCapAnalyzer(unittest.TestCase):
         pwa = dict(re.findall(r"'([\d.]+)':\s*'([^']+)'", m.group(1)))
         self.assertEqual(pwa, capmem.JC_FRAMEWORK_JDK)
 
+    def test_etsi_table_matches_the_pwa(self):
+        # the PWA infers the card's ETSI release from its installed
+        # uicc.toolkit version with the same table as the CAP analysis
+        # (drift guard, like JC_FRAMEWORK_SDK above)
+        html = pathlib.Path(__file__).resolve().parents[1].joinpath(
+            'frontend', 'index.html').read_text(encoding='utf-8')
+        m = re.search(r"const ETSI_TOOLKIT_RELEASE = \{(.*?)\};", html, re.S)
+        self.assertIsNotNone(m, 'ETSI_TOOLKIT_RELEASE not found in index.html')
+        pwa = dict(re.findall(r"'([\d.]+)':\s*'([^']+)'", m.group(1)))
+        self.assertEqual(pwa, capmem.ETSI_TOOLKIT_RELEASE)
+        a = re.search(r"const UICC_TOOLKIT_AID = '([0-9A-F]+)';", html)
+        self.assertIsNotNone(a, 'UICC_TOOLKIT_AID not found in index.html')
+        self.assertEqual(a.group(1), capmem.UICC_TOOLKIT_AID)
+
     def test_platform_requirement_from_the_framework_import(self):
         # java.lang only: no Java Card level named, but the int flag shows
         report, _ = capmem.analyze_bytes(
