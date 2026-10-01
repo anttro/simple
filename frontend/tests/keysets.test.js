@@ -111,6 +111,8 @@ test('the Cards form wires the keyset editor', () => {
 	assert.match(html, /onclick="cardsKeysetAdd\(\)"/);
 	assert.match(html, /oninput="cardsKeysetKvnUpdate\(/);
 	assert.match(html, /data-l10n="Add keyset"/);
+	// the remove button is the red action style, like the preset list's Remove
+	assert.match(html, /cardsKeysetRemove\(' \+ i \+ '\)" class="[^"]*bg-red-600 text-white/);
 	// the keyset rows are built with the KIc/KID/key/counter inputs
 	assert.match(html, /cards-ks-' \+ i \+ '-kic-key/);
 	assert.match(html, /cards-ks-' \+ i \+ '-cntr/);

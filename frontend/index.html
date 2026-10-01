@@ -11404,7 +11404,7 @@ function cardsKeysetRowHtml(ks, i) {
 		'<input id="cards-ks-' + i + '-kic-key" class="flex-1 ' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '">' +
 		'<input id="cards-ks-' + i + '-kid-key" class="flex-1 ' + cls + '" placeholder="KID key (hex)" value="' + esc(ks.kidKey || '') + '">' +
 		'<input id="cards-ks-' + i + '-cntr" class="w-24 ' + cls + '" maxlength="10" placeholder="Counter" value="' + esc(ks.cntr || '') + '">' +
-		'<button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-red-100 dark:hover:bg-red-900/40" title="' + esc(t('Remove keyset')) + '">\u2715</button>' +
+		'<button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove keyset')) + '">\u2715</button>' +
 		'</div>';
 }
 
