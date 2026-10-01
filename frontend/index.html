@@ -13070,6 +13070,17 @@ function eventAddressTlv(number, ton) {
 	return '86' + (value.length / 2).toString(16).padStart(2, '0') + value;
 }
 
+// Other address value (TS 102 223 8.58): a dotted IPv4 or hex address
+// bytes; '' when the text is not an even-length hex string.
+function eventIpBytes(text, type) {
+	const s = String(text || '').trim();
+	if (type === '21' && /^\d{1,3}(\.\d{1,3}){3}$/.test(s)) {
+		return s.split('.').map(n => (parseInt(n, 10) & 0xFF).toString(16).padStart(2, '0')).join('').toUpperCase();
+	}
+	const h = s.replace(/[^0-9a-fA-F]/g, '');
+	return h.length % 2 ? '' : h.toUpperCase();
+}
+
 const ACCESSTECH = [
 	{v:0,l:'GSM'},{v:1,l:'TIA/EIA-553-A'},{v:2,l:'TIA/EIA-136-270'},{v:3,l:'UTRAN'},
 	{v:4,l:'TETRA'},{v:5,l:'TIA/EIA-95-B'},{v:6,l:'CDMA2000 1x'},{v:7,l:'CDMA2000 HRPD'},
@@ -13129,6 +13140,9 @@ const EVENT_FORMS = {
 			{ id: 'cause', label: 'Cause bytes (hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,60}', placeholder: 'e.g. 10', g: 'custom' },
 			{ id: 'media', label: 'Media Type (optional)', type: 'select',
 			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:0,l:'00 \u2014 voice'},{v:1,l:'01 \u2014 video'}] },
+			{ id: 'ims_proto', label: 'IMS disconnection cause (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:1,l:'01 \u2014 SIP'},{v:2,l:'02 \u2014 Q.850'}] },
+			{ id: 'ims_cause', label: 'Cause value', type: 'number', min: '0', max: '65535', placeholder: '0\u201365535, e.g. 603' },
 		],
 		build(v) {
 			let d = '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
@@ -13138,15 +13152,29 @@ const EVENT_FORMS = {
 				d += '9A' + (cause.length / 2).toString(16).padStart(2, '0') + cause;
 			if (v.media !== '' && v.media !== undefined)
 				d += 'FE01' + ((parseInt(v.media) || 0) & 0xFF).toString(16).padStart(2, '0');
+			if (v.ims_proto !== '' && v.ims_proto !== undefined && v.ims_cause !== '' && v.ims_cause !== undefined)
+				d += 'D503' + ((parseInt(v.ims_proto) || 0) & 0xFF).toString(16).padStart(2, '0') +
+					((parseInt(v.ims_cause) || 0) & 0xFFFF).toString(16).padStart(4, '0');
 			return d.toUpperCase();
 		}
 	},
 	0x03: { title: 'Location status',
 		fields: [
 			{ id: 'status', label: 'Service Status', type: 'select',
-			  opts: [{v:0,l:'Normal service'},{v:1,l:'Limited service'},{v:2,l:'No service'}] }
+			  opts: [{v:0,l:'Normal service'},{v:1,l:'Limited service'},{v:2,l:'No service'}] },
+			{ id: 'mcc', label: 'MCC (Location Information)', type: 'text', pattern: '\\d{3}', placeholder: 'sent for Normal service' },
+			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01' },
+			{ id: 'lac', label: 'LAC', type: 'text', pattern: '[0-9A-Fa-f]{4}', placeholder: 'hex, e.g. 00FF' },
+			{ id: 'cell', label: 'Cell ID', type: 'text', pattern: '[0-9A-Fa-f]{4}', placeholder: 'hex, e.g. 0001' },
 		],
-		build(v) { return '9B01' + (v.status|0).toString(16).padStart(2,'0'); }
+		build(v) {
+			let d = '9B01' + (v.status|0).toString(16).padStart(2,'0');
+			// 8.19: the location information is only included for Normal service
+			if ((parseInt(v.status) || 0) === 0 && v.mcc)
+				d += '9307' + encPlmn(v.mcc, v.mnc || '01') +
+					(v.lac || '0000').toUpperCase() + (v.cell || '0001').toUpperCase();
+			return d.toUpperCase();
+		}
 	},
 	0x04: null,
 	0x05: null,
@@ -13205,10 +13233,34 @@ const EVENT_FORMS = {
 			{ id: 'info', label: 'Channel info', type: 'select',
 			  opts: [{v:0x00,l:'No further info can be given'},
 			         {v:0x05,l:'Link dropped (network failure or user cancellation)'}] },
+			{ id: 'bearer', label: 'Bearer Description (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},
+			         {v:0x03,l:'03 \u2014 default bearer for the requested transport layer'},
+			         {v:0x04,l:'04 \u2014 local link technology independent'},
+			         {v:0x05,l:'05 \u2014 Bluetooth'},{v:0x06,l:'06 \u2014 IrDA'},
+			         {v:0x07,l:'07 \u2014 RS232'},{v:0x10,l:'10 \u2014 USB'}] },
+			{ id: 'bearer_params', label: 'Bearer parameters (hex, optional)', type: 'text', pattern: '[0-9A-Fa-f]{2,40}', placeholder: 'bearer specific' },
+			{ id: 'addr_type', label: 'Other address \u2014 local address (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:'21',l:'21 \u2014 IPv4 address'},
+			         {v:'57',l:'57 \u2014 IPv6 address'},{v:'00',l:'empty (request a dynamic address)'}] },
+			{ id: 'addr', label: 'Address', type: 'text', placeholder: 'dotted IPv4 (192.168.1.2) or hex' },
 		],
 		build(v) {
 			const st = (parseInt(v.state) || 0) | (parseInt(v.channel) || 0);
-			return 'B802' + st.toString(16).padStart(2,'0') + (parseInt(v.info) || 0).toString(16).padStart(2,'0');
+			let d = 'B802' + st.toString(16).padStart(2,'0') + ((parseInt(v.info) || 0) & 0xFF).toString(16).padStart(2,'0');
+			if (v.bearer !== '' && v.bearer !== undefined) {
+				const params = (v.bearer_params || '').replace(/[^0-9a-fA-F]/g, '');
+				d += 'B5' + (1 + params.length / 2).toString(16).padStart(2, '0') +
+					((parseInt(v.bearer) || 0) & 0xFF).toString(16).padStart(2, '0') + params;
+			}
+			if (v.addr_type !== '' && v.addr_type !== undefined) {
+				if (v.addr_type === '00') d += 'BE00';
+				else {
+					const h = eventIpBytes(v.addr, v.addr_type);
+					if (h) d += 'BE' + (1 + h.length / 2).toString(16).padStart(2, '0') + v.addr_type + h;
+				}
+			}
+			return d.toUpperCase();
 		}
 	},
 	0x0B: { title: 'Access Technology Change',
@@ -13296,7 +13348,10 @@ const EVENT_FORMS = {
 			{ id: 'access_tech', label: 'Access Technology', type: 'select',
 			  opts: [{v:0x00,l:'GSM'},{v:0x03,l:'UTRAN'},{v:0x08,l:'E-UTRAN'},{v:0x0A,l:'NG-RAN'},{v:0x0B,l:'Satellite NG-RAN'},{v:0x0C,l:'Satellite E-UTRAN'}], g: 'lu,gprs,eps' },
 			{ id: 'cause', label: 'Rejection cause code', type: 'select', opts: REJECTION_CAUSES, g: 'lu,gprs,eps' },
-			{ id: 'ext_cause', label: 'Extended EMM cause (optional)', type: 'number', min: '0', max: '255', placeholder: '0–255', g: 'eps' },
+			{ id: 'ext_cause', label: 'Extended EMM cause (optional)', type: 'number', min: '0', max: '255', placeholder: '0\u2013255', g: 'eps' },
+			{ id: 'ext_info_type', label: 'Extended information (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:1,l:'01 \u2014 CAG ID'},{v:2,l:'02 \u2014 NID'},{v:3,l:'03 \u2014 RedCap'}] },
+			{ id: 'ext_info', label: 'Extended identification (hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,20}', placeholder: 'CAG ID: 4 bytes' },
 		],
 		build(v) {
 			const rt = parseInt(v.reg_type) || 0;
@@ -13315,6 +13370,11 @@ const EVENT_FORMS = {
 				if (v.ext_cause !== '' && v.ext_cause !== undefined) {
 					d += '5701' + (parseInt(v.ext_cause)|0).toString(16).padStart(2,'0');
 				}
+			}
+			if (v.ext_info_type !== '' && v.ext_info_type !== undefined) {
+				const h = (v.ext_info || '').replace(/[^0-9a-fA-F]/g, '');
+				d += 'F2' + (1 + h.length / 2).toString(16).padStart(2, '0') +
+					((parseInt(v.ext_info_type) || 0) & 0xFF).toString(16).padStart(2, '0') + h;
 			}
 			return d.toUpperCase();
 		}
@@ -13470,6 +13530,7 @@ const EVENT_FORMS = {
 			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
 			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
 			{ id: 'list', label: 'CAG information list (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'CAG identity list' },
+			{ id: 'hrnn', label: 'CAG HRNN list (optional)', type: 'text', placeholder: 'one or more names, comma-separated' },
 		],
 		build(v) {
 			let d = '';
@@ -13482,6 +13543,14 @@ const EVENT_FORMS = {
 				const h = v.list.replace(/[^0-9a-fA-F]/g, '');
 				d += 'D6' + (h.length / 2).toString(16).padStart(2, '0') + h;
 			}
+			if (v.hrnn) {
+				let inner = '';
+				String(v.hrnn).split(/[\s,;]+/).filter(Boolean).forEach(n => {
+					const b = new TextEncoder().encode(n).slice(0, 60);
+					inner += '80' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+				});
+				if (inner) d += 'D7' + (inner.length / 2).toString(16).padStart(2, '0') + inner;
+			}
 			return d.toUpperCase();
 		}
 	},
@@ -13493,19 +13562,31 @@ const EVENT_FORMS = {
 			         {v:0x82,l:'82 \u2014 partially rejected'}] },
 			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
 			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
+			{ id: 'allowed_map', label: 'Allowed slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 S-NSSAI-with-mapping elements' },
 			{ id: 'served', label: 'Served S-NSSAIs (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
+			{ id: 'allowed', label: 'Allowed slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
+			{ id: 'rejected_map', label: 'Rejected slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 elements + rejection cause' },
+			{ id: 'rejected', label: 'Rejected slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 rejected S-NSSAI elements' },
 		],
 		build(v) {
 			let d = '';
 			if (v.tech !== '' && v.tech !== undefined)
 				d += 'BF01' + ((parseInt(v.tech) || 0) & 0xFF).toString(16).padStart(2, '0');
 			d += 'D501' + ((parseInt(v.status) || 1) & 0xFF).toString(16).padStart(2, '0');
+			const list = (val, tag) => {
+				const h = (val || '').replace(/[^0-9a-fA-F]/g, '');
+				if (h) d += tag + (h.length / 2).toString(16).padStart(2, '0') + h;
+			};
+			list(v.allowed_map, 'F7');
 			const h = (v.served || '').replace(/[^0-9a-fA-F]/g, '');
 			if (h) {
 				const n = Math.floor(h.length / 8);
 				d += 'D6' + (1 + n * 4).toString(16).padStart(2, '0') +
 					n.toString(16).padStart(2, '0') + h.slice(0, n * 8);
 			}
+			list(v.allowed, 'F8');
+			list(v.rejected_map, 'D7');
+			list(v.rejected, 'B1');
 			return d.toUpperCase();
 		}
 	},

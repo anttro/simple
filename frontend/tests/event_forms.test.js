@@ -216,3 +216,36 @@ test('the IMS, CAG and slices events build their object sets', () => {
 	assert.strictEqual(EVENT_FORMS[0x1F].build({ status: '1', tech: '8', served: '01020304' }),
 		'BF0108D50101D6050101020304');
 });
+
+test('the location-status event can carry the location information', () => {
+	const build = EVENT_FORMS[0x03].build;
+	// Normal service: the 8.19 object follows the status
+	assert.strictEqual(build({ status: '0', mcc: '250', mnc: '01', lac: '00FF', cell: '0001' }),
+		'9B0100930752F01000FF0001');
+	// Limited / No service: no location information
+	assert.strictEqual(build({ status: '1', mcc: '250' }), '9B0101');
+	assert.strictEqual(build({ status: '0' }), '9B0100');
+});
+
+test('the channel-status event can carry the bearer and the local address', () => {
+	const build = EVENT_FORMS[0x0A].build;
+	assert.strictEqual(build({ channel: '1', state: '128', info: '0' }), 'B8028100');
+	assert.strictEqual(build({ channel: '1', state: '128', info: '0', bearer: '5', addr_type: '21', addr: '192.168.1.2' }),
+		'B8028100B50105BE0521C0A80102');
+	assert.strictEqual(build({ channel: '1', state: '128', info: '0', addr_type: '00' }), 'B8028100BE00');
+});
+
+test('the disconnected/rejection/CAG/slices events carry their extra objects', () => {
+	// IMS call disconnection cause: protocol + 2-byte cause (603 -> 025B)
+	assert.strictEqual(EVENT_FORMS[0x02].build({ ti: '00', cause_mode: '', media: '', ims_proto: '1', ims_cause: '603' }),
+		'1C0100D50301025B');
+	// Extended information (CAG ID, 4 bytes)
+	assert.ok(EVENT_FORMS[0x12].build({ reg_type: '9', access_tech: '8', cause: '2', ext_info_type: '1', ext_info: '00000001' })
+		.endsWith('F2050100000001'));
+	// CAG HRNN list (80-tagged names)
+	assert.ok(EVENT_FORMS[0x1E].build({ status: '1', list: '', hrnn: 'A,B' }).endsWith('D706800141800142'));
+	// allowed/served/rejected slice lists, with and without mapping
+	assert.ok(EVENT_FORMS[0x1F].build({ status: '1', served: '', allowed_map: '01020304', allowed: '01020304',
+		rejected_map: '01020304', rejected: '01020304' })
+		.endsWith('F70401020304F80401020304D70401020304B10401020304'));
+});
