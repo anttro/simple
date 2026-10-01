@@ -503,6 +503,7 @@
 		<li><strong>Location Status</strong> — dropdown: Normal / Limited / No service (tag <code class="font-mono text-sm">9B</code>)</li>
 		<li><strong>Access Technology Change</strong> — 13 RAT types (tag <code class="font-mono text-sm">BF</code>)</li>
 		<li><strong>Network Rejection</strong> — full adaptive form: registration type (LU / GPRS / EPS / 5GS), location fields (MCC, MNC, LAC, RAC, TAC), access technology, and a 53-cause unified rejection cause dropdown covering EMM, GMM, 5GMM and LU causes</li>
+		<li><strong>Data Connection Status Change</strong> (0x1D) &mdash; status (successful / rejected / dropped-deactivated), connection type (PDP / PDN / PDU), optional (E/5G)SM cause, transaction identifier and location status, plus optional access technology, APN, PDP/PDN/PDU type and location information (MCC/MNC + LAC + Cell ID) &mdash; TS 131 111 &sect;7.5.25</li>
 		<li><strong>Poll Interval Negotiation</strong> (0x1C) — proposes a poll interval as a Duration (unit + value); after sending, the UICC's answer is shown (accepted / rejected / modified + duration), and a <em>modified</em> duration becomes the background poll interval (TS 102 223 &sect;7.5.22). The form appears when the card subscribed to this event.</li>
 	</ul>
 	<p class="text-sm mb-3">Sending an event uses <code class="font-mono text-sm">ENVELOPE(Event Download)</code> per TS 102 223 / TS 131 111.</p>

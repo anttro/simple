@@ -4284,7 +4284,13 @@ def _send_event_download(scc, event_type, event_data=None, drain=True):
     inner.extend([0x82, 0x02, 0x82, 0x81])
     if event_data:
         inner.extend(event_data)
-    d6_tlv = bytes([0xD6, len(inner)]) + bytes(inner)
+    if len(inner) < 0x80:
+        d6_tlv = bytes([0xD6, len(inner)]) + bytes(inner)
+    else:
+        # BER long form for 128..255 bytes: the length field is "1 or 2" per
+        # the TS 102 223 7.5.x ENVELOPE tables (a raw byte above 0x7F would be
+        # read as a long-form indicator)
+        d6_tlv = bytes([0xD6, 0x81, len(inner)]) + bytes(inner)
     env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(d6_tlv), d6_tlv.hex())
     sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
     data, sw = scc._tp.send_apdu(env_hex)

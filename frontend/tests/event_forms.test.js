@@ -34,6 +34,8 @@ eval(extractFunc(html, 'cmdQualifierShort'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'encPlmn'));
+eval(extractFunc(html, 'bytesToHex'));
 
 test('CMD_NAMES decodes timer management and the BIP commands', () => {
 	assert.strictEqual(CMD_NAMES['01'], 'REFRESH');
@@ -96,4 +98,29 @@ test('channel status event builds the B8 channel status TLV', () => {
 	assert.strictEqual(build({ channel: '2', state: '128', info: '5' }), 'B8028205');
 	assert.strictEqual(build({ channel: '1', state: '0', info: '0' }), 'B8020100');
 	assert.strictEqual(build({ channel: '0', state: '64', info: '0' }), 'B8024000');
+});
+
+test('the data connection status change event builds the 7.5.25 object set', () => {
+	const build = EVENT_FORMS[0x1D].build;
+	assert.strictEqual(EVENT_FORMS[0x1D].note, undefined);
+	// the four mandatory objects; every conditional object omitted
+	assert.strictEqual(build({ status: '0', type: '0', ti: '00', loc_status: '0' }),
+		'9D0100AA01001C01009B0100');
+	// full form: cause, location information, access technology, APN, type
+	assert.strictEqual(
+		build({ status: '1', type: '2', cause: '26', ti: '85', mcc: '250', mnc: '01',
+			lac: '00FF', cell: '0001', tech: '8', loc_status: '1', apn: 'internet', pdp_type: '3' }),
+		'9D0101AA0102AE011A1C0185130752F01000FF0001BF01089B0101C708696E7465726E65740B0103');
+	// an empty TI falls back to 00; the location defaults fill missing fields
+	assert.strictEqual(build({ status: '2', type: '1', ti: '', mcc: '250', loc_status: '2' }),
+		'9D0102AA01011C0100130752F010000000019B0102');
+});
+
+test('the access technology options follow the pinned 8.61 coding', () => {
+	const opts = EVENT_FORMS[0x0B].fields[0].opts;
+	assert.deepStrictEqual(opts.map(o => o.v), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+	assert.strictEqual(opts[1].l, 'TIA/EIA-553-A');
+	assert.strictEqual(opts[2].l, 'TIA/EIA-136-270');
+	assert.strictEqual(opts[10].l, 'NG-RAN');
+	assert.strictEqual(opts[12].l, 'Satellite E-UTRAN');
 });

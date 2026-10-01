@@ -12978,6 +12978,14 @@ const REJECTION_CAUSES = [
 	{v:111,l:'6F \u2014 Protocol error, unspecified'},
 ];
 
+// Access Technology coding (TS 102 223 V18.3.0 8.61, tags '3F'/'BF'): the
+// single/multiple technology objects and the PLI qualifier share this list.
+const ACCESSTECH = [
+	{v:0,l:'GSM'},{v:1,l:'TIA/EIA-553-A'},{v:2,l:'TIA/EIA-136-270'},{v:3,l:'UTRAN'},
+	{v:4,l:'TETRA'},{v:5,l:'TIA/EIA-95-B'},{v:6,l:'CDMA2000 1x'},{v:7,l:'CDMA2000 HRPD'},
+	{v:8,l:'E-UTRAN'},{v:9,l:'eHRPD'},{v:10,l:'NG-RAN'},{v:11,l:'Satellite NG-RAN'},{v:12,l:'Satellite E-UTRAN'},
+];
+
 const EVENT_FORMS = {
 	0x00: { title: 'MT call', note: 'not_yet' },
 	0x01: { title: 'Call connected', note: 'not_yet' },
@@ -13028,7 +13036,7 @@ const EVENT_FORMS = {
 	0x0B: { title: 'Access Technology Change',
 		fields: [
 			{ id: 'tech', label: 'Access Technology', type: 'select',
-			  opts: [{v:0,l:'GSM'},{v:1,l:'GSM Compact'},{v:3,l:'UTRAN'},{v:4,l:'GSM w/EGPRS'},{v:5,l:'UTRAN w/HSDPA'},{v:6,l:'UTRAN w/HSUPA'},{v:7,l:'UTRAN w/HSPA+'},{v:8,l:'E-UTRAN'},{v:9,l:'E-UTRAN (4G)'},{v:10,l:'5G NR'},{v:11,l:'5G NR (NSA)'},{v:12,l:'Satellite'}] }
+			  opts: ACCESSTECH }
 		],
 		build(v) { return 'BF01' + (v.tech|0).toString(16).padStart(2,'0'); }
 	},
@@ -13103,6 +13111,56 @@ const EVENT_FORMS = {
 			let iv = parseInt(v.interval, 10);
 			if (!(iv >= 1 && iv <= 255)) iv = 30;
 			return ('0402' + unit.toString(16).padStart(2, '0') + iv.toString(16).padStart(2, '0')).toUpperCase();
+		}
+	},
+	0x1D: { title: 'Data connection status change',
+		fields: [
+			{ id: 'status', label: 'Data connection status', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 Data connection successful'},
+			         {v:1,l:'01 \u2014 Data connection rejected'},
+			         {v:2,l:'02 \u2014 Data connection dropped / deactivated'}] },
+			{ id: 'type', label: 'Data connection type', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 PDP connection'},{v:1,l:'01 \u2014 PDN connection'},
+			         {v:2,l:'02 \u2014 PDU connection'}] },
+			{ id: 'cause', label: '(E/5G)SM cause (optional)', type: 'number', min: '0', max: '255', placeholder: '0\u2013255, e.g. 26' },
+			{ id: 'ti', label: 'Transaction identifier', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, e.g. 00' },
+			{ id: 'mcc', label: 'MCC (Location Information, optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 250' },
+			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01' },
+			{ id: 'lac', label: 'LAC', type: 'text', pattern: '[0-9A-Fa-f]{4}', placeholder: 'hex, e.g. 00FF' },
+			{ id: 'cell', label: 'Cell ID', type: 'text', pattern: '[0-9A-Fa-f]{4}', placeholder: 'hex, e.g. 0001' },
+			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
+			{ id: 'loc_status', label: 'Location status', type: 'select',
+			  opts: [{v:0,l:'Normal service'},{v:1,l:'Limited service'},{v:2,l:'No service'}] },
+			{ id: 'apn', label: 'Network Access Name / APN (optional)', type: 'text', placeholder: 'e.g. internet' },
+			{ id: 'pdp_type', label: 'PDP/PDN/PDU type (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},
+			         {v:0,l:'00 \u2014 IPv4'},{v:1,l:'01 \u2014 IPv6'},{v:3,l:'03 \u2014 IPv4v6'},
+			         {v:4,l:'04 \u2014 PPP (PDP/PDN) / Unstructured (PDU)'},
+			         {v:5,l:'05 \u2014 non-IP (PDP/PDN) / Ethernet (PDU)'}] },
+		],
+		build(v) {
+			// TS 131 111 7.5.25.2 object order; the conditional objects (cause,
+			// location information, access technology, APN, PDP/PDN/PDU type) are
+			// omitted when left empty.
+			let d = '9D01' + ((parseInt(v.status) || 0) & 0xFF).toString(16).padStart(2, '0');
+			d += 'AA01' + ((parseInt(v.type) || 0) & 0xFF).toString(16).padStart(2, '0');
+			if (v.cause !== '' && v.cause !== undefined)
+				d += 'AE01' + ((parseInt(v.cause) || 0) & 0xFF).toString(16).padStart(2, '0');
+			d += '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			if (v.mcc)
+				d += '1307' + encPlmn(v.mcc, v.mnc || '01') +
+					(v.lac || '0000').toUpperCase() + (v.cell || '0001').toUpperCase();
+			if (v.tech !== '' && v.tech !== undefined)
+				d += 'BF01' + ((parseInt(v.tech) || 0) & 0xFF).toString(16).padStart(2, '0');
+			d += '9B01' + ((parseInt(v.loc_status) || 0) & 0xFF).toString(16).padStart(2, '0');
+			if (v.apn) {
+				const b = new TextEncoder().encode(v.apn).slice(0, 100);
+				d += 'C7' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+			}
+			if (v.pdp_type !== '' && v.pdp_type !== undefined)
+				d += '0B01' + ((parseInt(v.pdp_type) || 0) & 0xFF).toString(16).padStart(2, '0');
+			return d.toUpperCase();
 		}
 	},
 };
@@ -15041,12 +15099,6 @@ function encImeisvPli(digits) {
 		h += (parseInt(d[i+1])<<4 | parseInt(d[i])).toString(16).padStart(2, '0');
 	return h;
 }
-
-const ACCESSTECH = [
-	{v:0,l:'GSM'},{v:1,l:'GSM Compact'},{v:2,l:'TIA/EIA-533'},{v:3,l:'UTRAN'},
-	{v:4,l:'TETRA'},{v:5,l:'TIA/EIA-95-B'},{v:6,l:'CDMA2000 1x'},{v:7,l:'CDMA2000 HRPD'},
-	{v:8,l:'E-UTRAN'},{v:9,l:'eHRPD'},{v:10,l:'NG-RAN'},{v:11,l:'Satellite NG-RAN'},{v:12,l:'Satellite E-UTRAN'},
-];
 
 const PLI_CODECS = {
 	'00': { tlv: '9305',

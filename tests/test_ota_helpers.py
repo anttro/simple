@@ -817,6 +817,17 @@ class TestEventDownload(unittest.TestCase):
         self.assertEqual(sw, '9000')
         self.assertEqual(apdu, '80c2000009d60799010582028281')
 
+    def test_event_with_long_data_uses_the_ber_long_form(self):
+        # 128+ bytes of event data: the D6 length becomes '81' <len> (the
+        # 7.5.x tables allow 1 or 2 length bytes; a raw byte above 0x7F would
+        # be read as a long-form indicator)
+        payload = bytes(range(200))
+        apdu, sw = self._send(0x1D, payload)
+        self.assertEqual(sw, '9000')
+        inner = bytes([0x99, 0x01, 0x1D, 0x82, 0x02, 0x82, 0x81]) + payload
+        d6 = bytes([0xD6, 0x81, len(inner)]) + inner
+        self.assertEqual(apdu, '80c20000%02x%s' % (len(d6), d6.hex()))
+
 
 class TestTimerManagement(unittest.TestCase):
     """Terminal side of TIMER MANAGEMENT (TS 102 223 6.6.21, 6.8.13/14, 7.4).
