@@ -1291,6 +1291,7 @@
 				<span class="text-sm text-gray-500 dark:text-slate-400" data-l10n="PROVIDE LOCAL INFORMATION response data">PROVIDE LOCAL INFORMATION response data</span>
 				<button id="pli-save-btn" data-needs="server" onclick="pysimPliSave()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
 			</div>
+			<div class="text-xs text-gray-400 dark:text-slate-500 mb-1" data-l10n="The date/time qualifier is answered from the host clock while its entry is empty.">The date/time qualifier is answered from the host clock while its entry is empty.</div>
 			<div id="pysim-pli-dict" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[60vh] overflow-auto">
 				<span class="text-gray-400" data-l10n="Loading...">Loading...</span>
 			</div>
@@ -15572,32 +15573,45 @@ const PLI_CODECS = {
 	'03': { tlv: '2607',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 14) return null;
-			const yr = parseInt(v[0]+v[1])<70 ? 2000+parseInt(v[0]+v[1]) : 1900+parseInt(v[0]+v[1]);
-			const mo = parseInt(v[2]+v[3]), dy = parseInt(v[4]+v[5]);
-			const hh = parseInt(v[6]+v[7]), mm = parseInt(v[8]+v[9]), ss = parseInt(v[10]+v[11]);
-			const tz = parseInt(v[12]+v[13], 16);
-			const tzSign = (tz & 0x80) ? '-' : '+';
-			const tzH = Math.floor(((tz & 0x3F) || 0) / 4);
-			const tzM = (((tz & 0x3F) || 0) % 4) * 15;
+			// TP-SCTS coding (TS 123 040 9.2.3.11): swapped semi-octet BCD
+			// digits, time zone in quarters of an hour with the sign in 0x08,
+			// 'FF' unknown - the coding of eventDateTimeTlv / _encode_scts.
+			const b = [];
+			for (let i = 0; i < 14; i += 2) b.push(parseInt(v[i] + v[i + 1], 16));
+			const semi = x => (x & 0x0F) * 10 + (x >> 4);
+			const two = x => String(x).padStart(2, '0');
+			const yr = semi(b[0]) < 70 ? 2000 + semi(b[0]) : 1900 + semi(b[0]);
+			let tz = 'unknown';
+			if (b[6] !== 0xFF) {
+				const q = (b[6] & 0x07) * 10 + (b[6] >> 4);
+				tz = (b[6] & 0x08 ? '-' : '+') + two(q >> 2) + ':' + two((q % 4) * 15);
+			}
 			return {
-				dt: yr+'-'+(''+mo).padStart(2,'0')+'-'+(''+dy).padStart(2,'0'),
-				tm: (''+hh).padStart(2,'0')+':'+(''+mm).padStart(2,'0')+':'+(''+ss).padStart(2,'0'),
-				tz: tzSign+(''+tzH).padStart(2,'0')+':'+(''+tzM).padStart(2,'0'),
+				dt: yr + '-' + two(semi(b[1])) + '-' + two(semi(b[2])),
+				tm: two(semi(b[3])) + ':' + two(semi(b[4])) + ':' + two(semi(b[5])),
+				tz: tz,
 			};
 		},
 		encode(v) {
 			const dt = (v.dt||'2000-01-01').split('-'), tm = (v.tm||'00:00:00').split(':');
+			const semi = x => (((x % 10) << 4) | Math.floor(x / 10)) & 0xFF;
+			const hx = x => x.toString(16).padStart(2, '0');
 			let tzQ = 0;
 			const tzM = v.tz ? v.tz.match(/^([-+])(\d{2}):?(\d{2})$/) : null;
-			if (tzM) { const h = parseInt(tzM[2])||0, m = parseInt(tzM[3])||0; tzQ = h*4 + Math.floor(m/15); if (tzM[1]==='-') tzQ |= 0x80; }
+			if (tzM) {
+				// quarters of an hour, swapped digits + the 0x08 sign bit
+				const q = Math.min(62, (parseInt(tzM[2]) || 0) * 4 +
+					Math.floor((parseInt(tzM[3]) || 0) / 15));
+				tzQ = semi(q) | (tzM[1] === '-' ? 0x08 : 0);
+			}
 			return '2607'
-				+ (parseInt(dt[0])%100).toString(16).padStart(2,'0')
-				+ (parseInt(dt[1])||1).toString(16).padStart(2,'0')
-				+ (parseInt(dt[2])||1).toString(16).padStart(2,'0')
-				+ (parseInt(tm[0])||0).toString(16).padStart(2,'0')
-				+ (parseInt(tm[1])||0).toString(16).padStart(2,'0')
-				+ (parseInt(tm[2])||0).toString(16).padStart(2,'0')
-				+ tzQ.toString(16).padStart(2,'0');
+				+ hx(semi((parseInt(dt[0], 10) || 0) % 100))
+				+ hx(semi(parseInt(dt[1], 10) || 1))
+				+ hx(semi(parseInt(dt[2], 10) || 1))
+				+ hx(semi(parseInt(tm[0], 10) || 0))
+				+ hx(semi(parseInt(tm[1], 10) || 0))
+				+ hx(semi(parseInt(tm[2], 10) || 0))
+				+ hx(tzQ);
 		},
 		fields: [
 			{id:'dt',label:'Date',type:'date'},{id:'tm',label:'Time',type:'time'},
@@ -19941,6 +19955,7 @@ const LANG_RU = {
 	'No further info can be given': 'Дополнительная информация отсутствует',
 	'Link dropped (network failure or user cancellation)': 'Линия разорвана (сбой сети или отмена пользователем)',
 	'PROVIDE LOCAL INFORMATION response data': 'Данные для PROVIDE LOCAL INFORMATION',
+	'The date/time qualifier is answered from the host clock while its entry is empty.': 'Квалификатор «дата и время» при пустой записи отвечается с часов хоста.',
 	'Send STATUS': 'Отправить STATUS',
 	'help': 'справка',
 	'STATUS and Polling': 'STATUS и опрос',

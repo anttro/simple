@@ -1919,10 +1919,11 @@ class _DefaultProactiveHandler(ProactiveHandler):
             pass
         ti_list = self.prepare_response(cmd_obj, 'performed_successfully')
         if cmd_type == 0x26 and cmd_qual is not None:
-            pli_hex = _PLI_DATA.get(cmd_qual, '')
+            pli_hex = _pli_data_hex(cmd_qual)
             if pli_hex:
                 try:
-                    ti_list.insert(2, _RawBerTlv(pli_hex))
+                    # After the Result, per the TS 102 223 6.8.0 object order.
+                    ti_list.append(_RawBerTlv(pli_hex))
                 except Exception:
                     pass
         if entry:
@@ -2619,15 +2620,24 @@ def _decode_tr(type_hex, qual_hex, tr_hex):
             if qual == 0x01 and len(v) >= 16:
                 return [{'label': 'IMEI', 'value': _dec_imei(v[:16])}]
             if qual == 0x03 and len(v) >= 14:
-                yr = 2000 + int(v[0:2]) if int(v[0:2]) < 70 else 1900 + int(v[0:2])
-                mo, dy = int(v[2:4]), int(v[4:6])
-                hh, mm, ss = int(v[6:8]), int(v[8:10]), int(v[10:12])
-                tz = int(v[12:14], 16)
-                tz_sign = '-' if tz & 0x80 else '+'
-                tz_q = (tz & 0x3F) or 0
-                return [{'label': 'Date', 'value': '%04d-%02d-%02d' % (yr, mo, dy)},
-                        {'label': 'Time', 'value': '%02d:%02d:%02d' % (hh, mm, ss)},
-                        {'label': 'TZ offset', 'value': '%s%02d:%02d' % (tz_sign, tz_q // 4, (tz_q % 4) * 15)}]
+                # Date-Time and Time zone (TS 102 223 8.39): TP-SCTS coding
+                # (TS 123 040 9.2.3.11) - swapped semi-octet BCD digits, the
+                # time zone sign in bit 0x08 of the last byte, 'FF' unknown.
+                b = bytes.fromhex(v[:14])
+                y = _bcd_swap(b[0])
+                yr = 2000 + y if y < 70 else 1900 + y
+                out = [{'label': 'Date',
+                        'value': '%04d-%02d-%02d' % (yr, _bcd_swap(b[1]), _bcd_swap(b[2]))},
+                       {'label': 'Time',
+                        'value': '%02d:%02d:%02d' % (_bcd_swap(b[3]), _bcd_swap(b[4]), _bcd_swap(b[5]))}]
+                if b[6] == 0xFF:
+                    out.append({'label': 'TZ offset', 'value': 'unknown'})
+                else:
+                    q = (b[6] & 0x07) * 10 + (b[6] >> 4)
+                    out.append({'label': 'TZ offset',
+                                'value': '%s%02d:%02d' % ('-' if b[6] & 0x08 else '+',
+                                                          q // 4, (q % 4) * 15)})
+                return out
             if qual == 0x04 and len(v) >= 4:
                 try:
                     lang = bytes.fromhex(v[:4]).decode('ascii')
@@ -3533,21 +3543,39 @@ def _scp81_bip_control(body):
             'listener': _bip_listener_status()}
 
 
-def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual):
-    """Build the TERMINAL RESPONSE TLV payload for a fetched command
-    (includes PLI dictionary data for PROVIDE LOCAL INFORMATION)."""
-    if cmd_type == 0x03:
-        return bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                      0x82, 0x02, dev_dst, dev_src,
-                      0x84, 0x02, 0x01, _POLL_INTERVAL,
-                      0x03, 0x01, 0x00])
+def _pli_data_hex(cmd_qual, dt=None):
+    """Data object(s) for a PROVIDE LOCAL INFORMATION TERMINAL RESPONSE, as
+    hex - or '' when there is nothing to send.
+
+    The TR Config dictionary entry (if any) wins.  Otherwise the date/time
+    qualifier is answered with the current date and time from the host clock
+    (TS 102 223 6.4.15: "The terminal shall return the current date and time
+    as set by the user"), coded as the Date-Time and Time zone object (8.39).
+    `dt` is a test seam, the clock is read live otherwise."""
+    val = str(_PLI_DATA.get(cmd_qual, '') or '').strip()
+    if val:
+        return val
+    if cmd_qual == 0x03:
+        return '2607' + _encode_scts(dt).hex().upper()
+    return ''
+
+
+def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None):
+    """Build the TERMINAL RESPONSE TLV payload for a fetched command.
+
+    The object order follows TS 102 223 6.8.0: command details, device
+    identities, Result, then the command-specific data objects (the echoed
+    Duration for POLL INTERVAL, the PLI data for PROVIDE LOCAL INFORMATION)."""
     base = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                  0x82, 0x02, dev_dst, dev_src])
-    if cmd_type == 0x26 and cmd_qual is not None:
-        pli_hex = _PLI_DATA.get(cmd_qual, '')
+                  0x82, 0x02, dev_dst, dev_src,
+                  0x03, 0x01, 0x00])
+    if cmd_type == 0x03:
+        base += bytes([0x84, 0x02, 0x01, _POLL_INTERVAL])
+    elif cmd_type == 0x26 and cmd_qual is not None:
+        pli_hex = _pli_data_hex(cmd_qual, dt)
         if pli_hex:
             base += bytes.fromhex(pli_hex)
-    return base + bytes([0x03, 0x01, 0x00])
+    return base
 
 
 _RESULT_NAMES_BASIC = {

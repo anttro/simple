@@ -691,8 +691,86 @@ class TestProactiveDecode(unittest.TestCase):
         parsed = pcmd.from_tlv(h2b('d00d810301260082028182'))
         ti = handler.receive_fetch_raw(pcmd, parsed)
         tr = b''.join(x.to_tlv() for x in ti).hex()
-        self.assertIn('93055210011000', tr)
+        # the data object follows the Result (TS 102 223 6.8.0 order)
+        self.assertTrue(tr.startswith('81030126008202828183010093055210011000'), tr)
         self.assertEqual(srv._PROACTIVE_LOG[-1]['tr_hex'], '93055210011000')
+
+    def test_default_handler_pli_datetime_when_dict_empty(self):
+        # No dictionary entry: the date/time qualifier is answered from the
+        # host clock (TS 102 223 6.4.15), after the Result per 6.8.0.
+        import pysim_simple_server.server as srv
+        from pySim.cat import ProactiveCommand
+        from pySim.utils import h2b
+        srv._PROACTIVE_LOG.clear()
+        saved = srv._PLI_DATA.get(0x03)
+        srv._PLI_DATA[0x03] = ''
+        try:
+            handler = srv._DefaultProactiveHandler()
+            pcmd = ProactiveCommand()
+            parsed = pcmd.from_tlv(h2b('d009810301260382028182'))
+            ti = handler.receive_fetch_raw(pcmd, parsed)
+        finally:
+            srv._PLI_DATA[0x03] = saved
+        tr = b''.join(x.to_tlv() for x in ti).hex()
+        self.assertRegex(tr, r'^8103012603820282818301002607[0-9A-F]{14}$')
+        self.assertRegex(srv._PROACTIVE_LOG[-1]['tr_hex'], r'^2607[0-9A-F]{14}$')
+
+    def test_build_tr_puts_result_before_pli_data(self):
+        # TS 102 223 6.8.0: command details, device identities, Result, then
+        # the command-specific data objects (real terminals send them last).
+        tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x00)
+        self.assertEqual(tr.hex(), '81030126008202828103010093055210011000')
+
+    def test_build_tr_poll_interval_duration_after_result(self):
+        import pysim_simple_server.server as srv
+        tr = _build_tr(None, 1, 0x03, 0x81, 0x82, None)
+        self.assertEqual(tr.hex(),
+                         '810301030082028281030100840201%02x' % srv._POLL_INTERVAL)
+
+    def test_build_tr_pli_datetime_from_host_clock_when_dict_empty(self):
+        # 8.39 coding: the same vectors as the PWA's eventDateTimeTlv test.
+        import pysim_simple_server.server as srv
+        from datetime import datetime, timedelta, timezone
+        saved = srv._PLI_DATA.get(0x03)
+        srv._PLI_DATA[0x03] = ''
+        try:
+            east = datetime(2026, 9, 30, 21, 55, 0,
+                            tzinfo=timezone(timedelta(hours=3)))
+            west = datetime(2026, 1, 5, 8, 7, 9,
+                            tzinfo=timezone(-timedelta(hours=2, minutes=30)))
+            tr_east = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x03, east)
+            tr_west = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x03, west)
+        finally:
+            srv._PLI_DATA[0x03] = saved
+        self.assertEqual(tr_east.hex(),
+                         '810301260082028281030100260762900312550021')
+        # negative zone: the sign bit of the time zone byte (0x08)
+        self.assertEqual(tr_west.hex(),
+                         '810301260082028281030100260762105080709009')
+
+    def test_build_tr_pli_dict_entry_overrides_host_clock(self):
+        import pysim_simple_server.server as srv
+        from datetime import datetime, timezone
+        saved = srv._PLI_DATA.get(0x03)
+        srv._PLI_DATA[0x03] = '130752f01000ff0001'
+        try:
+            tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x03,
+                           datetime(2026, 9, 30, 21, 55, tzinfo=timezone.utc))
+        finally:
+            srv._PLI_DATA[0x03] = saved
+        self.assertEqual(tr.hex(), '810301260082028281030100130752f01000ff0001')
+
+    def test_build_tr_pli_empty_other_qualifier_sends_no_data(self):
+        import pysim_simple_server.server as srv
+        saved = srv._PLI_DATA.get(0x0a)
+        srv._PLI_DATA[0x0a] = '  '
+        try:
+            tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x0a)
+            data = srv._pli_data_hex(0x0a)
+        finally:
+            srv._PLI_DATA[0x0a] = saved
+        self.assertEqual(tr.hex(), '810301260082028281030100')
+        self.assertEqual(data, '')
 
     def test_decode_cmd_empty_raw(self):
         self.assertEqual(_decode_cmd(0x26, b'', None), [])
@@ -709,6 +787,20 @@ class TestProactiveDecode(unittest.TestCase):
     def test_decode_tr_pli_imei(self):
         r = _decode_tr('26', '01', '94082143658709214305')
         self.assertEqual(r[0], {'label': 'IMEI', 'value': '123456789012345'})
+
+    def test_decode_tr_pli_datetime(self):
+        # 8.39 object in the TP-SCTS coding (TS 123 040 9.2.3.11): swapped
+        # semi-octet BCD digits, the time zone sign bit 0x08, 'FF' unknown.
+        # The vectors are the ones the PWA encoder pins too.
+        self.assertEqual(_decode_tr('26', '03', '260762900312550021'), [
+            {'label': 'Date', 'value': '2026-09-30'},
+            {'label': 'Time', 'value': '21:55:00'},
+            {'label': 'TZ offset', 'value': '+03:00'},
+        ])
+        self.assertEqual(_decode_tr('26', '03', '260762105080709009')[2],
+                         {'label': 'TZ offset', 'value': '-02:30'})
+        self.assertEqual(_decode_tr('26', '03', '2607629003125500FF')[2],
+                         {'label': 'TZ offset', 'value': 'unknown'})
 
     def test_decode_tr_pli_access_technology(self):
         r = _decode_tr('26', '06', 'bf0103')
