@@ -389,8 +389,10 @@ class CntrLowGuardHttpTests(unittest.TestCase):
                 p.stop()
         self.assertEqual(status, 200, resp)
         self.assertTrue(resp['cntr_low'], resp)
-        self.assertEqual(resp['card_cntr'], '00000000BB')
-        self.assertEqual(resp['suggested_cntr'], '00000000BC')
+        # the PoR's CNTR is a copy of the command's counter, not the card's:
+        # the verdict is reported without a value (v3.9.x)
+        self.assertNotIn('card_cntr', resp)
+        self.assertNotIn('suggested_cntr', resp)
 
     def test_the_ram_chain_stops_at_a_low_counter(self):
         calls = []
@@ -425,8 +427,10 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         self.assertFalse(resp['success'], resp)
         self.assertEqual(len(calls), 2, calls)          # nothing after the verdict
         self.assertTrue(resp['cntr_low'], resp)
-        self.assertEqual(resp['card_cntr'], '00000000BB')
-        self.assertEqual(resp['suggested_cntr'], '00000000BC')
+        # the PoR's CNTR is a copy of the command's counter, not the card's:
+        # the verdict is reported without a value (v3.9.x)
+        self.assertNotIn('card_cntr', resp)
+        self.assertNotIn('suggested_cntr', resp)
 
 
 class TarProbeListTests(unittest.TestCase):

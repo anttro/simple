@@ -100,13 +100,13 @@ class TagVariantMatrixTests(unittest.TestCase):
 
     def test_response_scripting_accepts_both_rapdu_tags(self):
         definite = bytes.fromhex('ab0780010123029000')
-        self.assertEqual(_parse_response_scripting(definite), (1, '9000', ''))
-        self.assertEqual(_parse_response_scripting(bytes.fromhex('ab07800101a3029000')),
-                         (1, '9000', ''))
+        parsed = lambda d: (lambda r: (r['count'], r['sw'], r['data'], r['bad_format']))(
+            _parse_response_scripting(d))
+        self.assertEqual(parsed(definite), (1, '9000', '', None))
+        self.assertEqual(parsed(bytes.fromhex('ab07800101a3029000')), (1, '9000', '', None))
         indefinite = bytes.fromhex('af80800101230290000000')
-        self.assertEqual(_parse_response_scripting(indefinite), (1, '9000', ''))
-        self.assertEqual(_parse_response_scripting(bytes.fromhex('af80800101a30290000000')),
-                         (1, '9000', ''))
+        self.assertEqual(parsed(indefinite), (1, '9000', '', None))
+        self.assertEqual(parsed(bytes.fromhex('af80800101a30290000000')), (1, '9000', '', None))
         # the SCP81 R-APDU list parser reads the same templates
         self.assertEqual(_scp81_parse_response(definite), (1, [(b'', '9000')]))
         self.assertEqual(_scp81_parse_response(bytes.fromhex('ab07800101a3029000')),

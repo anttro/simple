@@ -708,6 +708,15 @@
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
 					</select>
 				</div>
+				<div class="flex-1">
+					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Format">Format</label>
+					<select id="ram-format" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						<option value="auto" data-l10n="Auto (detect)">Auto (detect)</option>
+						<option value="compact" data-l10n="Compact">Compact</option>
+						<option value="expanded" data-l10n="Expanded (AA, definite length)">Expanded (AA, definite length)</option>
+						<option value="expanded-ae" data-l10n="Expanded (AE 80, indefinite length)">Expanded (AE 80, indefinite length)</option>
+					</select>
+				</div>
 				<button data-needs="card" data-needs-keyset="ram" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 			<div id="ram-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
@@ -8304,13 +8313,11 @@ async function pysimSendOta() {
 	try {
 		const data = await pysimFetch('/api/send-ota', { sp, ...spParams() });
 		// low counter: not recoverable by retrying (v3.6.58)
-		const low = spCntrLow(data);
-		if (low) {
-			sendResultEl.textContent = t('Low counter') + ' — ' + t('the card rejected the packet') +
-				(low.card_cntr ? ' (' + t('card counter') + ' ' + low.card_cntr + ')' : '');
+		if (spCntrLow(data)) {
+			sendResultEl.textContent = t('Low counter') + ' — ' + t('the card rejected the packet');
 			sendResultEl.classList.remove('text-gray-500', 'text-green-600');
 			sendResultEl.classList.add('text-red-600');
-			ramShowCntrLow(low);
+			ramShowCntrLow();
 			return;
 		}
 		if (data.success) {
@@ -8851,6 +8858,7 @@ function getRamSpParams(selId) {
 		cntr: (document.getElementById('sp-cntr').value || '0000000001').replace(/[^0-9a-fA-F]/g, ''),
 		kicKey: (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		kidKey: (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		ram_format: (document.getElementById('ram-format') || {}).value || 'auto',
 	};
 }
 
@@ -9599,13 +9607,10 @@ async function ramExplore(sp) {
 	// own - a retry cannot help, so the run stops immediately and the user is
 	// told to raise the preset counter (v3.6.58).  Every send of the run goes
 	// through sendOta() so the verdict is caught wherever it appears.
-	let cntrLow = null;
+	let cntrLow = false;
 	async function sendOta(apdu, params) {
 		const res = await ramSendOta(apdu, params);
-		if (!cntrLow) {
-			const low = spCntrLow(res);
-			if (low) cntrLow = low;
-		}
+		if (!cntrLow && spCntrLow(res)) cntrLow = true;
 		return res;
 	}
 
@@ -9900,7 +9905,7 @@ async function ramExplore(sp) {
 		// the run was stopped: state the verdict, do not retry
 		resultEl.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
-		ramShowCntrLow(cntrLow);
+		ramShowCntrLow();
 	} else if (errors.length) {
 		resultEl.textContent = t('Partial') + ' — ' + errors.join('; ');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
@@ -10005,12 +10010,11 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	const res = await ramSendOta(apdu, sp);
 	ramHideProgress();
 	// low counter: stop - retrying cannot help (v3.6.58)
-	const low = spCntrLow(res);
-	if (low) {
+	if (spCntrLow(res)) {
 		const el = document.getElementById('ram-result');
 		el.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
 		el.classList.remove('hidden', 'text-green-600'); el.classList.add('text-red-600');
-		ramShowCntrLow(low);
+		ramShowCntrLow();
 		return;
 	}
 	// The card consumes the counter as soon as it accepts the packet, even
@@ -10435,10 +10439,9 @@ async function ramCompatTest(sp) {
 	let modal = esc(txt);
 	if (probeNote) modal += '<div class="mt-2 text-gray-500 dark:text-slate-400">' + esc(probeNote) + '</div>';
 	modal += ramCompatDetailHtml(data, mem);
-	const low = spCntrLow(data);
-	if (low) {
-		modal += ramCntrLowHtml(low, ramCntrLowPresetIdx());
-		ramShowCntrLow(low);
+	if (spCntrLow(data)) {
+		modal += ramCntrLowHtml(ramCntrLowPresetIdx());
+		ramShowCntrLow();
 	}
 	ramOpModalFinish(verdict, !!data.imports_ok, modal, true);
 }
@@ -10808,27 +10811,27 @@ function ramCntrLowPresetIdx() {
 	return ram >= 0 ? ram : pick('sp-card-sel');
 }
 
-// Low-counter notice (pure HTML): the facts plus a button that opens the
-// failed operation's preset in the Cards tab, where the user raises the
-// counter - nothing is written automatically.
-function ramCntrLowHtml(info, presetIdx) {
-	if (!info) return '';
+// Low-counter notice (pure HTML): the facts plus two actions - a bounded
+// counter sync probe and a button that opens the failed operation's preset in
+// the Cards tab, where the counter can be raised by hand.
+function ramCntrLowHtml(presetIdx) {
 	const idx = Number.isInteger(presetIdx) && presetIdx >= 0 ? presetIdx : -1;
-	let text = t('Low counter') + ' \u2014 ' + t('the card rejected the packet');
-	if (info.card_cntr) text += ' (' + t('card counter') + ' ' + esc(info.card_cntr) + ')';
-	if (info.suggested) text += ' \u2014 ' + t('the counter must be above it');
+	const text = t('Low counter') + ' \u2014 ' + t('the card rejected the packet');
+	const btnCls = 'px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 ' +
+		'hover:bg-red-100 dark:hover:bg-red-900/40 whitespace-nowrap';
 	return '<div class="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">' +
 		'<span>' + text + '</span>' +
-		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 whitespace-nowrap">' +
+		'<button type="button" onclick="ramSyncCounter(' + idx + ')" class="' + btnCls + '">' +
+		esc(t('Sync counter')) + '</button>' +
+		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="' + btnCls + '">' +
 		esc(t('Go to preset')) + '</button></div>';
 }
 
 // Show the low-counter notice in the RAM result area (and, when the operation
 // modal is still open, in its detail block).
-function ramShowCntrLow(info, presetIdx) {
-	if (!info) return;
+function ramShowCntrLow(presetIdx) {
 	const idx = presetIdx === undefined ? ramCntrLowPresetIdx() : presetIdx;
-	const html = ramCntrLowHtml(info, idx);
+	const html = ramCntrLowHtml(idx);
 	const el = document.getElementById('ram-cntr-low');
 	if (el && el.classList) {
 		el.innerHTML = html;
@@ -10837,6 +10840,54 @@ function ramShowCntrLow(info, presetIdx) {
 	if (typeof _ramOpActive !== 'undefined' && _ramOpActive) {
 		const steps = document.getElementById('ram-op-steps');
 		if (steps) steps.innerHTML += html;
+	}
+}
+
+// Sync the counter of the failed operation's preset with the card: the server
+// probes with a read-only command and increasing counter values (start+1, +2,
+// +4, ...) until the card accepts one, stops at a 32-bit ceiling and persists
+// accepted+1.  A rejected attempt changes nothing on the card, so only the
+// accepted packet moves its counter (the card never reports its value).
+async function ramSyncCounter(presetIdx) {
+	const i = Number(presetIdx);
+	const preset = (Number.isInteger(i) && i >= 0 && cards[i]) ? cards[i] : null;
+	const box = document.getElementById('ram-cntr-low');
+	if (!preset) { alert(t('No card preset selected')); return; }
+	// The keyset the failed operation used: the RAM form's selector, else the
+	// SCP80 form's (both hold the keyset number as their option value).
+	const kvnOf = id => {
+		const sel = document.getElementById(id);
+		const v = sel && sel.value !== '' ? parseInt(sel.value, 10) : NaN;
+		return Number.isInteger(v) && v > 0 ? v : null;
+	};
+	const val = id => (document.getElementById(id) || {}).value || '';
+	const body = { preset_id: preset.id };
+	const kvn = kvnOf('ram-keyset-sel') || kvnOf('sp-keyset-sel');
+	if (kvn) body.kvn = kvn;
+	const tar = val('sp-tar').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	if (tar) body.tar = tar;
+	if (val('sp-spi1')) body.spi1 = val('sp-spi1');
+	if (val('sp-spi2-hex')) body.spi2 = val('sp-spi2-hex');
+	const cntr = val('sp-cntr').replace(/[^0-9a-fA-F]/g, '');
+	if (cntr) body.cntr = cntr;
+	if (box) box.innerHTML = '<div class="text-sm text-gray-500 dark:text-slate-400">' +
+		esc(t('Syncing counter...')) + '</div>';
+	try {
+		const data = await pysimFetch('/api/counter-probe', body);
+		if (data.success) {
+			await cardsFetch();
+			const cntrEl = document.getElementById('sp-cntr');
+			if (cntrEl && data.stored_cntr) cntrEl.value = data.stored_cntr;
+			const msg = t('Counter synced') + ': ' + esc(data.accepted_cntr) + ' \u2192 ' +
+				esc(data.stored_cntr) + '. ' + t('Retry the operation.');
+			if (box) box.innerHTML = '<div class="text-sm text-emerald-600 dark:text-emerald-400">' + msg + '</div>';
+		} else {
+			const msg = t('Counter sync failed') + ': ' + esc(data.error || '');
+			if (box) box.innerHTML = '<div class="text-sm text-red-600 dark:text-red-400">' + msg + '</div>';
+		}
+	} catch (e) {
+		if (box) box.innerHTML = '<div class="text-sm text-red-600 dark:text-red-400">' +
+			esc(String(e.message || e)) + '</div>';
 	}
 }
 
@@ -10904,12 +10955,11 @@ function ramShowInstallResult(data, okText, capMem) {
 	// successful run and for failures that are not LOAD/INSTALL [for load]).
 	let modal = esc(txt);
 	modal += ramCompatDetailHtml(data, capMem || null);
-	// low counter: not recoverable by retrying - state it and point at the
-	// preset, where the user raises the counter (v3.6.58)
-	const low = spCntrLow(data);
-	if (low) {
-		modal += ramCntrLowHtml(low, ramCntrLowPresetIdx());
-		ramShowCntrLow(low);
+	// low counter: not recoverable by retrying - state it and offer the
+	// bounded sync probe or the preset jump (v3.6.58)
+	if (spCntrLow(data)) {
+		modal += ramCntrLowHtml(ramCntrLowPresetIdx());
+		ramShowCntrLow();
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
 }
@@ -12003,22 +12053,15 @@ function spPorAccepted(por) {
 // The card's low-counter verdict of a send response (v3.6.58).  Every further
 // packet with a counter <= the card's is rejected again, so the operation must
 // stop and the preset counter must be raised - a retry cannot recover it.
-// Returns {card_cntr, suggested} or null.
+// Returns true for a cntr_low verdict, false otherwise.  No value is reported:
+// the PoR's CNTR is a copy of the command's counter (TS 102 225 5.2, table 3)
+// and a rejection leaves it zeroed, so the card's counter is not observable -
+// the server's counter probe or a manual raise are the ways forward.
 function spCntrLow(res) {
-	if (!res) return null;
+	if (!res) return false;
 	const por = res.por || null;
 	const status = (por && por.response_status) || '';
-	if (!res.cntr_low && status !== 'cntr_low') return null;
-	const card = String(res.card_cntr || (por && por.cntr) || '').toUpperCase();
-	let suggested = String(res.suggested_cntr || '').toUpperCase();
-	if (!suggested && /^[0-9A-F]+$/.test(card)) {
-		try {
-			// the SCP80 counter field is fixed-width: wrap like the server does
-			const mod = 16n ** BigInt(card.length);
-			suggested = ((BigInt('0x' + card) + 1n) % mod).toString(16).toUpperCase().padStart(card.length, '0');
-		} catch (e) { suggested = ''; }
-	}
-	return { card_cntr: card, suggested: suggested };
+	return !!(res.cntr_low || status === 'cntr_low');
 }
 
 // Remote-command status words that count as success (mirrors the server's
@@ -20264,8 +20307,17 @@ const LANG_RU = {
 	'request error': 'ошибка запроса',
 	'Low counter': 'Низкий счётчик',
 	'the card rejected the packet': 'карта отклонила пакет',
-	'card counter': 'счётчик карты',
-	'the counter must be above it': 'счётчик должен быть больше',
+	'Sync counter': 'Синхронизировать счётчик',
+	'Syncing counter...': 'Синхронизация счётчика...',
+	'Counter synced': 'Счётчик синхронизирован',
+	'Counter sync failed': 'Не удалось синхронизировать счётчик',
+	'Retry the operation.': 'Повторите операцию.',
+	'No card preset selected': 'Пресет карты не выбран',
+	'Format': 'Формат',
+	'Auto (detect)': 'Авто (определение)',
+	'Compact': 'Компактный',
+	'Expanded (AA, definite length)': 'Expanded (AA, определённая длина)',
+	'Expanded (AE 80, indefinite length)': 'Expanded (AE 80, неопределённая длина)',
 	'Go to preset': 'К пресету',
 	'first page only': 'только первая страница',
 	'the operation was stopped': 'операция остановлена',

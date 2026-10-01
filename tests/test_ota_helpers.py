@@ -33,6 +33,10 @@ from pysim_simple_server.server import (
     _calc_ud_offset,
     _find_sms_tpdu,
     _cntr_low_fields,
+    _counter_probe,
+    _counter_probe_candidates,
+    _counter_probe_params,
+    _ram_normalize_format,
     _parse_proactive_header,
     _parse_display_text,
     _tlv_map,
@@ -1653,19 +1657,31 @@ class ResponseScriptingTest(unittest.TestCase):
         data = bytes([0xAB, len(body)]) + body
         scripted = _parse_response_scripting(data)
         self.assertIsNotNone(scripted)
-        count, sw, listing = scripted
-        self.assertEqual((count, sw), (1, '9000'))
+        self.assertEqual((scripted['count'], scripted['sw']), (1, '9000'))
+        listing = scripted['data']
         self.assertTrue(listing.startswith('10A1130001'), listing[:20])
         self.assertIn('F0414C46416101', listing)
 
     def test_indefinite_template_and_plain_data(self):
         body = bytes([0x80, 0x01, 0x02, 0x23, 0x04, 0xAA, 0xBB, 0x90, 0x00])
         data = bytes([0xAF, 0x80]) + body + b'\x00\x00'
-        count, sw, listing = _parse_response_scripting(data)
-        self.assertEqual((count, sw, listing), (2, '9000', 'AABB'))
+        r = _parse_response_scripting(data)
+        self.assertEqual((r['count'], r['sw'], r['data']), (2, '9000', 'AABB'))
         # a compact response is not a scripting template
         self.assertIsNone(_parse_response_scripting(bytes.fromhex('027100000263100BD2')))
         self.assertIsNone(_parse_response_scripting(b''))
+
+    def test_bad_format_tlv(self):
+        # the live ISD's answer to a definite-length scripting template: zero
+        # executed commands plus the Bad format TLV, error type 02 = wrong
+        # length (TS 102 226 5.2.2, table 5.12)
+        r = _parse_response_scripting(bytes.fromhex('ab06800100900102'))
+        self.assertEqual(r, {'count': 0, 'sw': None, 'data': '', 'bad_format': '02'})
+        # the plain (CR-flag cleared) tag style is accepted like everywhere else
+        self.assertEqual(_parse_response_scripting(bytes.fromhex('ab06800100100102'))['bad_format'],
+                         '02')
+        # a plain R-APDU template carries no bad format
+        self.assertIsNone(_parse_response_scripting(bytes.fromhex('ab0780010123029000'))['bad_format'])
 
 
 
@@ -1709,17 +1725,13 @@ class CntrLowGuardTests(unittest.TestCase):
     warning ENVELOPE answer still gets its PoR polled."""
 
     def test_cntr_low_fields(self):
-        self.assertEqual(_cntr_low_fields('cntr_low', '00000000BB'),
-                         {'cntr_low': True, 'card_cntr': '00000000BB',
-                          'suggested_cntr': '00000000BC'})
-        # the counter field is fixed-width: the wrap keeps it
-        self.assertEqual(_cntr_low_fields('cntr_low', 'FFFFFFFFFF'),
-                         {'cntr_low': True, 'card_cntr': 'FFFFFFFFFF',
-                          'suggested_cntr': '0000000000'})
+        # the verdict is a flag: the card's counter is not derivable from the
+        # PoR, whose CNTR is a copy of the command's counter (TS 102 225 5.2)
+        self.assertEqual(_cntr_low_fields('cntr_low'), {'cntr_low': True})
         # only the low-counter verdict counts
-        self.assertEqual(_cntr_low_fields('por_ok', '01'), {})
-        self.assertEqual(_cntr_low_fields('cntr_high', '01'), {})
-        self.assertEqual(_cntr_low_fields(None, None), {})
+        self.assertEqual(_cntr_low_fields('por_ok'), {})
+        self.assertEqual(_cntr_low_fields('cntr_high'), {})
+        self.assertEqual(_cntr_low_fields(None), {})
 
     def test_a_warning_envelope_answer_polls_for_the_por(self):
         from pysim_simple_server import server as srv
@@ -2231,6 +2243,149 @@ class NoSecurityAndCounterTrackingTests(unittest.TestCase):
         self.assertFalse(store.set_counter.called, 'no keyset number -> no write')
         S._preset_counter_persist(server, 'pid', '0000000002', 'send-ota', 2)
         store.set_counter.assert_called_once_with('pid', '0000000002', 'send-ota', 2)
+
+
+class ExpandedRemoteTests(unittest.TestCase):
+    """Expanded remote-management format (TS 102 226 5.2.1/5.2.2): the two
+    scripting templates, the Bad format TLV and the format helper."""
+
+    def test_wrap_expanded_apdu_forms(self):
+        # SELECT MF (the TAR probe's command) in both codings; the indefinite
+        # form is the one the spec recommends for RAM/RFM over HTTPS
+        self.assertEqual(_wrap_expanded_apdu('00A40000023F00'),
+                         'AA09220700A40000023F00')
+        self.assertEqual(_wrap_expanded_apdu('00A40000023F00', 'indefinite'),
+                         'AE80220700A40000023F000000')
+        self.assertEqual(_ram_format_apdu('00A40000023F00', 'compact'),
+                         '00A40000023F00')
+
+    def test_format_apdu_uses_the_le_form_for_expanded_probes(self):
+        # the expanded format does not use GET RESPONSE (5.2.1.1): the probe
+        # drops the chained GET RESPONSE of the compact form and sets Le='00'
+        self.assertEqual(_ram_format_apdu('80F28000024F0000', 'expanded'),
+                         'AA0A220880F28000024F0000')
+        self.assertEqual(_ram_format_apdu('80F28000024F0000', 'expanded-ae'),
+                         'AE80220880F28000024F00000000')
+
+    def test_ram_normalize_format(self):
+        for v in ('auto', 'compact', 'expanded', 'expanded-ae', 'AUTO', ' expanded-ae '):
+            self.assertEqual(_ram_normalize_format(v), v.strip().lower())
+        for v in ('', None, 'bogus', 'AA'):
+            self.assertEqual(_ram_normalize_format(v), 'auto')
+
+    def test_live_bad_format_response_is_decoded_as_scripting(self):
+        # the live ISD's answer to a definite-length scripting template: zero
+        # executed commands plus the Bad format TLV (error type 02 = wrong
+        # length); it must not fall through to the compact decoder
+        r = _decode_por('16', '21', '25', '25', '0001000002', K, K,
+                        '02710000130a00000000010000020000ab06800100900102')
+        self.assertEqual(r['response_status'], 'por_ok')
+        self.assertEqual(r['response_type'], 'scripting')
+        self.assertEqual(r['bad_format'], '02')
+        self.assertEqual(r['bad_format_name'], 'wrong length')
+        self.assertEqual(r['decoded']['number_of_commands'], 0)
+
+    def test_ram_step_result_treats_a_bad_format_as_failure(self):
+        por = {'response_status': 'por_ok', 'response_type': 'scripting',
+               'bad_format': '02', 'bad_format_name': 'wrong length',
+               'decoded': {'number_of_commands': 0, 'last_status_word': None,
+                           'last_response_data': ''}}
+        step, error = _ram_step_result('FORMAT CHECK (expanded)', '9000', por, 'aabb', 42, 1)
+        self.assertEqual(step['por_bad_format'], '02')
+        self.assertIn('bad format 02', error)
+        self.assertIn('wrong length', error)
+
+
+class CounterProbeTests(unittest.TestCase):
+    """The bounded counter synchronisation probe (v3.9.x)."""
+
+    @staticmethod
+    def _preset(cntr='0000000C2D'):
+        return {'id': 'p1', 'name': 'test card', 'spi1': '16', 'spi2': '21',
+                'tar': '000000',
+                'keysets': [{'kic': '25', 'kid': '25', 'kicKey': '00' * 16,
+                             'kidKey': '11' * 16, 'cntr': cntr}]}
+
+    def test_candidates_double_and_stop_at_the_ceiling(self):
+        cands, reason = _counter_probe_candidates('0000000C2D', '0000FFFF', 40)
+        self.assertEqual(cands[:4], ['0000000C2E', '0000000C30', '0000000C34', '0000000C3C'])
+        self.assertTrue(all(int(c, 16) <= 0xFFFF for c in cands), cands)
+        self.assertEqual(reason, 'ceiling')
+        # the attempt budget caps a far-away ceiling
+        cands, reason = _counter_probe_candidates('0000000000', 'FFFFFFFFFF', 5)
+        self.assertEqual(len(cands), 5)
+        self.assertEqual(reason, 'attempts')
+        # nothing to try when the start is already at the ceiling
+        self.assertEqual(_counter_probe_candidates('0000FFFF', '0000FFFF', 40), ([], 'ceiling'))
+
+    def test_probe_walks_up_and_persists_accepted_plus_one(self):
+        persisted = []
+
+        class Store:
+            def set_counter(self, pid, cntr, source, kvn=None):
+                persisted.append((pid, cntr, source, kvn))
+
+        server = types.SimpleNamespace(card_presets=Store())
+        verdicts = ['cntr_low', 'cntr_low', 'por_ok']
+
+        def send_fn(p, cntr):
+            status = verdicts.pop(0)
+            return ({'success': status == 'por_ok', 'sw': '9000', 'bytes': 42, 'segments': 1},
+                    {'response_status': status,
+                     'decoded': {'last_status_word': '9000', 'last_response_data': ''}})
+
+        res = _counter_probe(server, None, self._preset(), {}, send_fn=send_fn)
+        self.assertTrue(res['success'])
+        self.assertEqual([a['cntr'] for a in res['attempts']],
+                         ['0000000C2E', '0000000C30', '0000000C34'])
+        self.assertEqual(res['accepted_cntr'], '0000000C34')
+        self.assertEqual(res['stored_cntr'], '0000000C35')
+        self.assertEqual(res['packets'], 3)
+        self.assertEqual(persisted, [('p1', '0000000C35', 'counter-probe', 2)])
+
+    def test_probe_stops_on_a_non_counter_error(self):
+        def send_fn(p, cntr):
+            return ({'success': False, 'sw': '6200', 'error': 'ENVELOPE failed (6200)'},
+                    {'response_status': 'refused'})
+
+        res = _counter_probe(None, None, self._preset(), {'max_attempts': 4},
+                             send_fn=send_fn)
+        self.assertFalse(res['success'])
+        self.assertEqual(res['packets'], 1)
+        self.assertEqual(res['stopped'], 'error')
+        self.assertIn('6200', res['error'])
+
+    def test_probe_reports_a_ceiling_overrun(self):
+        def send_fn(p, cntr):
+            return ({'success': False, 'sw': '9000'}, {'response_status': 'cntr_low'})
+
+        res = _counter_probe(None, None, self._preset('0000FFFC'),
+                             {'ceiling': '0000FFFF', 'max_attempts': 40}, send_fn=send_fn)
+        self.assertFalse(res['success'])
+        self.assertEqual(res['stopped'], 'ceiling')
+        self.assertLessEqual(len(res['attempts']), 3)
+        self.assertIn('raise the preset counter manually', res['error'])
+
+    def test_probe_params_validation(self):
+        # a keyset number the preset does not define
+        with self.assertRaises(ValueError) as cm:
+            _counter_probe_params(self._preset(), {'kvn': 5})
+        self.assertIn('not defined', str(cm.exception))
+        # SPI1 without a counter check cannot probe
+        no_check = self._preset()
+        no_check['spi1'] = '06'   # ciphering+CC but b5b4 = 00: no counter field
+        with self.assertRaises(ValueError):
+            _counter_probe_params(no_check, {})
+        # the ceiling must stay below the 40-bit maximum
+        with self.assertRaises(ValueError):
+            _counter_probe_params(self._preset(), {'ceiling': 'FFFFFFFFFF'})
+
+    def test_cntr_low_fields_is_a_flag_only(self):
+        # the card's counter is not derivable from the PoR (TS 102 225 5.2):
+        # the verdict is stated without a value
+        self.assertEqual(_cntr_low_fields('cntr_low'), {'cntr_low': True})
+        self.assertEqual(_cntr_low_fields('por_ok'), {})
+        self.assertEqual(_cntr_low_fields(None), {})
 
 
 if __name__ == '__main__':

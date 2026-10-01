@@ -746,33 +746,33 @@ test('the explorer hints why the package versions are missing', () => {
 });
 
 test('spCntrLow reads the low-counter verdict of a send response', () => {
-	// the server's explicit fields
-	const a = spCntrLow({ cntr_low: true, card_cntr: '00000000BB', suggested_cntr: '00000000BC' });
-	assert.deepStrictEqual(a, { card_cntr: '00000000BB', suggested: '00000000BC' });
+	// the server's explicit flag
+	assert.strictEqual(spCntrLow({ cntr_low: true }), true);
 	// derived from the PoR alone (a 9000/91xx ENVELOPE can carry a cntr_low PoR)
-	const b = spCntrLow({ por: { response_status: 'cntr_low', cntr: '00000000BB' } });
-	assert.deepStrictEqual(b, { card_cntr: '00000000BB', suggested: '00000000BC' });
-	// the counter is 40-bit: the wrap keeps the width
-	const c = spCntrLow({ por: { response_status: 'cntr_low', cntr: 'FFFFFFFFFF' } });
-	assert.strictEqual(c.suggested, '0000000000');
+	assert.strictEqual(spCntrLow({ por: { response_status: 'cntr_low', cntr: '00000000BB' } }), true);
 	// every other verdict (and a missing response) is not a low counter
-	assert.strictEqual(spCntrLow({ por: { response_status: 'por_ok', cntr: '01' } }), null);
-	assert.strictEqual(spCntrLow({ por: { response_status: 'cntr_high' } }), null);
-	assert.strictEqual(spCntrLow({}), null);
-	assert.strictEqual(spCntrLow(null), null);
+	assert.strictEqual(spCntrLow({ por: { response_status: 'por_ok', cntr: '01' } }), false);
+	assert.strictEqual(spCntrLow({ por: { response_status: 'cntr_high' } }), false);
+	assert.strictEqual(spCntrLow({}), false);
+	assert.strictEqual(spCntrLow(null), false);
 });
 
-test('ramCntrLowHtml states the facts and offers the preset jump', () => {
+test('ramCntrLowHtml states the facts without a fabricated counter', () => {
 	globalThis.t = s => s;
-	const out = ramCntrLowHtml({ card_cntr: '00000000BB', suggested: '00000000BC' }, 2);
-	const noPreset = ramCntrLowHtml({ card_cntr: '00000000BB' }, -1);
+	const out = ramCntrLowHtml(2);
+	const noPreset = ramCntrLowHtml(-1);
 	delete globalThis.t;
-	assert.ok(out.includes('Low counter \u2014 the card rejected the packet (card counter 00000000BB) \u2014 the counter must be above it'), out);
+	assert.ok(out.includes('Low counter \u2014 the card rejected the packet'), out);
+	// the PoR's CNTR is a copy of the command's counter, never the card's: no
+	// value may be shown (v3.9.x), only the verdict and the two actions
+	assert.ok(!out.includes('card counter'), out);
+	assert.ok(out.includes('onclick="ramSyncCounter(2)"'), out);
+	assert.ok(out.includes('Sync counter'), out);
 	assert.ok(out.includes('onclick="ramGoToPreset(2)"'), out);
 	assert.ok(out.includes('Go to preset'), out);
-	// without a known preset the button still opens the tab (-1)
+	// without a known preset the buttons still work (-1)
 	assert.ok(noPreset.includes('onclick="ramGoToPreset(-1)"'), noPreset);
-	assert.strictEqual(ramCntrLowHtml(null, 0), '');
+	assert.ok(noPreset.includes('onclick="ramSyncCounter(-1)"'), noPreset);
 });
 
 test('the explorer shows versions on app and ISD rows too', () => {
@@ -804,7 +804,7 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	const explore = extractFunc(html, 'ramExplore');
 	assert.ok(explore.includes('spCntrLow(res)'), 'the Explore must check every send');
 	assert.ok(explore.includes('if (cntrLow) break;'), 'the loops must stop');
-	assert.ok(explore.includes('ramShowCntrLow(cntrLow)'), 'the verdict must be shown');
+	assert.ok(explore.includes('ramShowCntrLow()'), 'the verdict must be shown');
 	// the delete flow and the plain send check it too
 	assert.ok(extractFunc(html, 'ramDeleteFromExplorer').includes('spCntrLow(res)'),
 		'the delete flow must stop');
@@ -813,6 +813,24 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	assert.ok(go.includes("switchTab('cards')"), go);
 	assert.ok(go.includes('cardsEdit('), go);
 	assert.ok(go.includes("getElementById('cards-ks-' + row + '-cntr')"), go);
+	// the notice's sync probe posts to the bounded server endpoint with the
+	// preset, the keyset the failed operation used and its SPI/TAR
+	const sync = extractFunc(html, 'ramSyncCounter');
+	assert.ok(sync.includes("'/api/counter-probe'"), sync);
+	assert.ok(sync.includes("kvnOf('ram-keyset-sel')"), sync);
+	assert.ok(sync.includes("kvnOf('sp-keyset-sel')"), sync);
+	assert.ok(sync.includes("getElementById('sp-cntr')"), sync);
+});
+
+test('the RAM form offers the command format choice', () => {
+	// auto (detect) is the default; the two expanded codings can be pinned
+	assert.match(html, /<select id="ram-format"[\s\S]*?<option value="auto"/,
+		'the RAM format selector must exist and default to auto');
+	for (const v of ['compact', 'expanded', 'expanded-ae']) {
+		assert.ok(html.includes('<option value="' + v + '"'), 'missing format ' + v);
+	}
+	assert.ok(extractFunc(html, 'getRamSpParams').includes("getElementById('ram-format')"),
+		'the RAM params must carry the selected format');
 });
 
 test('the Explore detects the expanded query form and reports it', () => {

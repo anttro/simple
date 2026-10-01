@@ -37,6 +37,7 @@ a 3.x PWA).
 | `/api/presets/delete` | POST | Delete a preset (`{id}`) |
 | `/api/presets/import` | POST | Import presets (`{presets: [...], mode: merge\|replace}`) |
 | `/api/tar-probe` | POST | Probe the card's registered OTA applications (one secured packet per TAR, TS 101 220 Annex D) |
+| `/api/counter-probe` | POST | Bounded counter sync: probe increasing counter values (start+1, +2, +4, …) with a read-only command until the card accepts one (ceiling/attempt-capped), then persist accepted+1 |
 | `/api/esim/chip` | GET | eUICC chip details (EID, EUICCInfo1/2, configured addresses) |
 | `/api/esim/profiles` | GET | Installed eSIM profiles with their metadata |
 | `/api/esim/notifications` | GET | Pending eSIM notifications (read-only) |
@@ -245,6 +246,40 @@ import also accepts presets exported by the older localStorage-based builds.
 - `POST /api/presets/import` — `{"presets": […], "mode": "merge"}` (or
   `"replace"`) → `{"ok": true, "added": N, "skipped": M, "errors": […]}`;
   invalid entries and duplicates are skipped and reported, never fatal.
+
+### `POST /api/counter-probe`
+
+Sync a preset's SCP80 counter with the card.  The card accepts only a counter
+*above* its own (TS 102 225 §5.1.1, SPI1 b5b4 = `10`) and updates it only when
+the packet is accepted, so rejected attempts change nothing; the probe walks a
+doubling ladder (`start+1`, `+2`, `+4`, …) with a read-only command until one
+is accepted, then persists `accepted+1` (monotonic) into the keyset.  The
+search stops at a ceiling and after a bounded number of packets, so it can
+never run towards the 40-bit maximum, where the card blocks the counter.  The
+card's own counter is never reported by the card (the PoR's CNTR is a copy of
+the packet's, TS 102 225 §5.2 Table 3), which is why this probe exists.
+
+```json
+{"preset_id": "…", "kvn": 2, "tar": "000000", "spi1": "16", "spi2": "21",
+ "cntr": "0001000000", "ceiling": "FFFFFFFF", "max_attempts": 40,
+ "apdu": "00A40000023F00"}
+```
+
+All fields except `preset_id` are optional: `kvn` picks a keyset (the first
+otherwise), `tar`/`spi1`/`spi2` default to the preset's values, `cntr` to the
+keyset's counter, `ceiling` to `FFFFFFFF` (must stay below `FFFFFFFFFF`),
+`max_attempts` to 40 (clamped to 1–64), and `apdu` to a read-only `SELECT MF`
+(the probe command should never modify anything).  A SPI1 without a counter
+check is refused (400).
+
+**Response:** `{"success": true, "accepted_cntr": "0001000000",
+ "stored_cntr": "0001000001", "packets": 3, "stopped": "accepted",
+ "attempts": [{"cntr": "…", "por_status": "cntr_low"}, …],
+ "start": "…", "ceiling": "FFFFFFFF", "kvn": 2}`
+
+`stopped` is `accepted`, `ceiling`, `attempts` or `error`; on a non-`cntr_low`
+failure (refused ENVELOPE, wrong TAR, security error) the probe stops at the
+first attempt instead of hammering the card.
 
 ### `POST /api/tar-probe`
 

@@ -1407,25 +1407,20 @@ def _por_remote_sw(por):
     return ''
 
 
-def _cntr_low_fields(status, cntr_hex):
-    """The card's `cntr_low` verdict as plain data: the card's own counter and
-    the next valid value (the packet counter must be above it).  {} when the
-    verdict is not a low counter.
+def _cntr_low_fields(status):
+    """The card's `cntr_low` verdict as a flag - the packet's counter was not
+    above the card's for that key version - or {} for any other verdict.
 
-    A low counter is NOT recoverable by retrying: every further packet with a
-    counter <= the card's is rejected again, so operations must stop and the
-    user must raise the preset counter (v3.6.58)."""
+    The card's own counter is deliberately not reported: the response
+    packet's CNTR is "a copy of the contents of the CNTR in the Command
+    Packet" (TS 102 225 §5.2, Table 3) and a cntr_low rejection leaves it
+    zeroed, so no usable value can be derived from it (v3.6.58).  A low
+    counter is not recoverable by retrying: the operation stops and the user
+    raises the preset counter above the card's (the `counter-probe` endpoint
+    can do that in bounded steps)."""
     if str(status or '') != 'cntr_low':
         return {}
-    card = str(cntr_hex or '').upper()
-    suggested = None
-    if card:
-        try:
-            width = 4 * len(card)
-            suggested = '%0*X' % (len(card), (int(card, 16) + 1) % (1 << width))
-        except ValueError:
-            suggested = None
-    return {'cntr_low': True, 'card_cntr': card, 'suggested_cntr': suggested}
+    return {'cntr_low': True}
 
 
 def _ram_next_cntr(cntr, advance):
@@ -1514,36 +1509,59 @@ def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
 # and never stored: cards differ batch to batch and may behave differently
 # later, so every operation re-checks (v3.6.24).
 _RAM_PROBE_APDU = '80F28000024F0000C0000000'   # GET STATUS [ISD], read-only
+# The expanded format does not use GET RESPONSE (TS 102 226 5.2.1.1): with
+# Le='00' the whole response comes back in the R-APDU, so the expanded probes
+# drop the chained GET RESPONSE of the compact form.
+_RAM_PROBE_APDU_LE = '80F28000024F0000'
 
 
-def _wrap_expanded_apdu(apdu_hex):
-    """Wrap a C-APDU in the expanded remote-management format: the Command
-    TLV '22' inside the 'AA' template (TS 102 226 5.2.1), the exact form of
-    the reference trace `AA0A220880F24000024F0000`."""
+def _wrap_expanded_apdu(apdu_hex, form='definite'):
+    """Wrap a C-APDU in the expanded remote-management format (TS 102 226
+    5.2.1): the Command TLV '22' inside the Command Scripting template.
+
+    form='definite'   -> `AA <len> 22 <len> <apdu>` (TS 101 220 table 7.19
+                         definite length coding; the reference trace's form
+                         `AA0A220880F24000024F0000`)
+    form='indefinite' -> `AE 80 22 <len> <apdu> 00 00` (indefinite length
+                         coding, the variant the spec recommends for RAM/RFM
+                         over HTTPS; some cards accept only this one)."""
     cmd = '22' + _ber_len(len(apdu_hex) // 2) + apdu_hex
+    if form == 'indefinite':
+        return ('AE80' + cmd + '0000').upper()
     return ('AA' + _ber_len(len(cmd) // 2) + cmd).upper()
 
 
 def _ram_format_apdu(apdu_hex, ram_format):
-    """Apply the RAM command format ('compact' or 'expanded')."""
-    return _wrap_expanded_apdu(apdu_hex) if ram_format == 'expanded' else apdu_hex
+    """Apply the RAM command format (TS 102 226 5.2.1): the bare C-APDU
+    (compact), the definite-length scripting template (expanded) or the
+    indefinite-length one (expanded-ae)."""
+    if ram_format == 'expanded':
+        return _wrap_expanded_apdu(apdu_hex, 'definite')
+    if ram_format == 'expanded-ae':
+        return _wrap_expanded_apdu(apdu_hex, 'indefinite')
+    return apdu_hex
 
 
 def _ram_normalize_format(value):
-    """'auto' | 'compact' | 'expanded'; anything else (or missing) is
-    'auto' for callers that opted in to the format handling."""
+    """'auto' | 'compact' | 'expanded' | 'expanded-ae'; anything else (or
+    missing) is 'auto' for callers that opted in to the format handling."""
     v = str(value or 'auto').strip().lower()
-    return v if v in ('auto', 'compact', 'expanded') else 'auto'
+    return v if v in ('auto', 'compact', 'expanded', 'expanded-ae') else 'auto'
 
 
 def _ram_detect_format(server, scc, sp, state):
     """Detect the card's RAM command format for one operation: send the
-    read-only GET STATUS [ISD] probe compact, then wrapped; the first format
-    whose remote SW succeeds wins (compact preferred).  Probe packets are
-    recorded as steps and consume counters only when accepted; the result is
-    used for this operation only - the next operation re-checks (v3.6.24)."""
+    read-only GET STATUS [ISD] probe compact, then in the two expanded
+    codings; the first format whose remote SW succeeds wins (compact
+    preferred).  Cards implement different subsets - the live ISD answers the
+    definite form with a Bad format TLV (wrong length) and executes the
+    indefinite one, while an RFM applet took the definite form.  Probe
+    packets are recorded as steps and consume counters only when accepted;
+    the result is used for this operation only - the next operation re-checks
+    (v3.6.24)."""
     for fmt, apdu in (('compact', _RAM_PROBE_APDU),
-                      ('expanded', _wrap_expanded_apdu(_RAM_PROBE_APDU))):
+                      ('expanded', _wrap_expanded_apdu(_RAM_PROBE_APDU_LE, 'definite')),
+                      ('expanded-ae', _wrap_expanded_apdu(_RAM_PROBE_APDU_LE, 'indefinite'))):
         scratch = {'steps': [], 'encode_error': None, 'failure': {},
                    'cntr': state['cntr'], 'preset_id': state.get('preset_id')}
         ok = _ram_send_gp_apdu(server, scc, sp, scratch,
@@ -1553,6 +1571,187 @@ def _ram_detect_format(server, scc, sp, state):
         if ok:
             return fmt
     return 'compact'
+
+
+# Counter synchronisation probe (v3.9.x): a bounded upward search for a
+# counter value the card accepts.  The card only accepts a counter *above* its
+# own (TS 102 225 5.1.1 b5b4 = 10) and updates it only when the packet is
+# accepted, so rejected attempts change nothing; the search walks a doubling
+# ladder (start+1, +2, +4, ...) and stops at a ceiling far below the 40-bit
+# maximum, where the counter would get blocked.
+COUNTER_PROBE_DEFAULT_APDU = '00A40000023F00'         # SELECT MF: read-only, applet-visible
+COUNTER_PROBE_CEILING = 'FFFFFFFF'                    # 32-bit default
+COUNTER_PROBE_MAX_ATTEMPTS = 40                       # doubling covers 40 bits
+
+
+def _counter_probe_candidates(start_hex, ceiling_hex, max_attempts):
+    """The cautious counter ladder: start + 1, +2, +4, ... (doubling).
+
+    Returns ``(candidates, reason)``: reason is 'ceiling' when the next value
+    would exceed the ceiling, else 'attempts' when the attempt budget ran
+    out.  Doubling keeps the packet count low (<= ~40 across the whole 40-bit
+    range) and the accepted value below ~2x the card's counter - only the
+    accepted packet advances anything, every rejected one is a no-op."""
+    try:
+        value = int(str(start_hex or '0'), 16)
+        ceiling = int(str(ceiling_hex or COUNTER_PROBE_CEILING), 16)
+        max_attempts = int(max_attempts)
+    except (TypeError, ValueError):
+        return [], 'attempts'
+    candidates = []
+    step = 1
+    while len(candidates) < max_attempts:
+        value += step
+        if value > ceiling:
+            return candidates, 'ceiling'
+        candidates.append('%010X' % value)
+        step *= 2
+    return candidates, 'attempts'
+
+
+def _counter_probe_params(preset, body):
+    """Resolve a counter probe's parameters from the named preset: the keyset
+    (by `kvn`, else the first), its keys and counter, the preset's SPI/TAR
+    (overridable), the ceiling and the attempt budget.  Raises ValueError
+    with a user-facing message."""
+    keysets = _preset_keysets(preset)
+    if not keysets:
+        raise ValueError('the preset defines no keyset')
+    want = body.get('kvn')
+    if want not in (None, ''):
+        try:
+            want = int(want)
+        except (TypeError, ValueError):
+            raise ValueError('invalid keyset number')
+        keyset = next((k for k in keysets if presets.keyset_kvn(k) == want), None)
+        if keyset is None:
+            raise ValueError('keyset %d is not defined in the preset' % want)
+    else:
+        keyset = keysets[0]
+    kic = str(keyset.get('kic') or '').strip().upper()
+    kid = str(keyset.get('kid') or '').strip().upper()
+    kic_key = str(keyset.get('kicKey') or '').strip()
+    kid_key = str(keyset.get('kidKey') or '').strip()
+    if not (kic and kid and kic_key and kid_key):
+        raise ValueError('the keyset needs KIc, KID and both keys')
+    kvn, err = _kvn_of(kic, kid)
+    if err:
+        raise ValueError(err)
+    start = str(body.get('cntr') or keyset.get('cntr') or '').strip().upper()
+    if not _counter_valid(start):
+        raise ValueError('the keyset needs a counter to start from')
+    ceiling = str(body.get('ceiling') or COUNTER_PROBE_CEILING).strip().upper()
+    try:
+        ceiling_value = int(ceiling, 16)
+    except ValueError:
+        raise ValueError('invalid ceiling')
+    if ceiling_value < int(start, 16):
+        raise ValueError('the ceiling is below the current counter')
+    if ceiling_value > 0xFFFFFFFFFE:
+        raise ValueError('the ceiling must stay below the 40-bit maximum')
+    try:
+        max_attempts = int(body.get('max_attempts') or COUNTER_PROBE_MAX_ATTEMPTS)
+    except (TypeError, ValueError):
+        raise ValueError('invalid attempt budget')
+    max_attempts = max(1, min(64, max_attempts))
+    spi1 = str(body.get('spi1') or preset.get('spi1') or '16').strip().upper()
+    if not _counter_tracked(spi1):
+        raise ValueError('the probe needs a counter check - SPI1 %s has none '
+                         '(b5b4 = 00)' % spi1)
+    return {
+        'kvn': kvn, 'kic': kic, 'kid': kid,
+        'kic_key': kic_key, 'kid_key': kid_key,
+        'start': start, 'ceiling': ceiling,
+        'max_attempts': max_attempts,
+        'spi1': spi1,
+        'spi2': str(body.get('spi2') or preset.get('spi2') or '21').strip().upper(),
+        'tar': str(body.get('tar') or preset.get('tar') or '000000').strip().upper(),
+        'apdu': str(body.get('apdu') or COUNTER_PROBE_DEFAULT_APDU).replace(' ', '').upper(),
+    }
+
+
+def _counter_probe(server, scc, preset, body, send_fn=None):
+    """Sync a preset's counter with the card: send a read-only probe command
+    with increasing counter values until the card accepts one (PoR `por_ok`),
+    then persist accepted+1 (monotonic).
+
+    Every rejected attempt is a no-op on the card; the ceiling and the attempt
+    budget bound the search away from the 40-bit maximum, where the counter
+    would be blocked.  Returns a result dict with the attempt list - the
+    caller (UI) retries the failed operation afterwards.  `send_fn` is a test
+    seam (defaults to the `_send_secured_packet` path)."""
+    p = _counter_probe_params(preset, body)
+    candidates, stop = _counter_probe_candidates(p['start'], p['ceiling'],
+                                                 p['max_attempts'])
+    out = {'success': False, 'preset_id': preset.get('id'),
+           'preset_name': preset.get('name'), 'kvn': p['kvn'],
+           'start': p['start'], 'ceiling': p['ceiling'],
+           'max_attempts': p['max_attempts'], 'tar': p['tar'],
+           'spi1': p['spi1'], 'spi2': p['spi2'], 'apdu': p['apdu'],
+           'packets': 0, 'attempts': [], 'stopped': stop}
+    if not candidates:
+        out['error'] = 'the counter is already at the ceiling %s' % p['ceiling']
+        return out
+    for cntr in candidates:
+        if send_fn is not None:
+            send, por = send_fn(p, cntr)
+        else:
+            sp_hex, _ = _build_secured_packet(p['spi1'], p['spi2'], p['kic'], p['kid'],
+                                              p['tar'], cntr, p['apdu'],
+                                              p['kic_key'], p['kid_key'])
+            submit_handler = PoRSubmitHandler()
+            old_proactive = None
+            if hasattr(scc, '_tp'):
+                old_proactive = scc._tp.proactive_handler
+                scc._tp.proactive_handler = submit_handler
+            try:
+                send = _send_secured_packet(scc, sp_hex, oa_number=server.sms_oa,
+                                            sm_sc=server.sms_sc, include_cpi=True,
+                                            submit_handler=submit_handler)
+            finally:
+                if hasattr(scc, '_tp'):
+                    scc._tp.proactive_handler = old_proactive
+            por_hex = send.get('response_data') or ''
+            submit_hex = _sms_submit_por(submit_handler)
+            if submit_hex:
+                por_hex = submit_hex
+            por = _decode_por(p['spi1'], p['spi2'], p['kic'], p['kid'], cntr,
+                              p['kic_key'], p['kid_key'], por_hex) if por_hex else None
+        pstatus = str((por or {}).get('response_status') or '')
+        out['packets'] += 1
+        attempt = {'cntr': cntr, 'por_status': pstatus or None,
+                   'sw': send.get('sw'), 'bytes': send.get('bytes'),
+                   'segments': send.get('segments')}
+        remote_sw = _por_remote_sw(por)
+        if remote_sw:
+            attempt['remote_sw'] = remote_sw
+        if (por or {}).get('bad_format'):
+            attempt['bad_format'] = por['bad_format']
+        out['attempts'].append(attempt)
+        sys.stderr.write('COUNTER-PROBE: %s -> %s\n'
+                         % (cntr, pstatus or ('ENVELOPE %s' % (send.get('sw') or '?'))))
+        if pstatus == 'por_ok':
+            stored = _ram_next_cntr(cntr, True)
+            _preset_counter_persist(server, preset.get('id'), stored,
+                                    'counter-probe', p['kvn'])
+            out.update({'success': True, 'stopped': 'accepted',
+                        'accepted_cntr': cntr, 'stored_cntr': stored})
+            sys.stderr.write('COUNTER-PROBE: accepted %s, preset stores %s\n'
+                             % (cntr, stored))
+            return out
+        if pstatus == 'cntr_low':
+            continue
+        out['stopped'] = 'error'
+        out['error'] = send.get('error') or ('card verdict: %s' % (pstatus or 'no PoR'))
+        return out
+    if stop == 'ceiling':
+        out['error'] = ('no counter up to the ceiling %s was accepted - the card\'s '
+                        'counter is above it, raise the preset counter manually'
+                        % p['ceiling'])
+    else:
+        out['error'] = ('no counter above %s was accepted in %d attempts'
+                        % (p['start'], p['max_attempts']))
+    return out
 
 
 # Live progress of the RAM operation currently running.  The long install
@@ -1607,7 +1806,13 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
         step['por_raw'] = por.get('raw')
         if remote_sw:
             step['por_sw'] = remote_sw
-        if pstatus != 'por_ok':
+        if por.get('bad_format'):
+            # the expanded script was rejected as malformed before executing:
+            # there is no remote status word
+            step['por_bad_format'] = por['bad_format']
+            error = 'bad format %s (%s)' % (por['bad_format'],
+                                            por.get('bad_format_name') or '')
+        elif pstatus != 'por_ok':
             error = 'PoR %s' % (pstatus or 'unknown')
         elif remote_sw and not _ram_remote_sw_ok(remote_sw):
             error = 'remote SW %s' % remote_sw
@@ -1755,14 +1960,25 @@ def _ram_nv_fields(nv_before, nv_after):
     return {'nv_before': nv_before, 'nv_after': nv_after, 'nv_delta': delta}
 
 
+_BAD_FORMAT_NAMES = {
+    '01': 'unknown tag',
+    '02': 'wrong length',
+    '03': 'length not found',
+}
+
+
 def _parse_response_scripting(data):
     """Parse a Response Scripting template (TS 102 226 5.2.2, tables
     5.10/5.10a): `AB <len>` (definite) or `AF 80 ... 00 00` (indefinite),
-    containing the executed-command-count TLV `80` and one or more R-APDU
-    TLVs `23` (COMPREHENSION-TLV; the last two bytes are SW1 SW2).
+    containing the executed-command-count TLV `80`, one or more R-APDU TLVs
+    `23` (COMPREHENSION-TLV; the last two bytes are SW1 SW2) and/or the Bad
+    format TLV `90` (TS 101 220 table 7.20; error type 01 unknown tag,
+    02 wrong length, 03 length not found - TS 102 226 table 5.12).
 
-    Returns (count, sw, rapdu_data_hex) from the last R-APDU, or None when the
-    data is not a scripting template."""
+    Returns {'count', 'sw', 'data', 'bad_format'} or None when the data is
+    not a scripting template.  `bad_format` is the error type hex when the
+    card aborted the script on a malformed command (then `sw` is None and
+    `data` ''); an R-APDU is not required for a bad-format answer."""
     if not data:
         return None
     if data[0] == 0xAF:
@@ -1778,6 +1994,7 @@ def _parse_response_scripting(data):
         return None
     count = None
     last = None
+    bad = None
     off = 0
     while off < len(body) - 1:
         tag = body[off]
@@ -1789,10 +2006,16 @@ def _parse_response_scripting(data):
             count = int.from_bytes(val, 'big')
         elif tag in (0x23, 0xA3) and len(val) >= 2:
             last = (val[-2:].hex().upper(), val[:-2].hex().upper())
+        elif tag in (0x90, 0x10) and val:
+            # both tag styles: the spec pins the CR flag to 0, cards mix them
+            bad = val[:1].hex().upper()
         off = voff + ln
-    if last is None:
+    if last is None and bad is None:
         return None
-    return (count, last[0], last[1])
+    return {'count': count,
+            'sw': last[0] if last else None,
+            'data': last[1] if last else '',
+            'bad_format': bad}
 
 
 def _sms_submit_por(submit_handler):
@@ -1852,13 +2075,18 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
     if res.response_status == 'por_ok' and len(res['secured_data']):
         scripted = _parse_response_scripting(bytes(res['secured_data']))
         if scripted is not None:
-            count, sw, data_hex = scripted
             out['response_type'] = 'scripting'
             out['decoded'] = {
-                'number_of_commands': count,
-                'last_status_word': sw,
-                'last_response_data': data_hex,
+                'number_of_commands': scripted['count'],
+                'last_status_word': scripted['sw'],
+                'last_response_data': scripted['data'],
             }
+            if scripted['bad_format']:
+                # the card parsed the scripting template but aborted on a
+                # malformed command (TS 102 226 5.2.2 Bad format TLV)
+                out['bad_format'] = scripted['bad_format']
+                out['bad_format_name'] = _BAD_FORMAT_NAMES.get(scripted['bad_format'],
+                                                               'unknown error type')
         elif dec is not None:
             out['response_type'] = 'compact'
             out['decoded'] = {
@@ -5239,7 +5467,7 @@ _TEST_BLOCKED_PATHS = frozenset([
     '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
     '/api/write', '/api/apdu', '/api/verify-adm', '/api/send-ota',
     '/api/ram-install', '/api/ram-install-app', '/api/cap-compat',
-    '/api/tar-probe',
+    '/api/tar-probe', '/api/counter-probe',
     '/api/sp-verify', '/api/menu-select',
     '/api/menu-respond', '/api/event-send', '/api/net-sim',
     '/api/net-state-refresh', '/api/status-poll', '/api/rescue',
@@ -7061,13 +7289,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                                                  body.get('kidKey', ''), failed_por_hex)
                         if failed_por:
                             resp['por'] = failed_por
-                            low = _cntr_low_fields(failed_por.get('response_status'),
-                                                   failed_por.get('cntr'))
+                            low = _cntr_low_fields(failed_por.get('response_status'))
                             if low:
                                 resp.update(low)
-                                sys.stderr.write('OTA CNTR-LOW: card counter %s '
-                                                 '(the packet counter must be above it)\n'
-                                                 % low['card_cntr'])
+                                sys.stderr.write('OTA CNTR-LOW: the packet counter is not '
+                                                 'above the card\'s\n')
                         sys.stderr.write('OTA SEND FAILED: %s\n' % result.get('error'))
                     else:
                         resp = {'success': True, 'sw': result['sw'],
@@ -7100,16 +7326,19 @@ class PysimHandler(BaseHTTPRequestHandler):
                         sys.stderr.write('RAM RESPONSE-PACKET: %s\n' % (por_hex if por_hex else 'empty'))
                         if por:
                             resp['por'] = por
-                            low = _cntr_low_fields(por.get('response_status'), por.get('cntr'))
+                            low = _cntr_low_fields(por.get('response_status'))
                             if low:
                                 # a 9000/91xx ENVELOPE can still carry a
                                 # cntr_low PoR (the live card does)
                                 resp.update(low)
-                                sys.stderr.write('OTA CNTR-LOW: card counter %s '
-                                                 '(the packet counter must be above it)\n'
-                                                 % low['card_cntr'])
+                                sys.stderr.write('OTA CNTR-LOW: the packet counter is not '
+                                                 'above the card\'s\n')
                             extra = ''
-                            if por.get('decoded'):
+                            if por.get('bad_format'):
+                                extra = ' (expanded: bad format %s - %s)' % (
+                                    por['bad_format'], por.get('bad_format_name') or '')
+                                sys.stderr.write('RAM R-APDU: (bad format %s)\n' % por['bad_format'])
+                            elif por.get('decoded'):
                                 extra = ' (compact: %s cmd, last SW %s)' % (por['decoded'].get('number_of_commands', '?'),
                                                                             por['decoded'].get('last_status_word', '?'))
                                 sys.stderr.write('RAM R-APDU: %s\n' % por['decoded'].get('last_response_data', ''))
@@ -7297,12 +7526,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                                     'load_block_size_auto': not block_size_req}
                             resp.update(_ram_nv_fields(nv_before, nv_after))
                             failed_rec = steps[-1] if steps else {}
-                            resp.update(_cntr_low_fields(failed_rec.get('por_status'),
-                                                         failed_rec.get('por_cntr')))
+                            resp.update(_cntr_low_fields(failed_rec.get('por_status')))
                             if resp.get('cntr_low'):
-                                sys.stderr.write('RAM-INSTALL: low counter - card counter %s, '
-                                                 'the preset counter must be above it\n'
-                                                 % resp.get('card_cntr'))
+                                sys.stderr.write('RAM-INSTALL: low counter - the packet '
+                                                 'counter is not above the card\'s\n')
                             self._send_json(resp)
                             self._log_resp(resp)
                             return
@@ -7408,8 +7635,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                                      or ('%s failed' % step_name))
                     resp['failed_step'] = len(state['steps'])
                     failed_rec = state['steps'][-1] if state['steps'] else {}
-                    resp.update(_cntr_low_fields(failed_rec.get('por_status'),
-                                                 failed_rec.get('por_cntr')))
+                    resp.update(_cntr_low_fields(failed_rec.get('por_status')))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -7535,8 +7761,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                                      or 'the card rejected the import list')
                     resp['failed_step'] = len(steps)
                     failed_rec = steps[-1] if steps else {}
-                    resp.update(_cntr_low_fields(failed_rec.get('por_status'),
-                                                 failed_rec.get('por_cntr')))
+                    resp.update(_cntr_low_fields(failed_rec.get('por_status')))
                 sys.stderr.write('CAP-COMPAT: %s — imports %s (LOADS to %d/%d)\n' % (
                     loadfile_aid, 'OK' if ok else 'REJECTED', boundary, total_blocks))
                 self._send_json(resp)
@@ -7746,6 +7971,40 @@ class PysimHandler(BaseHTTPRequestHandler):
                     'registered': registered, 'total': len(results),
                     'final_cntr': state['cntr'], 'kvn': kvn,
                     'spi1': spi1, 'spi2': spi2, 'apdu': apdu}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/counter-probe':
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            if not body.get('preset_id'):
+                resp = {'success': False, 'error': 'preset_id is required'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            preset = store.get(body.get('preset_id'))
+            if not preset:
+                resp = {'success': False, 'error': 'unknown preset'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            sys.stderr.write('COUNTER-PROBE: preset %s, start %s, ceiling %s\n'
+                             % (preset.get('name'), body.get('cntr', ''),
+                                body.get('ceiling', COUNTER_PROBE_CEILING)))
+            try:
+                resp = _counter_probe(self.server, scc, preset, body)
+            except ValueError as e:
+                resp = {'success': False, 'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/presets':
