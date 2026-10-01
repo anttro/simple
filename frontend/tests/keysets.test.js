@@ -28,6 +28,7 @@ for (const fn of ['spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck
 	code += extractFunc(html, fn) + '\n';
 }
 code += 'function t(s){return s;}\n';
+code += 'globalThis.pysimApplyAvailability = () => {};\n';
 eval(code);
 
 const PRESET = {

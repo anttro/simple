@@ -34,6 +34,14 @@ code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
 code += extractFunc(html, 'cardsScp80Complete') + '\n';
 code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'cardsMatchedPreset') + '\n';
+code += extractFunc(html, 'spKeysetStartReady') + '\n';
+code += extractFunc(html, 'spPresetIdx') + '\n';
+code += extractFunc(html, 'ramPresetIdx') + '\n';
+code += extractFunc(html, 'tarPresetIdx') + '\n';
+code += extractFunc(html, 'spKeysetCheck') + '\n';
+code += extractFunc(html, 'spKeysetFor') + '\n';
+code += extractFunc(html, 'spKeysetList') + '\n';
+code += extractFunc(html, 'spKeysetKvnOf') + '\n';
 code += 'globalThis.t = s => s;\n';
 code += 'globalThis.testRunActive = () => false;\n';
 eval(code);
@@ -286,4 +294,44 @@ test('card action labels carry the equipped ICCID', () => {
 	pysimUpdateCardActionLabels();
 	assert.strictEqual(plain.textContent, '');
 	assert.strictEqual(colon.textContent, '');
+});
+
+test('the start buttons wait for a preset and a keyset defined in it', () => {
+	const run = (presetIdx, kic, kid) => {
+		const el = fakeEl();
+		el.setAttribute('data-needs', 'card');
+		el.setAttribute('data-needs-keyset', 'sp');
+		const els = {
+			'sp-card-sel': { value: presetIdx },
+			'sp-kic-hex': { value: kic },
+			'sp-kid-hex': { value: kid },
+		};
+		globalThis.document = { querySelectorAll: () => [el], getElementById: id => els[id] || null };
+		globalThis.cards = [{ name: 'EP', keysets: [
+			{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
+		_pysimServerAvailable = true;
+		_pysimCardEquipped = true;
+		pysimApplyAvailability();
+		return el;
+	};
+	// no preset selected -> disabled with the hint
+	let el = run('', '15', '15');
+	assert.strictEqual(el.disabled, true);
+	assert.strictEqual(el.attrs.title, 'Select a card preset and its keyset');
+	// a keyset number the preset does not define -> disabled
+	el = run('0', '35', '35');
+	assert.strictEqual(el.disabled, true);
+	// a keyset of the preset -> enabled, no tooltip
+	el = run('0', '15', '15');
+	assert.strictEqual(el.disabled, false);
+	assert.strictEqual(el.attrs.title, undefined);
+});
+
+test('the SCP80/RAM/TAR start buttons carry the keyset gate', () => {
+	const sp = /<button[^>]*id="sp-send-btn"[^>]*>/.exec(html)[0];
+	assert.match(sp, /data-needs-keyset="sp"/);
+	const ram = /<button[^>]*onclick="ramExecute\(\)"[^>]*>/.exec(html)[0];
+	assert.match(ram, /data-needs-keyset="ram"/);
+	const tar = /<button[^>]*onclick="tarExecute\(\)"[^>]*>/.exec(html)[0];
+	assert.match(tar, /data-needs-keyset="tar"/);
 });

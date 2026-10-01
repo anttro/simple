@@ -676,7 +676,7 @@
 
 		<button onclick="genSp()" class="mb-3 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700" data-l10n="Generate Secure Packet">Generate Secure Packet</button>
 		<button data-needs="server" onclick="pysimVerifySp()" id="sp-verify-btn" class="hidden mb-3 px-5 py-2.5 bg-slate-600 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify vs pySim">Verify vs pySim</button>
-		<button data-needs="card" onclick="pysimSendOta()" id="sp-send-btn" class="hidden mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send to Card">Send to Card</button>
+		<button data-needs="card" data-needs-keyset="sp" onclick="pysimSendOta()" id="sp-send-btn" class="hidden mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send to Card">Send to Card</button>
 		<div id="sp-por-status" class="mt-2 text-base font-semibold font-mono hidden"></div>
 		<textarea id="sp-result" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea>
 		<div id="sp-size-info" class="text-xs mt-1 text-gray-500 dark:text-slate-400"></div>
@@ -708,7 +708,7 @@
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
 					</select>
 				</div>
-				<button data-needs="card" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+				<button data-needs="card" data-needs-keyset="ram" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 			<div id="ram-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
@@ -943,7 +943,7 @@
 			</div>
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Probe APDU (hex)">Probe APDU (hex)</label>
 			<input id="tar-apdu" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono mb-3" value="00A40000023F00">
-			<button data-needs="card" onclick="tarExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+			<button data-needs="card" data-needs-keyset="tar" onclick="tarExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			<div id="tar-result" class="mt-2 text-base font-semibold font-mono hidden"></div>
 		</div>
 	</div>
@@ -1791,7 +1791,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.8.0';
+const SIMPLE_VERSION = '3.9.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4745,6 +4745,7 @@ function updateSpKic() {
 	document.getElementById('sp-kic-hex').value = byte.toString(16).padStart(2, '0').toUpperCase();
 	updateKeyPlaceholder('kic', alg & 0x0F);
 	spInvalidate();
+	spKeysetSync();
 }
 function updateSpKid() {
 	const idx = parseInt(document.getElementById('sp-kid-idx').value, 16);
@@ -4753,6 +4754,7 @@ function updateSpKid() {
 	document.getElementById('sp-kid-hex').value = byte.toString(16).padStart(2, '0').toUpperCase();
 	updateKeyPlaceholder('kid', alg & 0x0F);
 	spInvalidate();
+	spKeysetSync();
 }
 function updateKeyPlaceholder(prefix, algNib) {
 	const keyLen = {1: 8, 2: 16, 5: 16, 9: 24, 0xD: 8}[algNib] || 8;
@@ -7715,7 +7717,13 @@ function pysimApplyAvailability() {
 			// From-card buttons need a readable ICCID, not just a session.
 			disabled = pysimControlDisabled('card', state) || !_pysimCardIccid;
 		}
+		const ksView = el.getAttribute('data-needs-keyset');
+		const ksBlocked = ksView && !spKeysetStartReady(ksView);
+		if (ksBlocked) disabled = true;
 		let hint = disabled ? pysimNeedsHint(needs, state) : null;
+		// The generic hint is "Insert and equip a card": with the card fine,
+		// the missing preset/keyset is the real blocker.
+		if (ksBlocked && state === 'card') hint = t('Select a card preset and its keyset');
 		if (el.hasAttribute('data-needs-decoder') && !pysimFsHasDecoder()) {
 			// Client-side decoder required (Read decoded) — the card hint wins
 			// when the card itself is the blocker.
@@ -11485,6 +11493,9 @@ function spKeysetSync() {
 	sync('sp-keyset-sel', spPresetIdx);
 	sync('ram-keyset-sel', ramPresetIdx);
 	sync('tar-keyset-sel', tarPresetIdx);
+	// The start buttons follow the same state: they wait for a preset and a
+	// keyset defined in it.
+	pysimApplyAvailability();
 }
 
 function spKeysetApply(ks) {
@@ -11591,6 +11602,18 @@ function ramKeysetGuard() {
 	const kic = (document.getElementById('sp-kic-hex') || {}).value;
 	const kid = (document.getElementById('sp-kid-hex') || {}).value;
 	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+}
+
+// Whether a view's start button may run: its preset must be selected and the
+// form's keyset number one of that preset's keysets (the click-time guards keep
+// the byte-level checks).  '00'/'00' (no security) with a preset selected stays
+// allowed - it is a deliberate form choice.
+function spKeysetStartReady(view) {
+	const idx = view === 'ram' ? ramPresetIdx() : (view === 'tar' ? tarPresetIdx() : spPresetIdx());
+	if (idx < 0) return false;
+	const kic = (document.getElementById('sp-kic-hex') || {}).value;
+	const kid = (document.getElementById('sp-kid-hex') || {}).value;
+	return spKeysetCheck(cards[idx], kic, kid) === '';
 }
 
 function cardsFormValues() {
@@ -19856,6 +19879,7 @@ const LANG_RU = {
 	'not defined in the preset': 'не определён в пресете',
 	'— no keyset —': '— нет keyset —',
 	'— select a card preset —': '— выберите пресет карты —',
+	'Select a card preset and its keyset': 'Выберите пресет карты и его keyset',
 	'counter': 'счётчик',
 	'Define at least one keyset (KIc/KID and their keys)': 'Определите хотя бы один keyset (KIc/KID и его ключи)',
 	'Each keyset needs KIc, KID and both keys': 'Каждому набору нужны KIc, KID и оба ключа',

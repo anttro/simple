@@ -50,6 +50,7 @@ if (an) code += an[0].replace(/^const /, 'var ') + '\n';
 const ar = html.match(/const JC_AID_RIDS = \{[\s\S]*?\n\};/);
 if (ar) code += ar[0].replace(/^const /, 'var ') + '\n';
 globalThis.spPresetWarningRender = () => {};
+globalThis.pysimApplyAvailability = () => {};
 eval(code);
 code += 'var _ramCardIdx = null;\nvar _ramOpLast = null;\nvar _ramExplorerData = null;\n';
 eval(code);
