@@ -186,3 +186,33 @@ test('the browser, WLAN and CSG events build their object sets', () => {
 test('every event type has a parameter form now', () => {
 	assert.ok(!html.includes("note: 'not_yet'"), 'no event may stay unimplemented');
 });
+
+test('the data/display/search/frames events build their object sets', () => {
+	// Data available: Channel status (B8) + Channel data length (B7)
+	assert.strictEqual(EVENT_FORMS[0x09].build({ channel: '2', state: '128', info: '0', len: 'FF' }),
+		'B8028200B701FF');
+	// Display parameters: rows/cols + sizing/fonts/effects bytes
+	assert.strictEqual(EVENT_FORMS[0x0C].build({ rows: '4', cols: '16', sizing: '1', fonts: '0', effects: '00' }),
+		'C003841000');
+	assert.strictEqual(EVENT_FORMS[0x0E].build({ mode: '1' }), 'E50101');
+	assert.strictEqual(EVENT_FORMS[0x0F].build({ status: '12' }), 'E40112');
+	assert.strictEqual(EVENT_FORMS[0x0F].build({ status: '' }), 'E40100');
+	assert.strictEqual(EVENT_FORMS[0x10].build({ frame: '01', list: '0410' }), 'E703010410');
+});
+
+test('the IMS, CAG and slices events build their object sets', () => {
+	// IMS registration: source network, IMPU list (80-tagged URIs) + status code
+	assert.strictEqual(EVENT_FORMS[0x17].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x17].build({ impu: 'sip:a@b', code: '200' }),
+		'F70980077369703A614062F803323030');
+	assert.strictEqual(EVENT_FORMS[0x18].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x18].build({ iari: 'a' }), 'F70161');
+	// CAG cell selection: tech + status/mechanism + information list
+	assert.strictEqual(EVENT_FORMS[0x1E].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x1E].build({ status: '1', mech: 'manual', tech: '8', list: '00000001' }),
+		'BF0108D5020141D60400000001');
+	// Slices status change: tech + status + served S-NSSAIs (count + 4 bytes each)
+	assert.strictEqual(EVENT_FORMS[0x1F].src, '83');
+	assert.strictEqual(EVENT_FORMS[0x1F].build({ status: '1', tech: '8', served: '01020304' }),
+		'BF0108D50101D6050101020304');
+});

@@ -13170,7 +13170,28 @@ const EVENT_FORMS = {
 		],
 		build(v) { return 'B401' + ((parseInt(v.cause) || 0) & 0xFF).toString(16).padStart(2, '0'); }
 	},
-	0x09: null,
+	0x09: { title: 'Data available',
+		fields: [
+			{ id: 'channel', label: 'Channel', type: 'select',
+			  opts: [{v:0,l:'0 \u2014 no channel available'},
+			         {v:1,l:'Channel 1'},{v:2,l:'Channel 2'},{v:3,l:'Channel 3'},
+			         {v:4,l:'Channel 4'},{v:5,l:'Channel 5'},{v:6,l:'Channel 6'},{v:7,l:'Channel 7'}] },
+			{ id: 'state', label: 'Link state', type: 'select',
+			  opts: [{v:0x00,l:'Link not established / TCP closed'},
+			         {v:0x40,l:'TCP in LISTEN state (UICC server mode)'},
+			         {v:0x80,l:'Link established / TCP established'}] },
+			{ id: 'info', label: 'Channel info', type: 'select',
+			  opts: [{v:0x00,l:'No further info can be given'},
+			         {v:0x05,l:'Link dropped (network failure or user cancellation)'}] },
+			{ id: 'len', label: 'Channel data length', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, FF = more than 255' },
+		],
+		build(v) {
+			const st = (parseInt(v.state) || 0) | (parseInt(v.channel) || 0);
+			let d = 'B802' + st.toString(16).padStart(2, '0') + ((parseInt(v.info) || 0) & 0xFF).toString(16).padStart(2, '0');
+			d += 'B701' + (v.len || 'FF').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			return d.toUpperCase();
+		}
+	},
 	0x0A: { title: 'Channel status',
 		fields: [
 			{ id: 'channel', label: 'Channel', type: 'select',
@@ -13197,11 +13218,53 @@ const EVENT_FORMS = {
 		],
 		build(v) { return 'BF01' + (v.tech|0).toString(16).padStart(2,'0'); }
 	},
-	0x0C: null,
+	0x0C: { title: 'Display parameters changed',
+		fields: [
+			{ id: 'rows', label: 'Characters down (screen height)', type: 'number', min: '0', max: '31', placeholder: '0\u201331' },
+			{ id: 'cols', label: 'Characters across (screen width)', type: 'number', min: '0', max: '31', placeholder: '0\u201331' },
+			{ id: 'sizing', label: 'Screen sizing parameters supported', type: 'select',
+			  opts: [{v:0,l:'No'},{v:1,l:'Yes'}] },
+			{ id: 'fonts', label: 'Variable size fonts supported', type: 'select',
+			  opts: [{v:0,l:'No'},{v:1,l:'Yes'}] },
+			{ id: 'effects', label: 'Screen effects (hex byte)', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'b1 resizable, b2 wrapping, b3 scrolling, b6 menu width' },
+		],
+		build(v) {
+			const b1 = ((parseInt(v.rows) || 0) & 0x1F) | (parseInt(v.sizing) ? 0x80 : 0);
+			const b2 = ((parseInt(v.cols) || 0) & 0x1F) | (parseInt(v.fonts) ? 0x40 : 0);
+			const b3 = parseInt((v.effects || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2), 16) || 0;
+			return ('C003' + b1.toString(16).padStart(2, '0') + b2.toString(16).padStart(2, '0') +
+				b3.toString(16).padStart(2, '0')).toUpperCase();
+		}
+	},
 	0x0D: null,
-	0x0E: null,
-	0x0F: null,
-	0x10: null,
+	0x0E: { title: 'Network search mode change',
+		fields: [
+			{ id: 'mode', label: 'Network search mode', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 manual'},{v:1,l:'01 \u2014 automatic'}] },
+		],
+		build(v) { return 'E501' + ((parseInt(v.mode) || 0) & 0xFF).toString(16).padStart(2, '0'); }
+	},
+	0x0F: { title: 'Browsing status',
+		fields: [
+			{ id: 'status', label: 'Browsing status (hex bytes)', type: 'text', pattern: '[0-9A-Fa-f]{2,40}', placeholder: 'browser error code, e.g. 00' },
+		],
+		build(v) {
+			const h = (v.status || '00').replace(/[^0-9a-fA-F]/g, '');
+			return ('E4' + (h.length / 2).toString(16).padStart(2, '0') + h).toUpperCase();
+		}
+	},
+	0x10: { title: 'Frames information change',
+		fields: [
+			{ id: 'frame', label: 'Default frame ID', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: '01\u20130F, 00 = no frames' },
+			{ id: 'list', label: 'Frame information list (hex, optional)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: '2 bytes per frame: down / across' },
+		],
+		build(v) {
+			const id = (v.frame || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			const h = (v.list || '').replace(/[^0-9a-fA-F]/g, '');
+			const value = id + h;
+			return ('E7' + (value.length / 2).toString(16).padStart(2, '0') + value).toUpperCase();
+		}
+	},
 	0x11: { title: 'I-WLAN Access Status',
 		fields: [
 			{ id: 'status', label: 'Access status', type: 'select',
@@ -13297,7 +13360,39 @@ const EVENT_FORMS = {
 		}
 	},
 	0x16: null,
-	0x17: null,
+	0x17: { title: 'IMS registration', src: '83',
+		fields: [
+			{ id: 'impu', label: 'IMPU URI(s) (optional)', type: 'text', placeholder: 'one or more, comma-separated' },
+			{ id: 'code', label: 'IMS status code (optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 200' },
+		],
+		build(v) {
+			let d = '';
+			const uris = (v.impu || '').split(/[\s,;]+/).filter(Boolean);
+			if (uris.length) {
+				let inner = '';
+				uris.forEach(u => {
+					const b = new TextEncoder().encode(u).slice(0, 100);
+					inner += '80' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+				});
+				d += 'F7' + (inner.length / 2).toString(16).padStart(2, '0') + inner;
+			}
+			if (v.code) {
+				const b = new TextEncoder().encode(v.code);
+				d += 'F8' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+			}
+			return d.toUpperCase();
+		}
+	},
+	0x18: { title: 'Incoming IMS data', src: '83',
+		fields: [
+			{ id: 'iari', label: 'IARI (optional)', type: 'text', placeholder: 'e.g. urn:urn-7:3gpp-service.ims.icsi.mmtel' },
+		],
+		build(v) {
+			if (!v.iari) return '';
+			const b = new TextEncoder().encode(v.iari).slice(0, 100);
+			return ('F7' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b))).toUpperCase();
+		}
+	},
 	0x1C: { title: 'Poll interval negotiation',
 		fields: [
 			{ id: 'unit', label: 'Time unit', type: 'select',
@@ -13361,6 +13456,56 @@ const EVENT_FORMS = {
 			}
 			if (v.pdp_type !== '' && v.pdp_type !== undefined)
 				d += '0B01' + ((parseInt(v.pdp_type) || 0) & 0xFF).toString(16).padStart(2, '0');
+			return d.toUpperCase();
+		}
+	},
+	0x1E: { title: 'CAG cell selection', src: '83',
+		fields: [
+			{ id: 'status', label: 'CAG cell selection status', type: 'select',
+			  opts: [{v:0,l:'00 \u2014 not camped on a CAG cell'},
+			         {v:1,l:'01 \u2014 camped on a CAG cell'}] },
+			{ id: 'mech', label: 'Selection mechanism', type: 'select',
+			  opts: [{v:'',l:'\u2014 none \u2014'},{v:'manual',l:'manual CAG selection'},
+			         {v:'other',l:'another CAG selection type'}] },
+			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
+			{ id: 'list', label: 'CAG information list (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'CAG identity list' },
+		],
+		build(v) {
+			let d = '';
+			if (v.tech !== '' && v.tech !== undefined)
+				d += 'BF01' + ((parseInt(v.tech) || 0) & 0xFF).toString(16).padStart(2, '0');
+			const mech = v.mech === 'manual' ? 0x40 : (v.mech === 'other' ? 0x80 : 0x00);
+			d += 'D502' + ((parseInt(v.status) || 0) & 0xFF).toString(16).padStart(2, '0') +
+				(0x01 | mech).toString(16).padStart(2, '0');
+			if (v.list) {
+				const h = v.list.replace(/[^0-9a-fA-F]/g, '');
+				d += 'D6' + (h.length / 2).toString(16).padStart(2, '0') + h;
+			}
+			return d.toUpperCase();
+		}
+	},
+	0x1F: { title: 'Slices status change', src: '83',
+		fields: [
+			{ id: 'status', label: 'Slices status', type: 'select',
+			  opts: [{v:0x01,l:'01 \u2014 allowed'},{v:0x02,l:'02 \u2014 rejected'},
+			         {v:0x04,l:'04 \u2014 served'},{v:0x81,l:'81 \u2014 partially allowed'},
+			         {v:0x82,l:'82 \u2014 partially rejected'}] },
+			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
+			{ id: 'served', label: 'Served S-NSSAIs (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
+		],
+		build(v) {
+			let d = '';
+			if (v.tech !== '' && v.tech !== undefined)
+				d += 'BF01' + ((parseInt(v.tech) || 0) & 0xFF).toString(16).padStart(2, '0');
+			d += 'D501' + ((parseInt(v.status) || 1) & 0xFF).toString(16).padStart(2, '0');
+			const h = (v.served || '').replace(/[^0-9a-fA-F]/g, '');
+			if (h) {
+				const n = Math.floor(h.length / 8);
+				d += 'D6' + (1 + n * 4).toString(16).padStart(2, '0') +
+					n.toString(16).padStart(2, '0') + h.slice(0, n * 8);
+			}
 			return d.toUpperCase();
 		}
 	},
