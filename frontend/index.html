@@ -9458,8 +9458,11 @@ function ramElfVersionHint(elfForm) {
 function cardEtsiRelease(elfs) {
 	const tk = (elfs || []).find(e => (e.aid || '').toUpperCase() === UICC_TOOLKIT_AID);
 	if (!tk) return null;
-	const v = String(tk.version || '').trim();
-	if (!v) return { release: '', basis: '' };
+	const raw = String(tk.version || '').trim();
+	if (!raw) return { release: '', basis: '' };
+	// the CE tag is raw hex (010C = 1.12): ramFmtVersion is the same
+	// formatter the ELF rows use; a non-4-hex value passes through unchanged
+	const v = ramFmtVersion(raw);
 	return { release: ETSI_TOOLKIT_RELEASE[v] || '', basis: 'uicc.toolkit ' + v };
 }
 

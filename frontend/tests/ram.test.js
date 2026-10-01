@@ -707,15 +707,19 @@ test('ramFmtLadder orders the registry command formats cautiously', () => {
 
 test('cardEtsiRelease infers the card ETSI release from uicc.toolkit', () => {
 	const tk = v => ({ aid: 'A0000000090005FFFFFFFF8912000000', version: v });
-	assert.deepStrictEqual(cardEtsiRelease([tk('1.12')]),
+	// the CE tag is raw hex: 010C is 1.12 (ramFmtVersion, as the ELF rows show)
+	assert.deepStrictEqual(cardEtsiRelease([tk('010C')]),
 		{ release: 'REL-15/16/17', basis: 'uicc.toolkit 1.12' });
-	assert.deepStrictEqual(cardEtsiRelease([tk('1.11')]),
+	assert.deepStrictEqual(cardEtsiRelease([tk('010B')]),
 		{ release: 'REL-12', basis: 'uicc.toolkit 1.11' });
-	assert.deepStrictEqual(cardEtsiRelease([tk('1.5')]),
+	assert.deepStrictEqual(cardEtsiRelease([tk('0105')]),
 		{ release: 'REL-9', basis: 'uicc.toolkit 1.5' });
 	// a version outside the table: the basis is still named
-	assert.deepStrictEqual(cardEtsiRelease([tk('9.9')]),
-		{ release: '', basis: 'uicc.toolkit 9.9' });
+	assert.deepStrictEqual(cardEtsiRelease([tk('01FF')]),
+		{ release: '', basis: 'uicc.toolkit 1.255' });
+	// a value that is not 4-hex passes through ramFmtVersion unchanged
+	assert.deepStrictEqual(cardEtsiRelease([tk('1.12')]),
+		{ release: 'REL-15/16/17', basis: 'uicc.toolkit 1.12' });
 	// the compact listing carries no versions (the expanded CE tag does)
 	assert.deepStrictEqual(cardEtsiRelease([tk('')]), { release: '', basis: '' });
 	// no uicc.toolkit (SIM-only card): no label, like SIM-only CAPs
@@ -726,7 +730,7 @@ test('cardEtsiRelease infers the card ETSI release from uicc.toolkit', () => {
 test('the explorer shows the inferred ETSI release', () => {
 	globalThis.t = s => s;
 	const out = ramRenderExploreHtml({ appCount: 1, freeNV: 2, freeV: 3 }, [], [],
-		[{ aid: 'A0000000090005FFFFFFFF8912000000', version: '1.12' }], 'compact', '', '');
+		[{ aid: 'A0000000090005FFFFFFFF8912000000', version: '010C' }], 'compact', '', '');
 	delete globalThis.t;
 	assert.ok(out.includes('ETSI release: REL-15/16/17 (uicc.toolkit 1.12)'), out);
 	globalThis.t = s => s;
