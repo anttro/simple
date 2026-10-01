@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
+	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
@@ -1488,4 +1488,17 @@ test('SIM toolkit mode hides the UICC file-access row', () => {
     const src = extractFunc(html, 'updateRcTkMode');
     assert.ok(src.includes('rc-tk-access-row'),
         'the access row must follow the CA/EA visibility');
+});
+
+test('ramExpandedMore marks only an unfulfilled 6310', () => {
+	// no promise -> nothing to report
+	assert.strictEqual(ramExpandedMore(false, '9000', 1), false);
+	// the follow-up page was accepted and ended the listing
+	assert.strictEqual(ramExpandedMore(true, '9000', 2), false);
+	// the follow-up page was refused
+	assert.strictEqual(ramExpandedMore(true, '6A86', 2), true);
+	// the page cap stopped the paging
+	assert.strictEqual(ramExpandedMore(true, '6310', 8), true);
+	// a transport failure (no remote status word) leaves it unfulfilled
+	assert.strictEqual(ramExpandedMore(true, 'index out of range', 2), true);
 });

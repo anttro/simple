@@ -9354,6 +9354,17 @@ function ramExpandedGroups(report) {
 	return groups;
 }
 
+// The "more occurrences" flag of one expanded-registry page pass (pure): a
+// page that promised more data ('6310', or an accepted chained retry) is
+// fulfilled by the next accepted page; it stays set when the follow-up was
+// refused/failed or the page cap stopped the loop - only then is the listing
+// "first page only".
+function ramExpandedMore(promised, sw, page) {
+	if (!promised) return false;
+	if (page >= 8) return true;
+	return !ramRemoteSwOk(sw);
+}
+
 // Summary of the expanded-registry pass (pure): which query form the card
 // accepted per listing and where the run fell back to the compact listing.
 // Shown in the explorer so a fallback (and the missing package versions) is
@@ -9636,7 +9647,7 @@ async function ramExplore(sp) {
 				return res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
 			};
 			let page = 0;
-			let more = false;
+			let promised = false;
 			while (accepted && page++ < 8) {
 				const apdu = ramExpandedQueryApdu(p1, form, page > 1);
 				const what = page > 1 ? 'P2=03 (' + form + ')' : 'P2=02 (' + form + ')';
@@ -9660,8 +9671,11 @@ async function ramExplore(sp) {
 				// 6310 signal with the GET RESPONSE's own SW); a refused retry
 				// must not cost another packet (v3.7.0)
 				if (sw !== '6310' && !(pending && ramRemoteSwOk(sw))) break;
-				more = true;
+				promised = true;
 			}
+			// An unfulfilled 6310 only: a follow-up page that was accepted and
+			// ended the listing fulfils the promise.
+			const more = ramExpandedMore(promised, sw, page);
 			const parsed = data ? parser(data) : [];
 			if (parsed.length) {
 				expandedForm = form;
@@ -11761,7 +11775,7 @@ function cardsRender() {
 	const tbody = document.getElementById('cards-tbody');
 	if (!tbody) return;
 	if (!cards.length) {
-		tbody.innerHTML = '<tr><td colspan="10" class="py-2 text-gray-400">' + t('No cards defined.') + '</td></tr>';
+		tbody.innerHTML = '<tr><td colspan="8" class="py-2 text-gray-400">' + t('No cards defined.') + '</td></tr>';
 		return;
 	}
 	// The preset of the equipped card (normalised ICCID match): its row is
@@ -13021,6 +13035,20 @@ const REJECTION_CAUSES = [
 
 // Access Technology coding (TS 102 223 V18.3.0 8.61, tags '3F'/'BF'): the
 // single/multiple technology objects and the PLI qualifier share this list.
+// Date-Time and Time zone object (TS 102 223 8.39): seven semi-octet BCD
+// bytes in the TS 23.040 9.2.3.11 order (units in the high nibble) - YY MM
+// DD hh mm ss plus the time zone in quarters of an hour, its sign in bit 3
+// of the first semi-octet (1 = west of GMT).
+function eventDateTimeTlv(d) {
+	const semi = v => ((v % 10) << 4) | Math.floor(v / 10);
+	const hx = b => b.toString(16).padStart(2, '0');
+	const offMin = -d.getTimezoneOffset();          // minutes east of UTC
+	const tz = semi(Math.round(Math.abs(offMin) / 15)) | (offMin < 0 ? 0x08 : 0);
+	return '2607' + hx(semi(d.getFullYear() % 100)) + hx(semi(d.getMonth() + 1)) +
+		hx(semi(d.getDate())) + hx(semi(d.getHours())) + hx(semi(d.getMinutes())) +
+		hx(semi(d.getSeconds())) + hx(tz);
+}
+
 const ACCESSTECH = [
 	{v:0,l:'GSM'},{v:1,l:'TIA/EIA-553-A'},{v:2,l:'TIA/EIA-136-270'},{v:3,l:'UTRAN'},
 	{v:4,l:'TETRA'},{v:5,l:'TIA/EIA-95-B'},{v:6,l:'CDMA2000 1x'},{v:7,l:'CDMA2000 HRPD'},
@@ -13165,6 +13193,8 @@ const EVENT_FORMS = {
 			         {v:2,l:'02 \u2014 PDU connection'}] },
 			{ id: 'cause', label: '(E/5G)SM cause (optional)', type: 'number', min: '0', max: '255', placeholder: '0\u2013255, e.g. 26' },
 			{ id: 'ti', label: 'Transaction identifier', type: 'text', pattern: '[0-9A-Fa-f]{2}', placeholder: 'hex byte, e.g. 00' },
+			{ id: 'datetime', label: 'Date-Time and Time zone (optional)', type: 'select',
+			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:'now',l:'current date-time (host clock)'}] },
 			{ id: 'mcc', label: 'MCC (Location Information, optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 250' },
 			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01' },
 			{ id: 'lac', label: 'LAC', type: 'text', pattern: '[0-9A-Fa-f]{4}', placeholder: 'hex, e.g. 00FF' },
@@ -13189,6 +13219,7 @@ const EVENT_FORMS = {
 			if (v.cause !== '' && v.cause !== undefined)
 				d += 'AE01' + ((parseInt(v.cause) || 0) & 0xFF).toString(16).padStart(2, '0');
 			d += '1C01' + (v.ti || '00').replace(/[^0-9a-fA-F]/g, '').padStart(2, '0').slice(0, 2);
+			if (v.datetime === 'now') d += eventDateTimeTlv(new Date());
 			if (v.mcc)
 				d += '1307' + encPlmn(v.mcc, v.mnc || '01') +
 					(v.lac || '0000').toUpperCase() + (v.cell || '0001').toUpperCase();

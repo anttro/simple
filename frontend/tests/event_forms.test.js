@@ -124,3 +124,28 @@ test('the access technology options follow the pinned 8.61 coding', () => {
 	assert.strictEqual(opts[10].l, 'NG-RAN');
 	assert.strictEqual(opts[12].l, 'Satellite E-UTRAN');
 });
+
+test('eventDateTimeTlv builds the 8.39 date-time object', () => {
+	const d = o => ({
+		getFullYear: () => o.year, getMonth: () => o.month - 1, getDate: () => o.day,
+		getHours: () => o.hour, getMinutes: () => o.min, getSeconds: () => o.sec,
+		getTimezoneOffset: () => o.tzMin,
+	});
+	// UTC+3, 2026-09-30 21:55:00 -> swapped BCD + 12 quarters
+	assert.strictEqual(
+		eventDateTimeTlv(d({ year: 2026, month: 9, day: 30, hour: 21, min: 55, sec: 0, tzMin: -180 })),
+		'260762900312550021');
+	// UTC-2:30 -> 10 quarters with the sign bit (bit 3 of the first semi-octet)
+	assert.strictEqual(
+		eventDateTimeTlv(d({ year: 2026, month: 1, day: 5, hour: 8, min: 7, sec: 9, tzMin: 150 })),
+		'260762105080709009');
+});
+
+test('the data connection event can carry the current date-time', () => {
+	const build = EVENT_FORMS[0x1D].build;
+	assert.match(build({ status: '0', type: '0', ti: '00', loc_status: '0', datetime: 'now' }),
+		/^9D0100AA01001C01002607[0-9A-F]{14}9B0100$/);
+	// left out by default
+	assert.strictEqual(build({ status: '0', type: '0', ti: '00', loc_status: '0' }),
+		'9D0100AA01001C01009B0100');
+});
