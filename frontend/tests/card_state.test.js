@@ -51,6 +51,7 @@ code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'pysimSetServerAvailable') + '\n';
 code += '\nglobalThis.esc = s => s;\n';
 code += 'globalThis.t = s => s;\n';
+code += 'globalThis.cardsRender = () => {};\n';   // equipped-preset highlight
 eval(code);
 
 function fakeIndicator() {

@@ -24,7 +24,8 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['swapNibbles', 'encIccid', 'decIccid',
 	'cardsNormIccid', 'cardsFindByIccid', 'cardsFindDuplicateIccid',
-	'cardsIccidFromCard', 'cardsAutoSelectByIccid']) {
+	'cardsIccidFromCard', 'cardsAutoSelectByIccid', 'cardsRender',
+	'esc', 'spKeysetList', 'spKeysetKvnOf', 'cardsTarValue', 'cardsScp81Complete']) {
 	code += extractFunc(html, fn) + '\n';
 }
 eval(code);
@@ -168,4 +169,29 @@ test('the card-state update wires the ICCID into the preset selection', () => {
 	assert.ok(html.includes("getElementById('tar-card-sel')"),
 		'the auto-selection must cover the TAR probe view');
 	assert.ok(html.includes("(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '')"));
+});
+
+test('cardsRender highlights the equipped card preset', () => {
+	globalThis.t = s => s;
+	const els = { 'cards-tbody': { innerHTML: '' } };
+	globalThis.document = { getElementById: id => els[id] || null };
+	globalThis.cards = [
+		{ name: 'other', iccid: '1111111111111111111', spi1: '16', spi2: '01', keysets: [] },
+		{ name: 'live', iccid: DIGITS, spi1: '16', spi2: '01', keysets: [] },
+	];
+	globalThis._pysimCardIccid = DIGITS;
+	cardsRender();
+	let rows = els['cards-tbody'].innerHTML.split('</tr>');
+	assert.ok(!/bg-emerald-50/.test(rows[0]), 'the other preset must stay plain');
+	assert.match(rows[1], /bg-emerald-50/);
+	assert.match(rows[1], /The equipped card's preset/);
+	// the same card stored as raw EF hex matches too
+	globalThis.cards[1].iccid = RAW_HEX;
+	cardsRender();
+	rows = els['cards-tbody'].innerHTML.split('</tr>');
+	assert.match(rows[1], /bg-emerald-50/);
+	// no readable ICCID -> no highlight
+	globalThis._pysimCardIccid = null;
+	cardsRender();
+	assert.ok(!/bg-emerald-50/.test(els['cards-tbody'].innerHTML));
 });

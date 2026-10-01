@@ -11741,17 +11741,26 @@ function cardsRender() {
 		tbody.innerHTML = '<tr><td colspan="10" class="py-2 text-gray-400">' + t('No cards defined.') + '</td></tr>';
 		return;
 	}
+	// The preset of the equipped card (normalised ICCID match): its row is
+	// highlighted so the list shows which preset belongs to the card in the
+	// reader (no highlight while the ICCID is unknown).
+	const equippedIdx = cardsFindByIccid(_pysimCardIccid);
 	let html = '';
 	for (let i = 0; i < cards.length; i++) {
 		const c = cards[i];
+		const equipped = i === equippedIdx;
 		let ota = '<span class="text-gray-400">—</span>';
 		if (cardsScp81Complete(c)) {
 			ota = '<span class="text-emerald-600 dark:text-emerald-400" title="' + esc(c.pskIdentity) + '">✓</span>';
 		} else if (c.pskKey || c.pskIdentity) {
 			ota = '<span class="text-amber-500" title="' + esc(t('PSK identity and PSK key must be set together')) + '">⚠</span>';
 		}
-		html += '<tr class="border-b border-gray-100 dark:border-slate-700">';
-		html += '<td class="py-1 px-2 font-medium">' + esc(c.name) + '</td>';
+		html += '<tr class="border-b border-gray-100 dark:border-slate-700' +
+			(equipped ? ' bg-emerald-50 dark:bg-emerald-900/30' : '') + '">';
+		html += '<td class="py-1 px-2 font-medium">' +
+			(equipped ? '<span class="mr-1 text-emerald-600 dark:text-emerald-400" title="' +
+				esc(t("The equipped card's preset")) + '">●</span>' : '') +
+			esc(c.name) + '</td>';
 		html += '<td class="py-1 px-2 font-mono text-xs">' + esc(c.iccid) + '</td>';
 		const ksText = spKeysetList(c).map(ks => {
 			const kvn = spKeysetKvnOf(ks.kic);
@@ -13794,7 +13803,9 @@ function pysimCardStateUpdate(status) {
 	_pysimLastStatus = status;
 	_pysimCardEquipped = !!status.connected;
 	_pysimEquipping = !!status.equipping;
+	const prevIccid = _pysimCardIccid;
 	_pysimCardIccid = status.connected ? (status.iccid || null) : null;
+	if (prevIccid !== _pysimCardIccid) cardsRender();   // equipped-preset highlight
 	pysimUpdateAdmIndicator(status);
 	pysimUpdateIccidIndicator(_pysimCardIccid);
 	pysimUpdatePresetIndicators(_pysimCardIccid);
@@ -19197,6 +19208,7 @@ const LANG_RU = {
 	'Snapshot comparison results:': 'Результаты сравнения снимков:',
 	'RAM operations perform atomic GlobalPlatform commands over SCP80. Card keys are taken from the saved preset.': 'RAM-операции выполняют атомарные команды GlobalPlatform через SCP80. Ключи карты берутся из сохранённого пресета.',
 	'No cards defined.': 'Карты не заданы.',
+	"The equipped card's preset": 'Пресет подключённой карты',
 	'Card presets': 'Выбор карты',
 	'Card preset': 'Пресет карты',
 	'— Select card —': '— Выберите карту —',
