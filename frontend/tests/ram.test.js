@@ -23,6 +23,7 @@ function extractFunc(src, name) {
 
 // Extract chain builder functions and dependencies
 const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamBuildRowHex', 'ramFmtLifecycle', 'ramFmtVersion', 'ramMenuState', 'ramEntryKind', 'ramMenuHtml', 'ramRawTlvsHtml', 'ramNvLine', 'ramFmtPrivileges', 'ramRenderExploreHtml', 'ramMergeExpanded', 'ramStepLine', 'ramStepComponents', 'ramInstallFailHint', 'ramProbeParse', 'ramCompatVerdict', 'ramCompatProbeNote', 'ramCompatImportRows', 'ramCompatRowsHtml', 'ramCompatFailureHtml', 'ramCompatDetailHtml', 'lookupSw', 'ramExpandedDetailsInit', 'ramExpandedDetailsChanged', 'ramGetStatusApdu', 'ramDeleteApdu',
+	'ramFormatIsExpanded', 'ramFmtLadder',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
@@ -375,6 +376,13 @@ test('ramGetStatusApdu builds the compact chain, never the expanded form', () =>
 	// GP 11.4.2.2: compact listings (P2.b2=0) carry the chained GET RESPONSE
 	assert.strictEqual(ramGetStatusApdu('80', '00'), '80F28000024F0000C0000000');
 	assert.strictEqual(ramGetStatusApdu('20', '01'), '80F22001024F0000C0000000');
+	// the expanded command format must not carry a GET RESPONSE (TS 102 226
+	// 5.2.1.1): the reference TCA loader sends the same query wrapped unchained
+	// (`AA0A2208 80F24000024F0000`), Le='00' returns the listing directly
+	assert.strictEqual(ramGetStatusApdu('40', '00', 'expanded'), '80F24000024F0000');
+	assert.strictEqual(ramGetStatusApdu('40', '01', 'expanded-ae'), '80F24001024F0000');
+	assert.ok(!ramGetStatusApdu('40', '00', 'expanded').includes('C0000000'),
+		'no GET RESPONSE in the expanded format');
 	// the expanded TLV form (P2=02/03) takes no GET RESPONSE and is not built:
 	// its GET STATUS bytes would be `80F2<P1>02 04 4F00 5C.. 00`
 	assert.ok(!ramGetStatusApdu('20', '01').startsWith('80F2200204'),
@@ -658,6 +666,51 @@ test('the explorer annotates a derived package version', () => {
 	delete globalThis.t;
 	assert.ok(out.includes('Version: 9.3 <span class="text-gray-500 dark:text-slate-400">(from the app instance)</span>'), out);
 	assert.ok(!plain.includes('from the app instance'), plain);
+});
+
+test('the expanded formats never chain a GET RESPONSE (TCA loader form)', () => {
+	assert.strictEqual(ramFormatIsExpanded('expanded'), true);
+	assert.strictEqual(ramFormatIsExpanded('expanded-ae'), true);
+	assert.strictEqual(ramFormatIsExpanded('compact'), false);
+	assert.strictEqual(ramFormatIsExpanded('auto'), false);
+	assert.strictEqual(ramFormatIsExpanded(undefined), false);
+	const src = extractFunc(html, 'ramExplore');
+	// the listing pass follows the run's command format and pins it per send,
+	// so a chain can never ride inside an expanded packet
+	assert.ok(src.includes('ramFormatIsExpanded(sp.ram_format)'), 'the listing format must follow the run');
+	assert.ok(src.includes('ramGetStatusApdu(p1, p2, listingFmt)'), 'the builder must follow the format');
+	assert.ok(src.includes('ram_format: listingFmt'), 'the listing format must be pinned per send');
+	// the registry pass: the chained retry is compact-only, the format ladder
+	// covers the expanded codings, and the working format is remembered
+	assert.ok(src.includes('!ramFormatIsExpanded(usedFmt)'), 'the chained retry must be compact-only');
+	assert.ok(src.includes('ramFmtLadder(runFmt, expandedFmt)'),
+		'the format ladder (with its remembered format) must drive the retries');
+	assert.ok(src.includes('expandedFmt = fmt'), 'the working format must be remembered');
+	assert.ok(src.includes('fmt: out.fmt'), 'the report must carry the serving format');
+});
+
+test('ramFmtLadder orders the registry command formats cautiously', () => {
+	// the run's format first (null = no override), then the expanded codings,
+	// then compact as the last resort; the run's own format is not repeated
+	assert.deepStrictEqual(ramFmtLadder('compact', null), [null, 'expanded', 'expanded-ae']);
+	assert.deepStrictEqual(ramFmtLadder('expanded', null), [null, 'expanded-ae', 'compact']);
+	assert.deepStrictEqual(ramFmtLadder('expanded-ae', null), [null, 'expanded', 'compact']);
+	assert.deepStrictEqual(ramFmtLadder('auto', null), [null, 'expanded', 'expanded-ae', 'compact']);
+	// a format that already served data is tried first and never repeated
+	assert.deepStrictEqual(ramFmtLadder('compact', 'expanded'), ['expanded', 'expanded-ae']);
+	assert.deepStrictEqual(ramFmtLadder('expanded-ae', 'expanded-ae'), ['expanded-ae', 'expanded', 'compact']);
+});
+
+test('ramExpandedReport names the expanded serving format', () => {
+	globalThis.t = s => s;
+	const out = ramExpandedReport([
+		{ p1: '80', label: 'ISD', compact: false, form: 'lean', sw: '6310', entries: 3, fmt: 'expanded' },
+		{ p1: '40', label: 'Apps', compact: false, form: 'lean', sw: '9000', entries: 2, fmt: 'expanded-ae' },
+	]);
+	delete globalThis.t;
+	assert.ok(out.startsWith('Expanded registry:'), out);
+	assert.ok(out.includes('ISD [AA]'), out);
+	assert.ok(out.includes('Apps [AE 80]'), out);
 });
 
 test('ramExpandedReport summarizes the query forms and the fallbacks', () => {

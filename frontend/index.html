@@ -9341,7 +9341,7 @@ function ramExpandedGroups(report) {
 		let g = groups.find(x => x.label === r.label);
 		if (!g) {
 			g = { p1: r.p1 || '', label: r.label, form: null, entries: 0, score: 0,
-				sw: '', compact: false, refused: false };
+				sw: '', compact: false, refused: false, fmt: null };
 			groups.push(g);
 		}
 		g.compact = g.compact || !!r.compact;
@@ -9354,6 +9354,7 @@ function ramExpandedGroups(report) {
 				g.form = r.form;
 				g.entries = r.entries || 0;
 				g.score = score;
+				g.fmt = r.fmt || null;
 			}
 		} else {
 			g.refused = true;
@@ -9383,10 +9384,15 @@ function ramExpandedReport(report) {
 	if (!groups.length) return '';
 	const formName = f => f === 'tags' ? t('tag list + EA')
 		: (f === 'noea' ? t('tag list') : (f === 'lean' ? t('lean tag list') : t('no tag list')));
+	// The serving command format is named when it is one of the expanded
+	// codings: some cards refuse the compact P2=02 query and serve it only
+	// inside the TS 102 226 scripting template (5.2.1)
+	const fmtName = f => f === 'expanded' ? 'AA' : (f === 'expanded-ae' ? 'AE 80' : '');
 	const parts = [];
 	RAM_EXPANDED_FORMS.forEach(f => {
 		const labels = groups.filter(g => g.form === f)
-			.map(g => g.label + (g.more ? ' (' + t('first page only') + ')' : ''));
+			.map(g => g.label + (g.more ? ' (' + t('first page only') + ')' : '') +
+				(ramFormatIsExpanded(g.fmt) ? ' [' + fmtName(g.fmt) + ']' : ''));
 		if (labels.length) parts.push(formName(f) + ' (' + labels.join(', ') + ')');
 	});
 	groups.forEach(g => {
@@ -9599,9 +9605,12 @@ async function ramExplore(sp) {
 	const mem = { appCount: null, freeNV: null, freeV: null };
 	const isd = [], apps = [], elfs = [];
 	// Expanded-registry state for this run: the query form the card accepted
-	// (remembered and tried first for the later listings) and the per-listing
-	// outcome report shown in the explorer.
+	// (remembered and tried first for the later listings), the command format
+	// the registry queries needed (null = the run's format; the live ISD
+	// answers the compact P2=02 query with 6700 and serves it wrapped) and the
+	// per-listing outcome report shown in the explorer.
 	let expandedForm = null;
+	let expandedFmt = null;
 	const expandedReport = [];
 	// Low counter: the card rejected a packet whose counter is not above its
 	// own - a retry cannot help, so the run stops immediately and the user is
@@ -9618,87 +9627,111 @@ async function ramExplore(sp) {
 	// the remembered form first, then the others.  The ISD gets a single
 	// attempt - cards commonly answer 6A88/6A86 there ("no data to report",
 	// GPPro), which must not poison the detection for the apps/ELF queries.
-	// A '61xx' answer means the card holds the response data (fetched with
-	// GET RESPONSE); a '6310' means more occurrences (re-issued as a
-	// next-occurrence page, P2.b1=1) - both are chained here, so an answer is
-	// only called empty or refused when it really is.  Returns
-	// {form, parsed, sw, entries}; form is null when no form produced data.
+	// Each form is tried in the run's command format first, then in the two
+	// expanded codings and compact as the last resort: the live ISD refuses
+	// the compact P2=02 query with 6700 and serves it wrapped, while other
+	// cards do the opposite - the format that works is remembered for the
+	// remaining listings.  A '61xx' answer means the card holds the response
+	// data - only the compact command string may chain a GET RESPONSE, the
+	// expanded format must not (TS 102 226 5.2.1.1); a '6310' means more
+	// occurrences (re-issued as a next-occurrence page, P2.b1=1).  Returns
+	// {form, parsed, sw, entries, fmt}; form is null when no form produced
+	// data.
 	async function expandedPass(p1, label, parser, spi2) {
 		let forms = expandedForm
 			? [expandedForm].concat(RAM_EXPANDED_FORMS.filter(f => f !== expandedForm))
 			: RAM_EXPANDED_FORMS.slice();
 		if (p1 === '80') forms = [expandedForm || 'tags'];
+		const runFmt = sp.ram_format || 'auto';
 		let lastSw = '';
 		let lastTransport = false;
+		let stopPass = false;
 		for (const form of forms) {
-			if (cntrLow) break;
-			let data = '';
-			let sw = '';
-			let accepted = true;
-			let transportError = false;
-			const sendOne = async (apdu, what) => {
-				ramShowProgress(label + ' P1=' + p1 + ' ' + what + '...');
-				const res = await ramSendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
-				if (res.ram_format) sp.ram_format = res.ram_format;
-				if (res.final_cntr) cntr = res.final_cntr;
-				else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
-				if (!res.success || !res.por || !spPorAccepted(res.por)) {
-					accepted = false;
-					// a request/transport failure is not a remote status word
-					transportError = !res.por;
-					sw = res.por ? res.por.response_status : (res.error || t('no data'));
-					return '';
-				}
-				sw = ((res.por.decoded && res.por.decoded.last_status_word) || '').toUpperCase();
-				return res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
-			};
-			let page = 0;
-			let promised = false;
-			while (accepted && page++ < 8) {
-				const apdu = ramExpandedQueryApdu(p1, form, page > 1);
-				const what = page > 1 ? 'P2=03 (' + form + ')' : 'P2=02 (' + form + ')';
-				data += await sendOne(apdu, what);
-				if (cntrLow || !accepted) break;
-				// '61xx': the card holds the response data - the GET RESPONSE
-				// must ride in the same compact command string (a standalone
-				// one answers 6700 on the live card); the expanded AA/22
-				// format has no command string, so there is no retry there.
-				const pending = /^61[0-9A-F]{2}$/.test(sw);
-				if (pending && sp.ram_format !== 'expanded') {
-					data += await sendOne(ramChainGetResponse(apdu), what + ' + GET RESPONSE');
+			if (cntrLow || stopPass) break;
+			const fmts = ramFmtLadder(runFmt, expandedFmt);
+			for (const fmt of fmts) {
+				if (cntrLow) break;
+				let data = '';
+				let sw = '';
+				let accepted = true;
+				let transportError = false;
+				let usedFmt = fmt || runFmt;
+				const sendOne = async (apdu, what) => {
+					ramShowProgress(label + ' P1=' + p1 + ' ' + what + '...');
+					const params = Object.assign({}, sp, { cntr, spi2 });
+					if (fmt) params.ram_format = fmt;
+					const res = await ramSendOta(apdu, params);
+					usedFmt = res.ram_format || fmt || sp.ram_format || usedFmt;
+					// an explicit fallback format is not adopted as the run's
+					// format - the selected/pinned format keeps applying to the
+					// other passes
+					if (!fmt && res.ram_format) sp.ram_format = res.ram_format;
+					if (res.final_cntr) cntr = res.final_cntr;
+					else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+					if (!res.success || !res.por || !spPorAccepted(res.por)) {
+						accepted = false;
+						// a request/transport failure is not a remote status word
+						transportError = !res.por;
+						sw = res.por ? res.por.response_status : (res.error || t('no data'));
+						return '';
+					}
+					sw = ((res.por.decoded && res.por.decoded.last_status_word) || '').toUpperCase();
+					return res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
+				};
+				let page = 0;
+				let promised = false;
+				while (accepted && page++ < 8) {
+					const apdu = ramExpandedQueryApdu(p1, form, page > 1);
+					const what = (page > 1 ? 'P2=03 (' : 'P2=02 (') + form +
+						(fmt ? ', ' + fmt : '') + ')';
+					data += await sendOne(apdu, what);
 					if (cntrLow || !accepted) break;
+					// '61xx': the card holds the response data - the GET RESPONSE
+					// must ride in the same compact command string (a standalone
+					// one answers 6700 on the live card); the expanded format
+					// has no command string, so there is no retry there.
+					const pending = /^61[0-9A-F]{2}$/.test(sw);
+					if (pending && !ramFormatIsExpanded(usedFmt)) {
+						data += await sendOne(ramChainGetResponse(apdu), what + ' + GET RESPONSE');
+						if (cntrLow || !accepted) break;
+					}
+					// the ISD is a single occurrence (GP 11.4.2.2); '6310' means
+					// more occurrences, and a '61xx' page may mask that signal
+					// (the GET RESPONSE's own SW replaces it) - try one more page
+					if (p1 === '80') break;
+					// continue only when the answer really says 'more occurrences'
+					// or the chained retry was accepted (a '61xx' page masks the
+					// 6310 signal with the GET RESPONSE's own SW); a refused retry
+					// must not cost another packet (v3.7.0)
+					if (sw !== '6310' && !(pending && ramRemoteSwOk(sw))) break;
+					promised = true;
 				}
-				// the ISD is a single occurrence (GP 11.4.2.2); '6310' means
-				// more occurrences, and a '61xx' page may mask that signal
-				// (the GET RESPONSE's own SW replaces it) - try one more page
-				if (p1 === '80') break;
-				// continue only when the answer really says 'more occurrences'
-				// or the chained retry was accepted (a '61xx' page masks the
-				// 6310 signal with the GET RESPONSE's own SW); a refused retry
-				// must not cost another packet (v3.7.0)
-				if (sw !== '6310' && !(pending && ramRemoteSwOk(sw))) break;
-				promised = true;
-			}
-			// An unfulfilled 6310 only: a follow-up page that was accepted and
-			// ended the listing fulfils the promise.
-			const more = ramExpandedMore(promised, sw, page);
-			const parsed = data ? parser(data) : [];
-			if (parsed.length) {
-				expandedForm = form;
-				return { form: form, parsed: parsed, sw: sw, entries: parsed.length,
-					transport: transportError, more: more };
-			}
-			lastSw = sw;
-			lastTransport = transportError;
-			if (!accepted) break;
-			if (ramRemoteSwOk(sw)) {
-				// accepted but empty: nothing to gain from another form
-				return { form: form, parsed: [], sw: sw, entries: 0,
-					transport: transportError, more: more };
+				// An unfulfilled 6310 only: a follow-up page that was accepted and
+				// ended the listing fulfils the promise.
+				const more = ramExpandedMore(promised, sw, page);
+				const parsed = data ? parser(data) : [];
+				if (parsed.length) {
+					expandedForm = form;
+					if (fmt) expandedFmt = fmt;
+					return { form: form, parsed: parsed, sw: sw, entries: parsed.length,
+						transport: transportError, more: more, fmt: usedFmt };
+				}
+				lastSw = sw;
+				lastTransport = transportError;
+				if (!accepted) {
+					stopPass = true;
+					break;
+				}
+				if (ramRemoteSwOk(sw)) {
+					// accepted but empty: nothing to gain from another form
+					return { form: form, parsed: [], sw: sw, entries: 0,
+						transport: transportError, more: more, fmt: usedFmt };
+				}
+				// refused: the same form in the next command format
 			}
 		}
 		return { form: null, parsed: [], sw: lastSw, entries: 0,
-			transport: lastTransport, more: false };
+			transport: lastTransport, more: false, fmt: null };
 	}
 
 	async function paginate(p1, collector, parser, label, quiet) {
@@ -9712,10 +9745,15 @@ async function ramExplore(sp) {
 		let compactError = null;
 		let p2 = '00';
 		let guard = 0;
+		// The P2=00 listing follows the run's command format: compact with the
+		// chained GET RESPONSE (the live card) or wrapped unchained (the TCA
+		// loader's form).  The format is pinned per send, so a chain can never
+		// ride inside an expanded packet.
+		const listingFmt = ramFormatIsExpanded(sp.ram_format) ? sp.ram_format : 'compact';
 		while (guard++ < 32) {
-			const apdu = ramGetStatusApdu(p1, p2);
+			const apdu = ramGetStatusApdu(p1, p2, listingFmt);
 			ramShowProgress(label + ' P1=' + p1 + ' P2=' + p2 + '...');
-			const res = await sendOta(apdu, Object.assign({}, sp, { cntr, spi2 }));
+			const res = await sendOta(apdu, Object.assign({}, sp, { cntr, spi2, ram_format: listingFmt }));
 			if (cntrLow) break;
 			// Reuse the format detected for the first packet of this run
 			if (res.ram_format) sp.ram_format = res.ram_format;
@@ -9739,7 +9777,9 @@ async function ramExplore(sp) {
 				break;
 			}
 			// Defensive: a remote 61XX means the data is still pending (the
-			// chained GET RESPONSE normally prevents this).
+			// chained GET RESPONSE normally prevents this; the expanded format
+			// has no chain, so such a page yields nothing and the expanded TLV
+			// pass below provides the listing).
 			if (sw && sw.startsWith('61')) {
 				if (data) {
 					const parsed61 = parser(data);
@@ -9774,7 +9814,7 @@ async function ramExplore(sp) {
 			const out = await expandedPass(p1, label, parser, spi2);
 			expandedReport.push({ p1: p1, label: label, compact: collector.length > before,
 				form: out.form, sw: out.sw, entries: out.entries,
-				transport: out.transport, more: out.more });
+				transport: out.transport, more: out.more, fmt: out.fmt });
 			if (collector.length === before) {
 				// Nothing from the compact pass: the expanded result is the listing
 				collector.push(...out.parsed);
@@ -12067,6 +12107,28 @@ function spCntrLow(res) {
 // Remote-command status words that count as success (mirrors the server's
 // `_ram_remote_sw_ok`): 9000 normal; 61xx more data available; 62xx/63xx
 // warnings; CAFE GlobalPlatform "more data available" (GET STATUS pages).
+// True for the two expanded command formats (TS 102 226 5.2.1).  The expanded
+// format does not use GET RESPONSE (5.2.1.1): a command may never be chained
+// there - the reference TCA loader sends the same P2=00 listing queries
+// wrapped and unchained (Le='00' returns the listing directly), while the
+// live card serves them compact with the chain.  The listing builders follow
+// the run's command format for exactly that reason.
+function ramFormatIsExpanded(fmt) {
+	return fmt === 'expanded' || fmt === 'expanded-ae';
+}
+
+// The command-format ladder of one expanded-registry form (pure): the run's
+// format first (null = no override), then the two expanded codings and
+// compact as the last resort - cards differ in which one they serve (the live
+// ISD refuses the compact P2=02 query and answers it wrapped).  A format that
+// already produced data (`working`) is tried first and never repeated.
+function ramFmtLadder(runFmt, working) {
+	const ladder = [null, 'expanded', 'expanded-ae', 'compact'].filter((v, i, a) =>
+		a.indexOf(v) === i && (v === null || v !== runFmt));
+	if (!working) return ladder;
+	return [working].concat(ladder.filter(f => f !== null && f !== working));
+}
+
 function ramRemoteSwOk(sw) {
 	const s = (sw || '').toUpperCase();
 	return !!s && (s === '9000' || s === 'CAFE' ||
@@ -12079,8 +12141,15 @@ function ramRemoteSwOk(sw) {
 // payload.  The expanded TLV format (P2.b2=1, P2=02/03) must NOT carry a GET
 // RESPONSE - it returns the E3 templates directly - so this builder is only
 // for the compact path.
-function ramGetStatusApdu(p1, p2) {
-	return '80F2' + p1 + p2 + '024F0000' + 'C0000000';
+function ramGetStatusApdu(p1, p2, fmt) {
+	// The chained GET RESPONSE exists in the compact command format only: the
+	// expanded format must not carry one (TS 102 226 5.2.1.1), and the
+	// reference TCA loader sends the same queries wrapped and unchained
+	// (`AA0A2208 80F24000024F0000`; Le='00' returns the listing directly).
+	// `fmt` is the run's command format; omitted = compact (the default the
+	// live card needs).
+	const query = '80F2' + p1 + p2 + '024F0000';
+	return ramFormatIsExpanded(fmt) ? query : query + 'C0000000';
 }
 
 // P2=02 expanded (E3) registry listing (GP Card Spec 11.4.2.3/11.4.3.1).
