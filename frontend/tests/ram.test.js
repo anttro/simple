@@ -27,7 +27,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
-	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
+	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
@@ -852,18 +852,21 @@ test('ramCntrLowHtml states the facts without a fabricated counter', () => {
 	globalThis.t = s => s;
 	const out = ramCntrLowHtml(2);
 	const noPreset = ramCntrLowHtml(-1);
+	// the notice follows the failed operation's view ('sp' -> its own keyset)
+	const spView = ramCntrLowHtml(1, 'sp');
 	delete globalThis.t;
 	assert.ok(out.includes('Low counter \u2014 the card rejected the packet'), out);
 	// the PoR's CNTR is a copy of the command's counter, never the card's: no
 	// value may be shown (v3.9.x), only the verdict and the two actions
 	assert.ok(!out.includes('card counter'), out);
-	assert.ok(out.includes('onclick="ramSyncCounter(2)"'), out);
+	assert.ok(out.includes('onclick="ramSyncCounter(2, \'ram\')"'), out);
 	assert.ok(out.includes('Sync counter'), out);
 	assert.ok(out.includes('onclick="ramGoToPreset(2)"'), out);
 	assert.ok(out.includes('Go to preset'), out);
 	// without a known preset the buttons still work (-1)
 	assert.ok(noPreset.includes('onclick="ramGoToPreset(-1)"'), noPreset);
-	assert.ok(noPreset.includes('onclick="ramSyncCounter(-1)"'), noPreset);
+	assert.ok(noPreset.includes('onclick="ramSyncCounter(-1, \'ram\')"'), noPreset);
+	assert.ok(spView.includes('onclick="ramSyncCounter(1, \'sp\')"'), spView);
 });
 
 test('the explorer shows versions on app and ISD rows too', () => {
@@ -875,6 +878,19 @@ test('the explorer shows versions on app and ISD rows too', () => {
 	delete globalThis.t;
 	assert.ok(out.includes('Version: 0.1'), out);
 	assert.ok(out.includes('Version: 9.3'), out);
+});
+
+test('ramStepLine names a bad-format failure instead of "PoR ok"', () => {
+	globalThis.t = s => s;
+	const line = ramStepLine({ name: 'P2=02 (lean)', por_status: 'por_ok',
+		por_error: 'bad format 02 (wrong length)', por_bad_format: '02',
+		por_bad_format_name: 'wrong length' }, 0);
+	const plain = ramStepLine({ name: 'LOAD', por_status: 'por_ok', por_sw: '9000' }, 1);
+	delete globalThis.t;
+	assert.ok(line.includes('bad format 02 (wrong length)'), line);
+	assert.ok(!line.includes('PoR ok'), line);
+	// a healthy step is unchanged
+	assert.ok(plain.includes('9000') || plain.includes('PoR ok'), plain);
 });
 
 test('the Explore retries the ELF tag lists with P1=20 and per applet AID', () => {
@@ -908,9 +924,11 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	// preset, the keyset the failed operation used and its SPI/TAR
 	const sync = extractFunc(html, 'ramSyncCounter');
 	assert.ok(sync.includes("'/api/counter-probe'"), sync);
-	assert.ok(sync.includes("kvnOf('ram-keyset-sel')"), sync);
-	assert.ok(sync.includes("kvnOf('sp-keyset-sel')"), sync);
+	assert.ok(sync.includes("own = view === 'sp'"), sync);
+	assert.ok(sync.includes('kvnOf(own)'), sync);
+	assert.ok(sync.includes('kvnOf(other)'), sync);
 	assert.ok(sync.includes("getElementById('sp-cntr')"), sync);
+	assert.ok(sync.includes('spKeysetSync()'), 'the keyset labels must refresh');
 });
 
 test('the RAM form offers the command format choice', () => {

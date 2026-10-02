@@ -393,6 +393,31 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         # the verdict is reported without a value (v3.9.x)
         self.assertNotIn('card_cntr', resp)
         self.assertNotIn('suggested_cntr', resp)
+        # a rejected packet reports no counter to use next either (v3.9.x):
+        # the store must not move on a packet the card did not consume
+        self.assertNotIn('final_cntr', resp)
+
+    def test_send_ota_reports_the_next_counter_only_when_accepted(self):
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': '027100000b0a00000000000000bb0000'}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                'response_status': 'por_ok', 'tar': '000000', 'cntr': '00000000BB',
+                'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': ''}),
+        ]
+        self.server.app = object()      # the send path only checks truthiness
+        for p in patches:
+            p.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'cntr': '00000000BB'})
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['final_cntr'], '00000000BC')
 
     def test_the_ram_chain_stops_at_a_low_counter(self):
         calls = []
@@ -516,6 +541,48 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         self.assertEqual(resp['presets'], [])
         self.assertEqual(resp['path'], str(self.store.path))
+
+    def test_counter_probe_endpoint(self):
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        status, resp = self._post('/api/counter-probe', {})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('preset_id', resp['error'])
+        status, resp = self._post('/api/counter-probe', {'preset_id': 'nope'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('unknown preset', resp['error'])
+        # a walk that never gets accepted leaves the store untouched
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               lambda *a, **k: ('00' * 20, {})), \
+             mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                 'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                 'response_data': '027100000b0a00000000000000000000'}), \
+             mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                 'response_status': 'cntr_low', 'tar': '000000', 'cntr': '0000000000',
+                 'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': ''}):
+            status, resp = self._post('/api/counter-probe',
+                                      {'preset_id': pid, 'max_attempts': 2})
+        self.assertEqual(status, 200, resp)
+        self.assertFalse(resp['success'], resp)
+        self.assertEqual(resp['packets'], 2)
+        self.assertEqual(resp['stopped'], 'attempts')
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000001')
+        # an accepted walk stores accepted+1 (the first ladder value)
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               lambda *a, **k: ('00' * 20, {})), \
+             mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                 'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                 'response_data': '027100000b0a00000000000000000000'}), \
+             mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                 'response_status': 'por_ok', 'tar': '000000', 'cntr': '0000000002',
+                 'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': ''}):
+            status, resp = self._post('/api/counter-probe', {'preset_id': pid})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['success'], resp)
+        self.assertEqual(resp['accepted_cntr'], '0000000002')
+        self.assertEqual(resp['stored_cntr'], '0000000003')
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000003')
 
     def test_create_update_delete_round_trip(self):
         status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))

@@ -8335,6 +8335,8 @@ async function pysimSendOta() {
 			if (por && por.response_status) {
 				msg += ' | PoR status: ' + por.response_status + ' (TAR ' + por.tar + ')';
 				if (por.cntr) msg += ' | PoR CNTR: ' + por.cntr;
+				if (por.bad_format) msg += ' | ' + t('bad format') + ' ' + por.bad_format +
+					(por.bad_format_name ? ' (' + por.bad_format_name + ')' : '');
 				if (por.decoded && por.decoded.last_status_word) msg += ' | last SW ' + por.decoded.last_status_word + ' ' + (por.decoded.last_response_data || '');
 				const okPor = por.response_status === 'por_ok';
 				porStatusEl.textContent = 'PoR: ' + por.response_status;
@@ -9503,26 +9505,33 @@ function ramDeriveElfVersions(elfs, apps) {
 // Render the full explorer result as structured HTML
 function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 	let html = '';
+	// The card's ETSI release needs only the ELF list: it shows inside the
+	// resources box when that exists, and on its own line when the memory
+	// query failed
+	const etsi = cardEtsiRelease(elfs);
+	let etsiHtml = '';
+	if (etsi) {
+		let val;
+		if (etsi.release) val = etsi.release + (etsi.basis ? ' (' + etsi.basis + ')' : '');
+		else if (etsi.basis) val = t('unknown') + ' (' + etsi.basis + ')';
+		else val = t('unknown') + ' \u2014 ' + ramElfVersionHint(elfForm);
+		etsiHtml = '<div title="' + esc(t('Inferred from the card\'s installed uicc.toolkit package version (the same table as the CAP analysis); the expanded registry query provides the versions.')) + '">' +
+			esc(t('ETSI release:')) + ' ' + esc(val) + '</div>';
+	}
 	if (mem && (mem.appCount != null || mem.freeNV != null || mem.freeV != null)) {
 		html += '<div class="mb-4 p-3 bg-gray-50 dark:bg-slate-800 rounded">';
 		html += '<div class="font-semibold text-sm mb-1" title="' + esc(t('Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory')) + '">' + esc(t('Card resources (GET DATA FF21)')) + '</div>';
 		html += '<div>' + esc(t('Applications:')) + ' ' + (mem.appCount != null ? mem.appCount : '?') + '</div>';
 		html += '<div>' + esc(t('Free NV:')) + ' ' + (mem.freeNV != null ? mem.freeNV + ' B' : '?') + '</div>';
 		html += '<div>' + esc(t('Free Volatile:')) + ' ' + (mem.freeV != null ? mem.freeV + ' B' : '?') + '</div>';
-		const etsi = cardEtsiRelease(elfs);
-		if (etsi) {
-			let val;
-			if (etsi.release) val = etsi.release + (etsi.basis ? ' (' + etsi.basis + ')' : '');
-			else if (etsi.basis) val = t('unknown') + ' (' + etsi.basis + ')';
-			else val = t('unknown') + ' \u2014 ' + ramElfVersionHint(elfForm);
-			html += '<div title="' + esc(t('Inferred from the card\'s installed uicc.toolkit package version (the same table as the CAP analysis); the expanded registry query provides the versions.')) + '">' +
-				esc(t('ETSI release:')) + ' ' + esc(val) + '</div>';
-		}
+		html += etsiHtml;
 		if (fmt) {
 			html += '<div title="' + esc(t('compact = the TS 102 226 5.2.1 command string (one C-APDU per secured packet, e.g. GET STATUS + GET RESPONSE); expanded = the AA/22 Command Scripting template (5.2.1.0).  Detected per operation with a read-only GET STATUS probe; a card that rejects the deprecated compact P2.b2=0 form answers the expanded one.')) + '">' +
 				esc(t('RAM command format:')) + ' ' + esc(fmt) + '</div>';
 		}
 		html += '</div>';
+	} else if (etsiHtml) {
+		html += '<div class="mb-4 text-xs text-gray-600 dark:text-slate-400">' + etsiHtml + '</div>';
 	}
 	if (expanded) {
 		html += '<div class="mb-4 text-xs text-gray-600 dark:text-slate-400">' + esc(expanded) + '</div>';
@@ -10173,7 +10182,13 @@ function ramStepLine(s, idx, comps, blockSize) {
 		if (s.bytes) line += ' \u00b7 ' + s.bytes + ' B';
 		if (s.segments > 1) line += ' / ' + s.segments + ' SMS';
 	} else {
-		if (s.por_status === 'por_ok') line += t('PoR ok');
+		if (s.por_bad_format) {
+			// the card parsed the scripting template but aborted on a
+			// malformed command (TS 102 226 5.2.2 Bad format TLV): there is no
+			// remote status word to show
+			line += t('bad format') + ' ' + s.por_bad_format +
+				(s.por_bad_format_name ? ' (' + s.por_bad_format_name + ')' : '');
+		} else if (s.por_status === 'por_ok') line += t('PoR ok');
 		else if (s.por_status === 'no_por') line += t('no PoR');
 		else if (s.por_status && s.por_status.indexOf('por_error') === 0) {
 			const legacy = s.por_status.replace(/^por_error_?/, '');
@@ -10519,8 +10534,9 @@ async function ramCompatTest(sp) {
 	if (probeNote) modal += '<div class="mt-2 text-gray-500 dark:text-slate-400">' + esc(probeNote) + '</div>';
 	modal += ramCompatDetailHtml(data, mem);
 	if (spCntrLow(data)) {
-		modal += ramCntrLowHtml(ramCntrLowPresetIdx());
-		ramShowCntrLow();
+		const v = ramCntrLowView();
+		modal += ramCntrLowHtml(ramCntrLowPresetIdx(v), v);
+		ramShowCntrLow(undefined, v);
 	}
 	ramOpModalFinish(verdict, !!data.imports_ok, modal, true);
 }
@@ -10880,27 +10896,42 @@ function ramNvLine(data) {
 
 // The preset the failed operation used (the RAM form's selection, else the
 // SCP80 form's) - the "Go to preset" target.
-function ramCntrLowPresetIdx() {
+// The view a low-counter notice came from ('ram' | 'sp'): the notice's
+// actions (sync probe, preset jump) must follow the failed operation's view -
+// the two views can sit on different presets.
+function ramCntrLowView() {
+	const pick = id => {
+		const el = document.getElementById(id);
+		const i = el && el.value !== '' ? parseInt(el.value, 10) : NaN;
+		return (!isNaN(i) && cards[i]) ? i : -1;
+	};
+	return pick('ram-card-sel') >= 0 ? 'ram' : 'sp';
+}
+
+function ramCntrLowPresetIdx(view) {
 	const pick = id => {
 		const el = document.getElementById(id);
 		const i = el && el.value !== '' ? parseInt(el.value, 10) : NaN;
 		return (!isNaN(i) && cards[i]) ? i : -1;
 	};
 	const ram = pick('ram-card-sel');
-	return ram >= 0 ? ram : pick('sp-card-sel');
+	const sp = pick('sp-card-sel');
+	if (view === 'sp') return sp >= 0 ? sp : ram;
+	return ram >= 0 ? ram : sp;
 }
 
 // Low-counter notice (pure HTML): the facts plus two actions - a bounded
 // counter sync probe and a button that opens the failed operation's preset in
 // the Cards tab, where the counter can be raised by hand.
-function ramCntrLowHtml(presetIdx) {
+function ramCntrLowHtml(presetIdx, view) {
 	const idx = Number.isInteger(presetIdx) && presetIdx >= 0 ? presetIdx : -1;
+	const v = view === 'sp' ? 'sp' : 'ram';
 	const text = t('Low counter') + ' \u2014 ' + t('the card rejected the packet');
 	const btnCls = 'px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 ' +
 		'hover:bg-red-100 dark:hover:bg-red-900/40 whitespace-nowrap';
 	return '<div class="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">' +
 		'<span>' + text + '</span>' +
-		'<button type="button" onclick="ramSyncCounter(' + idx + ')" class="' + btnCls + '">' +
+		'<button type="button" onclick="ramSyncCounter(' + idx + ', \'' + v + '\')" class="' + btnCls + '">' +
 		esc(t('Sync counter')) + '</button>' +
 		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="' + btnCls + '">' +
 		esc(t('Go to preset')) + '</button></div>';
@@ -10908,9 +10939,10 @@ function ramCntrLowHtml(presetIdx) {
 
 // Show the low-counter notice in the RAM result area (and, when the operation
 // modal is still open, in its detail block).
-function ramShowCntrLow(presetIdx) {
-	const idx = presetIdx === undefined ? ramCntrLowPresetIdx() : presetIdx;
-	const html = ramCntrLowHtml(idx);
+function ramShowCntrLow(presetIdx, view) {
+	const v = view === undefined ? ramCntrLowView() : view;
+	const idx = presetIdx === undefined ? ramCntrLowPresetIdx(v) : presetIdx;
+	const html = ramCntrLowHtml(idx, v);
 	const el = document.getElementById('ram-cntr-low');
 	if (el && el.classList) {
 		el.innerHTML = html;
@@ -10927,21 +10959,24 @@ function ramShowCntrLow(presetIdx) {
 // +4, ...) until the card accepts one, stops at a 32-bit ceiling and persists
 // accepted+1.  A rejected attempt changes nothing on the card, so only the
 // accepted packet moves its counter (the card never reports its value).
-async function ramSyncCounter(presetIdx) {
+async function ramSyncCounter(presetIdx, view) {
 	const i = Number(presetIdx);
 	const preset = (Number.isInteger(i) && i >= 0 && cards[i]) ? cards[i] : null;
 	const box = document.getElementById('ram-cntr-low');
 	if (!preset) { alert(t('No card preset selected')); return; }
-	// The keyset the failed operation used: the RAM form's selector, else the
-	// SCP80 form's (both hold the keyset number as their option value).
+	// The keyset the failed operation used: the originating view's selector
+	// first, the other view's as the fallback (both hold the keyset number as
+	// their option value).
 	const kvnOf = id => {
 		const sel = document.getElementById(id);
 		const v = sel && sel.value !== '' ? parseInt(sel.value, 10) : NaN;
 		return Number.isInteger(v) && v > 0 ? v : null;
 	};
+	const own = view === 'sp' ? 'sp-keyset-sel' : 'ram-keyset-sel';
+	const other = own === 'ram-keyset-sel' ? 'sp-keyset-sel' : 'ram-keyset-sel';
 	const val = id => (document.getElementById(id) || {}).value || '';
 	const body = { preset_id: preset.id };
-	const kvn = kvnOf('ram-keyset-sel') || kvnOf('sp-keyset-sel');
+	const kvn = kvnOf(own) || kvnOf(other);
 	if (kvn) body.kvn = kvn;
 	const tar = val('sp-tar').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (tar) body.tar = tar;
@@ -10955,6 +10990,8 @@ async function ramSyncCounter(presetIdx) {
 		const data = await pysimFetch('/api/counter-probe', body);
 		if (data.success) {
 			await cardsFetch();
+			// the keyset selects' labels carry the counter - refresh them too
+			spKeysetSync();
 			const cntrEl = document.getElementById('sp-cntr');
 			if (cntrEl && data.stored_cntr) cntrEl.value = data.stored_cntr;
 			const msg = t('Counter synced') + ': ' + esc(data.accepted_cntr) + ' \u2192 ' +
@@ -11037,8 +11074,9 @@ function ramShowInstallResult(data, okText, capMem) {
 	// low counter: not recoverable by retrying - state it and offer the
 	// bounded sync probe or the preset jump (v3.6.58)
 	if (spCntrLow(data)) {
-		modal += ramCntrLowHtml(ramCntrLowPresetIdx());
-		ramShowCntrLow();
+		const v = ramCntrLowView();
+		modal += ramCntrLowHtml(ramCntrLowPresetIdx(v), v);
+		ramShowCntrLow(undefined, v);
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
 }
@@ -19644,6 +19682,7 @@ const LANG_RU = {
 	'Free NV:': 'Свободно NV:',
 	'ETSI release:': 'Релиз ETSI:',
 	'unknown': 'неизвестно',
+	'bad format': 'неверный формат',
 	'Inferred from the card\'s installed uicc.toolkit package version (the same table as the CAP analysis); the expanded registry query provides the versions.': 'Определяется по версии установленного на карте пакета uicc.toolkit (та же таблица, что и в анализе CAP); версии даёт расширенный запрос реестра.',
 	'Free Volatile:': 'Свободно volatile:',
 	'AID:': 'AID:',

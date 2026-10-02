@@ -1553,10 +1553,11 @@ def _ram_detect_format(server, scc, sp, state):
     """Detect the card's RAM command format for one operation: send the
     read-only GET STATUS [ISD] probe compact, then in the two expanded
     codings; the first format whose remote SW succeeds wins (compact
-    preferred).  Cards implement different subsets - the live ISD answers the
-    definite form with a Bad format TLV (wrong length) and executes the
-    indefinite one, while an RFM applet took the definite form.  Probe
-    packets are recorded as steps and consume counters only when accepted;
+    preferred).  Cards implement different subsets: the reference TCA loader
+    sends the listing queries wrapped and unchained, while the live card needs
+    the compact chain (a length-mismatched template draws a Bad format TLV,
+    which the step result names).  Probe packets are recorded as steps and
+    consume counters only when accepted;
     the result is used for this operation only - the next operation re-checks
     (v3.6.24)."""
     for fmt, apdu in (('compact', _RAM_PROBE_APDU),
@@ -1579,7 +1580,8 @@ def _ram_detect_format(server, scc, sp, state):
 # accepted, so rejected attempts change nothing; the search walks a doubling
 # ladder (start+1, +2, +4, ...) and stops at a ceiling far below the 40-bit
 # maximum, where the counter would get blocked.
-COUNTER_PROBE_DEFAULT_APDU = '00A40000023F00'         # SELECT MF: read-only, applet-visible
+COUNTER_PROBE_DEFAULT_APDU = '00A40000023F00'         # SELECT MF, as TAR_PROBE_DEFAULT_APDU
+                                                     # (a literal: that constant is defined later)
 COUNTER_PROBE_CEILING = 'FFFFFFFF'                    # 32-bit default
 COUNTER_PROBE_MAX_ATTEMPTS = 40                       # doubling covers 40 bits
 
@@ -1810,6 +1812,7 @@ def _ram_step_result(step_name, last_sw, por, por_hex, bytes_, segments):
             # the expanded script was rejected as malformed before executing:
             # there is no remote status word
             step['por_bad_format'] = por['bad_format']
+            step['por_bad_format_name'] = por.get('bad_format_name')
             error = 'bad format %s (%s)' % (por['bad_format'],
                                             por.get('bad_format_name') or '')
         elif pstatus != 'por_ok':
@@ -3793,7 +3796,8 @@ def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None):
 
     The object order follows TS 102 223 6.8.0: command details, device
     identities, Result, then the command-specific data objects (the echoed
-    Duration for POLL INTERVAL, the PLI data for PROVIDE LOCAL INFORMATION)."""
+    Duration for POLL INTERVAL, the PLI data for PROVIDE LOCAL INFORMATION).
+    `dt` is a test seam for the PLI date/time default (see _pli_data_hex)."""
     base = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                   0x82, 0x02, dev_dst, dev_src,
                   0x03, 0x01, 0x00])
@@ -7275,8 +7279,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                         resp = result
                         if ram_format is not None:
                             resp['ram_format'] = ram_format
-                        if _counter_valid(cntr) and counter_tracked:
-                            resp['final_cntr'] = cntr
                         # A warning ENVELOPE may still carry the PoR (the
                         # card's counter verdict): decode it so the caller
                         # sees 'cntr_low' instead of a bare failure.
@@ -7294,6 +7296,15 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 resp.update(low)
                                 sys.stderr.write('OTA CNTR-LOW: the packet counter is not '
                                                  'above the card\'s\n')
+                            # only a packet the card accepted consumes the
+                            # counter (a warning ENVELOPE can still carry a
+                            # por_ok PoR); a rejected one must leave the store
+                            # untouched (v3.9.x - it used to persist the
+                            # packet's own counter here)
+                            if (_counter_valid(cntr) and counter_tracked and
+                                    failed_por.get('response_status') in
+                                    ('por_ok', 'actual_response_sms_submit')):
+                                resp['final_cntr'] = _ram_next_cntr(cntr, True)
                         sys.stderr.write('OTA SEND FAILED: %s\n' % result.get('error'))
                     else:
                         resp = {'success': True, 'sw': result['sw'],
@@ -7358,9 +7369,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         # (v3.8.0).  A pre-built packet may come without a
                         # counter, and a packet whose SPI1 does not ask the card
                         # to check it has none to track - nothing is reported
-                        # then (and int('') never happens).
-                        if _counter_valid(cntr) and counter_tracked:
-                            resp['final_cntr'] = _ram_next_cntr(cntr, accepted)
+                        # then (and int('') never happens).  A rejected verdict
+                        # (cntr_low, PoR error) reports nothing either: the
+                        # store must not move on a packet the card did not
+                        # consume.
+                        if _counter_valid(cntr) and counter_tracked and accepted:
+                            resp['final_cntr'] = _ram_next_cntr(cntr, True)
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive

@@ -30,7 +30,7 @@ let code = '';
 for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr',
 	'getRamSpParams', 'spPorAccepted', 'ramRemoteSwOk', 'ramShowProgress',
 	'ramHideProgress', 'ramDeleteFromExplorer',
-	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramShowCntrLow',
+	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'escHtml', 'esc',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
