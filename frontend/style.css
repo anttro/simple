@@ -2221,10 +2221,6 @@ video {
   .sm\:grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .sm\:grid-cols-3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 1024px) {
@@ -2240,12 +2236,16 @@ video {
     grid-column: span 3 / span 3;
   }
 
+  .lg\:w-56 {
+    width: 14rem;
+  }
+
   .lg\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .lg\:grid-cols-5 {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  .lg\:flex-row {
+    flex-direction: row;
   }
 }/* ===== Theme contrast adjustments ===== */
 

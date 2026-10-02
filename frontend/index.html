@@ -1637,9 +1637,10 @@
 				</div>
 			</div>
 		</div>
-		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+		<div class="flex flex-col lg:flex-row gap-3 mb-3">
+		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 lg:w-56 shrink-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="PIN/ADM">PIN/ADM</legend>
-			<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-2">
+			<div class="space-y-2">
 				<div>
 					<label for="cards-pin1" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">PIN1</label>
 					<input id="cards-pin1" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
@@ -1661,9 +1662,9 @@
 					<input id="cards-adm" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM (optional)">
 				</div>
 			</div>
-			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="All codes are optional: PIN/PUK are 4-8 decimal digits (stored for later use by the card operations — not consumed yet); ADM is the administrator key.">All codes are optional: PIN/PUK are 4-8 decimal digits (stored for later use by the card operations — not consumed yet); ADM is the administrator key.</p>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="All codes are optional">All codes are optional</p>
 		</fieldset>
-		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
+		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TAR">TAR</legend>
 			<table class="w-full text-sm mb-2">
 				<thead><tr>
@@ -1680,6 +1681,7 @@
 			</div>
 			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.">Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.</p>
 		</fieldset>
+		</div>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP80 (GSM 03.48, ETSI TS 102 225)">SCP80 (GSM 03.48, ETSI TS 102 225)</legend>
 			<div class="mb-1 flex items-center justify-between">
@@ -20915,7 +20917,7 @@ const LANG_RU = {
 	'TAR': 'TAR',
 	'Description': 'Описание',
 	'Card presets are stored on the server. A preset carries the card codes (PIN/PUK/ADM), a TAR table (every TAR with its MSL) and several keysets, each with its own number and counter.': 'Пресеты карт хранятся на сервере. Пресет содержит коды карты (PIN/PUK/ADM), таблицу TAR (у каждого TAR свой MSL) и несколько keysets — у каждого свой номер и счётчик.',
-	'All codes are optional: PIN/PUK are 4-8 decimal digits (stored for later use by the card operations — not consumed yet); ADM is the administrator key.': 'Все коды необязательны: PIN/PUK — 4–8 десятичных цифр (сохраняются для будущего использования операциями карты — пока не используются); ADM — администраторский ключ.',
+	'All codes are optional': 'Все коды необязательны',
 	'The first three rows are the fixed role TARs; add further TARs as needed.': 'Первые три строки — фиксированные роли TAR; дополнительные TAR добавляются по необходимости.',
 	'PIN/PUK codes must be 4-8 decimal digits': 'Коды PIN/PUK должны состоять из 4–8 десятичных цифр',
 	'Keysets (number: KIc/KID — counter)': 'Keysets (номер: KIc/KID — счётчик)',

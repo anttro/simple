@@ -174,6 +174,22 @@ test('the ADM input allows the full 4-16 hex digit key', () => {
         'the ADM input must allow 4-16 hex digits (server _verify_adm)');
 });
 
+test('the PIN/ADM and TAR fieldsets share one responsive row', () => {
+    const start = html.indexOf('<div class="flex flex-col lg:flex-row gap-3 mb-3">');
+    assert.ok(start >= 0, 'the PIN/ADM + TAR row is missing');
+    const row = html.slice(start, html.indexOf('id="cards-keysets"'));
+    // both fieldsets live in the row: side by side from lg, stacked below
+    assert.match(row, /data-l10n="PIN\/ADM"/);
+    assert.match(row, /data-l10n="TAR"/);
+    assert.match(row, /class="[^"]*rounded p-3 lg:w-56 shrink-0"/);
+    assert.match(row, /class="[^"]*rounded p-3 flex-1 min-w-0"/);
+    // the codes are a vertical list, label above each input
+    assert.match(row, /class="space-y-2"[\s\S]*?for="cards-pin1"[\s\S]*?id="cards-pin1"/);
+    // the hint is the short form
+    assert.match(row, /data-l10n="All codes are optional"/);
+    assert.ok(!row.includes('not consumed yet'), 'the long codes hint is gone');
+});
+
 test('the Cards tab splits the preset list and the editor into views', () => {
     assert.match(html, /id="cards-list-view"/);
     assert.match(html, /id="cards-editor-view" class="hidden"/);
