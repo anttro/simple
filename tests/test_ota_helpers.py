@@ -2410,17 +2410,64 @@ class CounterProbeTests(unittest.TestCase):
         self.assertEqual(res['packets'], 3)
         self.assertEqual(persisted, [('p1', '0000000C35', 'counter-probe', 2)])
 
-    def test_probe_stops_on_a_non_counter_error(self):
-        def send_fn(p, cntr):
-            return ({'success': False, 'sw': '6200', 'error': 'ENVELOPE failed (6200)'},
-                    {'response_status': 'refused'})
+    def test_probe_saves_a_post_cntr_low_verdict_but_reports_it(self):
+        # a cntr_low -> other-error transition proves the value is above the
+        # card's counter (the packet got past the counter check): keep it, but
+        # report the security error so the settings get looked at
+        persisted = []
 
-        res = _counter_probe(None, None, self._preset(), {'max_attempts': 4},
-                             send_fn=send_fn)
+        class Store:
+            def set_counter(self, pid, cntr, source, kvn=None):
+                persisted.append((pid, cntr, source, kvn))
+
+        server = types.SimpleNamespace(card_presets=Store())
+        verdicts = ['cntr_low', 'rc_cc_ds_failed']
+
+        def send_fn(p, cntr):
+            status = verdicts.pop(0)
+            return ({'success': False, 'sw': '9000', 'bytes': 42, 'segments': 1},
+                    {'response_status': status, 'decoded': {'last_status_word': '9000'}})
+
+        res = _counter_probe(server, None, self._preset(), {}, send_fn=send_fn)
         self.assertFalse(res['success'])
-        self.assertEqual(res['packets'], 1)
         self.assertEqual(res['stopped'], 'error')
-        self.assertIn('6200', res['error'])
+        self.assertTrue(res['counter_saved'])
+        self.assertEqual(res['verdict'], 'rc_cc_ds_failed')
+        self.assertEqual(res['accepted_cntr'], '0000000C30')
+        self.assertEqual(res['stored_cntr'], '0000000C31')
+        self.assertEqual(persisted, [('p1', '0000000C31', 'counter-probe', 2)])
+        self.assertIn('security settings', res['error'])
+
+    def test_probe_does_not_save_a_verdict_without_a_cntr_low(self):
+        # no transition: the value is not established, nothing may be stored
+        def send_fn(p, cntr):
+            return ({'success': False, 'sw': '9000'},
+                    {'response_status': 'rc_cc_ds_failed', 'decoded': {}})
+
+        res = _counter_probe(None, None, self._preset(), {}, send_fn=send_fn)
+        self.assertFalse(res['success'])
+        self.assertFalse(res.get('counter_saved'))
+        self.assertNotIn('stored_cntr', res)
+        self.assertIn('not synced', res['error'])
+
+    def test_probe_treats_an_actual_response_as_accepted(self):
+        # 0x0B: the packet was accepted, the response travels via SMS-SUBMIT
+        persisted = []
+
+        class Store:
+            def set_counter(self, pid, cntr, source, kvn=None):
+                persisted.append((pid, cntr, source, kvn))
+
+        server = types.SimpleNamespace(card_presets=Store())
+
+        def send_fn(p, cntr):
+            return ({'success': True, 'sw': '9000'},
+                    {'response_status': 'actual_response_sms_submit', 'decoded': {}})
+
+        res = _counter_probe(server, None, self._preset(), {}, send_fn=send_fn)
+        self.assertTrue(res['success'])
+        self.assertEqual(res['verdict'], 'actual_response_sms_submit')
+        self.assertEqual(persisted, [('p1', '0000000C2F', 'counter-probe', 2)])
 
     def test_probe_reports_a_ceiling_overrun(self):
         def send_fn(p, cntr):

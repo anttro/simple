@@ -983,6 +983,8 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	assert.ok(sync.includes('spKeysetSync()'), 'the keyset labels must refresh');
 	assert.ok(sync.includes("ramListingSpi2('40')"),
 		'the RAM view must probe with the RAM listing transport (a PoR is required)');
+	assert.ok(sync.includes('data.counter_saved'),
+		'the saved-on-error case must be reported in amber');
 });
 
 test('the RAM form offers the command format choice', () => {

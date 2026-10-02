@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.14.1'
+VERSION = '3.14.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1765,6 +1765,7 @@ def _counter_probe(server, scc, preset, body, send_fn=None):
     if not candidates:
         out['error'] = 'the counter is already at the ceiling %s' % p['ceiling']
         return out
+    saw_low = False
     for cntr in candidates:
         if send_fn is not None:
             send, por = send_fn(p, cntr)
@@ -1803,20 +1804,47 @@ def _counter_probe(server, scc, preset, body, send_fn=None):
         out['attempts'].append(attempt)
         sys.stderr.write('COUNTER-PROBE: %s -> %s\n'
                          % (cntr, pstatus or ('ENVELOPE %s' % (send.get('sw') or '?'))))
-        if pstatus == 'por_ok':
+        if pstatus == 'cntr_low':
+            # the only verdict that keeps the ladder going: the card says the
+            # attempted counter is not above its own
+            saw_low = True
+            continue
+        if pstatus in ('por_ok', 'actual_response_sms_submit', 'actual_response_ussd'):
+            # accepted (an actual-response status means the response travels
+            # via SMS/USSD - the packet itself was accepted)
             stored = _ram_next_cntr(cntr, True)
             _preset_counter_persist(server, preset.get('id'), stored,
                                     'counter-probe', p['kvn'])
-            out.update({'success': True, 'stopped': 'accepted',
+            out.update({'success': True, 'stopped': 'accepted', 'verdict': pstatus,
+                        'counter_saved': True,
                         'accepted_cntr': cntr, 'stored_cntr': stored})
-            sys.stderr.write('COUNTER-PROBE: accepted %s, preset stores %s\n'
-                             % (cntr, stored))
+            sys.stderr.write('COUNTER-PROBE: accepted %s (%s), preset stores %s\n'
+                             % (cntr, pstatus, stored))
             return out
-        if pstatus == 'cntr_low':
-            continue
         out['stopped'] = 'error'
         if pstatus:
-            out['error'] = send.get('error') or ('card verdict: %s' % pstatus)
+            if saw_low:
+                # A cntr_low rejection earlier proved the card's counter is
+                # below this value, so the packet got past the counter check
+                # and failed a later security/permission one (wrong keys,
+                # TAR, level).  Keep the value - it is the sync point the
+                # probe was looking for - but report the error so the
+                # security settings get looked at.
+                stored = _ram_next_cntr(cntr, True)
+                _preset_counter_persist(server, preset.get('id'), stored,
+                                        'counter-probe', p['kvn'])
+                out.update({'counter_saved': True, 'verdict': pstatus,
+                            'accepted_cntr': cntr, 'stored_cntr': stored,
+                            'error': 'card verdict: %s - the counter value was still '
+                                     'saved (accepted %s, stored %s); something is '
+                                     'likely wrong with the security settings'
+                                     % (pstatus, cntr, stored)})
+                sys.stderr.write('COUNTER-PROBE: %s -> %s, value saved (preset stores %s)\n'
+                                 % (cntr, pstatus, stored))
+            else:
+                out['error'] = send.get('error') or (
+                    'card verdict: %s - the counter was not synced '
+                    '(the search never saw a cntr_low rejection)' % pstatus)
         else:
             out['error'] = send.get('error') or (
                 'card verdict: no PoR (the card sent none for SPI2 %s)' % p['spi2'])

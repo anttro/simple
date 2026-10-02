@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.14.1';
+const SIMPLE_VERSION = '3.14.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -11335,15 +11335,24 @@ async function ramSyncCounter(presetIdx, view) {
 		esc(t('Syncing counter...')) + '</div>';
 	try {
 		const data = await pysimFetch('/api/counter-probe', body);
-		if (data.success) {
+		if (data.success || data.counter_saved) {
 			await cardsFetch();
 			// the keyset selects' labels carry the counter - refresh them too
 			spKeysetSync();
 			const cntrEl = document.getElementById('sp-cntr');
 			if (cntrEl && data.stored_cntr) cntrEl.value = data.stored_cntr;
+		}
+		if (data.success) {
 			const msg = t('Counter synced') + ': ' + esc(data.accepted_cntr) + ' \u2192 ' +
 				esc(data.stored_cntr) + '. ' + t('Retry the operation.');
 			if (box) box.innerHTML = '<div class="text-sm text-emerald-600 dark:text-emerald-400">' + msg + '</div>';
+		} else if (data.counter_saved) {
+			// the search stopped on a security verdict, but the value was
+			// saved (a cntr_low rejection preceded it, so it is above the
+			// card's counter) - amber: the security settings need a look
+			const msg = t('Counter sync error') + ': ' + esc(data.error || '') + ' ' +
+				t('Retry the operation.');
+			if (box) box.innerHTML = '<div class="text-sm text-amber-600 dark:text-amber-400">' + msg + '</div>';
 		} else {
 			const msg = t('Counter sync failed') + ': ' + esc(data.error || '');
 			if (box) box.innerHTML = '<div class="text-sm text-red-600 dark:text-red-400">' + msg + '</div>';
@@ -21133,6 +21142,7 @@ const LANG_RU = {
 	'Syncing counter...': 'Синхронизация счётчика...',
 	'Counter synced': 'Счётчик синхронизирован',
 	'Counter sync failed': 'Не удалось синхронизировать счётчик',
+	'Counter sync error': 'Ошибка синхронизации счётчика',
 	'Retry the operation.': 'Повторите операцию.',
 	'No card preset selected': 'Пресет карты не выбран',
 	'Format': 'Формат',

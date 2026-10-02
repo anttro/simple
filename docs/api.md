@@ -306,6 +306,16 @@ read-only `SELECT MF` - the counter advances on the packet's security
 acceptance whatever the applet answers (`6A86`/`6D00` are normal there).  A
 SPI1 without a counter check is refused (400).
 
+The ladder only advances on a `cntr_low` verdict (the card's "your counter is
+not above mine"); **any other verdict stops the search**.  A stop on a
+non-`por_ok` verdict (`rc_cc_ds_failed`, `tar_unknown`, …) *after* at least one
+`cntr_low` keeps the counter value anyway - the earlier rejection proves the
+value is above the card's counter - but the response reports `success: false`,
+`counter_saved: true`, the `verdict` and the saved counter, stating that
+something is likely wrong with the security settings.  Without a prior
+`cntr_low` nothing is saved (the value is not established), and a missing PoR
+is an error too.
+
 **Response:** `{"success": true, "accepted_cntr": "0001000000",
  "stored_cntr": "0001000001", "packets": 3, "stopped": "accepted",
  "attempts": [{"cntr": "…", "por_status": "cntr_low"}, …],
