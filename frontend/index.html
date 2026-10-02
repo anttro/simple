@@ -1710,7 +1710,7 @@
 					<th class="w-14 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KIc key</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID key</th>
-					<th class="w-28 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Counter">Counter</th>
+					<th class="w-28 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Counter (hex)">Counter (hex)</th>
 					<th class="w-12 border-b border-gray-200 dark:border-slate-700"></th>
 				</tr></thead>
 				<tbody id="cards-keysets"></tbody>
@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.13.3';
+const SIMPLE_VERSION = '3.13.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -11999,7 +11999,7 @@ function cardsKeysetRowHtml(ks, i) {
 		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kid" class="' + cls + ' text-center" maxlength="2" placeholder="KID" value="' + esc(ks.kid || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')"></td>' +
 		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kic-key" class="' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '"></td>' +
 		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kid-key" class="' + cls + '" placeholder="KID key (hex)" value="' + esc(ks.kidKey || '') + '"></td>' +
-		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-cntr" class="' + cls + '" maxlength="10" placeholder="Counter" value="' + esc(ks.cntr || '') + '"></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-cntr" class="' + cls + '" maxlength="10" placeholder="0000000001" value="' + esc(ks.cntr || '') + '"></td>' +
 		'<td class="py-1 px-2"><button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove keyset')) + '">\u2715</button></td>' +
 		'</tr>';
 }
@@ -12406,6 +12406,12 @@ async function cardsAdd() {
 		if (ksErr) { alert(ksErr); return; }
 		if (!spKeysetKvnOf(ks.kic) || !spKeysetKvnOf(ks.kid)) {
 			alert(t('Keyset 00 means "no security" and is not a preset keyset'));
+			return;
+		}
+		// The counter is required: 1-10 hex digits - the same rule the server
+		// enforces (whitespace is stripped on both sides)
+		if (!/^[0-9A-F]{1,10}$/.test(ks.cntr.replace(/\s+/g, ''))) {
+			alert(t('Counter must be 1-10 hex digits') + ': ' + (ks.cntr || t('(empty)')));
 			return;
 		}
 	}
@@ -20848,6 +20854,7 @@ const LANG_RU = {
 	'Test script running': 'Выполняется тест-скрипт',
 	'Preset': 'Пресет',
 	'Counter': 'Счётчик',
+	'Counter (hex)': 'Счётчик (hex)',
 	'No run yet.': 'Запусков пока нет.',
 	'running': 'выполняется',
 	'Received': 'Получено',
@@ -21124,6 +21131,7 @@ const LANG_RU = {
 	'Remove TAR': 'Удалить TAR',
 	'Description (optional)': 'Описание (необязательно)',
 	'Every TAR needs three hex bytes': 'Каждый TAR должен состоять из трёх hex-байт',
+	'Counter must be 1-10 hex digits': 'Счётчик должен быть 1-10 hex-цифр',
 	'Every TAR needs its MSL (one hex byte)': 'Каждому TAR нужен MSL (один hex-байт)',
 	'Duplicate TAR in the preset': 'Повторяющийся TAR в пресете',
 	'SPI1 is below the MSL of this TAR': 'SPI1 ниже MSL этого TAR',

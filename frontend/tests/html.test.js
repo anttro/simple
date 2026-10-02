@@ -155,8 +155,8 @@ test('the card editor groups its fields into labelled fieldsets', () => {
     // ... and mirror the TAR table: a fixed-layout table with headers
     assert.match(scp80, /<table class="w-full table-fixed text-sm mb-2">/);
     assert.match(scp80, /<tbody id="cards-keysets">/);
-    for (const h of ['KIc', 'KID', 'KIc key', 'KID key', 'Counter']) {
-        assert.match(scp80, new RegExp('>' + h + '</th>'));
+    for (const h of ['KIc', 'KID', 'KIc key', 'KID key', 'Counter (hex)']) {
+        assert.ok(scp80.includes('>' + h + '</th>'), h);
     }
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);

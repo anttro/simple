@@ -337,7 +337,7 @@ test('the release field is collected, cleared and restored', () => {
 test('saving a preset posts the form with the pre-settled TAR table', async () => {
 	const els = setup();
 	els['cards-name'].value = 'New card';
-	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' });
 	globalThis._cardsKeysetCount = 1;
 	// the role fields are pre-settled by the markup; the test's fake elements
 	// start empty - the defaults fill in
@@ -347,7 +347,7 @@ test('saving a preset posts the form with the pre-settled TAR table', async () =
 	assert.strictEqual(apiCalls[0].path, '/api/presets');
 	assert.strictEqual(apiCalls[0].body.name, 'New card');
 	assert.deepStrictEqual(apiCalls[0].body.keysets, [
-		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '' }]);
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }]);
 	assert.deepStrictEqual(apiCalls[0].body.tars, [
 		{ role: 'isd', tar: '000000', msl: '16', desc: '' },
 		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '' },
@@ -359,7 +359,7 @@ test('saving a preset posts the form with the pre-settled TAR table', async () =
 test('saving refuses a free TAR row without its MSL or with a duplicate TAR', async () => {
 	const els = setup();
 	els['cards-name'].value = 'New card';
-	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' });
 	globalThis._cardsKeysetCount = 1;
 	const seen = [];
 	globalThis.alert = msg => seen.push(msg);
@@ -381,7 +381,7 @@ test('editing a preset updates it by its store id', async () => {
 	globalThis.cards = [presetFixture({ id: 'abc123', name: 'Old' })];
 	globalThis._cardsEditIdx = 0;
 	els['cards-name'].value = 'Renamed';
-	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' });
 	globalThis._cardsKeysetCount = 1;
 	await cardsAdd();
 	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
@@ -629,7 +629,7 @@ test('editing opens the editor with the preset title', () => {
 test('the editor refuses PIN/PUK codes that are not 4-8 digits', async () => {
 	const els = setup();
 	els['cards-name'].value = 'X';
-	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' });
 	globalThis._cardsKeysetCount = 1;
 	const seen = [];
 	globalThis.alert = msg => seen.push(msg);
@@ -643,4 +643,31 @@ test('the editor refuses PIN/PUK codes that are not 4-8 digits', async () => {
 	await cardsAdd();
 	assert.strictEqual(apiCalls.length, 0);
 	assert.match(seen[0], /PUK2/);
+});
+
+test('the editor refuses a counter that is not 1-10 hex digits', async () => {
+	const els = setup();
+	els['cards-name'].value = 'X';
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: 'XYZ' });
+	globalThis._cardsKeysetCount = 1;
+	const seen = [];
+	globalThis.alert = msg => seen.push(msg);
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 0);
+	assert.match(seen[0], /Counter must be 1-10 hex digits/);
+	// a valid value - spaces included, the server strips them - is posted
+	seen.length = 0;
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '00 00 00 00 01' });
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 1, JSON.stringify(seen));
+	assert.strictEqual(apiCalls[0].body.keysets[0].cntr, '00 00 00 00 01');
+	// an empty counter is refused too (the value is required)
+	seen.length = 0;
+	apiCalls.length = 0;
+	els['cards-name'].value = 'X';
+	globalThis._cardsKeysetCount = 1;
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '' });
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 0);
+	assert.match(seen[0], /Counter must be 1-10 hex digits/);
 });
