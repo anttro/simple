@@ -297,12 +297,14 @@ the packet's, TS 102 225 §5.2 Table 3), which is why this probe exists.
 
 All fields except `preset_id` are optional: `kvn` picks a keyset (the first
 otherwise), `tar` defaults to the preset's ISD entry and `spi1` to that TAR's
-MSL, `spi2` to `01`, `cntr` to the
+MSL, `spi2` to the RAM listing transport `21`, `cntr` to the
 keyset's counter, `ceiling` to `FFFFFFFF` (must stay below `FFFFFFFFFF`) and
-`max_attempts` to 40 (clamped to 1–64).  The probe always sends the read-only
-`SELECT MF` - the counter advances on the packet's security acceptance whatever
-the applet answers (`6A86`/`6D00` are normal there).  A SPI1 without a counter
-check is refused (400).
+`max_attempts` to 40 (clamped to 1–64).  The probe needs the PoR verdict, so
+bit b1 of `spi2` is always set (a caller's `00` becomes `01`; the transport
+bits are kept) - without a PoR the probe is blind.  The probe always sends the
+read-only `SELECT MF` - the counter advances on the packet's security
+acceptance whatever the applet answers (`6A86`/`6D00` are normal there).  A
+SPI1 without a counter check is refused (400).
 
 **Response:** `{"success": true, "accepted_cntr": "0001000000",
  "stored_cntr": "0001000001", "packets": 3, "stopped": "accepted",

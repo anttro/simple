@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.14.0'
+VERSION = '3.14.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1639,6 +1639,12 @@ COUNTER_PROBE_DEFAULT_APDU = '00A40000023F00'         # SELECT MF, as TAR_PROBE_
                                                      # (a literal: that constant is defined later)
 COUNTER_PROBE_CEILING = 'FFFFFFFF'                    # 32-bit default
 COUNTER_PROBE_MAX_ATTEMPTS = 40                       # doubling covers 40 bits
+# The probe's SPI2 default: the RAM listing transport (PoR via SMS-SUBMIT).
+# The probe cannot work without the PoR verdict - with b1 clear a card that
+# honours the bit sends nothing at all (live 2026-10-02: the frontend posted
+# the plain form's SPI2 00 and the probe stopped after one packet), and the
+# live cards answer '01' with actual_response_sms_submit that never arrives.
+COUNTER_PROBE_SPI2 = '21'
 
 
 def _counter_probe_candidates(start_hex, ceiling_hex, max_attempts):
@@ -1716,13 +1722,19 @@ def _counter_probe_params(preset, body):
     if not _counter_tracked(spi1):
         raise ValueError('the probe needs a counter check - SPI1 %s has none '
                          '(b5b4 = 00)' % spi1)
+    spi2 = str(body.get('spi2') or COUNTER_PROBE_SPI2).strip().upper()
+    if not re.fullmatch(r'[0-9A-F]{2}', spi2):
+        raise ValueError('invalid SPI2')
+    # b1 (PoR required) is forced - the probe is blind without the verdict;
+    # the caller's transport bits are kept
+    spi2 = '%02X' % (int(spi2, 16) | 0x01)
     return {
         'kvn': kvn, 'kic': kic, 'kid': kid,
         'kic_key': kic_key, 'kid_key': kid_key,
         'start': start, 'ceiling': ceiling,
         'max_attempts': max_attempts,
         'spi1': spi1,
-        'spi2': str(body.get('spi2') or '01').strip().upper(),
+        'spi2': spi2,
         'tar': tar,
         # the probe command is fixed: read-only SELECT MF, which every applet
         # answers (an error SW is fine - the counter advances on the packet's
@@ -1803,7 +1815,11 @@ def _counter_probe(server, scc, preset, body, send_fn=None):
         if pstatus == 'cntr_low':
             continue
         out['stopped'] = 'error'
-        out['error'] = send.get('error') or ('card verdict: %s' % (pstatus or 'no PoR'))
+        if pstatus:
+            out['error'] = send.get('error') or ('card verdict: %s' % pstatus)
+        else:
+            out['error'] = send.get('error') or (
+                'card verdict: no PoR (the card sent none for SPI2 %s)' % p['spi2'])
         return out
     if stop == 'ceiling':
         out['error'] = ('no counter up to the ceiling %s was accepted - the card\'s '

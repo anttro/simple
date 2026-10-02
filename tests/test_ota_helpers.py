@@ -2433,6 +2433,29 @@ class CounterProbeTests(unittest.TestCase):
         self.assertLessEqual(len(res['attempts']), 3)
         self.assertIn('raise the preset counter manually', res['error'])
 
+    def test_spi2_always_requests_the_por(self):
+        # the probe cannot work without the PoR verdict: a caller's value
+        # without b1 is corrected (live 2026-10-02: the frontend posted the
+        # plain form's 00 and the probe stopped after one packet), an invalid
+        # one is refused, and the default is the RAM transport
+        self.assertEqual(_counter_probe_params(self._preset(), {})['spi2'], '21')
+        self.assertEqual(_counter_probe_params(self._preset(), {'spi2': '00'})['spi2'], '01')
+        self.assertEqual(_counter_probe_params(self._preset(), {'spi2': '20'})['spi2'], '21')
+        self.assertEqual(_counter_probe_params(self._preset(), {'spi2': '21'})['spi2'], '21')
+        with self.assertRaises(ValueError):
+            _counter_probe_params(self._preset(), {'spi2': 'ZZ'})
+
+    def test_probe_names_the_spi2_when_no_por_arrives(self):
+        def send_fn(p, cntr):
+            return ({'success': True, 'sw': '9000'}, None)
+
+        res = _counter_probe(None, None, self._preset(), {}, send_fn=send_fn)
+        self.assertFalse(res['success'])
+        self.assertEqual(res['stopped'], 'error')
+        self.assertEqual(res['packets'], 1)
+        self.assertIn('no PoR', res['error'])
+        self.assertIn('SPI2 21', res['error'])
+
     def test_probe_params_validation(self):
         # a keyset number the preset does not define
         with self.assertRaises(ValueError) as cm:

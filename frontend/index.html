@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.14.0';
+const SIMPLE_VERSION = '3.14.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -11323,7 +11323,12 @@ async function ramSyncCounter(presetIdx, view) {
 	const tar = val('sp-tar').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (tar) body.tar = tar;
 	if (val('sp-spi1')) body.spi1 = val('sp-spi1');
-	if (val('sp-spi2-hex')) body.spi2 = val('sp-spi2-hex');
+	// The probe needs a PoR: use the transport the failed operation used - the
+	// RAM listings pin SPI2 0x21 (ramListingSpi2); a plain send whose SPI2
+	// requested no PoR cannot raise the low-counter notice, so the form's
+	// value is already PoR-requesting here.
+	if (view === 'ram') body.spi2 = ramListingSpi2('40');
+	else if (val('sp-spi2-hex')) body.spi2 = val('sp-spi2-hex');
 	const cntr = val('sp-cntr').replace(/[^0-9a-fA-F]/g, '');
 	if (cntr) body.cntr = cntr;
 	if (box) box.innerHTML = '<div class="text-sm text-gray-500 dark:text-slate-400">' +
