@@ -26,7 +26,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'ramFormatIsExpanded', 'ramFmtLadder',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedMore', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
+	'ramExpandedReport', 'ramExpandedMore', 'ramPageFormats', 'ramAppsMissingDetails', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
@@ -1628,4 +1628,30 @@ test('ramExpandedMore marks only an unfulfilled 6310', () => {
 	assert.strictEqual(ramExpandedMore(true, '6310', 8), true);
 	// a transport failure (no remote status word) leaves it unfulfilled
 	assert.strictEqual(ramExpandedMore(true, 'index out of range', 2), true);
+	// a probe after a '61xx' page (nothing promised) never flags the listing
+	assert.strictEqual(ramExpandedMore(false, '6A86', 2), false);
+});
+
+test('ramPageFormats tries the expanded codings first, compact last', () => {
+	// the compact command string is last: a compact page attempt can consume
+	// the page without delivering it (the live card's 61xx + failed chain)
+	assert.deepStrictEqual(ramPageFormats('compact'), ['expanded', 'expanded-ae', 'compact']);
+	assert.deepStrictEqual(ramPageFormats('expanded'), ['expanded', 'expanded-ae', 'compact']);
+	assert.deepStrictEqual(ramPageFormats('expanded-ae'), ['expanded-ae', 'expanded', 'compact']);
+	// the run format ('auto') is never a page format: the server's detection
+	// would cost an extra packet per page
+	assert.deepStrictEqual(ramPageFormats('auto'), ['expanded', 'expanded-ae', 'compact']);
+	assert.deepStrictEqual(ramPageFormats(null), ['expanded', 'expanded-ae', 'compact']);
+});
+
+test('ramAppsMissingDetails picks only the entries without expanded fields', () => {
+	assert.deepStrictEqual(ramAppsMissingDetails([
+		{ aid: 'A1', version: '1.0' },
+		{ aid: 'A2' },
+		{ aid: 'A3', sdAid: 'AA' },
+		{ aid: 'A4', menuEntries: [{ position: 1 }] },
+		{ aid: 'A5', rawTlvs: ['8F'] },
+		{ aid: '' },
+	]).map(e => e.aid), ['A2']);
+	assert.deepStrictEqual(ramAppsMissingDetails(null), []);
 });

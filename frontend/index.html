@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.13.0';
+const SIMPLE_VERSION = '3.13.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9564,6 +9564,16 @@ function ramMergeExpanded(collector, parsed) {
 	});
 }
 
+// The app entries that still lack expanded-registry fields (pure): the per-AID
+// completion queries only entries whose AID is known and which carry none of
+// the expanded-only fields (version / SD AID / package AID / menu entries /
+// raw objects) - the bulk listing may have skipped or truncated them.
+function ramAppsMissingDetails(apps) {
+	return (apps || []).filter(e => e && e.aid && !e.version && !e.sdAid &&
+		!e.elfAid && !(e.menuEntries && e.menuEntries.length) &&
+		!(e.rawTlvs && e.rawTlvs.length));
+}
+
 // Group the per-listing expanded outcomes (pure): one group per label, best
 // outcome wins (a pass that returned entries > an accepted-but-empty pass >
 // a refusal), so a listing queried twice (P1=10 and then the P1=20 fallback)
@@ -9599,11 +9609,12 @@ function ramExpandedGroups(report) {
 	return groups;
 }
 
-// The "more occurrences" flag of one expanded-registry page pass (pure): a
-// page that promised more data ('6310', or an accepted chained retry) is
-// fulfilled by the next accepted page; it stays set when the follow-up was
-// refused/failed or the page cap stopped the loop - only then is the listing
-// "first page only".
+// The "more occurrences" flag of one expanded-registry page pass (pure): only
+// an explicit '6310' promise counts.  The pass tries every command format for
+// the follow-up pages, so a page that no format serves is the card's final
+// answer when nothing was promised (the probe after a '61xx' page) - only a
+// promise that stays unfulfilled (a refused follow-up or the page cap) makes
+// the listing "first page only".
 function ramExpandedMore(promised, sw, page) {
 	if (!promised) return false;
 	if (page >= 8) return true;
@@ -9885,6 +9896,10 @@ async function ramExplore(sp) {
 	// told to raise the preset counter (v3.6.58).  Every send of the run goes
 	// through sendOta() so the verdict is caught wherever it appears.
 	let cntrLow = false;
+	// The user's format selection before the run adopts a detected format: the
+	// exhaustive per-AID completion is an Auto behavior (a pinned format keeps
+	// the pass to that format's reach).
+	const autoFormat = !sp.ram_format || sp.ram_format === 'auto';
 	async function sendOta(apdu, params) {
 		const res = await ramSendOta(apdu, params);
 		if (!cntrLow && spCntrLow(res)) cntrLow = true;
@@ -9924,16 +9939,18 @@ async function ramExplore(sp) {
 				let accepted = true;
 				let transportError = false;
 				let usedFmt = fmt || runFmt;
-				const sendOne = async (apdu, what) => {
+				const sendOne = async (apdu, what, useFmt) => {
 					ramShowProgress(label + ' P1=' + p1 + ' ' + what + '...');
 					const params = Object.assign({}, sp, { cntr, spi2 });
-					if (fmt) params.ram_format = fmt;
+					const f = useFmt === undefined ? fmt : useFmt;
+					if (f) params.ram_format = f;
 					const res = await ramSendOta(apdu, params);
-					usedFmt = res.ram_format || fmt || sp.ram_format || usedFmt;
+					usedFmt = res.ram_format || f || sp.ram_format || usedFmt;
 					// an explicit fallback format is not adopted as the run's
 					// format - the selected/pinned format keeps applying to the
-					// other passes
-					if (!fmt && res.ram_format) sp.ram_format = res.ram_format;
+					// other passes (only a ladder send without an explicit
+					// format adopts the one the server detected)
+					if (!f && res.ram_format) sp.ram_format = res.ram_format;
 					if (res.final_cntr) cntr = res.final_cntr;
 					else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
 					if (!res.success || !res.por || !spPorAccepted(res.por)) {
@@ -9950,29 +9967,49 @@ async function ramExplore(sp) {
 				let promised = false;
 				while (accepted && page++ < 8) {
 					const apdu = ramExpandedQueryApdu(p1, form, page > 1);
-					const what = (page > 1 ? 'P2=03 (' : 'P2=02 (') + form +
-						(fmt ? ', ' + fmt : '') + ')';
-					data += await sendOne(apdu, what);
-					if (cntrLow || !accepted) break;
-					// '61xx': the card holds the response data - the GET RESPONSE
-					// must ride in the same compact command string (a standalone
-					// one answers 6700 on the live card); the expanded format
-					// has no command string, so there is no retry there.
-					const pending = /^61[0-9A-F]{2}$/.test(sw);
-					if (pending && !ramFormatIsExpanded(usedFmt)) {
-						data += await sendOne(ramChainGetResponse(apdu), what + ' + GET RESPONSE');
+					// A follow-up page is tried in every command format: a card
+					// may serve the next occurrence only in a specific one (the
+					// live card refuses the compact P2=03 and serves it wrapped
+					// in the 'AA' template) - Auto fetches every reachable page.
+					// The expanded codings come first: a compact page attempt can
+					// consume the page without delivering it.  The format that
+					// serves a page is kept for the next ones.
+					const pageFmts = page > 1 ? ramPageFormats(usedFmt) : [fmt];
+					let served = false;
+					let pending = false;
+					for (const pf of pageFmts) {
+						if (cntrLow) break;
+						const what = (page > 1 ? 'P2=03 (' : 'P2=02 (') + form +
+							(pf ? ', ' + pf : '') + ')';
+						let chunk = await sendOne(apdu, what, pf);
 						if (cntrLow || !accepted) break;
+						// '61xx': the card holds the response data - the GET
+						// RESPONSE must ride in the same compact command string (a
+						// standalone one answers 6700 on the live card); the
+						// expanded format has no command string, so there is no
+						// retry there.
+						pending = /^61[0-9A-F]{2}$/.test(sw);
+						if (pending && !ramFormatIsExpanded(usedFmt)) {
+							chunk += await sendOne(ramChainGetResponse(apdu),
+								what + ' + GET RESPONSE', pf);
+							if (cntrLow || !accepted) break;
+						}
+						if (!ramRemoteSwOk(sw)) continue;   // refused: next format
+						data += chunk;
+						served = true;
+						break;
 					}
-					// the ISD is a single occurrence (GP 11.4.2.2); '6310' means
-					// more occurrences, and a '61xx' page may mask that signal
-					// (the GET RESPONSE's own SW replaces it) - try one more page
+					if (cntrLow || !accepted) break;
+					if (!served) break;   // no format serves this page
+					// the ISD is a single occurrence (GP 11.4.2.2)
 					if (p1 === '80') break;
-					// continue only when the answer really says 'more occurrences'
-					// or the chained retry was accepted (a '61xx' page masks the
-					// 6310 signal with the GET RESPONSE's own SW); a refused retry
-					// must not cost another packet (v3.7.0)
-					if (sw !== '6310' && !(pending && ramRemoteSwOk(sw))) break;
-					promised = true;
+					// an explicit '6310' promises more occurrences
+					if (sw === '6310') { promised = true; continue; }
+					// a '61xx' page may mask the 6310 signal (the GET RESPONSE's
+					// own SW replaces it) - probe one more page, but only a real
+					// promise is reported when it stays unfulfilled
+					if (pending && ramRemoteSwOk(sw)) continue;
+					break;
 				}
 				// An unfulfilled 6310 only: a follow-up page that was accepted and
 				// ended the listing fulfils the promise.
@@ -10156,6 +10193,42 @@ async function ramExplore(sp) {
 		}
 	}
 	await elfTagListRetry();
+
+	// Auto: the bulk listing may still miss expanded details (a card whose
+	// next-occurrence query is refused in every command format, or an entry
+	// the expanded listing skipped).  Those entries are queried individually
+	// by AID - the AID search qualifier selects one entity, and the apps tag
+	// list works even where the ELF one is refused.  Bounded (<= 6 packets),
+	// one entry per query, only for entries with no expanded fields at all;
+	// the compact command string carries the GET RESPONSE for a 61xx answer.
+	async function appsPerAidDetails() {
+		if (!autoFormat) return;
+		for (const e of ramAppsMissingDetails(apps).slice(0, 6)) {
+			if (cntrLow) break;
+			ramShowProgress(t('Details') + ' ' + e.aid + '...');
+			const apdu = ramExpandedQueryApdu('40', 'tags', false, e.aid);
+			const send = async a => {
+				const res = await sendOta(a, Object.assign({}, sp,
+					{ cntr, spi2: ramListingSpi2('40'), ram_format: 'compact' }));
+				if (res.ram_format) sp.ram_format = res.ram_format;
+				if (res.final_cntr) cntr = res.final_cntr;
+				else if (res.success && spPorAccepted(res.por)) cntr = ramIncrementCntr(cntr);
+				return res;
+			};
+			let res = await send(apdu);
+			if (!res.success || !res.por || !spPorAccepted(res.por)) continue;
+			let sw = ((res.por.decoded && res.por.decoded.last_status_word) || '').toUpperCase();
+			if (/^61[0-9A-F]{2}$/.test(sw)) {
+				res = await send(ramChainGetResponse(apdu));
+				if (!res.success || !res.por || !spPorAccepted(res.por)) continue;
+			}
+			const data = res.por.decoded ? (res.por.decoded.last_response_data || '') : '';
+			const parsed = data ? ramParseAppStatus(data) : [];
+			const hit = parsed.find(x => x.aid && x.aid.toUpperCase() === e.aid.toUpperCase());
+			if (hit) ramMergeExpanded([e], [hit]);
+		}
+	}
+	await appsPerAidDetails();
 
 	// A package whose own listing carries no version may still be known from
 	// its applet instance (the app entry carries the load file version and the
@@ -12662,6 +12735,23 @@ function ramFmtLadder(runFmt, working) {
 		a.indexOf(v) === i && (v === null || v !== runFmt));
 	if (!working) return ladder;
 	return [working].concat(ladder.filter(f => f !== null && f !== working));
+}
+
+// The command formats to try for a next-occurrence page: the expanded codings
+// first, the compact command string last.  A compact next-occurrence attempt
+// can *consume* the page on a card that processes it but cannot deliver the
+// pending data (the live card answers '61xx' and the chained GET RESPONSE
+// fails - every later format then sees the occurrence already consumed), while
+// the expanded codings return the page inline (the live card serves it wrapped
+// in the 'AA' template).  The format that served the previous page is kept
+// first when it is one of the expanded codings; the run format ('auto') is
+// never returned: the server's format detection would cost an extra packet
+// per page.
+function ramPageFormats(working) {
+	const w = working && working !== 'auto' ? working : null;
+	const head = (w && w !== 'compact') ? [w] : [];
+	const tail = ['expanded', 'expanded-ae'].filter(f => f !== w);
+	return head.concat(tail, ['compact']);
 }
 
 function ramRemoteSwOk(sw) {
