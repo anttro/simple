@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+function extractConst(src, name) {
+	const m = new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);').exec(src);
+	if (!m) throw new Error('const ' + name + ' not found');
+	return 'var ' + name + ' = ' + m[1] + ';\n';
+}
+
 function extractFunc(src, name) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
@@ -22,18 +28,23 @@ function extractFunc(src, name) {
 }
 
 let code = '';
-for (const fn of ['cardsTarValue', 'cardsApplyFields', 'cardsApply',
+for (const fn of ['cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
+	'cardsTarEntry', 'cardsTarMsl', 'cardsApplyFields', 'cardsApply',
 	'spRefreshFromPreset', 'spPorAccepted', 'spNextCntr', 'spPresetIdx',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply',
 	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard',
+	'spTarListRender',
 	'ramKeysetGuard',
 ]) {
 	code += extractFunc(html, fn) + '\n';
 }
+code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES')
+	+ extractConst(html, 'CARDS_MSL_DEFAULT') + code;
 code = 'var _cardsKeysetCount = 0;\nglobalThis.spPresetWarningRender = function() {};\n'
+	+ 'globalThis.spMslWarningRender = function() {};\n'
 	+ 'globalThis.pysimApplyAvailability = function() {};\n' + code;
 code = 'var _genSpBuildStub = function() {};\n' + code;
 eval(code);
@@ -52,10 +63,12 @@ function fakeEnv(selValue, selId, presetCntr) {
 	}
 	els[selId || 'sp-card-sel'] = { value: selValue };
 	globalThis.document = { getElementById: id => els[id] || null };
-	globalThis.cards = [{ name: 'C', cntr: presetCntr, spi1: '16', spi2: '01',
-		kic: '15', kid: '15', tar: '000000', uiccTar: 'B00000',
-		kicKey: 'AA', kidKey: 'BB' }];
-	globalThis._spTarKey = 'uiccTar';
+	globalThis.cards = [{ name: 'C', cntr: presetCntr,
+		kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB',
+		tars: [{ role: 'isd', tar: '000000', msl: '16' },
+			{ role: 'uiccRfm', tar: 'B00000', msl: '16' },
+			{ role: 'usimRfm', tar: 'B00001', msl: '16' }] }];
+	globalThis._spTarKey = 'uiccRfm';
 	globalThis.updateSpKic = () => {};
 	globalThis.updateSpKid = () => {};
 	globalThis.spInvalidate = () => {};
@@ -83,7 +96,7 @@ test('spRefreshFromPreset re-reads the edited preset before an operation', () =>
 test('spRefreshFromPreset for the RAM selector targets the ISD TAR', () => {
 	const env = fakeEnv('0', 'ram-card-sel', '0000000010');
 	assert.strictEqual(spRefreshFromPreset('ram-card-sel'), '0000000010');
-	assert.strictEqual(_spTarKey, 'tar');
+	assert.strictEqual(_spTarKey, 'isd');
 	assert.strictEqual(env.els['sp-tar'].value, '000000');
 });
 

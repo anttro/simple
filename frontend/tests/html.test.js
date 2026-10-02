@@ -144,8 +144,13 @@ test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', 
     assert.match(scp80, />ISD TAR<\/label>/);
     assert.match(scp80, />UICC RFM TAR<\/label>/);
     assert.match(scp80, />ADF RFM TAR<\/label>/);
-    assert.ok(scp80.indexOf('id="cards-spi1"') < scp80.indexOf('id="cards-tar"'),
-        'TAR fields must follow the SPI fields');
+    // the preset-wide SPI1/SPI2 inputs are gone: each TAR carries its MSL
+    assert.ok(!scp80.includes('id="cards-spi1"'), 'the preset-wide SPI1 input is gone');
+    assert.ok(!scp80.includes('id="cards-spi2"'), 'the preset-wide SPI2 input is gone');
+    assert.ok(scp80.indexOf('id="cards-tar"') < scp80.indexOf('id="cards-tar-msl"'),
+        'the ISD MSL input follows its TAR input');
+    assert.match(scp80, /id="cards-tars"/);
+    assert.match(scp80, /onclick="cardsTarAdd\(\)"/);
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it

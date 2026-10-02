@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+function extractConst(src, name) {
+	const m = new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);').exec(src);
+	if (!m) throw new Error('const ' + name + ' not found');
+	return 'var ' + name + ' = ' + m[1] + ';\n';
+}
+
 function extractFunc(src, name, asyncFn) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
@@ -46,6 +52,10 @@ code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
 code += extractFunc(html, 'cardsMatchedPreset') + '\n';
 code += extractFunc(html, 'cardsAdmPresent') + '\n';
+code += extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES') + extractConst(html, 'CARDS_MSL_DEFAULT');
+code += extractFunc(html, 'cardsTarList') + '\n';
+code += extractFunc(html, 'spKeysetList') + '\n';
+code += extractFunc(html, 'spKeysetKvnOf') + '\n';
 code += extractFunc(html, 'cardsScp80Complete') + '\n';
 code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'pysimSetServerAvailable') + '\n';
@@ -339,8 +349,11 @@ test('the ADM badge marks an ADM key in the matching preset', () => {
 
 test('the header SCP80/SCP81 markers follow the matching preset', () => {
 	const { scp80El, scp81El } = setup();
-	globalThis.cards = [{ name: 'C', kic: '15', kid: '15', spi1: '16', spi2: '01',
-		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cards = [{ name: 'C', kic: '15', kid: '15',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY',
+		tars: [{ role: 'isd', tar: '000000', msl: '16' },
+			{ role: 'uiccRfm', tar: 'B00000', msl: '16' },
+			{ role: 'usimRfm', tar: 'B00001', msl: '16' }] }];
 	globalThis.cardsFindByIccid = () => 0;
 	pysimCardStateUpdate(status({ connected: true, card_session: 2, iccid: '89701450001700031958' }));
 	assert.strictEqual(scp80El.textContent, 'SCP80');
@@ -356,8 +369,11 @@ test('the header SCP80/SCP81 markers follow the matching preset', () => {
 
 test('losing the server hides the ADM badge and the preset markers', () => {
 	const { adm, scp80El, scp81El } = setup();
-	globalThis.cards = [{ name: 'C', adm: '0011', kic: '15', kid: '15', spi1: '16', spi2: '01',
-		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cards = [{ name: 'C', adm: '0011', kic: '15', kid: '15',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY',
+		tars: [{ role: 'isd', tar: '000000', msl: '16' },
+			{ role: 'uiccRfm', tar: 'B00000', msl: '16' },
+			{ role: 'usimRfm', tar: 'B00001', msl: '16' }] }];
 	globalThis.cardsFindByIccid = () => 0;
 	pysimCardStateUpdate(status({ connected: true, adm_verified: true, iccid: '89701450001700031958' }));
 	assert.ok(!adm.classes.has('hidden'));

@@ -237,7 +237,7 @@ class CapCompatHttpTests(unittest.TestCase):
             p.start()
         try:
             status, resp = self._post('/api/cap-compat', {
-                'cap_hex': _mini_cap_hex(),
+                'cap_hex': _mini_cap_hex(), 'spi1': '16',
                 'probe_imports': {'A0000000620101': '0.0', 'dead beef': '1.2'},
             })
         finally:
@@ -306,7 +306,7 @@ class RamInstallNvFootprintHttpTests(unittest.TestCase):
         for p in patches:
             p.start()
         try:
-            return self._post('/api/ram-install', {'cap_hex': 'AA'})
+            return self._post('/api/ram-install', {'cap_hex': 'AA', 'spi1': '16'})
         finally:
             for p in reversed(patches):
                 p.stop()
@@ -444,7 +444,7 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         for p in patches:
             p.start()
         try:
-            status, resp = self._post('/api/ram-install', {'cap_hex': 'AA'})
+            status, resp = self._post('/api/ram-install', {'cap_hex': 'AA', 'spi1': '16'})
         finally:
             for p in reversed(patches):
                 p.stop()
@@ -653,6 +653,90 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['final_cntr'], '0000000002')
         self.assertEqual(self.store.find_keyset(p['id'], 1)['cntr'], '0000000002')
 
+    def test_the_spi1_is_derived_from_the_msl_and_a_low_value_warns(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        seen = []
+
+        def fake_decode(spi1, spi2, *a, **k):
+            seen.append(spi1)
+            return None
+
+        patches = [
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': ''}),
+            mock.patch.object(self.srv, '_decode_por', fake_decode),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            # no spi1: derived from the ISD entry's MSL (the store default 16)
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'preset_id': p['id']})
+            self.assertEqual(status, 200, resp)
+            self.assertNotIn('warning', resp)
+            # an explicit value below the MSL wins (a hand send may ask for
+            # less) but the response names the risk
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '0A', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'preset_id': p['id']})
+            self.assertEqual(status, 200, resp)
+            self.assertIn('MSL 16', resp['warning'])
+            # an explicit value above the MSL is fine
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi1': '21', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': '000000', 'preset_id': p['id']})
+            self.assertEqual(status, 200, resp)
+            self.assertNotIn('warning', resp)
+            # a TAR the preset does not carry, without an explicit SPI1:
+            # refused with a hint (guessing the MSL is not an option)
+            status, resp = self._post('/api/send-ota', {
+                'sp': '00', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'tar': 'AF4D01'})
+            self.assertEqual(status, 400, resp)
+            self.assertIn('MSL', resp['error'])
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(seen, ['16', '0A', '21'])
+
+    def test_a_ram_operation_derives_the_spi1_from_the_msl(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        self.store.update(p['id'], {'tars': [
+            {'role': 'isd', 'tar': '000000', 'msl': '1A', 'desc': ''},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': ''},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''}]})
+        captured = []
+
+        def fake_step(server, scc, sp, state, name, apdu, silent=False):
+            captured.append(sp['spi1'])
+            state['steps'].append({'name': name, 'por_status': 'por_ok', 'por_sw': '9000'})
+            return True
+
+        patches = [
+            mock.patch.object(self.srv, '_cap_parse',
+                              lambda cap_hex: ('F0414C46416101', 'F0414C4641610101', b'\x01\x02')),
+            mock.patch.object(self.srv, '_cap_apdu_sequence',
+                              lambda *a, **k: ['80E60200', '80E80000', '80E60000']),
+            mock.patch.object(self.srv, '_ram_detect_format', lambda *a, **k: 'compact'),
+            mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_step),
+            mock.patch.object(self.srv, '_ram_read_ff21', lambda *a, **k: None),
+        ]
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/ram-install', {
+                'cap_hex': 'AA', 'preset_id': p['id'], 'kic': '15', 'kid': '15'})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['success'], resp)
+        self.assertTrue(captured)
+        self.assertEqual(set(captured), {'1A'})
+
     def test_a_counter_less_send_ota_body_still_answers(self):
         # a pre-built packet without a counter: no final_cntr, no persist,
         # and above all no int('') crash (v3.8.0 review fix)
@@ -811,7 +895,7 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.server.app = object()      # the probe only checks truthiness
         with mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_step):
             status, resp = self._post('/api/tar-probe', {
-                'preset_id': p['id'], 'kic': '25', 'kid': '25',
+                'preset_id': p['id'], 'spi1': '16', 'kic': '25', 'kid': '25',
                 'kicKey': 'AA', 'kidKey': 'BB', 'cntr': '0000000005',
                 'tars': ['000000', 'B00000', 'B00001', 'B00200']})
         self.assertEqual(status, 200, resp)

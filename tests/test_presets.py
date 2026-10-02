@@ -91,14 +91,79 @@ class StoreCrudTests(unittest.TestCase):
     def test_add_applies_the_form_defaults_and_assigns_an_id(self):
         p = self.store.add(preset(iccid=DIGITS))
         self.assertTrue(p['id'])
-        self.assertEqual(p['spi1'], '16')
-        self.assertEqual(p['spi2'], '01')
-        self.assertEqual(p['tar'], '000000')
-        self.assertEqual(p['uiccTar'], 'B00000')
-        self.assertEqual(p['usimTar'], 'B00001')
+        self.assertEqual([t['role'] for t in p['tars']],
+                         ['isd', 'uiccRfm', 'usimRfm'])
+        self.assertEqual([t['tar'] for t in p['tars']],
+                         ['000000', 'B00000', 'B00001'])
+        self.assertEqual([t['msl'] for t in p['tars']], ['16', '16', '16'])
+        self.assertNotIn('spi1', p)     # the card-wide SPI1 is gone: per-TAR MSL
+        self.assertNotIn('spi2', p)
         self.assertEqual(p['keysets'][0]['cntr'], '0000000001')
         self.assertEqual(presets.keyset_kvn(p['keysets'][0]), 1)
         self.assertEqual([x['id'] for x in self.store.list()], [p['id']])
+
+    def test_a_preset_carries_extra_tars_with_optional_descriptions(self):
+        p = self.store.add(preset(tars=[
+            {'role': 'isd', 'tar': 'AF4D01', 'msl': '1A'},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'},
+            {'tar': 'AF4D02', 'msl': '0A', 'desc': 'My applet'},
+            {'tar': '', 'msl': '', 'desc': ''},        # a blank editor row
+        ]))
+        self.assertEqual([(t['role'], t['tar'], t['msl']) for t in p['tars']],
+                         [('isd', 'AF4D01', '1A'), ('uiccRfm', 'B00000', '16'),
+                          ('usimRfm', 'B00001', '16'), ('', 'AF4D02', '0A')])
+        self.assertEqual(p['tars'][3]['desc'], 'My applet')
+        self.assertEqual(len(p['tars']), 4)     # the blank row was dropped
+
+    def test_every_tar_needs_its_msl_and_a_unique_tar(self):
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.add(preset(tars=[
+                {'role': 'isd', 'tar': '000000', 'msl': '16'},
+                {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'},
+                {'tar': 'AF4D02', 'msl': ''},
+            ]))
+        self.assertIn('MSL', str(ctx.exception))
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.add(preset(tars=[
+                {'role': 'isd', 'tar': '000000', 'msl': '16'},
+                {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                {'role': 'usimRfm', 'tar': '000000', 'msl': '16'},
+            ]))
+        self.assertIn('duplicate TAR', str(ctx.exception))
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.add(preset(tars=[
+                {'role': 'isd', 'tar': '0000', 'msl': '16'}]))
+        self.assertIn('three hex bytes', str(ctx.exception))
+
+    def test_tar_lookup_helpers(self):
+        p = self.store.add(preset(tars=[
+            {'role': 'isd', 'tar': 'AF4D01', 'msl': '1A'},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'},
+            {'tar': 'AF4D02', 'msl': '0A', 'desc': 'My applet'},
+        ]))
+        self.assertEqual(presets.role_tar(p, 'isd'), 'AF4D01')
+        self.assertEqual(presets.role_tar(p, 'usimRfm'), 'B00001')
+        self.assertEqual(presets.role_tar(p, 'nope'), '')
+        self.assertEqual(presets.tar_msl(p, 'af4d01'), '1A')
+        self.assertEqual(presets.tar_msl(p, 'AF4D02'), '0A')
+        self.assertEqual(presets.tar_msl(p, '123456'), '')
+        self.assertIsNone(presets.tar_entry(p, ''))
+        self.assertEqual(presets.tar_entry(p, 'AF4D02')['desc'], 'My applet')
+
+    def test_update_replaces_the_tar_table(self):
+        p = self.store.add(preset())
+        upd = self.store.update(p['id'], {'tars': [
+            {'role': 'isd', 'tar': 'AF4D01', 'msl': '1A'},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'}]})
+        self.assertEqual(presets.role_tar(upd, 'isd'), 'AF4D01')
+        self.assertEqual(presets.tar_msl(upd, 'AF4D01'), '1A')
+        # a malformed tars value must not silently reset the table
+        again = self.store.update(p['id'], {'tars': 'nonsense'})
+        self.assertEqual(presets.role_tar(again, 'isd'), 'AF4D01')
 
     def test_a_preset_carries_several_keysets(self):
         p = self.store.add(preset(keysets=[keyset(kic='15', kid='15'),
@@ -317,6 +382,21 @@ class StorePersistenceTests(unittest.TestCase):
         self.assertEqual(p['keysets'][0]['cntr'], '0000000007')
         self.assertEqual(p['keysets'][0]['kicKey'], '11')
         self.assertNotIn('cntr', p)
+        # the card-wide spi1 becomes the MSL of all three role entries
+        self.assertEqual([t['msl'] for t in p['tars']], ['16', '16', '16'])
+
+    def test_a_v391_flat_tars_preset_converts_to_the_tar_table(self):
+        path = pathlib.Path(self.tmp.name) / 'card_presets.json'
+        path.write_text(json.dumps({'version': 2, 'presets': [
+            {'name': 'Old', 'tar': 'AF4D01', 'uiccTar': 'B00000',
+             'usimTar': 'B00001', 'spi1': '1A', 'spi2': '21',
+             'keysets': [keyset()]}]}), encoding='utf-8')
+        store = make_store(self.tmp.name)
+        p = store.list()[0]
+        self.assertEqual([t['tar'] for t in p['tars']],
+                         ['AF4D01', 'B00000', 'B00001'])
+        self.assertEqual([t['msl'] for t in p['tars']], ['1A', '1A', '1A'])
+        self.assertNotIn('spi2', p)
 
     def test_no_temporary_files_are_left_behind(self):
         store = make_store(self.tmp.name)

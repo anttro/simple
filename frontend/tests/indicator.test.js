@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+function extractConst(src, name) {
+	const m = new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);').exec(src);
+	if (!m) throw new Error('const ' + name + ' not found');
+	return 'var ' + name + ' = ' + m[1] + ';\n';
+}
+
 function extractFunc(src, name) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
@@ -31,6 +37,8 @@ code += extractFunc(html, 'pysimUpdateStateIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';
+code += extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES') + extractConst(html, 'CARDS_MSL_DEFAULT');
+code += extractFunc(html, 'cardsTarList') + '\n';
 code += extractFunc(html, 'cardsScp80Complete') + '\n';
 code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'cardsMatchedPreset') + '\n';
@@ -176,8 +184,11 @@ test('header prints the equipped card ICCID next to the card image', () => {
 
 test('SCP80/SCP81 markers follow the matching preset completeness', () => {
 	const els = setup();
-	globalThis.cards = [{ name: 'C', kic: '15', kid: '15', spi1: '16', spi2: '01',
-		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY' }];
+	globalThis.cards = [{ name: 'C', kic: '15', kid: '15',
+		cntr: '0000000001', kicKey: 'AA', kidKey: 'BB', pskIdentity: 'id', pskKey: 'KEY',
+		tars: [{ role: 'isd', tar: '000000', msl: '16' },
+			{ role: 'uiccRfm', tar: 'B00000', msl: '16' },
+			{ role: 'usimRfm', tar: 'B00001', msl: '16' }] }];
 	globalThis.cardsFindByIccid = () => 0;
 	_pysimCardIccid = '89701450001700031958';
 	pysimUpdatePresetIndicators();

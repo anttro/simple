@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.9.1'
+VERSION = '3.10.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1503,6 +1503,57 @@ def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
         sys.stderr.write('PRESETS: counter persist failed (%s): %s\n' % (source, e))
 
 
+def _preset_by_id(server, preset_id):
+    """The named card preset, or None (no store configured / unknown id)."""
+    store = getattr(server, 'card_presets', None)
+    if store is None or not preset_id:
+        return None
+    return store.get(preset_id)
+
+
+def _hex_lt(a, b):
+    """Numeric ``a < b`` for two hex byte strings; invalid input is never a
+    comparison (the packet builder's own validation reports it)."""
+    try:
+        return int(a, 16) < int(b, 16)
+    except (TypeError, ValueError):
+        return False
+
+
+def _spi1_for_tar(preset, tar_hex, explicit='', prefer_msl=False):
+    """Resolve the SPI1 of a packet addressed to `tar_hex` from the preset's
+    TAR table.
+
+    Each TAR carries its **MSL** (Minimum SPI1, TS 102 226 8.2.1.3.2.4): the
+    card checks it before the security processing and answers response status
+    0A "Insufficient security level" when the packet's SPI1 is below it, so the
+    MSL is the natural value for packets to that TAR.
+
+    ``prefer_msl=False`` (a hand send): the caller's explicit SPI1 wins - the
+    operator may deliberately send more security than the minimum - and a value
+    below the TAR's MSL only produces a warning.  ``prefer_msl=True`` (an
+    operation): the TAR's MSL wins; the explicit value is the fallback for a
+    TAR the preset does not carry (e.g. the TAR probe's checklist).  Raises
+    ValueError when neither exists - guessing would either be refused by the
+    card or send more security than the application expects.
+    Returns ``(spi1, warning)``."""
+    explicit = str(explicit or '').strip().upper()
+    msl = presets.tar_msl(preset, tar_hex)
+    if prefer_msl and msl:
+        return msl, ''
+    if explicit:
+        warning = ''
+        if msl and _hex_lt(explicit, msl):
+            warning = ('SPI1 %s is below the MSL %s of TAR %s - the card may '
+                       'answer 0A (insufficient security level)'
+                       % (explicit, msl, tar_hex))
+        return explicit, warning
+    if msl:
+        return msl, ''
+    raise ValueError('no MSL for TAR %s in the card preset - set it in the '
+                     'Cards tab or pass spi1' % (tar_hex or '?'))
+
+
 # RAM command formats (TS 102 226 5.2.1): the bare C-APDU (compact) or the
 # Command TLV '22' inside the 'AA' scripting template (expanded) - the form
 # the reference terminal traces use.  The format is detected per operation
@@ -1656,7 +1707,8 @@ def _counter_probe_params(preset, body):
     except (TypeError, ValueError):
         raise ValueError('invalid attempt budget')
     max_attempts = max(1, min(64, max_attempts))
-    spi1 = str(body.get('spi1') or preset.get('spi1') or '16').strip().upper()
+    tar = str(body.get('tar') or presets.role_tar(preset, 'isd') or '').strip().upper()
+    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'), prefer_msl=True)
     if not _counter_tracked(spi1):
         raise ValueError('the probe needs a counter check - SPI1 %s has none '
                          '(b5b4 = 00)' % spi1)
@@ -1666,8 +1718,8 @@ def _counter_probe_params(preset, body):
         'start': start, 'ceiling': ceiling,
         'max_attempts': max_attempts,
         'spi1': spi1,
-        'spi2': str(body.get('spi2') or preset.get('spi2') or '21').strip().upper(),
-        'tar': str(body.get('tar') or preset.get('tar') or '000000').strip().upper(),
+        'spi2': str(body.get('spi2') or '01').strip().upper(),
+        'tar': tar,
         # the probe command is fixed: read-only SELECT MF, which every applet
         # answers (an error SW is fine - the counter advances on the packet's
         # security acceptance, not on the command's own result)
@@ -5594,10 +5646,12 @@ def _test_preset_error(script, preset):
             if not _keyset_complete(ks):
                 return ('step %d: keyset %d is incomplete (KIc, KID, both '
                         'keys and a counter)' % (i + 1, want))
-        if not (p.get('tar') or preset.get('tar')):
+        tar = p.get('tar') or presets.role_tar(preset, 'isd')
+        if not tar:
             return 'step %d: no TAR (neither in the step nor in the preset)' % (i + 1)
-        if not (p.get('spi1') or preset.get('spi1')) or not (p.get('spi2') or preset.get('spi2')):
-            return 'step %d: no SPI1/SPI2 (neither in the step nor in the preset)' % (i + 1)
+        if not (p.get('spi1') or presets.tar_msl(preset, tar)):
+            return ('step %d: no SPI1 for TAR %s (neither in the step nor as '
+                    'its MSL in the preset)' % (i + 1, tar))
     return None
 
 
@@ -5742,9 +5796,14 @@ def _test_run_scp80(server, step, ctx):
     kvn, kvn_err = _kvn_of(kic, kid)
     if kvn_err:
         raise testscript.ScriptError(kvn_err)
-    spi1 = p.get('spi1') or preset.get('spi1') or '16'
-    spi2 = p.get('spi2') or preset.get('spi2') or '01'
-    tar = p.get('tar') or preset.get('tar') or ''
+    tar = p.get('tar') or presets.role_tar(preset, 'isd') or ''
+    try:
+        # a step may override the SPI1 deliberately (the test runner sends what
+        # the operator asked for); the TAR's MSL is the default when absent
+        spi1, _ = _spi1_for_tar(preset, tar, p.get('spi1'))
+    except ValueError as e:
+        raise testscript.ScriptError(str(e))
+    spi2 = p.get('spi2') or '01'
     counters = ctx.setdefault('counters', {})
     if kvn and kvn not in counters:
         counters[kvn] = (keyset or {}).get('cntr') or '00000000'
@@ -7210,14 +7269,29 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            # SPI1 for the packet: the caller's value wins (a hand send may
+            # deliberately ask for more security than the TAR's minimum), with
+            # a warning below the TAR's MSL; without one it is derived from the
+            # MSL of the packet's TAR (TS 102 226 8.2.1.3.2.4 - the card checks
+            # the MSL before the security processing).
+            try:
+                spi1, spi_warn = _spi1_for_tar(
+                    _preset_by_id(self.server, body.get('preset_id')),
+                    str(body.get('tar') or '').strip().upper(), body.get('spi1'))
+            except ValueError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            spi2 = str(body.get('spi2') or '01').strip().upper()
             # Only a packet whose SPI1 asks the card to check the counter has a
             # counter to track (TS 102 225 5.1.1 b5b4): with b5b4 = 00 (the
             # keyless SPI1 00 case) the field is ignored and never updated, so
             # no counter is advanced or persisted.
-            counter_tracked = _counter_tracked(body.get('spi1', ''))
+            counter_tracked = _counter_tracked(spi1)
             if body.get('cntr') and not counter_tracked:
                 sys.stderr.write('OTA SEND: counter not tracked (SPI1 %s: '
-                                 'no counter check)\n' % body.get('spi1', ''))
+                                 'no counter check)\n' % spi1)
             include_cpi = body.get('includeCpi', True)
             ram_format = None
             try:
@@ -7225,8 +7299,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                     # RAM operation: SCP80-wrap the raw GP command.  The packet
                     # may exceed one SMS (pySim refuses that), so use our own
                     # encoder and let _send_secured_packet segment it.
-                    spi1 = body.get('spi1', '16')
-                    spi2 = body.get('spi2', '01')
                     kic = body.get('kic', '25')
                     kid = body.get('kid', '25')
                     tar = body.get('tar', '000000')
@@ -7256,7 +7328,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     # Regular SCP80: use pre-built secured packet
                     sp_hex = sp
                     cntr = body.get('cntr', '')
-                spi2_val = int(body.get('spi2', '00'), 16)
+                spi2_val = int(spi2, 16)
                 # Capture the PoR from either transport: inline in the
                 # ENVELOPE response or as a proactive SEND SHORT MESSAGE (some
                 # cards always submit it, whatever the SPI2 request bit says;
@@ -7269,7 +7341,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     scc._tp.proactive_handler = submit_handler
                 try:
                     sys.stderr.write('OTA SEND: SPI %s %s KIc %s KID %s TAR %s CNTR %s LEN %dB\n' % (
-                        body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                        spi1, spi2, body.get('kic', ''),
                         body.get('kid', ''), body.get('tar', ''), body.get('cntr', ''),
                         len(sp_hex) // 2))
                     sys.stderr.write('RAM C-APDU: %s\n' % apdu if apdu else sp)
@@ -7288,7 +7360,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         failed_por_hex = result.get('response_data') or ''
                         if not failed_por_hex and submit_handler:
                             failed_por_hex = _sms_submit_por(submit_handler)
-                        failed_por = _decode_por(body.get('spi1', ''), body.get('spi2', ''),
+                        failed_por = _decode_por(spi1, spi2,
                                                  body.get('kic', ''), body.get('kid', ''),
                                                  body.get('cntr', ''), body.get('kicKey', ''),
                                                  body.get('kidKey', ''), failed_por_hex)
@@ -7326,7 +7398,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                             if idx >= 0:
                                 por_hex = tpdu_b[idx:].hex()
                                 por_src = 'sms-submit'
-                        por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                        por = _decode_por(spi1, spi2, body.get('kic', ''),
                                           body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
                                           body.get('kidKey', ''), por_hex)
                         # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
@@ -7384,6 +7456,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 if counter_tracked:
                     _preset_counter_persist(self.server, body.get('preset_id'),
                                             resp.get('final_cntr'), 'send-ota', kvn)
+                if spi_warn:
+                    resp['warning'] = spi_warn
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
@@ -7434,12 +7508,23 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # Parse .cap file
                 loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
 
-                # SCP80 params
-                spi1 = body.get('spi1', '16')
+                # SCP80 params: the SPI1 comes from the MSL of the packet's
+                # TAR (the operation uses the preset's table); a caller-supplied
+                # value is only the fallback for a TAR the preset does not carry.
+                preset = _preset_by_id(self.server, body.get('preset_id'))
+                tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
+                          or '000000').strip().upper()
+                try:
+                    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'),
+                                            prefer_msl=True)
+                except ValueError as e:
+                    err = {'success': False, 'error': str(e)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
                 spi2 = body.get('spi2', '01')
                 kic = body.get('kic', '25')
                 kid = body.get('kid', '25')
-                tar = body.get('tar', '000000')
                 cntr = body.get('cntr', '00000000')
                 kic_key = body.get('kicKey', '')
                 kid_key = body.get('kidKey', '')
@@ -7612,9 +7697,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                         stk_params=stk_params_hex, make_selectable=make_selectable)
                     step_name = 'INSTALL [for install]'
                 sp_state = {
-                    'spi1': body.get('spi1', '16'), 'spi2': body.get('spi2', '01'),
+                    'spi1': spi1, 'spi2': body.get('spi2', '01'),
                     'kic': body.get('kic', '25'), 'kid': body.get('kid', '25'),
-                    'tar': body.get('tar', '000000'), 'cntr': body.get('cntr', '00000000'),
+                    'tar': tar, 'cntr': body.get('cntr', '00000000'),
                     'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                     'include_cpi': body.get('includeCpi', True)}
                 # The keyset number must be consistent and defined in the preset
@@ -7723,11 +7808,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                                  '(block size %d)\n' % (loadfile_aid, boundary,
                                                         total_blocks, block_size))
 
-                spi1 = body.get('spi1', '16')
+                preset = _preset_by_id(self.server, body.get('preset_id'))
+                tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
+                          or '000000').strip().upper()
+                try:
+                    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'),
+                                            prefer_msl=True)
+                except ValueError as e:
+                    err = {'success': False, 'error': str(e)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
                 spi2 = body.get('spi2', '01')
                 kic = body.get('kic', '25')
                 kid = body.get('kid', '25')
-                tar = body.get('tar', '000000')
                 cntr = body.get('cntr', '00000000')
                 kic_key = body.get('kicKey', '')
                 kid_key = body.get('kidKey', '')
@@ -7939,16 +8033,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(err)
                 return
             # The probe sends real secured packets: it needs a counter check
-            # (every accepted packet advances and is persisted) and a PoR.
-            spi1 = str(body.get('spi1') or '16').strip().upper()
+            # (every accepted packet advances and is persisted) and a PoR.  Each
+            # TAR uses its own MSL when the preset carries it; the caller's SPI1
+            # is the fallback for the arbitrary TARs the checklist probes.
+            spi1_base = str(body.get('spi1') or '').strip().upper()
             spi2 = str(body.get('spi2') or '01').strip().upper()
-            if not _counter_tracked(spi1):
-                err = {'success': False,
-                       'error': 'the TAR probe needs a counter check - SPI1 %s has '
-                                'none (b5b4 = 00)' % spi1}
-                self._send_json(err, 400)
-                self._log_resp(err)
-                return
+            preset = _preset_by_id(self.server, body.get('preset_id'))
             apdu = (body.get('apdu') or TAR_PROBE_DEFAULT_APDU).replace(' ', '').upper()
             labels = {tar: label for tar, label in TAR_PROBE_TARS}
             wanted = body.get('tars')
@@ -7959,26 +8049,49 @@ class PysimHandler(BaseHTTPRequestHandler):
                     entries.append((tar, labels.get(tar, '')))
             else:
                 entries = list(TAR_PROBE_TARS)
+            # Resolve every TAR's SPI1 before the first packet is sent: a
+            # missing MSL must refuse the whole probe, not leave it half-run.
+            resolved = []
+            for tar, label in entries:
+                try:
+                    tar_spi1, _ = _spi1_for_tar(preset, tar, spi1_base,
+                                                prefer_msl=True)
+                except ValueError as e:
+                    err = {'success': False, 'error': str(e)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
+                if not _counter_tracked(tar_spi1):
+                    err = {'success': False,
+                           'error': 'the TAR probe needs a counter check - SPI1 %s '
+                                    'for TAR %s has none (b5b4 = 00)'
+                                    % (tar_spi1, tar)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
+                resolved.append((tar, label, tar_spi1))
             state = {'steps': [], 'encode_error': None, 'failure': {},
                      'cntr': body.get('cntr', '00000000'),
                      'preset_id': body.get('preset_id'), 'kvn': kvn}
-            sp = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid, 'tar': '000000',
+            sp = {'spi1': spi1_base, 'spi2': spi2, 'kic': kic, 'kid': kid, 'tar': '000000',
                   'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                   'include_cpi': body.get('includeCpi', True)}
             sys.stderr.write('TAR-PROBE: %d TAR(s), APDU %s, SPI %s/%s, kvn=%s\n'
-                             % (len(entries), apdu, spi1, spi2, kvn))
+                             % (len(entries), apdu, spi1_base or '-', spi2, kvn))
             _ram_progress_begin('tar-probe', len(entries))
             try:
-                for index, (tar, _label) in enumerate(entries):
+                for index, (tar, _label, tar_spi1) in enumerate(resolved):
                     _ram_progress_step(index, 'TAR ' + tar)
                     sp['tar'] = tar
+                    sp['spi1'] = tar_spi1
                     _ram_send_gp_apdu(self.server, scc, sp, state, 'TAR ' + tar, apdu)
             finally:
                 _ram_progress_end()
             results = []
-            for (tar, label), step in zip(entries, state['steps']):
+            for (tar, label, tar_spi1), step in zip(resolved, state['steps']):
                 results.append({
-                    'tar': tar, 'label': label, 'verdict': _tar_probe_verdict(step),
+                    'tar': tar, 'label': label, 'spi1': tar_spi1,
+                    'verdict': _tar_probe_verdict(step),
                     'sw': step.get('sw'), 'por_status': step.get('por_status'),
                     'por_sw': step.get('por_sw'), 'por_data': step.get('por_data'),
                     'bytes': step.get('bytes'), 'segments': step.get('segments'),
@@ -7987,7 +8100,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {'success': True, 'results': results, 'steps': state['steps'],
                     'registered': registered, 'total': len(results),
                     'final_cntr': state['cntr'], 'kvn': kvn,
-                    'spi1': spi1, 'spi2': spi2, 'apdu': apdu}
+                    'spi1': spi1_base, 'spi2': spi2, 'apdu': apdu}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/counter-probe':

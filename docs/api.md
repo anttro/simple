@@ -192,7 +192,7 @@ A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
 
 ### Card presets (server-side store)
 
-Card presets (keysets, SPI, per-target TARs, PSK pair, ADM) live on the server
+Card presets (keysets, a TAR table with per-TAR MSLs, PSK pair, ADM) live on the server
 in `~/.pysim-simple-server/card_presets.json` (`--card-presets PATH` overrides
 it; `Path.home()` resolves the same way on Linux, macOS and Windows).  The file
 is written atomically and every counter change is appended to
@@ -203,9 +203,14 @@ is written atomically and every counter change is appended to
 the bytes, there is no separate field:
 
 ```json
-{"id": "…", "name": "Card A", "iccid": "…", "spi1": "16", "spi2": "01",
- "tar": "000000", "uiccTar": "B00000", "usimTar": "B00001",
+{"id": "…", "name": "Card A", "iccid": "…",
  "pskIdentity": "", "pskKey": "", "adm": "",
+ "tars": [
+   {"role": "isd",     "tar": "000000", "msl": "16", "desc": ""},
+   {"role": "uiccRfm", "tar": "B00000", "msl": "16", "desc": ""},
+   {"role": "usimRfm", "tar": "B00001", "msl": "16", "desc": ""},
+   {"tar": "AF4D01",   "msl": "1A", "desc": "my applet"}
+ ],
  "keysets": [
    {"kic": "15", "kid": "15", "kicKey": "…", "kidKey": "…", "cntr": "0000000001"},
    {"kic": "29", "kid": "29", "kicKey": "…", "kidKey": "…", "cntr": "0000000005"}
@@ -221,6 +226,19 @@ fixed-width 10-hex form.  A v3.8.0 flat preset (`kic`/`kid`/`kicKey`/`kidKey`/
 `cntr` at the top level) converts into a single keyset on load and on import,
 so old files and exports keep working.
 
+**TAR table.**  Every Remote Management application is addressed by its TAR and
+each entry carries its own **MSL** (Minimum SPI1, TS 102 226 §8.2.1.3.2.4): the
+card checks it before the security processing and answers response status `0A`
+"Insufficient security level" when a packet's SPI1 is below it.  The three role
+entries (`isd`, `uiccRfm`, `usimRfm` — GP ISD `000000`, TS 31.116 UICC RFM
+`B00000`, TS 31.115 ADF RFM `B00001`) are **mandatory** with a non-empty TAR
+and MSL; further TARs can be added with an optional `desc`.  A TAR is three hex
+bytes, an MSL one, and a TAR may appear once (a duplicate is refused).  A
+v3.9.1 preset's card-wide `spi1`/`tar`/`uiccTar`/`usimTar` convert into the
+three role entries, the `spi1` as their MSL.  Operations **derive a packet's
+SPI1 from the MSL of its TAR**; a request naming a TAR outside the preset must
+pass `spi1` itself, otherwise it is refused with `400` and a hint.
+
 **Counters.**  The store is the source of truth for the SCP80 counters, one per
 keyset ("a dedicated counter shall be associated to each key version",
 Annex A.1 — the spec's wording).  The operations below accept a `preset_id` and **persist the
@@ -232,7 +250,7 @@ is not defined in preset '…' - add it in the Cards tab"}`), and so is a
 KIc/KID number mismatch.  The Cards tab's export/import uses this API; the
 import also accepts presets exported by the older localStorage-based builds.
 
-- `GET /api/presets` — `{"path": "…", "count": 2, "version": 2, "presets": [{…}]}`
+- `GET /api/presets` — `{"path": "…", "count": 2, "version": 3, "presets": [{…}]}`
   (card-free: it answers while a long card operation runs).
 - `POST /api/presets` — body = the preset fields (`keysets` included); returns
   `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced or raw EF
@@ -265,7 +283,8 @@ the packet's, TS 102 225 §5.2 Table 3), which is why this probe exists.
 ```
 
 All fields except `preset_id` are optional: `kvn` picks a keyset (the first
-otherwise), `tar`/`spi1`/`spi2` default to the preset's values, `cntr` to the
+otherwise), `tar` defaults to the preset's ISD entry and `spi1` to that TAR's
+MSL, `spi2` to `01`, `cntr` to the
 keyset's counter, `ceiling` to `FFFFFFFF` (must stay below `FFFFFFFFFF`) and
 `max_attempts` to 40 (clamped to 1–64).  The probe always sends the read-only
 `SELECT MF` - the counter advances on the packet's security acceptance whatever
@@ -286,10 +305,13 @@ first attempt instead of hammering the card.
 Probe which OTA applications the card has registered: one **secured packet per
 TAR** (the standard allocations of TS 101 220 V18.3.0 Annex D, Table D.1 unless
 a `tars` list is given), each carrying a harmless C-APDU (`SELECT MF` by
-default), with the preset's keyset and SPI `16/01` (counter check + PoR).
+default), with the preset's keyset.  Each checked TAR uses **its own MSL** when
+the preset carries the entry, otherwise the request's `spi1`; a TAR that
+resolves to neither is refused with a hint **before any packet is sent**.  The
+resolved SPI1 must carry a counter check (b5b4 ≠ 00) and ask for a PoR.
 Every accepted packet consumes a counter, which is persisted into the keyset
 like any other operation, so the probe is refused when the SPI1 has no counter
-check (b5b4 = 00) or the named preset does not define the keyset number.
+check or the named preset does not define the keyset number.
 
 ```json
 {"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
@@ -299,7 +321,8 @@ check (b5b4 = 00) or the named preset does not define the keyset number.
 **Response:** `{"success": true, "registered": N, "total": M,
  "final_cntr": "…", "kvn": 2, "spi1": "16", "spi2": "01",
  "results": [{"tar": "000000", "label": "Issuer Security Domain (compact)",
-              "verdict": "registered", "sw": "9000", "por_status": "por_ok",
+              "spi1": "16", "verdict": "registered", "sw": "9000",
+              "por_status": "por_ok",
               "por_sw": "6D00", "por_data": ""}], "steps": [...]}`
 
 Verdicts: `registered` (ENVELOPE 9000 + a PoR carrying the application's own
@@ -422,6 +445,13 @@ the first one additionally carries the concatenation and CPI IEs) and the
 segments are sent in order.  A packet that would need more than 5 segments
 is refused (the card's concatenation buffer is the limit).  With `sp` a
 pre-built packet is delivered the same way.
+
+**SPI1 and the TAR's MSL.**  With a `preset_id` the packet's SPI1 is derived
+from the MSL of its `tar` (TS 102 226 §8.2.1.3.2.4) unless the request passes
+`spi1` — an explicit value wins (a hand send may deliberately ask for more
+security than the minimum), and a value below the TAR's MSL is reported as
+`"warning"` in the response (numeric compare).  A TAR the preset does not
+carry, without an explicit `spi1`, is refused with `400` and a hint.
 
 The card may answer with PoR status `actual_response_sms_submit` (`0x0B`):
 the real response (a big GET STATUS listing, for example) then arrives as one
@@ -590,9 +620,12 @@ suspended; only `/api/test/*`, `/api/status`, `/api/poll-status`,
     "checks": [{"kind": "text", "value": "hello"}],
     "respond": {"result": "ok"}}
  ]},
- "preset": {"name": "lab card", "kic": "15", "kid": "15", "kicKey": "...",
-            "kidKey": "...", "counter": "0000000A", "tar": "B00000",
-            "spi1": "16", "spi2": "01"}}
+ "preset": {"name": "lab card",
+            "keysets": [{"kic": "15", "kid": "15", "kicKey": "...", "kidKey": "...",
+                         "cntr": "0000000A"}],
+            "tars": [{"role": "isd", "tar": "000000", "msl": "16"},
+                     {"role": "uiccRfm", "tar": "B00000", "msl": "16"},
+                     {"role": "usimRfm", "tar": "B00001", "msl": "16"}]}}
 ```
 
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),

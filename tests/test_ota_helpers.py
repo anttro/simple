@@ -54,6 +54,7 @@ from pysim_simple_server.server import (
     _ram_step_result,
     _record_tr,
     _send_secured_packet,
+    _spi1_for_tar,
     _spi_from_bytes,
     _split_secured_packet,
     _tr_data_only,
@@ -2296,13 +2297,61 @@ class ExpandedRemoteTests(unittest.TestCase):
         self.assertIn('wrong length', error)
 
 
+class Spi1ForTarTests(unittest.TestCase):
+    """The SPI1 of a packet comes from the MSL (Minimum SPI1) of its TAR
+    (TS 102 226 8.2.1.3.2.4) - the preset's TAR table is the source."""
+
+    PRESET = {'tars': [
+        {'role': 'isd', 'tar': '000000', 'msl': '16', 'desc': ''},
+        {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '10', 'desc': ''},
+        {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''},
+        {'tar': 'AF4D01', 'msl': '0A', 'desc': 'applet'},
+    ]}
+
+    def test_a_hand_send_keeps_its_explicit_spi1(self):
+        self.assertEqual(_spi1_for_tar(self.PRESET, '000000', '21'), ('21', ''))
+        self.assertEqual(_spi1_for_tar(self.PRESET, '000000', '1A'), ('1A', ''))
+
+    def test_an_explicit_spi1_below_the_msl_warns(self):
+        spi1, warning = _spi1_for_tar(self.PRESET, 'B00000', '0A')
+        self.assertEqual(spi1, '0A')
+        self.assertIn('MSL 10', warning)
+        self.assertIn('B00000', warning)
+
+    def test_the_comparison_is_numeric(self):
+        # '9' < '10' numerically - a lexicographic compare would miss it
+        _, warning = _spi1_for_tar(self.PRESET, 'B00000', '9')
+        self.assertIn('MSL 10', warning)
+
+    def test_without_an_explicit_value_the_msl_is_used(self):
+        self.assertEqual(_spi1_for_tar(self.PRESET, 'B00001'), ('16', ''))
+        self.assertEqual(_spi1_for_tar(self.PRESET, 'af4d01'), ('0A', ''))
+
+    def test_operations_prefer_the_msl_over_a_stale_explicit_value(self):
+        self.assertEqual(_spi1_for_tar(self.PRESET, 'B00001', '21',
+                                       prefer_msl=True), ('16', ''))
+        # ... but the explicit value covers a TAR the preset does not carry
+        self.assertEqual(_spi1_for_tar(self.PRESET, 'B00200', '21',
+                                       prefer_msl=True), ('21', ''))
+
+    def test_an_unknown_tar_without_an_explicit_value_is_refused(self):
+        with self.assertRaises(ValueError) as cm:
+            _spi1_for_tar(self.PRESET, 'B00200')
+        self.assertIn('B00200', str(cm.exception))
+        self.assertIn('MSL', str(cm.exception))
+        with self.assertRaises(ValueError):
+            _spi1_for_tar({}, '000000')
+
+
 class CounterProbeTests(unittest.TestCase):
     """The bounded counter synchronisation probe (v3.9.x)."""
 
     @staticmethod
     def _preset(cntr='0000000C2D'):
-        return {'id': 'p1', 'name': 'test card', 'spi1': '16', 'spi2': '21',
-                'tar': '000000',
+        return {'id': 'p1', 'name': 'test card',
+                'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16', 'desc': ''},
+                         {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': ''},
+                         {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''}],
                 'keysets': [{'kic': '25', 'kid': '25', 'kicKey': '00' * 16,
                              'kidKey': '11' * 16, 'cntr': cntr}]}
 
@@ -2373,7 +2422,7 @@ class CounterProbeTests(unittest.TestCase):
         self.assertIn('not defined', str(cm.exception))
         # SPI1 without a counter check cannot probe
         no_check = self._preset()
-        no_check['spi1'] = '06'   # ciphering+CC but b5b4 = 00: no counter field
+        no_check['tars'][0]['msl'] = '06'   # ciphering+CC but b5b4 = 00: no counter field
         with self.assertRaises(ValueError):
             _counter_probe_params(no_check, {})
         # the ceiling must stay below the 40-bit maximum

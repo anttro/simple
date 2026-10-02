@@ -22,6 +22,13 @@ def _resolver(name):
     return {n.upper(): c for c, n in S.PROACTIVE_TYPE_NAMES.items()}.get(name.upper())
 
 
+def preset_tars(isd='000000', msl='16'):
+    """The three mandatory role entries of a card preset's TAR table."""
+    return [{'role': 'isd', 'tar': isd, 'msl': msl, 'desc': ''},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': ''},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''}]
+
+
 class TestValidation(unittest.TestCase):
     def test_minimal_script_normalises(self):
         script = T.normalise_script({'name': 'demo', 'steps': [
@@ -354,8 +361,10 @@ class TestRunnerActions(RunnerTestCase):
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()
         server = FakeServer(scc)
+        # the ISD entry carries a distinctive TAR: the assertion below must
+        # fail if the runner ever falls back to a built-in default
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
-                  'counter': '0000000A', 'tar': 'B00000', 'spi1': '16', 'spi2': '01'}
+                  'counter': '0000000A', 'tars': preset_tars(isd='B00000')}
         with mock.patch.object(S, '_build_secured_packet',
                                return_value=('AA' * 10, {})) as build, \
                 mock.patch.object(S, '_send_secured_packet',
@@ -401,7 +410,7 @@ class TestRunnerActions(RunnerTestCase):
     def test_scp80_step_overrides_tar_and_spi_only(self):
         scc = FakeScc()
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
-                  'counter': '00000001', 'tar': 'B00000', 'spi1': '16', 'spi2': '01'}
+                  'counter': '00000001', 'tars': preset_tars()}
         with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})) as build, \
                 mock.patch.object(S, '_send_secured_packet',
                                   return_value={'success': True, 'sw': '9000',
@@ -421,9 +430,9 @@ class TestRunnerActions(RunnerTestCase):
         ]}, S._test_command_type)
         self.assertIn('incomplete', S._test_preset_error(script, {}) or '')
         full = {'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB',
-                'counter': '00000000', 'tar': 'B00000', 'spi1': '16', 'spi2': '01'}
+                'counter': '00000000', 'tars': preset_tars()}
         self.assertIsNone(S._test_preset_error(script, full))
-        no_tar = dict(full, tar='')
+        no_tar = dict(full, tars=[])
         self.assertIn('TAR', S._test_preset_error(script, no_tar) or '')
 
     def test_file_write_and_read_actions(self):

@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+function extractConst(src, name) {
+	const m = new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);').exec(src);
+	if (!m) throw new Error('const ' + name + ' not found');
+	return 'var ' + name + ' = ' + m[1] + ';\n';
+}
+
 function extractFunc(src, name) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
@@ -25,9 +31,13 @@ let code = '';
 for (const fn of ['swapNibbles', 'encIccid', 'decIccid',
 	'cardsNormIccid', 'cardsFindByIccid', 'cardsFindDuplicateIccid',
 	'cardsIccidFromCard', 'cardsAutoSelectByIccid', 'cardsRender',
-	'esc', 'spKeysetList', 'spKeysetKvnOf', 'cardsTarValue', 'cardsScp81Complete']) {
+	'esc', 'spKeysetList', 'spKeysetKvnOf',
+	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
+	'cardsTarEntry', 'cardsTarMsl', 'cardsTarText', 'cardsScp81Complete']) {
 	code += extractFunc(html, fn) + '\n';
 }
+code += extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES')
+	+ extractConst(html, 'CARDS_MSL_DEFAULT');
 eval(code);
 
 // live-card style raw EF.ICCID content (nibble-swapped digits + 'F' pad)
@@ -176,8 +186,8 @@ test('cardsRender highlights the equipped card preset', () => {
 	const els = { 'cards-tbody': { innerHTML: '' } };
 	globalThis.document = { getElementById: id => els[id] || null };
 	globalThis.cards = [
-		{ name: 'other', iccid: '1111111111111111111', spi1: '16', spi2: '01', keysets: [] },
-		{ name: 'live', iccid: DIGITS, spi1: '16', spi2: '01', keysets: [] },
+		{ name: 'other', iccid: '1111111111111111111', keysets: [] },
+		{ name: 'live', iccid: DIGITS, keysets: [] },
 	];
 	globalThis._pysimCardIccid = DIGITS;
 	cardsRender();

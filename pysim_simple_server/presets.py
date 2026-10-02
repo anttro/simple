@@ -9,6 +9,17 @@ owns the store: an accepted counter is persisted in the same operation, and a
 closed tab, a lost response or a second browser window can no longer lose an
 increment.
 
+A preset holds a **TAR table**: every Remote Management application the card
+exposes is addressed by its TAR, and each carries its own **Minimum Security
+Level** (MSL) - the "Minimum SPI1" the card checks before it processes a
+secured packet (TS 102 226 6.1/8.2.1.3.2.4; a too-low SPI1 is answered with
+response status 0A "Insufficient security level").  The three role entries
+(`isd`, `uiccRfm`, `usimRfm`) are mandatory - the Cards form pre-settles their
+values - and further TARs can be added with an optional description.  A packet
+for a TAR derives its SPI1 from that TAR's MSL; the preset no longer carries a
+card-wide SPI1/SPI2 (SPI2 is an operation property: whether and how a Proof of
+Receipt is requested).
+
 A preset holds **several keysets**; the b8..b5 nibble of KIc/KID numbers them
 (TS 102 225 5.1.2/A.2).  Each keyset has its own KIc/KID keys and its own
 counter - "a dedicated counter shall be associated to each key version"
@@ -30,7 +41,9 @@ deliberately human-readable: hand-editing a counter or moving the file between
 machines is part of the workbench workflow, and the Cards tab's export/import
 uses the same shape (which is also how old localStorage presets move over -
 there is no automatic migration).  v3.8.0's flat ``kic/kid/kicKey/kidKey/cntr``
-shape is converted into a single keyset on load and on import.
+shape is converted into a single keyset, and a v3.9.1 preset's card-wide
+``spi1``/``tar``/``uiccTar``/``usimTar`` become the three role entries (the
+spi1 as their MSL) - on load and on import alike.
 """
 
 import copy
@@ -46,21 +59,28 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'card_presets.json'
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
-# The fields a preset carries: the localStorage shape plus the id.  Defaults
-# mirror the Cards form (spi1/spi2 and the per-target TARs).  The OTA key
+# The fields a preset carries: the localStorage shape plus the id.  The OTA key
 # material lives in `keysets` - the b8..b5 nibble of KIc/KID numbers them,
 # each with its own counter (TS 102 225 Annex A.1: "a dedicated counter shall
-# be associated to each key version").
-PRESET_FIELDS = ('name', 'iccid', 'adm', 'spi1', 'spi2',
-                 'tar', 'uiccTar', 'usimTar', 'pskIdentity', 'pskKey')
+# be associated to each key version"); the TAR table lives in `tars` (see
+# TAR_ROLES).
+PRESET_FIELDS = ('name', 'iccid', 'adm', 'pskIdentity', 'pskKey')
 # The v3.8.0 flat key fields: converted into a single keyset on load/import.
 LEGACY_KEY_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 KEYSET_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
-HEX_FIELDS = ('adm', 'spi1', 'spi2', 'tar', 'uiccTar', 'usimTar', 'pskKey')
+HEX_FIELDS = ('adm', 'pskKey')
 KEYSET_HEX_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
-TAR_DEFAULTS = {'tar': '000000', 'uiccTar': 'B00000', 'usimTar': 'B00001'}
+# The TAR table: the three mandatory role entries (their values are pre-settled
+# in the Cards form) and free entries with an optional description.  Every
+# entry carries the TAR and its MSL (Minimum SPI1, one hex byte).
+TAR_ROLES = ('isd', 'uiccRfm', 'usimRfm')
+TAR_ROLE_DEFAULTS = {
+    'isd': {'tar': '000000', 'msl': '16'},
+    'uiccRfm': {'tar': 'B00000', 'msl': '16'},
+    'usimRfm': {'tar': 'B00001', 'msl': '16'},
+}
 COUNTER_BITS = 40      # the SCP80 counter is 5 bytes (TS 31.115)
 COUNTER_WIDTH = 10     # ... shown as 10 hex digits
 KVN_MAX = 0x0F         # keyset number '00' is reserved: no key set, no counter
@@ -132,6 +152,32 @@ def counter_ahead(old, new):
     if n > o:
         return True
     return (o - n) > (1 << (COUNTER_BITS - 1))
+
+
+def tar_entry(preset, tar_hex):
+    """The preset's TAR entry whose TAR matches `tar_hex` (case-insensitive),
+    or None."""
+    want = re.sub(r'\s', '', str(tar_hex or '')).upper()
+    if not want:
+        return None
+    for t in (preset or {}).get('tars') or []:
+        if str(t.get('tar') or '').upper() == want:
+            return dict(t)
+    return None
+
+
+def role_tar(preset, role):
+    """The TAR of a role entry ('isd' | 'uiccRfm' | 'usimRfm'), or ''."""
+    for t in (preset or {}).get('tars') or []:
+        if t.get('role') == role:
+            return str(t.get('tar') or '')
+    return ''
+
+
+def tar_msl(preset, tar_hex):
+    """The MSL (Minimum SPI1) of a TAR, or '' when the preset has no such
+    entry or no MSL for it."""
+    return str((tar_entry(preset, tar_hex) or {}).get('msl') or '')
 
 
 class PresetError(Exception):
@@ -234,10 +280,7 @@ class PresetStore:
             if k in HEX_FIELDS:
                 v = re.sub(r'\s', '', v).upper()
             out[k] = v
-        out['spi1'] = out['spi1'] or '16'
-        out['spi2'] = out['spi2'] or '01'
-        for k, d in TAR_DEFAULTS.items():
-            out[k] = out[k] or d
+        out['tars'] = self._normalise_tars(fields)
         # Keysets: a v3.8.0 preset (flat kic/kid/kicKey/kidKey/cntr) converts
         # into a single keyset, so old files and exports keep working.
         raw = fields.get('keysets')
@@ -249,6 +292,51 @@ class PresetStore:
                           if isinstance(ks, dict)]
         pid = str(fields.get('id') or '').strip().lower()
         out['id'] = pid or uuid.uuid4().hex
+        return out
+
+    def _normalise_tars(self, fields):
+        """The preset's TAR table: the three mandatory role entries (values
+        filled from the defaults when empty, so a partial API call and the
+        pre-settled form both work) followed by the free entries in input
+        order.  A v3.9.1 preset (tar/uiccTar/usimTar + the card-wide spi1)
+        converts: the spi1 becomes the MSL of all three roles."""
+        raw = fields.get('tars')
+        entries = []
+        if isinstance(raw, list):
+            for t in raw:
+                if not isinstance(t, dict):
+                    continue
+                role = str(t.get('role') or '').strip()
+                entries.append({
+                    'role': role if role in TAR_ROLES else '',
+                    'tar': re.sub(r'\s', '', str(t.get('tar') or '')).upper(),
+                    'msl': re.sub(r'\s', '', str(t.get('msl') or '')).upper(),
+                    'desc': str(t.get('desc') or '').strip(),
+                })
+        else:
+            msl = re.sub(r'\s', '', str(fields.get('spi1') or '')).upper()
+            for role, src in (('isd', 'tar'), ('uiccRfm', 'uiccTar'),
+                              ('usimRfm', 'usimTar')):
+                entries.append({
+                    'role': role,
+                    'tar': re.sub(r'\s', '', str(fields.get(src) or '')).upper(),
+                    'msl': msl,
+                    'desc': '',
+                })
+        out = []
+        for role in TAR_ROLES:
+            cur = next((e for e in entries if e['role'] == role), None)
+            d = TAR_ROLE_DEFAULTS[role]
+            out.append({'role': role,
+                        'tar': (cur or {}).get('tar') or d['tar'],
+                        'msl': (cur or {}).get('msl') or d['msl'],
+                        'desc': ''})
+        for e in entries:
+            if e['role']:
+                continue
+            if not (e['tar'] or e['msl'] or e['desc']):
+                continue        # a blank editor row
+            out.append(e)
         return out
 
     def _normalise_keyset(self, ks):
@@ -281,6 +369,18 @@ class PresetStore:
             if kvn in seen:
                 raise PresetError('duplicate keyset number %02X in this preset' % kvn)
             seen.add(kvn)
+        seen_tars = set()
+        for t in p['tars']:
+            if not re.fullmatch(r'[0-9A-F]{6}', t['tar']):
+                raise PresetError('TAR must be three hex bytes: %r' % t['tar'])
+            if not t['msl']:
+                raise PresetError('TAR %s needs its MSL (Minimum SPI1, one hex '
+                                  'byte, TS 102 226 8.2.1.3.2.4)' % t['tar'])
+            if not re.fullmatch(r'[0-9A-F]{2}', t['msl']):
+                raise PresetError('MSL must be one hex byte: %r' % t['msl'])
+            if t['tar'] in seen_tars:
+                raise PresetError('duplicate TAR %s in this preset' % t['tar'])
+            seen_tars.add(t['tar'])
         norm = normalize_iccid(p['iccid'])
         if norm:
             for other in self._presets:
@@ -372,6 +472,8 @@ class PresetStore:
                     merged[k] = fields[k]
             if isinstance(fields, dict) and 'keysets' in fields:
                 merged['keysets'] = fields['keysets']
+            if isinstance(fields, dict) and isinstance(fields.get('tars'), list):
+                merged['tars'] = fields['tars']
             new = self._normalise(merged)
             new['id'] = cur['id']
             self._validate(new, skip_id=cur['id'])
