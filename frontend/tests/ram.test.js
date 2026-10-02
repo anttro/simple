@@ -26,7 +26,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'ramFormatIsExpanded', 'ramFmtLadder',
 	'stkParamsBuild', 'ramRemoteSwOk', 'spPorAccepted', 'ramIncrementCntr', 'ramDeleteFromExplorer', 'ramListingSpi2', 'ramRemoveFromExplorer', 'ramHasInstance', 'ramExpandedQueryApdu',
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
-	'ramExpandedReport', 'ramExpandedMore', 'ramPageFormats', 'ramAppsMissingDetails', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate',
+	'ramExpandedReport', 'ramExpandedMore', 'ramPageFormats', 'ramAppsMissingDetails', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate', 'ramElfAppMatch',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
@@ -636,6 +636,47 @@ test('ramDeriveElfVersions reads a package version from its applet instance', ()
 	assert.strictEqual(elfs[2].version, undefined);
 });
 
+test('ramDeriveElfVersions falls back to the package module AIDs', () => {
+	// live 2026-10-02 (test-eSIM): the card returns C4 = the applet's own AID,
+	// so the C4 rule matches nothing - the package's module AIDs (the applet
+	// instance AIDs) are the mapping that works there
+	const elfs = [
+		{ aid: 'A1130001180001FFFFFFFF89A1003900', moduleAids: ['A1130001180001FFFFFFFF89A1003908'] },
+		{ aid: 'A1130001180002FFF7100E8904000200', moduleAids: ['A1130001180002FFF7100E8904000208', 'A1130001180002FFF7100E89494D4508'] },
+		{ aid: 'F0414C46416001', moduleAids: ['F0414C4641600101'] },
+		{ aid: 'A00000006203010101', moduleAids: [] },
+	];
+	const apps = [
+		{ aid: 'A1130001180001FFFFFFFF89A1003908', version: '0903', elfAid: 'A1130001180001FFFFFFFF89A1003908' },
+		{ aid: 'A1130001180002FFF7100E8904000208', version: '0101', elfAid: 'A1130001180002FFF7100E8904000208' },
+		{ aid: 'A1130001180002FFF7100E89494D4508', version: '0101', elfAid: 'A1130001180002FFF7100E89494D4508' },
+		{ aid: 'F0414C4641600101', version: '0001', elfAid: 'F0414C4641600101' },
+	];
+	ramDeriveElfVersions(elfs, apps);
+	assert.strictEqual(elfs[0].version, '0903');
+	assert.strictEqual(elfs[0].versionFrom, 'app');
+	assert.strictEqual(elfs[1].version, '0101');
+	assert.strictEqual(elfs[2].version, '0001');
+	// no applet instance: nothing to derive from
+	assert.strictEqual(elfs[3].version, undefined);
+});
+
+test('ramElfVersionHint names a package with no applet instance', () => {
+	globalThis.t = s => s;
+	const elfs = [{ aid: 'A1130001180001FFFFFFFF89A1003900', moduleAids: ['A1130001180001FFFFFFFF89A1003908'] }];
+	const apps = [{ aid: 'A1130001180001FFFFFFFF89A1003908', version: '0903' }];
+	// a versionless package with a matching applet instance needs no clause
+	const ok = ramElfVersionHint('notags', elfs, apps);
+	// ...but a package with no applet instance is called out
+	const orphan = ramElfVersionHint('notags', [{ aid: 'A00000006203010101', moduleAids: [] }], apps);
+	// the base hints stay form-aware
+	const base = ramElfVersionHint('tags', [], []);
+	delete globalThis.t;
+	assert.match(ok, /no-tag-list form\.$/);
+	assert.match(orphan, /no version to derive either\.$/);
+	assert.match(base, /did not return them\.$/);
+});
+
 test('ramElfAppletCandidate maps a package to its applet instance', () => {
 	// live 2026-09-30: the applet instance AIDs are the package's module AIDs
 	// (they differ from the package AID in the last byte)
@@ -659,6 +700,11 @@ test('ramElfAppletCandidate maps a package to its applet instance', () => {
 	assert.strictEqual(ramElfAppletCandidate(null, apps), null);
 	// the shared-prefix rule is the fallback
 	assert.strictEqual(ramElfAppletCandidate({ aid: 'ABCD' }, [{ aid: 'ABCDEF' }]).aid, 'ABCDEF');
+	// the app's C4 (Load File AID) is the authoritative mapping when the card
+	// reports the real package AID
+	assert.strictEqual(ramElfAppletCandidate({ aid: 'A0000005591010FFFFFFFF8900000E00' },
+		[{ aid: 'A0000005591010FFFFFFFF8900001200', elfAid: 'A0000005591010FFFFFFFF8900000E00' }]).aid,
+		'A0000005591010FFFFFFFF8900001200');
 });
 
 test('the explorer annotates a derived package version', () => {

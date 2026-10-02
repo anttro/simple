@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.13.1';
+const SIMPLE_VERSION = '3.13.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9675,11 +9675,17 @@ function ramExpandedElfForm(report) {
 // Why the ELF rows show no version (pure).  The version exists only in the
 // tag-list forms of the expanded query: without a tag list the card builds the
 // default E3 (AID + life cycle + modules, GP 11.4.3.1).
-function ramElfVersionHint(elfForm) {
-	if (elfForm === 'notags') {
-		return t('Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.');
+function ramElfVersionHint(elfForm, elfs, apps) {
+	let hint = elfForm === 'notags'
+		? t('Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.')
+		: t('Package versions come from the expanded registry query \u2014 this card did not return them.');
+	// A package with no applet instance has no version to derive either (the
+	// derivation maps the package's module AIDs to the app entries).
+	const versioned = (apps || []).filter(a => a && a.aid && a.version);
+	if ((elfs || []).some(e => e && !e.version && !ramElfAppMatch(e, versioned))) {
+		hint += ' ' + t('A package without an applet instance has no version to derive either.');
 	}
-	return t('Package versions come from the expanded registry query \u2014 this card did not return them.');
+	return hint;
 }
 
 // The card's ETSI release from its installed uicc.toolkit package (pure):
@@ -9699,33 +9705,44 @@ function cardEtsiRelease(elfs) {
 	return { release: ETSI_TOOLKIT_RELEASE[v] || '', basis: 'uicc.toolkit ' + v };
 }
 
-// The applet instance that belongs to a package (pure).  The package's module
-// AIDs are the applet instance AIDs - they can differ from the package AID in
-// the last byte (live 2026-09-30: package A113...0200 with modules ...0208 /
-// ...494D4508, all present as applet instances); a shared AID prefix is the
-// fallback rule.  Applets that already carry a version are skipped.
-function ramElfAppletCandidate(elf, apps) {
+// Match a package to one of its applet instances (pure).  Three rules, in
+// order: the app's C4 (Load File AID) names the package when the card reports
+// the real one; the package's module AIDs are the applet instance AIDs (they
+// can differ from the package AID in the last byte - live 2026-09-30: package
+// A113...0200 with modules ...0208 / ...494D4508, all present as applet
+// instances; live 2026-10-02: the test-eSIM returns C4 = the applet's own AID,
+// so the module list is the mapping that works there); a shared AID prefix is
+// the last fallback.  The caller picks the candidate set (versionless app
+// entries for the per-AID queries, versioned ones for the version derivation).
+function ramElfAppMatch(elf, apps) {
 	if (!elf || !elf.aid) return null;
-	const cands = (elf.moduleAids || []).concat([elf.aid])
-		.map(c => String(c).toUpperCase());
-	const list = (apps || []).filter(a => a && a.aid && !a.version);
-	const exact = list.find(a => cands.indexOf(String(a.aid).toUpperCase()) >= 0);
-	if (exact) return exact;
 	const pkg = String(elf.aid).toUpperCase();
-	return list.find(a => String(a.aid).toUpperCase().indexOf(pkg) === 0) || null;
+	const cands = (elf.moduleAids || []).concat([pkg]).map(c => String(c).toUpperCase());
+	const list = (apps || []).filter(a => a && a.aid);
+	return list.find(a => String(a.elfAid || '').toUpperCase() === pkg) ||
+		list.find(a => cands.indexOf(String(a.aid).toUpperCase()) >= 0) ||
+		list.find(a => String(a.aid).toUpperCase().indexOf(pkg) === 0) || null;
+}
+
+// The versionless applet instance to query for a package's version (pure):
+// applets that already carry a version are skipped.
+function ramElfAppletCandidate(elf, apps) {
+	return ramElfAppMatch(elf, (apps || []).filter(a => a && a.aid && !a.version));
 }
 
 // Fill a missing ELF version from an application entry: cards commonly return
-// the load file version (CE) on the app entry together with its package AID
-// (C4), so the package's version can be read from its applet instance (live
-// 2026-09-30: the ELF listing refused every tag list while the apps listing
-// carried CE).  The row is annotated (`versionFrom`) so the inference stays
-// visible.  Packages without an applet instance get no version this way.
+// the load file version (CE) on the app entry (live 2026-09-30: the ELF
+// listing refused every tag list while the apps listing carried CE), so the
+// package's version can be read from its applet instance - via the app's C4
+// or, when the card returns the applet's own AID there (live 2026-10-02), via
+// the package's module AIDs (ramElfAppMatch).  The row is annotated
+// (`versionFrom`) so the inference stays visible.  Packages without an applet
+// instance get no version this way.
 function ramDeriveElfVersions(elfs, apps) {
+	const list = (apps || []).filter(a => a && a.aid && a.version);
 	(elfs || []).forEach(e => {
 		if (e.version || !e.aid) return;
-		const app = (apps || []).find(a => a.version && a.elfAid &&
-			String(a.elfAid).toUpperCase() === String(e.aid).toUpperCase());
+		const app = ramElfAppMatch(e, list);
 		if (app) {
 			e.version = app.version;
 			e.versionFrom = 'app';
@@ -9815,7 +9832,7 @@ function ramRenderExploreHtml(mem, isd, apps, elfs, fmt, expanded, elfForm) {
 		html += '<div class="mb-4">';
 		html += '<div class="font-semibold text-sm mb-1">' + esc(t('Executable Load Files (ELFs) / Packages')) + ' (' + elfs.length + ')</div>';
 		if (elfs.some(o => !o.version)) {
-			html += '<div class="mb-1 text-xs text-gray-500 dark:text-slate-400">' + esc(ramElfVersionHint(elfForm)) + '</div>';
+			html += '<div class="mb-1 text-xs text-gray-500 dark:text-slate-400">' + esc(ramElfVersionHint(elfForm, elfs, apps)) + '</div>';
 		}
 		elfs.forEach(o => {
 			html += '<div class="mb-1 pl-2 pr-2 py-1 rounded bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700/50 border-l-2 border-purple-400 flex items-start gap-3">';
@@ -21027,6 +21044,7 @@ const LANG_RU = {
 	'Package versions come from the expanded registry query \u2014 this card did not return them.': 'Версии пакетов приходят из расширенного запроса реестра \u2014 эта карта их не вернула.',
 	'Package versions are only in the tag-list forms of the expanded registry query \u2014 this card accepted only the no-tag-list form.': 'Версии пакетов есть только в формах расширенного запроса со списком тегов \u2014 эта карта приняла только форму без списка тегов.',
 	'from the app instance': 'от экземпляра апплета',
+	'A package without an applet instance has no version to derive either.': 'У пакета без экземпляра апплета версию тоже неоткуда вывести.',
 	'request error': 'ошибка запроса',
 	'Low counter': 'Низкий счётчик',
 	'the card rejected the packet': 'карта отклонила пакет',
