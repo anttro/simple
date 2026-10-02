@@ -1658,7 +1658,7 @@
 				</div>
 				<div>
 					<label for="cards-adm" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">ADM</label>
-					<input id="cards-adm" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" placeholder="ADM (optional)">
+					<input id="cards-adm" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM (optional)">
 				</div>
 			</div>
 			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="All codes are optional: PIN/PUK are 4-8 decimal digits (stored for later use by the card operations — not consumed yet); ADM is the administrator key.">All codes are optional: PIN/PUK are 4-8 decimal digits (stored for later use by the card operations — not consumed yet); ADM is the administrator key.</p>
@@ -11675,12 +11675,6 @@ function cardsRoleTar(preset, role) {
 	return (e && e.tar) || cardsRoleDefault(role);
 }
 
-// The MSL of a role entry, '' when the preset carries none.
-function cardsRoleMsl(preset, role) {
-	const e = cardsTarList(preset).find(x => x.role === role);
-	return (e && e.msl) || '';
-}
-
 // The TAR entry matching a value (case-insensitive), or null.
 function cardsTarEntry(preset, tarHex) {
 	const want = String(tarHex || '').trim().toUpperCase();
@@ -11918,15 +11912,16 @@ function cardsTarRowHtml(e, i) {
 }
 
 // Render the whole table from a preset's TAR list (roles first, then free
-// rows); the role rows are always shown, with the pre-settled defaults when
-// the list carries none.
+// rows); the role rows are always shown - with the values given (a fresh form
+// passes the pre-settled defaults).  A re-render must keep what is displayed,
+// so it never invents defaults here.
 function cardsTarRowsRender(entries) {
 	const box = document.getElementById('cards-tars');
 	if (!box) return;
 	const list = entries || [];
 	const roles = CARDS_TAR_ROLES.map(role => {
 		const e = list.find(x => x.role === role) || {};
-		return { tar: e.tar || cardsRoleDefault(role), msl: e.msl || CARDS_MSL_DEFAULT };
+		return { tar: e.tar || '', msl: e.msl || '' };
 	});
 	const free = list.filter(e => !e.role);
 	_cardsTarCount = free.length;
@@ -11935,13 +11930,13 @@ function cardsTarRowsRender(entries) {
 }
 
 function cardsTarAdd() {
-	cardsTarRowsRender(cardsTarsFromForm().concat([{ tar: '', msl: '', desc: '' }]));
+	cardsTarRowsRender(cardsTarsFromTable().concat([{ tar: '', msl: '', desc: '' }]));
 }
 
 // `i` is the table row index; the role rows are fixed and never removed.
 function cardsTarRemove(i) {
 	if (i < CARDS_TAR_ROLES.length) return;
-	const rows = cardsTarsFromForm();
+	const rows = cardsTarsFromTable();
 	rows.splice(i, 1);
 	cardsTarRowsRender(rows);
 }
@@ -11963,26 +11958,37 @@ function cardsFreeTarsFromForm() {
 	return out;
 }
 
-// The TAR table as preset entries: the three role entries from the first three
-// rows (an emptied field keeps the pre-settled default) plus the free rows.
-function cardsTarsFromForm() {
+// The TAR table exactly as displayed: the role rows as typed (an emptied field
+// stays empty) plus the free rows - the re-render source for Add/Remove, so an
+// emptied field is not silently refilled with its default.
+function cardsTarsFromTable() {
 	const out = CARDS_TAR_ROLES.map((role, i) => {
 		const get = id => {
 			const el = document.getElementById('cards-tr-' + i + '-' + id);
 			return el ? String(el.value).trim() : '';
 		};
-		const tar = get('tar').replace(/\s/g, '').toUpperCase();
-		const msl = get('msl').replace(/\s/g, '').toUpperCase();
-		return { role: role, tar: tar || cardsRoleDefault(role),
-			msl: msl || CARDS_MSL_DEFAULT, desc: '' };
+		return { role: role,
+			tar: get('tar').replace(/\s/g, '').toUpperCase(),
+			msl: get('msl').replace(/\s/g, '').toUpperCase(), desc: '' };
 	});
 	return out.concat(cardsFreeTarsFromForm());
+}
+
+// The TAR table as preset entries (the save path): an emptied role field keeps
+// the pre-settled default - the three role entries are mandatory with a
+// non-empty TAR and MSL.
+function cardsTarsFromForm() {
+	return cardsTarsFromTable().map(e => e.role
+		? { role: e.role, tar: e.tar || cardsRoleDefault(e.role),
+		    msl: e.msl || CARDS_MSL_DEFAULT, desc: '' }
+		: e);
 }
 
 // The role rows back to their pre-settled defaults (TAR + MSL 16) and no free
 // rows.
 function cardsTarsReset() {
-	cardsTarRowsRender([]);
+	cardsTarRowsRender(CARDS_TAR_ROLES.map(role => ({
+		role: role, tar: cardsRoleDefault(role), msl: CARDS_MSL_DEFAULT, desc: '' })));
 }
 
 // ===== Keyset selectors (SCP80 / RAM) =====
@@ -21141,7 +21147,16 @@ function refreshDynamicI18n() {
 	if (isViewVisible('profiler-scan-modal')) profilerScanRefreshOptions();
 	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();
-	if (isViewVisible('tab-cards')) { cardsRender(); cardsSetFormMode(); }
+	if (isViewVisible('tab-cards')) {
+		cardsRender();
+		cardsSetFormMode();
+		// the editor's dynamic rows carry t() strings (placeholders, titles):
+		// rebuild them from what is typed, not from the defaults
+		if (isViewVisible('cards-editor-view')) {
+			cardsKeysetRowsRender(cardsKeysetsFromForm());
+			cardsTarRowsRender(cardsTarsFromTable());
+		}
+	}
 	if (isViewVisible('scp81-sub-scripts')) { scriptsRender(); scriptsRebuildSelect(); }
 	if (_ramExplorerData && isViewVisible('ram-explorer')) ramRenderExplorer();
 	// the CAP analysis bodies are built with t(); the legends are static

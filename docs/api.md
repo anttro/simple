@@ -243,7 +243,7 @@ pass `spi1` itself, otherwise it is refused with `400` and a hint.
 **Card codes.**  The optional `pin1`/`puk1`/`pin2`/`puk2`/`adm` fields are
 stored for later use (nothing consumes them yet).  PIN/PUK must be **4–8
 decimal digits** when set (empty is fine; anything else is refused with `400`
-naming the field); the ADM key stays free-form (hex or ASCII digits).
+naming the field); the ADM key is 4–16 hex digits (a decimal PIN is fine).
 
 **Counters.**  The store is the source of truth for the SCP80 counters, one per
 keyset ("a dedicated counter shall be associated to each key version",

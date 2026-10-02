@@ -164,6 +164,16 @@ test('the card editor groups its fields into labelled fieldsets', () => {
     assert.ok(!fieldsets.some(f => f.includes('id="cards-name"')));
 });
 
+test('the ADM input allows the full 4-16 hex digit key', () => {
+    // the server's _verify_adm takes 4-16 hex digits (padded to 8 CHV bytes);
+    // the input must not cap it at the PIN length
+    const m = /<input id="cards-adm"[^>]*>/.exec(html);
+    assert.ok(m, 'the ADM input is missing');
+    const limit = /maxlength="(\d+)"/.exec(m[0]);
+    assert.ok(!limit || parseInt(limit[1], 10) >= 16,
+        'the ADM input must allow 4-16 hex digits (server _verify_adm)');
+});
+
 test('the Cards tab splits the preset list and the editor into views', () => {
     assert.match(html, /id="cards-list-view"/);
     assert.match(html, /id="cards-editor-view" class="hidden"/);

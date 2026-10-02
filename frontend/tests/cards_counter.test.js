@@ -28,7 +28,7 @@ function extractFunc(src, name) {
 }
 
 let code = '';
-for (const fn of ['cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
+for (const fn of ['cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsApplyFields', 'cardsApply',
 	'spRefreshFromPreset', 'spPorAccepted', 'spNextCntr', 'spPresetIdx',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',

@@ -32,7 +32,7 @@ for (const fn of ['swapNibbles', 'encIccid', 'decIccid',
 	'cardsNormIccid', 'cardsFindByIccid', 'cardsFindDuplicateIccid',
 	'cardsIccidFromCard', 'cardsAutoSelectByIccid', 'cardsRender',
 	'esc', 'spKeysetList', 'spKeysetKvnOf',
-	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
+	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsTarText', 'cardsScp81Complete']) {
 	code += extractFunc(html, fn) + '\n';
 }

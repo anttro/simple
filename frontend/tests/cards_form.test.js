@@ -41,10 +41,10 @@ for (const fn of ['cardsFormValues', 'cardsClearForm', 'cardsEdit',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
 	'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
-	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
+	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsTarText', 'spMslWarningText',
 	'cardsTarRowHtml', 'cardsTarRowsRender', 'cardsTarAdd', 'cardsTarRemove',
-	'cardsFreeTarsFromForm', 'cardsTarsFromForm', 'cardsTarsReset',
+	'cardsFreeTarsFromForm', 'cardsTarsFromTable', 'cardsTarsFromForm', 'cardsTarsReset',
 	'cardsShowList', 'cardsShowEditor', 'cardsSetFormMode', 'cardsNew',
 	'cardsCancelEdit']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
@@ -181,7 +181,6 @@ test('the preset TAR table helpers read the role entries and the MSLs', () => {
 		{ role: 'usimRfm', tar: 'B00001', msl: '16' },
 		{ tar: 'AF4D02', msl: '0A', desc: 'applet' }] });
 	assert.strictEqual(cardsRoleTar(p, 'isd'), 'AF4D01');
-	assert.strictEqual(cardsRoleMsl(p, 'isd'), '1A');
 	assert.strictEqual(cardsTarMsl(p, 'af4d02'), '0A');
 	assert.strictEqual(cardsTarMsl(p, '123456'), '');
 	assert.strictEqual(cardsTarEntry(p, 'AF4D02').desc, 'applet');
@@ -538,7 +537,7 @@ test('the TAR table renders the role rows and adds/removes free rows', () => {
 	cardsTarRowsRender([{ tar: 'AF4D01', msl: '0A', desc: 'one' },
 		{ tar: 'AF4D02', msl: '0A', desc: 'two' }]);
 	assert.strictEqual(_cardsTarCount, 2);
-	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value="000000"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value=""/);
 	assert.match(els['cards-tars'].innerHTML, /ISD compact format/);
 	assert.match(els['cards-tars'].innerHTML, /cards-tr-3-tar"[^>]*value="AF4D01"/);
 	assert.match(els['cards-tars'].innerHTML, /cards-tr-4-tar"[^>]*value="AF4D02"/);
@@ -560,6 +559,14 @@ test('the TAR table renders the role rows and adds/removes free rows', () => {
 	// the role rows are never removable
 	cardsTarRemove(0);
 	assert.strictEqual(_cardsTarCount, 2);
+	// an emptied role field survives a re-render (no silent default refill),
+	// while the save path still fills the default
+	tarRow(els, 0, { tar: '', msl: '' });
+	cardsTarRemove(3);
+	assert.strictEqual(_cardsTarCount, 0);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value=""/);
+	assert.strictEqual(cardsTarsFromForm()[0].tar, '000000');
+	assert.strictEqual(cardsTarsFromForm()[0].msl, '16');
 });
 
 test('the list view opens the editor for a new preset and Cancel returns', () => {
