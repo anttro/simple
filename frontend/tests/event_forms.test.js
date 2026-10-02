@@ -34,6 +34,7 @@ eval(extractFunc(html, 'cmdQualifierShort'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
+eval(extractBlock('const EVENT_INNER_MAX = ', 'function pysimEventSendForm').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'eventFieldsForRelease'));
 eval(extractFunc(html, 'encPlmn'));
 eval(extractFunc(html, 'bytesToHex'));
@@ -172,6 +173,11 @@ test('the call events build their 31.111 object sets', () => {
 	// call disconnected: radio link timeout = zero-length cause, custom = bytes
 	assert.strictEqual(EVENT_FORMS[0x02].build({ ti: '00', cause_mode: 'rlt', media: '' }), '1C01009A00');
 	assert.strictEqual(EVENT_FORMS[0x02].build({ ti: '00', cause_mode: 'custom', cause: '10', media: '' }), '1C01009A0110');
+	// a URI longer than the 100-byte limit is cut and tagged (8.135)
+	const long = EVENT_FORMS[0x00].build({ ti: '00', ims_uri: 'x'.repeat(120) });
+	assert.ok(long.includes('B164' + '78'.repeat(100)), 'the URI is cut to 100 bytes');
+	assert.ok(long.endsWith('F300'), long.slice(-8));
+	assert.ok(!EVENT_FORMS[0x00].build({ ti: '00', ims_uri: 'sip:a@b' }).includes('F300'));
 });
 
 test('the browser, WLAN and CSG events build their object sets', () => {
@@ -199,6 +205,9 @@ test('the data/display/search/frames events build their object sets', () => {
 	assert.strictEqual(EVENT_FORMS[0x0F].build({ status: '12' }), 'E40112');
 	assert.strictEqual(EVENT_FORMS[0x0F].build({ status: '' }), 'E40100');
 	assert.strictEqual(EVENT_FORMS[0x10].build({ frame: '01', list: '0410' }), 'E703010410');
+	// Card reader status (8.33) and Language (8.45) carry their object tags
+	assert.strictEqual(EVENT_FORMS[0x06].build({ status: '1' }), 'A00101');
+	assert.strictEqual(EVENT_FORMS[0x07].build({ lang: 'en' }), 'AD02656E');
 });
 
 test('the IMS, CAG and slices events build their object sets', () => {
@@ -207,7 +216,7 @@ test('the IMS, CAG and slices events build their object sets', () => {
 	assert.strictEqual(EVENT_FORMS[0x17].build({ impu: 'sip:a@b', code: '200' }),
 		'F70980077369703A614062F803323030');
 	assert.strictEqual(EVENT_FORMS[0x18].src, '83');
-	assert.strictEqual(EVENT_FORMS[0x18].build({ iari: 'a' }), 'F70161');
+	assert.strictEqual(EVENT_FORMS[0x18].build({ iari: 'a' }), 'F60161');
 	// CAG cell selection: tech + status/mechanism + information list
 	assert.strictEqual(EVENT_FORMS[0x1E].src, '83');
 	assert.strictEqual(EVENT_FORMS[0x1E].build({ status: '1', mech: 'manual', tech: '8', list: '00000001' }),
@@ -216,6 +225,9 @@ test('the IMS, CAG and slices events build their object sets', () => {
 	assert.strictEqual(EVENT_FORMS[0x1F].src, '83');
 	assert.strictEqual(EVENT_FORMS[0x1F].build({ status: '1', tech: '8', served: '01020304' }),
 		'BF0108D50101D6050101020304');
+	// partial NSSAI: the F9 object + the automatic Last Envelope marker
+	assert.strictEqual(EVENT_FORMS[0x1F].build({ status: '1', partial: '0102' }), 'D50101F9020102F000');
+	assert.ok(!EVENT_FORMS[0x1F].build({ status: '1', served: '01020304' }).includes('F000'));
 });
 
 test('the location-status event can carry the location information', () => {
@@ -265,10 +277,22 @@ test('event fields introduced after the effective release are hidden', () => {
 	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['code', 'impu']);
 	// slices: the mapping/rejected objects came in Rel-18
 	r = eventFieldsForRelease(EVENT_FORMS[0x1F], 16);
-	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['allowed_map', 'rejected', 'rejected_map']);
+	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['allowed_map', 'partial', 'rejected', 'rejected_map']);
 	assert.strictEqual(eventFieldsForRelease(EVENT_FORMS[0x1F], 18).hidden.length, 0);
 	// a field without a known release is never hidden
 	r = eventFieldsForRelease(EVENT_FORMS[0x12], 4);
 	assert.strictEqual(r.hidden.length, 0);
 	assert.strictEqual(r.fields.length, EVENT_FORMS[0x12].fields.length);
+});
+
+test('the single-envelope budget is enforced by the size helper', () => {
+	// inner = 8 header bytes + the event data; D6 81 <len> + inner must stay
+	// within the 1-byte APDU Lc, so the inner data is capped at 252 bytes
+	assert.strictEqual(EVENT_INNER_MAX, 252);
+	assert.strictEqual(eventEnvelopeSize(''), 8);
+	assert.strictEqual(eventEnvelopeSize('AABB'), 10);
+	assert.strictEqual(eventEnvelopeSize('AB'.repeat(244)), 252);
+	assert.ok(eventFitsOneEnvelope('AB'.repeat(244)));
+	assert.ok(!eventFitsOneEnvelope('AB'.repeat(245)));
+	assert.ok(eventFitsOneEnvelope(null));
 });

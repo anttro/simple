@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.13.4';
+const SIMPLE_VERSION = '3.14.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9136,10 +9136,11 @@ const CAT_RELEASE = {
 		'56/D6 CSG ID': 9,
 		'57/D7 HNB name': 9,
 		'31/B1 IMS URI': 10,
-		'77/F7 IARI': 10,
+		'76/F6 IARI': 10,
 		'77/F7 IMPU list': 11,
 		'78/F8 IMS status code': 11,
 		'7E/FE Media Type': 12,
+		'73/F3 URI truncated': 12,
 		'09/89 PLMN ID': 4,
 		'3F/BF Access technology': 4,
 		'B4 Supported Radio Access Technologies': 13,
@@ -9159,6 +9160,8 @@ const CAT_RELEASE = {
 		'77/F7 Allowed slices with S-NSSAI mapping': 18,
 		'D7 Rejected slices with S-NSSAI mapping': 18,
 		'B1 Rejected slices information': 18,
+		'79/F9 Partial NSSAI': 18,
+		'70/F0 Last Envelope': 18,
 	},
 	pli: {
 		'00': 4, '01': 4, '02': 4, '03': 4, '04': 4, '06': 4, '07': 4, '08': 6,
@@ -13897,8 +13900,12 @@ const EVENT_FORMS = {
 				d += '88' + (h.length / 2).toString(16).padStart(2, '0') + h;
 			}
 			if (v.ims_uri) {
-				const b = new TextEncoder().encode(v.ims_uri).slice(0, 100);
+				let b = new TextEncoder().encode(v.ims_uri);
+				const truncated = b.length > 100;
+				b = b.slice(0, 100);
 				d += 'B1' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b));
+				// 8.135: the object is included when the URI was truncated
+				if (truncated) d += 'F300';
 			}
 			if (v.media !== '' && v.media !== undefined)
 				d += 'FE01' + ((parseInt(v.media) || 0) & 0xFF).toString(16).padStart(2, '0');
@@ -13973,13 +13980,13 @@ const EVENT_FORMS = {
 			{ id: 'status', label: 'Status', type: 'select',
 			  opts: [{v:0,l:'Card reader removed'},{v:1,l:'Card reader inserted'}] }
 		],
-		build(v) { return '' + (v.status|0).toString(16).padStart(2,'0'); }
+		build(v) { return 'A001' + ((parseInt(v.status) || 0) & 0xFF).toString(16).padStart(2,'0'); }
 	},
 	0x07: { title: 'Language selection',
 		fields: [
 			{ id: 'lang', label: 'Language code', type: 'text', placeholder: 'ISO 639, e.g. en, ru', pattern: '[a-zA-Z]{2,3}' }
 		],
-		build(v) { const b = new TextEncoder().encode(v.lang||'en'); return b.length.toString(16).padStart(2,'0') + bytesToHex(Array.from(b)); }
+		build(v) { const b = new TextEncoder().encode(v.lang||'en'); return 'AD' + b.length.toString(16).padStart(2,'0') + bytesToHex(Array.from(b)); }
 	},
 	0x08: { title: 'Browser termination',
 		fields: [
@@ -14240,7 +14247,7 @@ const EVENT_FORMS = {
 		build(v) {
 			if (!v.iari) return '';
 			const b = new TextEncoder().encode(v.iari).slice(0, 100);
-			return ('F7' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b))).toUpperCase();
+			return ('F6' + b.length.toString(16).padStart(2, '0') + bytesToHex(Array.from(b))).toUpperCase();
 		}
 	},
 	0x1C: { title: 'Poll interval negotiation',
@@ -14357,6 +14364,7 @@ const EVENT_FORMS = {
 			{ id: 'allowed', label: 'Allowed slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
 			{ id: 'rejected_map', label: 'Rejected slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 elements + rejection cause', rel: 18 },
 			{ id: 'rejected', label: 'Rejected slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 rejected S-NSSAI elements', rel: 18 },
+			{ id: 'partial', label: 'Partial NSSAI (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 partial NSSAI elements', rel: 18 },
 		],
 		build(v) {
 			let d = '';
@@ -14377,6 +14385,11 @@ const EVENT_FORMS = {
 			list(v.allowed, 'F8');
 			list(v.rejected_map, 'D7');
 			list(v.rejected, 'B1');
+			list(v.partial, 'F9');
+			// 7.5.27.2: a single envelope carrying the partial NSSAI is the
+			// last one - the chaining marker goes with it (multi-envelope
+			// delivery is not implemented; the data must fit one envelope)
+			if ((v.partial || '').replace(/[^0-9a-fA-F]/g, '')) d += 'F000';
 			return d.toUpperCase();
 		}
 	},
@@ -14799,6 +14812,24 @@ function eventFieldsForRelease(cfg, rel) {
 	return { fields: fields, hidden: hidden };
 }
 
+// The single-ENVELOPE budget: the inner data (event list + device identities +
+// the event objects) is wrapped as D6 81 <len> + inner, and the APDU Lc must
+// stay within one byte (255) - so the inner data is capped at 252 bytes
+// (8 header bytes + at most 244 bytes of event data).  Chained
+// (multi-envelope) delivery is not implemented: the slice/NSSAI data must fit
+// one envelope (see the help).
+const EVENT_INNER_MAX = 252;
+
+// The ENVELOPE inner size of an event-data hex string (pure).
+function eventEnvelopeSize(eventDataHex) {
+	return 8 + Math.floor((eventDataHex || '').length / 2);
+}
+
+// Whether the event data fits one ENVELOPE (pure).
+function eventFitsOneEnvelope(eventDataHex) {
+	return eventEnvelopeSize(eventDataHex) <= EVENT_INNER_MAX;
+}
+
 function pysimEventSendForm(eventType) {
 	const modal = document.getElementById('event-send-modal');
 	const title = document.getElementById('event-send-title');
@@ -14922,6 +14953,13 @@ async function pysimEventSend() {
 			if (cfg.srcField && values[cfg.srcField]) eventSrc = values[cfg.srcField];
 		} catch (e) {
 			err.textContent = 'Error: ' + e.message;
+			err.classList.remove('hidden');
+			return;
+		}
+		if (eventData && !eventFitsOneEnvelope(eventData)) {
+			err.textContent = t('The event data does not fit one ENVELOPE') + ' (' +
+				eventEnvelopeSize(eventData) + ' > ' + EVENT_INNER_MAX + ' B). ' +
+				t('Multi-envelope (chained) delivery is not implemented - reduce the slice lists.');
 			err.classList.remove('hidden');
 			return;
 		}
@@ -20738,6 +20776,8 @@ const LANG_RU = {
 	'Event sent.': 'Событие отправлено.',
 	'Event data sent.': 'Данные события отправлены.',
 	'Sending...': 'Отправка...',
+	'The event data does not fit one ENVELOPE': 'Данные события не помещаются в один ENVELOPE',
+	'Multi-envelope (chained) delivery is not implemented - reduce the slice lists.': 'Доставка в несколько ENVELOPE (цепочкой) не реализована — сократите списки срезов.',
 	'Yes': 'Да',
 	'No': 'Нет',
 	'Help': 'Справка',

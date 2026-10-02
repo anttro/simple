@@ -934,6 +934,20 @@ class TestEventDownload(unittest.TestCase):
         d6 = bytes([0xD6, 0x81, len(inner)]) + inner
         self.assertEqual(apdu, '80c20000%02x%s' % (len(d6), d6.hex()))
 
+    def test_event_data_beyond_one_envelope_is_refused(self):
+        # the tool sends one envelope per event: the inner data is capped at
+        # 252 bytes (the D6 long-form length and the APDU Lc stay in one byte);
+        # chained (multi-envelope) delivery is not implemented
+        with self.assertRaises(ValueError) as ctx:
+            self._send(0x1F, bytes(245))
+        self.assertIn('one ENVELOPE', str(ctx.exception))
+        # 244 bytes of event data still fit (inner = 252, the maximum)
+        apdu, sw = self._send(0x1F, bytes(244))
+        self.assertEqual(sw, '9000')
+        inner = bytes([0x99, 0x01, 0x1F, 0x82, 0x02, 0x82, 0x81]) + bytes(244)
+        d6 = bytes([0xD6, 0x81, len(inner)]) + inner
+        self.assertEqual(apdu, '80c20000%02x%s' % (len(d6), d6.hex()))
+
 
 class TestTimerManagement(unittest.TestCase):
     """Terminal side of TIMER MANAGEMENT (TS 102 223 6.6.21, 6.8.13/14, 7.4).

@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.13.4'
+VERSION = '3.14.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4595,11 +4595,24 @@ def _verify_adm(scc, app, adm_hex):
             'error': 'Security status not satisfied' if sw == '6982' else 'Error'}
 
 
+# The single-ENVELOPE budget for event data: the inner data (event list +
+# device identities + the event objects) is wrapped as D6 81 <len> + inner,
+# and the APDU Lc must stay within one byte (255), so the inner data is
+# capped at 252 bytes (244 bytes of event data + the 8-byte header).
+# Chained (multi-envelope) delivery is not implemented - the slice/S-NSSAI
+# data must fit one envelope (see the help).
+_EVENT_INNER_MAX = 252
+_EVENT_DATA_MAX = _EVENT_INNER_MAX - 8
+
+
 def _send_event_download(scc, event_type, event_data=None, drain=True, src=None):
     """Send ENVELOPE(Event Download) for the given event type.
     Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 <src> 81 [extra]).
     `src` is the source device identity (TS 102 223 8.7: '82' terminal,
     '83' network); the default is the terminal."""
+    if event_data and len(event_data) > _EVENT_DATA_MAX:
+        raise ValueError('event data does not fit one ENVELOPE (max %d bytes; '
+                         'chained delivery is not implemented)' % _EVENT_DATA_MAX)
     src_byte = 0x82
     if src:
         try:
@@ -7205,6 +7218,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     resp['net_state'] = self.server.net_state
                 self._send_json(resp)
                 self._log_resp(resp)
+            except ValueError as e:
+                # the single-envelope budget (no chained delivery)
+                self._send_json({'error': str(e)}, 400)
+                self._log_resp({'error': str(e)})
             except Exception as e:
                 sys.stderr.write('Event send error: %s\n' % e)
                 _handle_card_disconnect(stale=_is_transport_fatal(e))
