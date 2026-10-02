@@ -204,6 +204,7 @@ the bytes, there is no separate field:
 
 ```json
 {"id": "…", "name": "Card A", "iccid": "…",
+ "pin1": "", "puk1": "", "pin2": "", "puk2": "",
  "pskIdentity": "", "pskKey": "", "adm": "",
  "tars": [
    {"role": "isd",     "tar": "000000", "msl": "16", "desc": ""},
@@ -239,6 +240,11 @@ three role entries, the `spi1` as their MSL.  Operations **derive a packet's
 SPI1 from the MSL of its TAR**; a request naming a TAR outside the preset must
 pass `spi1` itself, otherwise it is refused with `400` and a hint.
 
+**Card codes.**  The optional `pin1`/`puk1`/`pin2`/`puk2`/`adm` fields are
+stored for later use (nothing consumes them yet).  PIN/PUK must be **4–8
+decimal digits** when set (empty is fine; anything else is refused with `400`
+naming the field); the ADM key stays free-form (hex or ASCII digits).
+
 **Counters.**  The store is the source of truth for the SCP80 counters, one per
 keyset ("a dedicated counter shall be associated to each key version",
 Annex A.1 — the spec's wording).  The operations below accept a `preset_id` and **persist the
@@ -250,7 +256,7 @@ is not defined in preset '…' - add it in the Cards tab"}`), and so is a
 KIc/KID number mismatch.  The Cards tab's export/import uses this API; the
 import also accepts presets exported by the older localStorage-based builds.
 
-- `GET /api/presets` — `{"path": "…", "count": 2, "version": 3, "presets": [{…}]}`
+- `GET /api/presets` — `{"path": "…", "count": 2, "version": 4, "presets": [{…}]}`
   (card-free: it answers while a long card operation runs).
 - `POST /api/presets` — body = the preset fields (`keysets` included); returns
   `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced or raw EF

@@ -20,6 +20,10 @@ for a TAR derives its SPI1 from that TAR's MSL; the preset no longer carries a
 card-wide SPI1/SPI2 (SPI2 is an operation property: whether and how a Proof of
 Receipt is requested).
 
+The optional **card codes** (`pin1`/`puk1`/`pin2`/`puk2`/`adm`) are stored for
+later use by the card operations (nothing consumes them yet); the PIN/PUK codes
+are 4-8 decimal digits, the ADM key is hex or ASCII digits.
+
 A preset holds **several keysets**; the b8..b5 nibble of KIc/KID numbers them
 (TS 102 225 5.1.2/A.2).  Each keyset has its own KIc/KID keys and its own
 counter - "a dedicated counter shall be associated to each key version"
@@ -59,18 +63,22 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'card_presets.json'
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # The fields a preset carries: the localStorage shape plus the id.  The OTA key
 # material lives in `keysets` - the b8..b5 nibble of KIc/KID numbers them,
 # each with its own counter (TS 102 225 Annex A.1: "a dedicated counter shall
 # be associated to each key version"); the TAR table lives in `tars` (see
-# TAR_ROLES).
-PRESET_FIELDS = ('name', 'iccid', 'adm', 'pskIdentity', 'pskKey')
+# TAR_ROLES).  The optional card codes (PIN/PUK/ADM) are stored for later use.
+PRESET_FIELDS = ('name', 'iccid', 'pin1', 'puk1', 'pin2', 'puk2', 'adm',
+                 'pskIdentity', 'pskKey')
 # The v3.8.0 flat key fields: converted into a single keyset on load/import.
 LEGACY_KEY_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 KEYSET_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 HEX_FIELDS = ('adm', 'pskKey')
+# The card codes: PIN/PUK are 4-8 decimal digits (validated in _validate),
+# ADM is hex or ASCII digits (HEX_FIELDS).
+DIGIT_FIELDS = ('pin1', 'puk1', 'pin2', 'puk2')
 KEYSET_HEX_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 # The TAR table: the three mandatory role entries (their values are pre-settled
 # in the Cards form) and free entries with an optional description.  Every
@@ -279,6 +287,8 @@ class PresetStore:
             v = '' if v is None else str(v).strip()
             if k in HEX_FIELDS:
                 v = re.sub(r'\s', '', v).upper()
+            elif k in DIGIT_FIELDS:
+                v = re.sub(r'\s', '', v)
             out[k] = v
         out['tars'] = self._normalise_tars(fields)
         # Keysets: a v3.8.0 preset (flat kic/kid/kicKey/kidKey/cntr) converts
@@ -361,6 +371,10 @@ class PresetStore:
             raise PresetError('PSK identity and PSK key must be set together')
         if p['pskKey'] and not re.fullmatch(r'[0-9A-F]{32}', p['pskKey']):
             raise PresetError('PSK key must be 32 hex characters')
+        for k in DIGIT_FIELDS:
+            if p[k] and not re.fullmatch(r'[0-9]{4,8}', p[k]):
+                raise PresetError('%s must be 4-8 decimal digits (or empty)'
+                                  % k.upper())
         if not p['keysets']:
             raise PresetError('at least one keyset is required')
         seen = set()

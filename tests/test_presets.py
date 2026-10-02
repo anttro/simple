@@ -211,6 +211,29 @@ class StoreCrudTests(unittest.TestCase):
         with self.assertRaises(presets.PresetError):
             self.store.add(preset(name=''))
 
+    def test_pin_and_puk_codes_are_optional_and_normalised(self):
+        p = self.store.add(preset())
+        # absent/empty: all four default to ''
+        self.assertEqual([p[k] for k in ('pin1', 'puk1', 'pin2', 'puk2')],
+                         ['', '', '', ''])
+        p = self.store.add(preset(name='Codes', pin1=' 12 34 ', puk1='12345678',
+                                  pin2='0000', puk2=' 8765 4321 '))
+        self.assertEqual(p['pin1'], '1234')
+        self.assertEqual(p['puk1'], '12345678')
+        self.assertEqual(p['pin2'], '0000')
+        self.assertEqual(p['puk2'], '87654321')
+
+    def test_pin_and_puk_codes_must_be_4_to_8_digits(self):
+        for field in ('pin1', 'puk1', 'pin2', 'puk2'):
+            for bad in ('123', '123456789', '12A4', 'abcd'):
+                with self.assertRaises(presets.PresetError) as ctx:
+                    self.store.add(preset(name='X', **{field: bad}))
+                self.assertIn(field.upper(), str(ctx.exception))
+        # 4 and 8 digits are the accepted bounds; empty stays optional
+        p = self.store.add(preset(name='Bounds', pin1='1234', puk1='12345678'))
+        self.assertEqual(p['pin1'], '1234')
+        self.assertEqual(p['puk1'], '12345678')
+
     def test_duplicate_iccid_is_refused_across_stored_forms(self):
         self.store.add(preset(iccid=DIGITS))
         with self.assertRaises(presets.PresetError) as ctx:
@@ -362,11 +385,14 @@ class StorePersistenceTests(unittest.TestCase):
     def test_the_file_round_trips(self):
         store = make_store(self.tmp.name)
         p = store.add(preset(iccid=DIGITS, pskIdentity='id', pskKey='00' * 16,
+                             pin1='1234', puk1='12345678',
                              keysets=[keyset(kic='15', kid='15'),
                                       keyset(kic='29', kid='29', cntr='0000000004')]))
         raw = json.loads(pathlib.Path(store.path).read_text(encoding='utf-8'))
         self.assertEqual(raw['version'], presets.SCHEMA_VERSION)
         self.assertEqual(raw['presets'][0]['keysets'][1]['cntr'], '0000000004')
+        self.assertEqual(raw['presets'][0]['pin1'], '1234')
+        self.assertEqual(raw['presets'][0]['puk1'], '12345678')
         again = make_store(self.tmp.name)
         self.assertEqual([x['id'] for x in again.list()], [p['id']])
         self.assertEqual(again.find_keyset(p['id'], 2)['cntr'], '0000000004')

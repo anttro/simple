@@ -44,11 +44,13 @@ for (const fn of ['cardsFormValues', 'cardsClearForm', 'cardsEdit',
 	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar', 'cardsRoleMsl',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsTarText', 'spMslWarningText',
 	'cardsTarRowHtml', 'cardsTarRowsRender', 'cardsTarAdd', 'cardsTarRemove',
-	'cardsFreeTarsFromForm', 'cardsTarsFromForm', 'cardsTarsReset']) {
+	'cardsFreeTarsFromForm', 'cardsTarsFromForm', 'cardsTarsReset',
+	'cardsShowList', 'cardsShowEditor', 'cardsSetFormMode', 'cardsNew',
+	'cardsCancelEdit']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES')
-	+ extractConst(html, 'CARDS_MSL_DEFAULT')
+	+ extractConst(html, 'CARDS_MSL_DEFAULT') + extractConst(html, 'CARDS_TAR_ROLE_DESC')
 	+ 'var _cardsKeysetCount = 0;\nvar _cardsTarCount = 0;\n'
 	+ 'globalThis.spPresetWarningRender = function() {};\n'
 	+ 'globalThis.spMslWarningRender = function() {};\n'
@@ -56,9 +58,8 @@ code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_
 eval(code);
 globalThis.t = s => s;
 
-const CARD_IDS = ['cards-name','cards-iccid','cards-adm',
-	'cards-tar','cards-tar-msl','cards-uicc-tar','cards-uicc-tar-msl',
-	'cards-usim-tar','cards-usim-tar-msl','cards-tars',
+const CARD_IDS = ['cards-name','cards-iccid','cards-pin1','cards-puk1','cards-pin2','cards-puk2','cards-adm',
+	'cards-tars','cards-list-view','cards-editor-view','cards-editor-title','cards-new-btn',
 	'cards-psk-id','cards-psk-key','cards-keysets',
 	'cards-add-btn','cards-cancel-btn',
 	// the keyset editor rows (two rows is enough for the tests)
@@ -66,9 +67,11 @@ const CARD_IDS = ['cards-name','cards-iccid','cards-adm',
 	'cards-ks-0-kid-key','cards-ks-0-cntr',
 	'cards-ks-1-kvn','cards-ks-1-kic','cards-ks-1-kid','cards-ks-1-kic-key',
 	'cards-ks-1-kid-key','cards-ks-1-cntr',
-	// the free TAR editor rows
-	'cards-ft-0-tar','cards-ft-0-msl','cards-ft-0-desc',
-	'cards-ft-1-tar','cards-ft-1-msl','cards-ft-1-desc'];
+	// the TAR table rows: 0-2 are the fixed role rows, 3+ the free rows
+	'cards-tr-0-tar','cards-tr-0-msl','cards-tr-1-tar','cards-tr-1-msl',
+	'cards-tr-2-tar','cards-tr-2-msl',
+	'cards-tr-3-tar','cards-tr-3-msl','cards-tr-3-desc',
+	'cards-tr-4-tar','cards-tr-4-msl','cards-tr-4-desc'];
 const SP_IDS = ['sp-card-sel','sp-tar','sp-spi1','sp-spi2','sp-spi2-sm','sp-spi2-hex',
 	'sp-kic-idx','sp-kic-alg','sp-kic-hex','sp-kid-idx','sp-kid-alg','sp-kid-hex',
 	'sp-cntr','sp-kic-key','sp-kid-key','sp-apdu','sp-result','sp-spi1-hex','sp-tar-list',
@@ -86,7 +89,7 @@ function ksRow(els, i, ks) {
 
 function tarRow(els, i, e) {
 	for (const field of ['tar', 'msl', 'desc']) {
-		const id = 'cards-ft-' + i + '-' + field;
+		const id = 'cards-tr-' + i + '-' + field;
 		if (!els[id]) els[id] = fakeEl();
 		els[id].value = e[field] || '';
 	}
@@ -103,12 +106,22 @@ function presetFixture(extra) {
 }
 
 function fakeEl() {
+	const classes = new Set();
 	return {
 		value: '',
 		textContent: '',
 		innerHTML: '',
 		focus() {},
-		classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+		classList: {
+			add: (...cs) => cs.forEach(c => classes.add(c)),
+			remove: (...cs) => cs.forEach(c => classes.delete(c)),
+			toggle: (c, on) => {
+				const want = on === undefined ? !classes.has(c) : !!on;
+				if (want) classes.add(c); else classes.delete(c);
+				return want;
+			},
+			contains: c => classes.has(c),
+		},
 		setAttribute() {}, removeAttribute() {},
 	};
 }
@@ -133,8 +146,6 @@ function setup() {
 	globalThis.cardsRender = () => {};
 	globalThis.cardsRebuildSelect = () => {};
 	globalThis.scp81PushPskMap = () => {};
-	globalThis.cardsSetFormMode = () => {};
-	globalThis.cardsCancelEdit = () => {};
 	globalThis.cardsFindDuplicateIccid = () => -1;
 	globalThis.ioStatus = () => {};
 	globalThis.switchTab = () => {};
@@ -226,62 +237,76 @@ test('preset completeness predicates used by the header markers', () => {
 
 test('clearing the card form keeps the role TAR/MSL defaults', () => {
 	const els = setup();
-	els['cards-tar'].value = 'AABBCC';
-	els['cards-tar-msl'].value = 'FF';
-	els['cards-uicc-tar'].value = 'AABBCC';
-	els['cards-usim-tar'].value = 'AABBCC';
+	els['cards-pin1'].value = '1234';
 	els['cards-adm'].value = 'DEAD';
 	els['cards-name'].value = 'X';
-	tarRow(els, 0, { tar: 'AF4D01', msl: '0A', desc: 'applet' });
+	// a free row from a previous edit
+	tarRow(els, 3, { tar: 'AF4D01', msl: '0A', desc: 'applet' });
 	_cardsTarCount = 1;
 	cardsClearForm();
-	assert.strictEqual(els['cards-tar'].value, '000000');
-	assert.strictEqual(els['cards-tar-msl'].value, '16');
-	assert.strictEqual(els['cards-uicc-tar'].value, 'B00000');
-	assert.strictEqual(els['cards-uicc-tar-msl'].value, '16');
-	assert.strictEqual(els['cards-usim-tar'].value, 'B00001');
+	assert.strictEqual(els['cards-pin1'].value, '');
 	assert.strictEqual(els['cards-adm'].value, '');
 	assert.strictEqual(els['cards-name'].value, '');
 	assert.strictEqual(_cardsTarCount, 0, 'the free TAR rows are cleared');
+	// the role rows render the pre-settled defaults
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value="000000"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-msl"[^>]*value="16"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-1-tar"[^>]*value="B00000"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-2-tar"[^>]*value="B00001"/);
+	// ... and the table reads back as the three role entries
+	assert.deepStrictEqual(cardsTarsFromForm(), [
+		{ role: 'isd', tar: '000000', msl: '16', desc: '' },
+		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '' },
+		{ role: 'usimRfm', tar: 'B00001', msl: '16', desc: '' },
+	]);
 });
 
-test('editing prefills the role TARs/MSLs and renders the free TAR rows', () => {
+test('editing prefills the code fields and renders the TAR table', () => {
 	const els = setup();
 	globalThis.cards = [
 		{ name: 'Legacy', keysets: [] },
-		presetFixture({ name: 'Full', adm: '0011', tars: [
+		presetFixture({ name: 'Full', adm: '0011', pin1: '1234', puk1: '12345678',
+			pin2: '0000', puk2: '87654321', tars: [
 			{ role: 'isd', tar: '000001', msl: '0A' },
 			{ role: 'uiccRfm', tar: 'B0000C', msl: '16' },
 			{ role: 'usimRfm', tar: 'B0000D', msl: '16' },
 			{ tar: 'AF4D02', msl: '1A', desc: 'applet' }] }),
 	];
 	cardsEdit(0);
-	assert.strictEqual(els['cards-tar'].value, '000000');
-	assert.strictEqual(els['cards-tar-msl'].value, '');
-	assert.strictEqual(els['cards-uicc-tar'].value, 'B00000');
+	// the editor opens; missing codes read as empty
+	assert.ok(!els['cards-editor-view'].classList.contains('hidden'));
+	assert.ok(els['cards-list-view'].classList.contains('hidden'));
+	assert.strictEqual(els['cards-pin1'].value, '');
 	assert.strictEqual(els['cards-adm'].value, '');
 	cardsEdit(1);
-	assert.strictEqual(els['cards-tar'].value, '000001');
-	assert.strictEqual(els['cards-tar-msl'].value, '0A');
-	assert.strictEqual(els['cards-uicc-tar'].value, 'B0000C');
-	assert.strictEqual(els['cards-usim-tar'].value, 'B0000D');
-	assert.strictEqual(els['cards-usim-tar-msl'].value, '16');
+	assert.strictEqual(els['cards-pin1'].value, '1234');
+	assert.strictEqual(els['cards-puk1'].value, '12345678');
+	assert.strictEqual(els['cards-pin2'].value, '0000');
+	assert.strictEqual(els['cards-puk2'].value, '87654321');
 	assert.strictEqual(els['cards-adm'].value, '0011');
 	assert.strictEqual(_cardsTarCount, 1);
-	assert.match(els['cards-tars'].innerHTML, /cards-ft-0-tar"[^>]*value="AF4D02"/);
-	assert.match(els['cards-tars'].innerHTML, /cards-ft-0-desc"[^>]*value="applet"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value="000001"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-1-tar"[^>]*value="B0000C"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-2-tar"[^>]*value="B0000D"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-3-tar"[^>]*value="AF4D02"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-3-desc"[^>]*value="applet"/);
+	// the role rows carry the fixed descriptions and no remove button
+	assert.match(els['cards-tars'].innerHTML, /ISD compact format/);
+	assert.match(els['cards-tars'].innerHTML, /UICC shared FS RFM compact format/);
+	assert.match(els['cards-tars'].innerHTML, /ADF FS RFM compact format/);
+	assert.doesNotMatch(els['cards-tars'].innerHTML, /cardsTarRemove\(0\)/);
+	assert.match(els['cards-tars'].innerHTML, /cardsTarRemove\(3\)/);
 });
 
-test('the form values carry the ADM and the TAR table', () => {
+test('the form values carry the codes and the TAR table', () => {
 	const els = setup();
-	els['cards-tar'].value = ' 000001 ';
-	els['cards-tar-msl'].value = '0a';
-	els['cards-uicc-tar'].value = '';
-	els['cards-uicc-tar-msl'].value = '';
-	els['cards-usim-tar'].value = 'B00003';
-	els['cards-usim-tar-msl'].value = '1A';
+	els['cards-pin1'].value = ' 12 34 ';
+	els['cards-puk1'].value = '12345678';
 	els['cards-adm'].value = ' 00 11 22 33 ';
-	tarRow(els, 0, { tar: 'af4d02', msl: '0A', desc: 'My applet' });
+	tarRow(els, 0, { tar: ' 000001 ', msl: '0a' });
+	tarRow(els, 1, { tar: '', msl: '' });          // uiccRfm -> spec default
+	tarRow(els, 2, { tar: 'B00003', msl: '1A' });
+	tarRow(els, 3, { tar: 'af4d02', msl: '0A', desc: 'My applet' });
 	_cardsTarCount = 1;
 	const v = cardsFormValues();
 	assert.deepStrictEqual(v.tars, [
@@ -290,6 +315,8 @@ test('the form values carry the ADM and the TAR table', () => {
 		{ role: 'usimRfm', tar: 'B00003', msl: '1A', desc: '' },
 		{ tar: 'AF4D02', msl: '0A', desc: 'My applet' },
 	]);
+	assert.strictEqual(v.pin1, '1234');
+	assert.strictEqual(v.puk1, '12345678');
 	assert.strictEqual(v.adm, '00112233');
 });
 
@@ -322,14 +349,14 @@ test('saving refuses a free TAR row without its MSL or with a duplicate TAR', as
 	globalThis._cardsKeysetCount = 1;
 	const seen = [];
 	globalThis.alert = msg => seen.push(msg);
-	tarRow(els, 0, { tar: 'AF4D02', msl: '', desc: '' });
+	tarRow(els, 3, { tar: 'AF4D02', msl: '', desc: '' });
 	_cardsTarCount = 1;
 	await cardsAdd();
 	assert.strictEqual(apiCalls.length, 0);
 	assert.match(seen[0], /MSL/);
 	// a TAR may appear once
 	seen.length = 0;
-	tarRow(els, 0, { tar: '000000', msl: '16', desc: '' });
+	tarRow(els, 3, { tar: '000000', msl: '16', desc: '' });
 	await cardsAdd();
 	assert.strictEqual(apiCalls.length, 0);
 	assert.match(seen[0], /Duplicate TAR/);
@@ -506,23 +533,75 @@ test('packing without a selected preset uses the spec default TAR', () => {
 	assert.strictEqual(els['sp-tar'].value, '000000');
 });
 
-test('the TAR editor renders, adds and removes free rows', () => {
+test('the TAR table renders the role rows and adds/removes free rows', () => {
 	const els = setup();
 	cardsTarRowsRender([{ tar: 'AF4D01', msl: '0A', desc: 'one' },
 		{ tar: 'AF4D02', msl: '0A', desc: 'two' }]);
 	assert.strictEqual(_cardsTarCount, 2);
-	assert.match(els['cards-tars'].innerHTML, /cards-ft-1-tar"[^>]*value="AF4D02"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-0-tar"[^>]*value="000000"/);
+	assert.match(els['cards-tars'].innerHTML, /ISD compact format/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-3-tar"[^>]*value="AF4D01"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-4-tar"[^>]*value="AF4D02"/);
+	assert.match(els['cards-tars'].innerHTML, /cards-tr-4-desc"[^>]*value="two"/);
+	assert.match(els['cards-tars'].innerHTML, /cardsTarRemove\(4\)/);
 	// simulate the DOM the innerHTML produced
-	tarRow(els, 0, { tar: 'AF4D01', msl: '0A', desc: 'one' });
-	tarRow(els, 1, { tar: 'AF4D02', msl: '0A', desc: 'two' });
-	cardsTarRemove(0);
+	tarRow(els, 3, { tar: 'AF4D01', msl: '0A', desc: 'one' });
+	tarRow(els, 4, { tar: 'AF4D02', msl: '0A', desc: 'two' });
+	cardsTarRemove(3);
 	assert.strictEqual(_cardsTarCount, 1);
 	assert.match(els['cards-tars'].innerHTML, /value="AF4D02"/);
 	assert.doesNotMatch(els['cards-tars'].innerHTML, /value="AF4D01"/);
-	tarRow(els, 0, { tar: 'AF4D02', msl: '0A', desc: 'two' });
+	tarRow(els, 3, { tar: 'AF4D02', msl: '0A', desc: 'two' });
 	cardsTarAdd();
 	assert.strictEqual(_cardsTarCount, 2);
 	// the new row renders empty
-	tarRow(els, 1, { tar: '', msl: '', desc: '' });
+	tarRow(els, 4, { tar: '', msl: '', desc: '' });
 	assert.deepStrictEqual(cardsFreeTarsFromForm(), [{ tar: 'AF4D02', msl: '0A', desc: 'two' }]);
+	// the role rows are never removable
+	cardsTarRemove(0);
+	assert.strictEqual(_cardsTarCount, 2);
+});
+
+test('the list view opens the editor for a new preset and Cancel returns', () => {
+	const els = setup();
+	globalThis.cards = [presetFixture()];
+	cardsNew();
+	assert.ok(!els['cards-editor-view'].classList.contains('hidden'), 'the editor is shown');
+	assert.ok(els['cards-list-view'].classList.contains('hidden'), 'the list is hidden');
+	assert.strictEqual(globalThis._cardsEditIdx, null);
+	assert.strictEqual(els['cards-editor-title'].textContent, 'Add preset');
+	assert.strictEqual(els['cards-add-btn'].textContent, 'Add');
+	assert.strictEqual(_cardsTarCount, 0);
+	cardsCancelEdit();
+	assert.ok(!els['cards-list-view'].classList.contains('hidden'), 'the list is back');
+	assert.ok(els['cards-editor-view'].classList.contains('hidden'), 'the editor is hidden');
+});
+
+test('editing opens the editor with the preset title', () => {
+	const els = setup();
+	globalThis.cards = [presetFixture({ name: 'Foo' })];
+	cardsEdit(0);
+	assert.strictEqual(globalThis._cardsEditIdx, 0);
+	assert.ok(!els['cards-editor-view'].classList.contains('hidden'));
+	assert.strictEqual(els['cards-editor-title'].textContent, 'Edit preset: Foo');
+	assert.strictEqual(els['cards-add-btn'].textContent, 'Save');
+});
+
+test('the editor refuses PIN/PUK codes that are not 4-8 digits', async () => {
+	const els = setup();
+	els['cards-name'].value = 'X';
+	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB' });
+	globalThis._cardsKeysetCount = 1;
+	const seen = [];
+	globalThis.alert = msg => seen.push(msg);
+	els['cards-pin1'].value = '123';
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 0);
+	assert.match(seen[0], /PIN\/PUK/);
+	seen.length = 0;
+	els['cards-pin1'].value = '1234';
+	els['cards-puk2'].value = '12A4';
+	await cardsAdd();
+	assert.strictEqual(apiCalls.length, 0);
+	assert.match(seen[0], /PUK2/);
 });

@@ -129,45 +129,73 @@ test('cards list shows the SCP81 PSK column with blue/red row buttons', () => {
     assert.match(fn[0], /cardsRemove\(' \+ i \+ '\)" class="[^"]*bg-red-600 text-white/);
 });
 
-test('the card form groups the SCP80 and SCP81 fields into labelled fieldsets', () => {
+test('the card editor groups its fields into labelled fieldsets', () => {
     const fieldsets = [...html.matchAll(/<fieldset[\s\S]*?<\/fieldset>/g)].map(m => m[0]);
+    const pinAdm = fieldsets.find(f => /data-l10n="PIN\/ADM"/.test(f));
+    const tar = fieldsets.find(f => /data-l10n="TAR"/.test(f));
     const scp80 = fieldsets.find(f => /data-l10n="SCP80 \(GSM 03\.48, ETSI TS 102 225\)"/.test(f));
     const scp81 = fieldsets.find(f => /data-l10n="SCP81 \(HTTP OTA\)"/.test(f));
+    assert.ok(pinAdm, 'PIN/ADM fieldset not found');
+    assert.ok(tar, 'TAR fieldset not found');
     assert.ok(scp80, 'SCP80 card fieldset not found');
     assert.ok(scp81, 'SCP81 card fieldset not found');
+    // the optional card codes (plain text; PIN/PUK are 4-8 decimal digits)
+    for (const id of ['cards-pin1', 'cards-puk1', 'cards-pin2', 'cards-puk2', 'cards-adm']) {
+        assert.ok(pinAdm.includes('id="' + id + '"'), id + ' not in the PIN/ADM fieldset');
+    }
+    // the TAR table: uniform rows rendered into the body, Add TAR below
+    assert.match(tar, /<tbody id="cards-tars">/);
+    assert.match(tar, /onclick="cardsTarAdd\(\)"/);
+    assert.match(tar, />TAR<\/th>/);
+    assert.match(tar, />MSL<\/th>/);
+    assert.match(tar, />Description<\/th>/);
+    // the keyset editor and the PSK pair stay as implemented
     assert.match(scp80, /id="cards-keysets"/);
     assert.match(scp80, /onclick="cardsKeysetAdd\(\)"/);
-    assert.match(scp80, /id="cards-tar"[^>]*value="000000"/);
-    assert.match(scp80, /id="cards-uicc-tar"[^>]*value="B00000"/);
-    assert.match(scp80, /id="cards-usim-tar"[^>]*value="B00001"/);
-    // the TAR fields are labelled and sit to the right of Counter
-    assert.match(scp80, />ISD TAR<\/label>/);
-    assert.match(scp80, />UICC RFM TAR<\/label>/);
-    assert.match(scp80, />ADF RFM TAR<\/label>/);
-    // the preset-wide SPI1/SPI2 inputs are gone: each TAR carries its MSL
-    assert.ok(!scp80.includes('id="cards-spi1"'), 'the preset-wide SPI1 input is gone');
-    assert.ok(!scp80.includes('id="cards-spi2"'), 'the preset-wide SPI2 input is gone');
-    assert.ok(scp80.indexOf('id="cards-tar"') < scp80.indexOf('id="cards-tar-msl"'),
-        'the ISD MSL input follows its TAR input');
-    assert.match(scp80, /id="cards-tars"/);
-    assert.match(scp80, /onclick="cardsTarAdd\(\)"/);
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
     assert.match(scp81, /data-l10n="SCP81 HTTP OTA: the listener picks the key/);
-    // the ICCID field is not in either group
+    // the preset-wide SPI1/SPI2 inputs are gone: each TAR row carries its MSL
+    assert.ok(!html.includes('id="cards-spi1"'), 'the preset-wide SPI1 input is gone');
+    assert.ok(!html.includes('id="cards-spi2"'), 'the preset-wide SPI2 input is gone');
+    // the name/ICCID fields are in the editor but not inside the fieldsets
     assert.ok(!fieldsets.some(f => f.includes('id="cards-iccid"')));
+    assert.ok(!fieldsets.some(f => f.includes('id="cards-name"')));
 });
 
-test('the ADM field sits between From card and Add, outside the card fieldsets', () => {
+test('the Cards tab splits the preset list and the editor into views', () => {
+    assert.match(html, /id="cards-list-view"/);
+    assert.match(html, /id="cards-editor-view" class="hidden"/);
+    assert.match(html, /id="cards-new-btn"[^>]*onclick="cardsNew\(\)"/);
+    assert.match(html, /id="cards-editor-title"/);
+    const listView = html.slice(html.indexOf('id="cards-list-view"'),
+        html.indexOf('id="cards-editor-view"'));
+    const editorView = html.slice(html.indexOf('id="cards-editor-view"'),
+        html.indexOf('id="event-send-modal"'));
+    // the list view holds the table, the Add preset button and export/import
+    assert.match(listView, /id="cards-tbody"/);
+    assert.match(listView, /id="cards-file"/);
+    assert.match(listView, /id="cards-io"/);
+    assert.match(listView, /cardsExportFile\(\)/);
+    assert.ok(!listView.includes('id="cards-keysets"'), 'the editor must not be in the list view');
+    // the editor view holds the fieldsets and the save/cancel buttons
+    assert.match(editorView, /id="cards-keysets"/);
+    assert.match(editorView, /id="cards-pin1"/);
+    assert.match(editorView, /id="cards-tars"/);
+    assert.match(editorView, /id="cards-add-btn"[^>]*onclick="cardsAdd\(\)"/);
+    assert.match(editorView, /onclick="cardsCancelEdit\(\)"/);
+    assert.ok(!editorView.includes('id="cards-tbody"'), 'the list table must not be in the editor');
+});
+
+test('the ADM field sits in the PIN/ADM fieldset of the editor', () => {
     const fieldsets = [...html.matchAll(/<fieldset[\s\S]*?<\/fieldset>/g)].map(m => m[0]);
-    assert.ok(!fieldsets.some(f => f.includes('id="cards-adm"')));
-    assert.match(html, /id="cards-adm"[^>]*placeholder="ADM \(optional\)"/);
-    const fromIdx = html.indexOf('id="cards-iccid-from-card"');
-    const admIdx = html.indexOf('id="cards-adm"');
-    const addIdx = html.indexOf('id="cards-add-btn"');
-    assert.ok(fromIdx >= 0 && fromIdx < admIdx && admIdx < addIdx,
-        'ADM input must sit between the From card and Add buttons');
+    const pinAdm = fieldsets.find(f => /data-l10n="PIN\/ADM"/.test(f));
+    assert.ok(pinAdm, 'PIN/ADM fieldset not found');
+    assert.match(pinAdm, /id="cards-adm"[^>]*placeholder="ADM \(optional\)"/);
+    // the From card button sits in the editor header, above the code fields
+    assert.ok(html.indexOf('id="cards-iccid-from-card"') < html.indexOf('id="cards-pin1"'),
+        'the From card button must precede the code fields');
 });
 
 test('card-dependent profiler buttons show the ICCID and need a readable one', () => {
