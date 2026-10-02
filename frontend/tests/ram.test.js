@@ -939,10 +939,12 @@ test('ramStepLine names a bad-format failure instead of "PoR ok"', () => {
 	assert.ok(plain.includes('9000') || plain.includes('PoR ok'), plain);
 });
 
-test('the Explore retries the ELF tag lists with P1=20 and per applet AID', () => {
+test('the Explore retries the ELF tag lists for both P1 values and per applet AID', () => {
 	const src = extractFunc(html, 'ramExplore');
-	assert.ok(src.includes('elfTagListRetry'), 'the P1=20 tag-list retry must exist');
-	assert.ok(src.includes("expandedPass('20'"), 'the retry must query P1=20');
+	assert.ok(src.includes('elfTagListRetry'), 'the tag-list retry must exist');
+	assert.ok(src.includes("for (const p1 of ['10', '20'])"), 'the retry must walk both P1 values');
+	assert.ok(src.includes('expandedTried[p1]'), 'already-tried forms must be skipped');
+	assert.ok(src.includes("['tags', 'noea', 'lean'].filter"), 'only the tag-list forms are retried');
 	assert.ok(src.includes('elfPerAidVersions'), 'the per-AID version queries must exist');
 	assert.ok(src.includes("ramExpandedQueryApdu('40', 'tags', false, app.aid)"),
 		'the per-AID query must use the AID filter');
@@ -950,6 +952,10 @@ test('the Explore retries the ELF tag lists with P1=20 and per applet AID', () =
 		'the module->applet mapping must be used');
 	assert.ok(src.includes('ramChainGetResponse(apdu)'),
 		'the single-AID 61xx answer must be fetched with a chained GET RESPONSE');
+	// the per-AID budget counts queries, not list positions (a package with
+	// no applet instance is skipped before the cap)
+	assert.ok(src.includes('if (app) missing.push({ elf: e, app: app });'),
+		'the per-AID candidates must be filtered before the cap');
 });
 
 test('every SCP80/RAM flow checks the low counter and stops', () => {

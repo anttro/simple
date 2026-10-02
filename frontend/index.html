@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.13.2';
+const SIMPLE_VERSION = '3.13.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9937,10 +9937,15 @@ async function ramExplore(sp) {
 	// occurrences (re-issued as a next-occurrence page, P2.b1=1).  Returns
 	// {form, parsed, sw, entries, fmt}; form is null when no form produced
 	// data.
-	async function expandedPass(p1, label, parser, spi2) {
-		let forms = expandedForm
-			? [expandedForm].concat(RAM_EXPANDED_FORMS.filter(f => f !== expandedForm))
-			: RAM_EXPANDED_FORMS.slice();
+	// The forms each P1 value actually attempted, so the version retry can
+	// skip the combinations the main pass already refused (the form memory can
+	// skip the tag-list forms for P1=10 - see elfTagListRetry).
+	const expandedTried = {};
+	async function expandedPass(p1, label, parser, spi2, onlyForms) {
+		let forms = onlyForms ? onlyForms.slice()
+			: expandedForm
+				? [expandedForm].concat(RAM_EXPANDED_FORMS.filter(f => f !== expandedForm))
+				: RAM_EXPANDED_FORMS.slice();
 		if (p1 === '80') forms = [expandedForm || 'tags'];
 		const runFmt = sp.ram_format || 'auto';
 		let lastSw = '';
@@ -9948,6 +9953,8 @@ async function ramExplore(sp) {
 		let stopPass = false;
 		for (const form of forms) {
 			if (cntrLow || stopPass) break;
+			if (!expandedTried[p1]) expandedTried[p1] = [];
+			if (expandedTried[p1].indexOf(form) < 0) expandedTried[p1].push(form);
 			const fmts = ramFmtLadder(runFmt, expandedFmt);
 			for (const fmt of fmts) {
 				if (cntrLow) break;
@@ -10190,23 +10197,37 @@ async function ramExplore(sp) {
 		if (!elfs.length) errors.push(...elfFailure);
 	}
 	// The ELF tag-list forms may be refused for P1=10 while P1=20 accepts
-	// them (a card's P1=10 implementation can be stricter): when the ELF rows
-	// have no version and the details pass never got a tag-list form, walk the
-	// ladder once more with P1=20 and merge by AID (v3.7.0).
+	// them (a card's P1=10 implementation can be stricter), and the form
+	// memory can skip the tag-list forms for P1=10 altogether when the Apps
+	// listing served only the no-tag-list form (live 2026-10-02: EP BAP - its
+	// P1=10 tag lists were never queried while P1=20 refused them).  When the
+	// ELF rows have no version and the details pass never got a tag-list form,
+	// walk the untried tag-list forms for both P1 values and merge by AID
+	// (v3.7.0); only the tag-list forms are retried - the no-tag-list form
+	// never carries CE - and the walk stops as soon as a version appears.
 	async function elfTagListRetry() {
 		if (cntrLow || !elfs.length || elfs.some(o => o.version)) return;
 		const g = ramExpandedGroups(expandedReport).find(x => x.label === t('ELFs'));
 		if (g && ['tags', 'noea', 'lean'].indexOf(g.form) >= 0) return;
 		const saved = expandedForm;
-		expandedForm = null;   // start the ladder at the richest form
-		try {
-			const out = await expandedPass('20', t('ELFs'), ramParseElfStatus, ramListingSpi2('20'));
-			expandedReport.push({ p1: '20', label: t('ELFs'), compact: true,
-				form: out.form, sw: out.sw, entries: out.entries,
-				transport: out.transport, more: out.more });
-			if (out.parsed.length) ramMergeExpanded(elfs, out.parsed);
-		} finally {
-			if (expandedForm === null) expandedForm = saved;
+		for (const p1 of ['10', '20']) {
+			const tried = expandedTried[p1] || [];
+			const forms = ['tags', 'noea', 'lean'].filter(f => tried.indexOf(f) < 0);
+			if (!forms.length) continue;
+			expandedForm = null;   // start the ladder at the richest form
+			try {
+				const out = await expandedPass(p1, t('ELFs'), ramParseElfStatus,
+					ramListingSpi2(p1), forms);
+				if (out.form) {
+					expandedReport.push({ p1: p1, label: t('ELFs'), compact: true,
+						form: out.form, sw: out.sw, entries: out.entries,
+						transport: out.transport, more: out.more, fmt: out.fmt });
+					if (out.parsed.length) ramMergeExpanded(elfs, out.parsed);
+				}
+			} finally {
+				if (expandedForm === null) expandedForm = saved;
+			}
+			if (elfs.some(o => o.version)) break;
 		}
 	}
 	await elfTagListRetry();
@@ -10260,11 +10281,19 @@ async function ramExplore(sp) {
 	// holds the data), so it is retried with the GET RESPONSE chained into the
 	// compact command string, like the ladder (v3.7.1).
 	async function elfPerAidVersions() {
-		const missing = elfs.filter(e => !e.version && e.aid);
-		for (const e of missing.slice(0, 6)) {
-			if (cntrLow) break;
+		// Budget the queries, not the list positions: a package without an
+		// applet instance has nothing to ask for, and counting it would starve
+		// the packages that do (live 2026-10-02: EP BAP's first six packages
+		// are Oracle/JC-API entries with no app instances - the A113 packages
+		// were never queried).
+		const missing = [];
+		elfs.forEach(e => {
+			if (e.version || !e.aid) return;
 			const app = ramElfAppletCandidate(e, apps);
-			if (!app) continue;
+			if (app) missing.push({ elf: e, app: app });
+		});
+		for (const { elf: e, app } of missing.slice(0, 6)) {
+			if (cntrLow) break;
 			ramShowProgress(t('Version') + ' ' + e.aid + '...');
 			const apdu = ramExpandedQueryApdu('40', 'tags', false, app.aid);
 			const send = async a => {
