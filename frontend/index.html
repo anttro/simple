@@ -1636,6 +1636,26 @@
 					<button id="cards-iccid-from-card" data-needs="card-iccid" onclick="cardsIccidFromCard()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="From card">From card</button>
 				</div>
 			</div>
+			<div class="w-36 shrink-0">
+				<label for="cards-release" class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="CAT release">CAT release</label>
+				<select id="cards-release" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" data-l10n-title="The card's CAT (USAT) release. The Simulator hides event parameters introduced after it. Unspecified = Rel-12, safe for most modern cards.">
+					<option value="" data-l10n="(unspecified — Rel-12)">(unspecified — Rel-12)</option>
+					<option value="5" data-l10n="pre-Rel-6">pre-Rel-6</option>
+					<option value="6">Rel-6</option>
+					<option value="7">Rel-7</option>
+					<option value="8">Rel-8</option>
+					<option value="9">Rel-9</option>
+					<option value="10">Rel-10</option>
+					<option value="11">Rel-11</option>
+					<option value="12">Rel-12</option>
+					<option value="13">Rel-13</option>
+					<option value="14">Rel-14</option>
+					<option value="15">Rel-15</option>
+					<option value="16">Rel-16</option>
+					<option value="17">Rel-17</option>
+					<option value="18">Rel-18</option>
+				</select>
+			</div>
 		</div>
 		<div class="flex flex-col lg:flex-row gap-3 mb-3">
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 lg:w-56 shrink-0">
@@ -1857,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.11.0';
+const SIMPLE_VERSION = '3.12.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9154,6 +9174,20 @@ function catReleaseLabel(rel) {
 	return rel < 6 ? 'pre-Rel-6' : 'Rel-' + rel;
 }
 
+// The release a preset's empty `release` resolves to: Rel-12 is the safe
+// level for cards whose release is not known (the CAT items the tool sends
+// stay within what a modern card implements).  Mirrors
+// catrelease.DEFAULT_RELEASE, drift-guarded by tests/test_catrelease.py.
+const CAT_RELEASE_DEFAULT = 12;
+
+// The effective CAT release of a card preset (pure): its own release when it
+// names one (4-18), else the default.  Empty or invalid values resolve to the
+// default - an unset release must never filter anything away.
+function presetRelease(preset) {
+	const rel = parseInt((preset || {}).release, 10);
+	return (rel >= 4 && rel <= 18) ? rel : CAT_RELEASE_DEFAULT;
+}
+
 // Normalise an AID (strip spacing, uppercase) and reject malformed input;
 // '' when it cannot be an AID (5-16 bytes).
 function jcAidNorm(aid) {
@@ -12157,6 +12191,7 @@ function cardsFormValues() {
 	return {
 		name: val('name'),
 		iccid: val('iccid'),
+		release: val('release'),
 		pin1: val('pin1').replace(/\s/g, ''),
 		puk1: val('puk1').replace(/\s/g, ''),
 		pin2: val('pin2').replace(/\s/g, ''),
@@ -12207,7 +12242,7 @@ function cardsNew() {
 }
 
 function cardsClearForm() {
-	['name','iccid','pin1','puk1','pin2','puk2','adm','psk-id','psk-key'].forEach(id => {
+	['name','iccid','release','pin1','puk1','pin2','puk2','adm','psk-id','psk-key'].forEach(id => {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = '';
 	});
@@ -12300,6 +12335,7 @@ function cardsEdit(i) {
 		if (el) el.value = value == null ? '' : value;
 	};
 	set('name', c.name); set('iccid', c.iccid);
+	set('release', c.release);
 	set('pin1', c.pin1); set('puk1', c.puk1);
 	set('pin2', c.pin2); set('puk2', c.puk2);
 	set('adm', c.adm);
@@ -20925,6 +20961,10 @@ const LANG_RU = {
 	'Description': 'Описание',
 	'Card presets are stored on the server. A preset carries the card codes (PIN/PUK/ADM), a TAR table (every TAR with its MSL) and several keysets, each with its own number and counter.': 'Пресеты карт хранятся на сервере. Пресет содержит коды карты (PIN/PUK/ADM), таблицу TAR (у каждого TAR свой MSL) и несколько keysets — у каждого свой номер и счётчик.',
 	'All codes are optional': 'Все коды необязательны',
+	'CAT release': 'Релиз CAT',
+	'(unspecified — Rel-12)': '(не указан — Rel-12)',
+	'pre-Rel-6': 'до Rel-6',
+	'The card\'s CAT (USAT) release. The Simulator hides event parameters introduced after it. Unspecified = Rel-12, safe for most modern cards.': 'Релиз CAT (USAT) карты. Симулятор скрывает параметры событий, появившиеся после него. Не указан = Rel-12, безопасно для большинства современных карт.',
 	'The first three rows are the fixed role TARs; add further TARs as needed.': 'Первые три строки — фиксированные роли TAR; дополнительные TAR добавляются по необходимости.',
 	'PIN/PUK codes must be 4-8 decimal digits': 'Коды PIN/PUK должны состоять из 4–8 десятичных цифр',
 	'KIc/KID — counter': 'KIc/KID — счётчик',

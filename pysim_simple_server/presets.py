@@ -24,6 +24,12 @@ The optional **card codes** (`pin1`/`puk1`/`pin2`/`puk2`/`adm`) are stored for
 later use by the card operations (nothing consumes them yet); the PIN/PUK codes
 are 4-8 decimal digits, the ADM key is hex or ASCII digits.
 
+The optional **CAT (USAT) release** (`release`, 4-18) names the release the
+card implements: the release guard hides CAT items introduced after it (the
+Simulator's event parameters, see `catrelease`).  Empty means unspecified and
+resolves to Rel-12 (`catrelease.DEFAULT_RELEASE`) - an unset release never
+filters anything away.
+
 A preset holds **several keysets**; the b8..b5 nibble of KIc/KID numbers them
 (TS 102 225 5.1.2/A.2).  Each keyset has its own KIc/KID keys and its own
 counter - "a dedicated counter shall be associated to each key version"
@@ -63,14 +69,14 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'card_presets.json'
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # The fields a preset carries: the localStorage shape plus the id.  The OTA key
 # material lives in `keysets` - the b8..b5 nibble of KIc/KID numbers them,
 # each with its own counter (TS 102 225 Annex A.1: "a dedicated counter shall
 # be associated to each key version"); the TAR table lives in `tars` (see
 # TAR_ROLES).  The optional card codes (PIN/PUK/ADM) are stored for later use.
-PRESET_FIELDS = ('name', 'iccid', 'pin1', 'puk1', 'pin2', 'puk2', 'adm',
+PRESET_FIELDS = ('name', 'iccid', 'release', 'pin1', 'puk1', 'pin2', 'puk2', 'adm',
                  'pskIdentity', 'pskKey')
 # The v3.8.0 flat key fields: converted into a single keyset on load/import.
 LEGACY_KEY_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
@@ -371,6 +377,9 @@ class PresetStore:
             raise PresetError('PSK identity and PSK key must be set together')
         if p['pskKey'] and not re.fullmatch(r'[0-9A-F]{32}', p['pskKey']):
             raise PresetError('PSK key must be 32 hex characters')
+        if p['release'] and (not re.fullmatch(r'[0-9]{1,2}', p['release'])
+                             or not 4 <= int(p['release']) <= 18):
+            raise PresetError('release must be 4-18 (or empty for the Rel-12 default)')
         for k in DIGIT_FIELDS:
             if p[k] and not re.fullmatch(r'[0-9]{4,8}', p[k]):
                 raise PresetError('%s must be 4-8 decimal digits (or empty)'

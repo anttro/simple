@@ -21,7 +21,7 @@ class TestCatReleaseTable(unittest.TestCase):
     def test_pwa_mirror_matches_the_module(self):
         # the PWA's release guard uses the same table (drift guard, like
         # ETSI_TOOLKIT_RELEASE in test_cap_memory)
-        block, _ = _pwa_block()
+        block, html = _pwa_block()
         ev = re.search(r"events:\s*\{(.*?)\}", block, re.S)
         self.assertIsNotNone(ev, 'events section not found')
         self.assertEqual(
@@ -34,6 +34,9 @@ class TestCatReleaseTable(unittest.TestCase):
             self.assertEqual(
                 {k: int(v) for k, v in re.findall(r"'([^']+)':\s*(\d+)", m.group(1))},
                 catrelease.CAT_RELEASE[section], section)
+        d = re.search(r"const CAT_RELEASE_DEFAULT = (\d+);", html)
+        self.assertIsNotNone(d, 'CAT_RELEASE_DEFAULT not found in index.html')
+        self.assertEqual(int(d.group(1)), catrelease.DEFAULT_RELEASE)
 
     def test_events_cover_the_pwa_event_list(self):
         # every event the UI names through 0x1F except the Void 0x1A carries
@@ -59,6 +62,17 @@ class TestCatReleaseTable(unittest.TestCase):
         self.assertEqual(catrelease.item_release('commands', 'LSI COMMAND'), 17)
         self.assertIsNone(catrelease.item_release('events', 0x1A))
         self.assertIsNone(catrelease.item_release('nope', 'x'))
+
+    def test_preset_release_resolves_the_default(self):
+        self.assertEqual(catrelease.DEFAULT_RELEASE, 12)
+        self.assertEqual(catrelease.preset_release({'release': '14'}), 14)
+        self.assertEqual(catrelease.preset_release({'release': 4}), 4)
+        self.assertEqual(catrelease.preset_release({'release': '18'}), 18)
+        # an unset or invalid release must never filter anything away
+        for p in ({}, {'release': ''}, {'release': '0'}, {'release': '3'},
+                  {'release': '99'}, {'release': 'x'}, None):
+            self.assertEqual(catrelease.preset_release(p),
+                             catrelease.DEFAULT_RELEASE, p)
 
     def test_table_sanity(self):
         for section, table in catrelease.CAT_RELEASE.items():

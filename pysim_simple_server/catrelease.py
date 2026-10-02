@@ -16,7 +16,9 @@ histories do not pin down - never filter on it.
 
 The PWA mirrors this table (``CAT_RELEASE`` in frontend/index.html); the drift
 guard is tests/test_catrelease.py.  Releases below 6 display as "pre-Rel-6"
-(``release_label``).
+(``release_label``).  ``DEFAULT_RELEASE`` (Rel-12) is the release a card
+preset's empty ``release`` resolves to (``preset_release``) - the safe level
+for cards whose release is not known.
 """
 
 # Keyed by: events - the event code (TS 102 223 8.25 / TS 31.111 7.5);
@@ -117,3 +119,24 @@ def release_label(rel):
 def item_release(kind, key, default=None):
     """The introduction release of an item, or `default` when unknown."""
     return CAT_RELEASE.get(kind, {}).get(key, default)
+
+
+# The release a preset's empty `release` resolves to: Rel-12 is the safe level
+# for cards whose release is not known (the CAT items the tool sends stay
+# within what a modern card implements).  Mirrored in the PWA
+# (`CAT_RELEASE_DEFAULT`), drift-guarded by tests/test_catrelease.py.
+DEFAULT_RELEASE = 12
+
+
+def preset_release(preset):
+    """The effective CAT release of a card preset.
+
+    The preset's own `release` when it names one (4-18), else the default.
+    Empty or invalid values resolve to the default - an unset release must
+    never filter anything away.
+    """
+    try:
+        rel = int((preset or {}).get('release') or 0)
+    except (TypeError, ValueError):
+        rel = 0
+    return rel if 4 <= rel <= 18 else DEFAULT_RELEASE

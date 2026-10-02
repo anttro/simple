@@ -234,6 +234,21 @@ class StoreCrudTests(unittest.TestCase):
         self.assertEqual(p['pin1'], '1234')
         self.assertEqual(p['puk1'], '12345678')
 
+    def test_release_is_optional_and_must_be_4_to_18(self):
+        p = self.store.add(preset())
+        self.assertEqual(p['release'], '')
+        p = self.store.add(preset(name='Rel', release='14'))
+        self.assertEqual(p['release'], '14')
+        # numbers arrive as strings from the form and as ints from the API
+        p = self.store.add(preset(name='Int', release=4))
+        self.assertEqual(p['release'], '4')
+        p = self.store.add(preset(name='Top', release=' 18 '))
+        self.assertEqual(p['release'], '18')
+        for bad in ('3', '19', '0', '20', 'abc', '1x', '012'):
+            with self.assertRaises(presets.PresetError) as ctx:
+                self.store.add(preset(name='X', release=bad))
+            self.assertIn('release', str(ctx.exception))
+
     def test_duplicate_iccid_is_refused_across_stored_forms(self):
         self.store.add(preset(iccid=DIGITS))
         with self.assertRaises(presets.PresetError) as ctx:

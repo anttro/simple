@@ -245,6 +245,12 @@ stored for later use (nothing consumes them yet).  PIN/PUK must be **4–8
 decimal digits** when set (empty is fine; anything else is refused with `400`
 naming the field); the ADM key is 4–16 hex digits (a decimal PIN is fine).
 
+**CAT (USAT) release.**  The optional `release` field (4–18) names the release
+the card implements; the release guard hides CAT items introduced after it
+(the Simulator's event parameters, see `catrelease`).  Empty means unspecified
+and resolves to Rel-12 (`catrelease.DEFAULT_RELEASE`) — an unset release never
+filters anything away.
+
 **Counters.**  The store is the source of truth for the SCP80 counters, one per
 keyset ("a dedicated counter shall be associated to each key version",
 Annex A.1 — the spec's wording).  The operations below accept a `preset_id` and **persist the
@@ -256,7 +262,7 @@ is not defined in preset '…' - add it in the Cards tab"}`), and so is a
 KIc/KID number mismatch.  The Cards tab's export/import uses this API; the
 import also accepts presets exported by the older localStorage-based builds.
 
-- `GET /api/presets` — `{"path": "…", "count": 2, "version": 4, "presets": [{…}]}`
+- `GET /api/presets` — `{"path": "…", "count": 2, "version": 5, "presets": [{…}]}`
   (card-free: it answers while a long card operation runs).
 - `POST /api/presets` — body = the preset fields (`keysets` included); returns
   `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced or raw EF

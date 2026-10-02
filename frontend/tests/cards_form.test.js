@@ -58,7 +58,7 @@ code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_
 eval(code);
 globalThis.t = s => s;
 
-const CARD_IDS = ['cards-name','cards-iccid','cards-pin1','cards-puk1','cards-pin2','cards-puk2','cards-adm',
+const CARD_IDS = ['cards-name','cards-iccid','cards-release','cards-pin1','cards-puk1','cards-pin2','cards-puk2','cards-adm',
 	'cards-tars','cards-list-view','cards-editor-view','cards-editor-title','cards-new-btn',
 	'cards-psk-id','cards-psk-key','cards-keysets',
 	'cards-add-btn','cards-cancel-btn',
@@ -317,6 +317,21 @@ test('the form values carry the codes and the TAR table', () => {
 	assert.strictEqual(v.pin1, '1234');
 	assert.strictEqual(v.puk1, '12345678');
 	assert.strictEqual(v.adm, '00112233');
+});
+
+test('the release field is collected, cleared and restored', () => {
+	const els = setup();
+	els['cards-release'].value = '14';
+	assert.strictEqual(cardsFormValues().release, '14');
+	cardsClearForm();
+	assert.strictEqual(els['cards-release'].value, '');
+	globalThis.cards = [presetFixture({ name: 'Rel', release: '17' })];
+	cardsEdit(0);
+	assert.strictEqual(els['cards-release'].value, '17');
+	// a preset without a release reads as unspecified
+	globalThis.cards = [presetFixture({ name: 'Plain' })];
+	cardsEdit(0);
+	assert.strictEqual(els['cards-release'].value, '');
 });
 
 test('saving a preset posts the form with the pre-settled TAR table', async () => {

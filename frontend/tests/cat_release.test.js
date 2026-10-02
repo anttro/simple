@@ -32,6 +32,8 @@ function extractFunc(src, name) {
 eval(extractBlock('const CAT_RELEASE = {', '// The display label of an introduction release')
 	.replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'catReleaseLabel'));
+eval(extractBlock('const CAT_RELEASE_DEFAULT', 'function presetRelease').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'presetRelease'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 
 test('CAT_RELEASE carries the introduction releases of the event list', () => {
@@ -76,4 +78,16 @@ test('catReleaseLabel collapses everything below Rel-6', () => {
 	assert.strictEqual(catReleaseLabel(5), 'pre-Rel-6');
 	assert.strictEqual(catReleaseLabel(6), 'Rel-6');
 	assert.strictEqual(catReleaseLabel(18), 'Rel-18');
+});
+
+test('presetRelease resolves unspecified presets to the default', () => {
+	assert.strictEqual(CAT_RELEASE_DEFAULT, 12);
+	assert.strictEqual(presetRelease({ release: '14' }), 14);
+	assert.strictEqual(presetRelease({ release: 4 }), 4);
+	assert.strictEqual(presetRelease({ release: '18' }), 18);
+	// an unset or invalid release must never filter anything away
+	for (const p of [{}, { release: '' }, { release: '0' }, { release: '3' },
+		{ release: '99' }, { release: 'x' }, null, undefined]) {
+		assert.strictEqual(presetRelease(p), CAT_RELEASE_DEFAULT, JSON.stringify(p));
+	}
 });
