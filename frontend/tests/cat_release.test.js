@@ -34,6 +34,8 @@ eval(extractBlock('const CAT_RELEASE = {', '// The display label of an introduct
 eval(extractFunc(html, 'catReleaseLabel'));
 eval(extractBlock('const CAT_RELEASE_DEFAULT', 'function presetRelease').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'presetRelease'));
+eval(extractFunc(html, 'cardsNormIccid'));
+eval(extractFunc(html, 'catEffectiveReleaseInfo'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 
 test('CAT_RELEASE carries the introduction releases of the event list', () => {
@@ -90,4 +92,20 @@ test('presetRelease resolves unspecified presets to the default', () => {
 		{ release: '99' }, { release: 'x' }, null, undefined]) {
 		assert.strictEqual(presetRelease(p), CAT_RELEASE_DEFAULT, JSON.stringify(p));
 	}
+});
+
+test('catEffectiveReleaseInfo resolves the equipped preset or the default', () => {
+	const list = [{ name: 'A', iccid: '89 70 1190 0000 4600 098', release: '17' },
+		{ name: 'B', iccid: '', release: '14' }];
+	const hit = catEffectiveReleaseInfo(list, '8970119000004600098');
+	assert.strictEqual(hit.rel, 17);
+	assert.strictEqual(hit.source, 'preset');
+	assert.strictEqual(hit.preset.name, 'A');
+	// an ICCID that matches no preset (and the empty one) resolves to the default
+	const miss = catEffectiveReleaseInfo(list, '8970119000004600099');
+	assert.strictEqual(miss.rel, CAT_RELEASE_DEFAULT);
+	assert.strictEqual(miss.source, 'default');
+	assert.strictEqual(miss.preset, null);
+	assert.strictEqual(catEffectiveReleaseInfo(list, '').source, 'default');
+	assert.strictEqual(catEffectiveReleaseInfo([], '8970119000004600098').rel, CAT_RELEASE_DEFAULT);
 });

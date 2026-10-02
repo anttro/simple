@@ -34,6 +34,7 @@ eval(extractFunc(html, 'cmdQualifierShort'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'eventFieldsForRelease'));
 eval(extractFunc(html, 'encPlmn'));
 eval(extractFunc(html, 'bytesToHex'));
 
@@ -248,4 +249,26 @@ test('the disconnected/rejection/CAG/slices events carry their extra objects', (
 	assert.ok(EVENT_FORMS[0x1F].build({ status: '1', served: '', allowed_map: '01020304', allowed: '01020304',
 		rejected_map: '01020304', rejected: '01020304' })
 		.endsWith('F70401020304F80401020304D70401020304B10401020304'));
+});
+
+test('event fields introduced after the effective release are hidden', () => {
+	// MT call: the IMS URI came with the Rel-12 URI support (12.4.0)
+	let r = eventFieldsForRelease(EVENT_FORMS[0x00], 11);
+	assert.deepStrictEqual(r.hidden.map(f => f.id), ['ims_uri']);
+	assert.ok(r.fields.some(f => f.id === 'ti'));
+	assert.strictEqual(eventFieldsForRelease(EVENT_FORMS[0x00], 12).hidden.length, 0);
+	// CSG cell selection: the PLMN ID came in 12.1.0
+	r = eventFieldsForRelease(EVENT_FORMS[0x15], 11);
+	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['mcc', 'mnc']);
+	// IMS registration: the IMPU list and the status code came in Rel-11
+	r = eventFieldsForRelease(EVENT_FORMS[0x17], 10);
+	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['code', 'impu']);
+	// slices: the mapping/rejected objects came in Rel-18
+	r = eventFieldsForRelease(EVENT_FORMS[0x1F], 16);
+	assert.deepStrictEqual(r.hidden.map(f => f.id).sort(), ['allowed_map', 'rejected', 'rejected_map']);
+	assert.strictEqual(eventFieldsForRelease(EVENT_FORMS[0x1F], 18).hidden.length, 0);
+	// a field without a known release is never hidden
+	r = eventFieldsForRelease(EVENT_FORMS[0x12], 4);
+	assert.strictEqual(r.hidden.length, 0);
+	assert.strictEqual(r.fields.length, EVENT_FORMS[0x12].fields.length);
 });

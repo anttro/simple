@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.12.0';
+const SIMPLE_VERSION = '3.13.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -9188,6 +9188,18 @@ function presetRelease(preset) {
 	return (rel >= 4 && rel <= 18) ? rel : CAT_RELEASE_DEFAULT;
 }
 
+// The effective CAT release for the CAT views (the Simulator's event forms):
+// the equipped card's preset (matched by ICCID, the same rule the SCP80 views
+// use) resolved through presetRelease(), else the default.  Pure - takes the
+// preset list and the equipped card's ICCID.
+function catEffectiveReleaseInfo(cardList, iccid) {
+	const list = cardList || [];
+	const norm = cardsNormIccid(iccid);
+	const idx = norm ? list.findIndex(c => cardsNormIccid(c.iccid) === norm) : -1;
+	if (idx >= 0) return { rel: presetRelease(list[idx]), source: 'preset', preset: list[idx] };
+	return { rel: CAT_RELEASE_DEFAULT, source: 'default', preset: null };
+}
+
 // Normalise an AID (strip spacing, uppercase) and reject malformed input;
 // '' when it cannot be an AID (5-16 bytes).
 function jcAidNorm(aid) {
@@ -13731,7 +13743,7 @@ const EVENT_FORMS = {
 			{ id: 'ton', label: 'Type of number', type: 'select',
 			  opts: [{v:0,l:'Unknown'},{v:1,l:'International'},{v:2,l:'National'},{v:3,l:'Network specific'}] },
 			{ id: 'sub', label: 'Subaddress (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,40}', placeholder: 'e.g. 1234' },
-			{ id: 'ims_uri', label: 'IMS URI (optional)', type: 'text', placeholder: 'e.g. sip:user@example.com' },
+			{ id: 'ims_uri', label: 'IMS URI (optional)', type: 'text', placeholder: 'e.g. sip:user@example.com', rel: 12 },
 			{ id: 'media', label: 'Media Type (optional)', type: 'select',
 			  opts: [{v:'',l:'\u2014 not present \u2014'},{v:0,l:'00 \u2014 voice'},{v:1,l:'01 \u2014 video'}] },
 		],
@@ -14033,8 +14045,8 @@ const EVENT_FORMS = {
 			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
 			{ id: 'csg', label: 'CSG ID (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,16}', placeholder: 'e.g. 00000001' },
 			{ id: 'hnb', label: 'HNB name (optional)', type: 'text', placeholder: 'e.g. MyCSG' },
-			{ id: 'mcc', label: 'MCC (PLMN ID, optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 250' },
-			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01' },
+			{ id: 'mcc', label: 'MCC (PLMN ID, optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 250', rel: 12 },
+			{ id: 'mnc', label: 'MNC', type: 'text', pattern: '\\d{2,3}', placeholder: 'e.g. 01', rel: 12 },
 		],
 		build(v) {
 			let d = '';
@@ -14058,8 +14070,8 @@ const EVENT_FORMS = {
 	0x16: null,
 	0x17: { title: 'IMS registration', src: '83',
 		fields: [
-			{ id: 'impu', label: 'IMPU URI(s) (optional)', type: 'text', placeholder: 'one or more, comma-separated' },
-			{ id: 'code', label: 'IMS status code (optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 200' },
+			{ id: 'impu', label: 'IMPU URI(s) (optional)', type: 'text', placeholder: 'one or more, comma-separated', rel: 11 },
+			{ id: 'code', label: 'IMS status code (optional)', type: 'text', pattern: '\\d{3}', placeholder: 'e.g. 200', rel: 11 },
 		],
 		build(v) {
 			let d = '';
@@ -14198,11 +14210,11 @@ const EVENT_FORMS = {
 			         {v:0x82,l:'82 \u2014 partially rejected'}] },
 			{ id: 'tech', label: 'Access Technology (optional)', type: 'select',
 			  opts: [{v:'',l:'\u2014 not present \u2014'}].concat(ACCESSTECH) },
-			{ id: 'allowed_map', label: 'Allowed slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 S-NSSAI-with-mapping elements' },
+			{ id: 'allowed_map', label: 'Allowed slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 S-NSSAI-with-mapping elements', rel: 18 },
 			{ id: 'served', label: 'Served S-NSSAIs (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
 			{ id: 'allowed', label: 'Allowed slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{8,80}', placeholder: '4 bytes per S-NSSAI (SST + SD)' },
-			{ id: 'rejected_map', label: 'Rejected slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 elements + rejection cause' },
-			{ id: 'rejected', label: 'Rejected slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 rejected S-NSSAI elements' },
+			{ id: 'rejected_map', label: 'Rejected slices with S-NSSAI mapping (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 elements + rejection cause', rel: 18 },
+			{ id: 'rejected', label: 'Rejected slices (optional, hex)', type: 'text', pattern: '[0-9A-Fa-f]{2,80}', placeholder: 'TS 24.501 rejected S-NSSAI elements', rel: 18 },
 		],
 		build(v) {
 			let d = '';
@@ -14631,6 +14643,20 @@ async function pysimEventsRender() {
 
 let _eventFormType = null;
 
+// The event form's fields available at a release (pure): a field whose
+// introduction release is known and above the effective release is hidden -
+// the card cannot have subscribed to an event newer than itself, so the
+// event's own objects (no `rel`, or `rel` at the event's release) always stay.
+// Unknown releases are never hidden.  Returns {fields, hidden}.
+function eventFieldsForRelease(cfg, rel) {
+	const fields = [], hidden = [];
+	((cfg && cfg.fields) || []).forEach(f => {
+		if (f.rel && f.rel > rel) hidden.push(f);
+		else fields.push(f);
+	});
+	return { fields: fields, hidden: hidden };
+}
+
 function pysimEventSendForm(eventType) {
 	const modal = document.getElementById('event-send-modal');
 	const title = document.getElementById('event-send-title');
@@ -14660,8 +14686,12 @@ function pysimEventSendForm(eventType) {
 		btn.classList.add('hidden');
 	} else {
 		title.textContent = name + ' (' + t('Send') + ')';
+		// The effective CAT release (the equipped card's preset, else Rel-12):
+		// parameters introduced after it are hidden - the note names the source.
+		const eff = catEffectiveReleaseInfo(cards, _pysimCardIccid);
+		const avail = eventFieldsForRelease(cfg, eff.rel);
 		let html = '';
-		cfg.fields.forEach(f => {
+		avail.fields.forEach(f => {
 			const rg = f.g ? f.g.split(',') : null;
 			html += '<div class="event-field" data-groups="' + (f.g||'') + '" data-id="' + f.id + '">';
 			html += '<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' + t(f.label) + '</label>';
@@ -14678,6 +14708,13 @@ function pysimEventSendForm(eventType) {
 			}
 			html += '</div>';
 		});
+		if (avail.hidden.length) {
+			const src = eff.preset ? t('preset:') + ' ' + eff.preset.name : t('default release');
+			html += '<p class="text-xs text-amber-600 dark:text-amber-400 mt-2" title="' +
+				esc(t('The effective release comes from the equipped card\'s preset (matched by ICCID); set the CAT release in the Cards tab.')) + '">' +
+				esc(t('hidden parameters:') + ' ' + avail.hidden.length + ' \u00b7 ' + t('introduced after') + ' ' +
+					catReleaseLabel(eff.rel) + ' \u00b7 ' + src) + '</p>';
+		}
 		body.innerHTML = html;
 		btn.classList.remove('hidden');
 		if (eventType === 0x12) updateNetRejectionFields();
@@ -20965,6 +21002,11 @@ const LANG_RU = {
 	'(unspecified — Rel-12)': '(не указан — Rel-12)',
 	'pre-Rel-6': 'до Rel-6',
 	'The card\'s CAT (USAT) release. The Simulator hides event parameters introduced after it. Unspecified = Rel-12, safe for most modern cards.': 'Релиз CAT (USAT) карты. Симулятор скрывает параметры событий, появившиеся после него. Не указан = Rel-12, безопасно для большинства современных карт.',
+	'preset:': 'пресет:',
+	'default release': 'релиз по умолчанию',
+	'hidden parameters:': 'скрытые параметры:',
+	'introduced after': 'появились после',
+	'The effective release comes from the equipped card\'s preset (matched by ICCID); set the CAT release in the Cards tab.': 'Действующий релиз берётся из пресета подключённой карты (совпадение по ICCID); релиз CAT задаётся на вкладке «Карты».',
 	'The first three rows are the fixed role TARs; add further TARs as needed.': 'Первые три строки — фиксированные роли TAR; дополнительные TAR добавляются по необходимости.',
 	'PIN/PUK codes must be 4-8 decimal digits': 'Коды PIN/PUK должны состоять из 4–8 десятичных цифр',
 	'KIc/KID — counter': 'KIc/KID — счётчик',
