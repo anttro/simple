@@ -539,6 +539,16 @@ test('the TAR row values are left-aligned like the headers', () => {
 	assert.match(out, /<td class="py-1 px-2"><input id="cards-tr-3-msl" class="w-full/);
 });
 
+test('the keyset row renders as a table row with full-width inputs', () => {
+	const out = cardsKeysetRowHtml({ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }, 0);
+	assert.match(out, /^<tr>/);
+	assert.match(out, /<td class="py-1 px-2"><span id="cards-ks-0-kvn"/);
+	assert.match(out, /<td class="py-1 px-2"><input id="cards-ks-0-kic" class="w-full/);
+	assert.match(out, /<td class="py-1 px-2"><input id="cards-ks-0-kic-key" class="w-full/);
+	assert.match(out, /<td class="py-1 px-2"><input id="cards-ks-0-cntr" class="w-full/);
+	assert.match(out, /cardsKeysetRemove\(0\)/);
+});
+
 test('the TAR table renders the role rows and adds/removes free rows', () => {
 	const els = setup();
 	cardsTarRowsRender([{ tar: 'AF4D01', msl: '0A', desc: 'one' },

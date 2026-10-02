@@ -1683,7 +1683,18 @@
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP80 (GSM 03.48, ETSI TS 102 225)">SCP80 (GSM 03.48, ETSI TS 102 225)</legend>
 			<span class="block mb-1 text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — each with its own number and counter">OTA keysets — each with its own number and counter</span>
-			<div id="cards-keysets"></div>
+			<table class="w-full table-fixed text-sm mb-2">
+				<thead><tr>
+					<th class="w-10 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n-title="Keyset number (b8..b5 of KIc/KID)">#</th>
+					<th class="w-14 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KIc</th>
+					<th class="w-14 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KIc key</th>
+					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700">KID key</th>
+					<th class="w-28 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Counter">Counter</th>
+					<th class="w-12 border-b border-gray-200 dark:border-slate-700"></th>
+				</tr></thead>
+				<tbody id="cards-keysets"></tbody>
+			</table>
 			<button type="button" onclick="cardsKeysetAdd()" class="mt-2 px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Add keyset">Add keyset</button>
 			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).">KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).</p>
 		</fieldset>
@@ -11815,17 +11826,17 @@ function spKeysetOptionsHtml(preset, kicHex, kidHex) {
 let _cardsKeysetCount = 0;
 
 function cardsKeysetRowHtml(ks, i) {
-	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
+	const cls = 'w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
 	const kvn = spKeysetKvnOf(ks.kic);
-	return '<div class="flex gap-2 items-center mb-1">' +
-		'<span id="cards-ks-' + i + '-kvn" class="w-10 text-xs font-mono text-center text-gray-500 dark:text-slate-400" title="' + esc(t('Keyset number (b8..b5 of KIc/KID)')) + '">' + (kvn === null ? '?' : kvn) + '</span>' +
-		'<input id="cards-ks-' + i + '-kic" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KIc" value="' + esc(ks.kic || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
-		'<input id="cards-ks-' + i + '-kid" class="w-12 ' + cls + ' text-center" maxlength="2" placeholder="KID" value="' + esc(ks.kid || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')">' +
-		'<input id="cards-ks-' + i + '-kic-key" class="flex-1 ' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '">' +
-		'<input id="cards-ks-' + i + '-kid-key" class="flex-1 ' + cls + '" placeholder="KID key (hex)" value="' + esc(ks.kidKey || '') + '">' +
-		'<input id="cards-ks-' + i + '-cntr" class="w-24 ' + cls + '" maxlength="10" placeholder="Counter" value="' + esc(ks.cntr || '') + '">' +
-		'<button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove keyset')) + '">\u2715</button>' +
-		'</div>';
+	return '<tr>' +
+		'<td class="py-1 px-2"><span id="cards-ks-' + i + '-kvn" class="block text-xs font-mono text-center text-gray-500 dark:text-slate-400" title="' + esc(t('Keyset number (b8..b5 of KIc/KID)')) + '">' + (kvn === null ? '?' : kvn) + '</span></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kic" class="' + cls + ' text-center" maxlength="2" placeholder="KIc" value="' + esc(ks.kic || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')"></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kid" class="' + cls + ' text-center" maxlength="2" placeholder="KID" value="' + esc(ks.kid || '') + '" oninput="cardsKeysetKvnUpdate(' + i + ')"></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kic-key" class="' + cls + '" placeholder="KIc key (hex)" value="' + esc(ks.kicKey || '') + '"></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-kid-key" class="' + cls + '" placeholder="KID key (hex)" value="' + esc(ks.kidKey || '') + '"></td>' +
+		'<td class="py-1 px-2"><input id="cards-ks-' + i + '-cntr" class="' + cls + '" maxlength="10" placeholder="Counter" value="' + esc(ks.cntr || '') + '"></td>' +
+		'<td class="py-1 px-2"><button type="button" onclick="cardsKeysetRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove keyset')) + '">\u2715</button></td>' +
+		'</tr>';
 }
 
 function cardsKeysetRowsRender(keysets) {

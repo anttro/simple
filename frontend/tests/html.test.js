@@ -152,6 +152,12 @@ test('the card editor groups its fields into labelled fieldsets', () => {
     // the keyset editor and the PSK pair stay as implemented
     assert.match(scp80, /id="cards-keysets"/);
     assert.match(scp80, /onclick="cardsKeysetAdd\(\)"/);
+    // ... and mirror the TAR table: a fixed-layout table with headers
+    assert.match(scp80, /<table class="w-full table-fixed text-sm mb-2">/);
+    assert.match(scp80, /<tbody id="cards-keysets">/);
+    for (const h of ['KIc', 'KID', 'KIc key', 'KID key', 'Counter']) {
+        assert.match(scp80, new RegExp('>' + h + '</th>'));
+    }
     assert.match(scp81, /id="cards-psk-id"/);
     assert.match(scp81, /id="cards-psk-key"/);
     // the PSK explanation lives inside the SCP81 group, not outside it
