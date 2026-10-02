@@ -186,6 +186,12 @@ test('the PIN/ADM and TAR fieldsets share one responsive row', () => {
     // the codes are one-line rows: label left, input right
     assert.match(row, /class="flex items-center gap-2"[\s\S]*?for="cards-pin1"[\s\S]*?id="cards-pin1"/);
     assert.match(row, /for="cards-pin1"[^>]*class="w-10 shrink-0/);
+    // the TAR table is fixed-layout so the columns hug their content and the
+    // description absorbs the rest (no even spreading)
+    assert.match(row, /<table class="w-full table-fixed text-sm mb-2">/);
+    assert.match(row, /<th class="w-28 text-left[^"]*" data-l10n="TAR"/);
+    assert.match(row, /<th class="w-20 text-left[^"]*" data-l10n="MSL"/);
+    assert.match(row, /<th class="w-12[^"]*"><\/th>/);
     // the hint is the short form
     assert.match(row, /data-l10n="All codes are optional"/);
     assert.ok(!row.includes('not consumed yet'), 'the long codes hint is gone');
@@ -230,7 +236,7 @@ test('the ADM field sits in the PIN/ADM fieldset of the editor', () => {
     const fieldsets = [...html.matchAll(/<fieldset[\s\S]*?<\/fieldset>/g)].map(m => m[0]);
     const pinAdm = fieldsets.find(f => /data-l10n="PIN\/ADM"/.test(f));
     assert.ok(pinAdm, 'PIN/ADM fieldset not found');
-    assert.match(pinAdm, /id="cards-adm"[^>]*placeholder="ADM \(optional\)"/);
+    assert.match(pinAdm, /id="cards-adm"[^>]*placeholder="ADM"/);
     // the From card button sits in the editor header, above the code fields
     assert.ok(html.indexOf('id="cards-iccid-from-card"') < html.indexOf('id="cards-pin1"'),
         'the From card button must precede the code fields');

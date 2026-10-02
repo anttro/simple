@@ -1659,19 +1659,19 @@
 				</div>
 				<div class="flex items-center gap-2">
 					<label for="cards-adm" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">ADM</label>
-					<input id="cards-adm" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM (optional)">
+					<input id="cards-adm" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM">
 				</div>
 			</div>
 			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="All codes are optional">All codes are optional</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TAR">TAR</legend>
-			<table class="w-full text-sm mb-2">
+			<table class="w-full table-fixed text-sm mb-2">
 				<thead><tr>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="TAR">TAR</th>
-					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="MSL">MSL</th>
+					<th class="w-28 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="TAR">TAR</th>
+					<th class="w-20 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="MSL">MSL</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Description">Description</th>
-					<th class="w-8 border-b border-gray-200 dark:border-slate-700"></th>
+					<th class="w-12 border-b border-gray-200 dark:border-slate-700"></th>
 				</tr></thead>
 				<tbody id="cards-tars"></tbody>
 			</table>
@@ -11897,8 +11897,8 @@ const CARDS_TAR_ROLE_DESC = {
 function cardsTarRowHtml(e, i) {
 	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
 	const role = CARDS_TAR_ROLES[i] || '';
-	let cells = '<td class="py-1 px-2"><input id="cards-tr-' + i + '-tar" class="w-24 ' + cls + '" maxlength="6" placeholder="TAR" value="' + esc(e.tar || '') + '"></td>' +
-		'<td class="py-1 px-2"><input id="cards-tr-' + i + '-msl" class="w-14 ' + cls + '" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>';
+	let cells = '<td class="py-1 px-2"><input id="cards-tr-' + i + '-tar" class="w-full ' + cls + '" maxlength="6" placeholder="TAR" value="' + esc(e.tar || '') + '"></td>' +
+		'<td class="py-1 px-2"><input id="cards-tr-' + i + '-msl" class="w-full ' + cls + '" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>';
 	if (role) {
 		cells += '<td class="py-1 px-2 text-xs text-gray-600 dark:text-slate-400">' + esc(CARDS_TAR_ROLE_DESC[role] || '') + '</td>' +
 			'<td class="py-1 px-2"></td>';
