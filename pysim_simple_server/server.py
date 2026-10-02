@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.9.0'
+VERSION = '3.9.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1668,7 +1668,10 @@ def _counter_probe_params(preset, body):
         'spi1': spi1,
         'spi2': str(body.get('spi2') or preset.get('spi2') or '21').strip().upper(),
         'tar': str(body.get('tar') or preset.get('tar') or '000000').strip().upper(),
-        'apdu': str(body.get('apdu') or COUNTER_PROBE_DEFAULT_APDU).replace(' ', '').upper(),
+        # the probe command is fixed: read-only SELECT MF, which every applet
+        # answers (an error SW is fine - the counter advances on the packet's
+        # security acceptance, not on the command's own result)
+        'apdu': COUNTER_PROBE_DEFAULT_APDU,
     }
 
 

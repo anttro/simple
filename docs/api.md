@@ -252,7 +252,7 @@ import also accepts presets exported by the older localStorage-based builds.
 Sync a preset's SCP80 counter with the card.  The card accepts only a counter
 *above* its own (TS 102 225 §5.1.1, SPI1 b5b4 = `10`) and updates it only when
 the packet is accepted, so rejected attempts change nothing; the probe walks a
-doubling ladder (`start+1`, `+2`, `+4`, …) with a read-only command until one
+doubling ladder (`start+1`, `+2`, `+4`, …) with a fixed read-only command until one
 is accepted, then persists `accepted+1` (monotonic) into the keyset.  The
 search stops at a ceiling and after a bounded number of packets, so it can
 never run towards the 40-bit maximum, where the card blocks the counter.  The
@@ -261,15 +261,15 @@ the packet's, TS 102 225 §5.2 Table 3), which is why this probe exists.
 
 ```json
 {"preset_id": "…", "kvn": 2, "tar": "000000", "spi1": "16", "spi2": "21",
- "cntr": "0001000000", "ceiling": "FFFFFFFF", "max_attempts": 40,
- "apdu": "00A40000023F00"}
+ "cntr": "0001000000", "ceiling": "FFFFFFFF", "max_attempts": 40}
 ```
 
 All fields except `preset_id` are optional: `kvn` picks a keyset (the first
 otherwise), `tar`/`spi1`/`spi2` default to the preset's values, `cntr` to the
-keyset's counter, `ceiling` to `FFFFFFFF` (must stay below `FFFFFFFFFF`),
-`max_attempts` to 40 (clamped to 1–64), and `apdu` to a read-only `SELECT MF`
-(the probe command should never modify anything).  A SPI1 without a counter
+keyset's counter, `ceiling` to `FFFFFFFF` (must stay below `FFFFFFFFFF`) and
+`max_attempts` to 40 (clamped to 1–64).  The probe always sends the read-only
+`SELECT MF` - the counter advances on the packet's security acceptance whatever
+the applet answers (`6A86`/`6D00` are normal there).  A SPI1 without a counter
 check is refused (400).
 
 **Response:** `{"success": true, "accepted_cntr": "0001000000",
