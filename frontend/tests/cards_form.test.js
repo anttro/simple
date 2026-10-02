@@ -532,6 +532,13 @@ test('packing without a selected preset uses the spec default TAR', () => {
 	assert.strictEqual(els['sp-tar'].value, '000000');
 });
 
+test('the TAR row values are left-aligned like the headers', () => {
+	const out = cardsTarRowHtml({ tar: 'AF4D01', msl: '0A', desc: 'x' }, 3);
+	assert.doesNotMatch(out, /text-center/);
+	assert.match(out, /<td class="py-1 px-2"><input id="cards-tr-3-tar"/);
+	assert.match(out, /<td class="py-1 px-2"><input id="cards-tr-3-msl"/);
+});
+
 test('the TAR table renders the role rows and adds/removes free rows', () => {
 	const els = setup();
 	cardsTarRowsRender([{ tar: 'AF4D01', msl: '0A', desc: 'one' },

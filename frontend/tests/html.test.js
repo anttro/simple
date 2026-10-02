@@ -183,11 +183,23 @@ test('the PIN/ADM and TAR fieldsets share one responsive row', () => {
     assert.match(row, /data-l10n="TAR"/);
     assert.match(row, /class="[^"]*rounded p-3 lg:w-56 shrink-0"/);
     assert.match(row, /class="[^"]*rounded p-3 flex-1 min-w-0"/);
-    // the codes are a vertical list, label above each input
-    assert.match(row, /class="space-y-2"[\s\S]*?for="cards-pin1"[\s\S]*?id="cards-pin1"/);
+    // the codes are one-line rows: label left, input right
+    assert.match(row, /class="flex items-center gap-2"[\s\S]*?for="cards-pin1"[\s\S]*?id="cards-pin1"/);
+    assert.match(row, /for="cards-pin1"[^>]*class="w-10 shrink-0/);
     // the hint is the short form
     assert.match(row, /data-l10n="All codes are optional"/);
     assert.ok(!row.includes('not consumed yet'), 'the long codes hint is gone');
+});
+
+test('the Add TAR / Add keyset buttons sit below their lists, green', () => {
+    assert.match(html, /onclick="cardsTarAdd\(\)" class="[^"]*bg-emerald-600[^"]*"/);
+    assert.match(html, /onclick="cardsKeysetAdd\(\)" class="[^"]*bg-emerald-600[^"]*"/);
+    assert.ok(html.indexOf('id="cards-tars"') < html.indexOf('onclick="cardsTarAdd()"'),
+        'Add TAR must follow the TAR list');
+    assert.ok(html.indexOf('id="cards-keysets"') < html.indexOf('onclick="cardsKeysetAdd()"'),
+        'Add keyset must follow the keyset list');
+    assert.ok(html.indexOf('onclick="cardsKeysetAdd()"') > html.indexOf('data-l10n="OTA keysets'),
+        'the keyset label stays above the list');
 });
 
 test('the Cards tab splits the preset list and the editor into views', () => {

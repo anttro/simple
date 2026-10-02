@@ -1641,25 +1641,25 @@
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 lg:w-56 shrink-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="PIN/ADM">PIN/ADM</legend>
 			<div class="space-y-2">
-				<div>
-					<label for="cards-pin1" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">PIN1</label>
-					<input id="cards-pin1" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
+				<div class="flex items-center gap-2">
+					<label for="cards-pin1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN1</label>
+					<input id="cards-pin1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
-				<div>
-					<label for="cards-puk1" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">PUK1</label>
-					<input id="cards-puk1" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
+				<div class="flex items-center gap-2">
+					<label for="cards-puk1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK1</label>
+					<input id="cards-puk1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
-				<div>
-					<label for="cards-pin2" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">PIN2</label>
-					<input id="cards-pin2" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
+				<div class="flex items-center gap-2">
+					<label for="cards-pin2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN2</label>
+					<input id="cards-pin2" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
-				<div>
-					<label for="cards-puk2" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">PUK2</label>
-					<input id="cards-puk2" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
+				<div class="flex items-center gap-2">
+					<label for="cards-puk2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK2</label>
+					<input id="cards-puk2" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
-				<div>
-					<label for="cards-adm" class="block mb-0.5 text-xs text-gray-600 dark:text-slate-400">ADM</label>
-					<input id="cards-adm" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM (optional)">
+				<div class="flex items-center gap-2">
+					<label for="cards-adm" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">ADM</label>
+					<input id="cards-adm" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM (optional)">
 				</div>
 			</div>
 			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="All codes are optional">All codes are optional</p>
@@ -1675,21 +1675,17 @@
 				</tr></thead>
 				<tbody id="cards-tars"></tbody>
 			</table>
-			<div class="flex items-center justify-between mb-2">
-				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="The first three rows are the fixed role TARs; add further TARs as needed.">The first three rows are the fixed role TARs; add further TARs as needed.</span>
-				<button type="button" onclick="cardsTarAdd()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Add TAR">Add TAR</button>
-			</div>
-			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.">Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.</p>
+			<button type="button" onclick="cardsTarAdd()" class="mt-2 px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Add TAR">Add TAR</button>
+			<p class="text-xs text-gray-600 dark:text-slate-400 mt-2" data-l10n="The first three rows are the fixed role TARs; add further TARs as needed.">The first three rows are the fixed role TARs; add further TARs as needed.</p>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.">Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.</p>
 		</fieldset>
 		</div>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP80 (GSM 03.48, ETSI TS 102 225)">SCP80 (GSM 03.48, ETSI TS 102 225)</legend>
-			<div class="mb-1 flex items-center justify-between">
-				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — each with its own number and counter">OTA keysets — each with its own number and counter</span>
-				<button type="button" onclick="cardsKeysetAdd()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Add keyset">Add keyset</button>
-			</div>
+			<span class="block mb-1 text-xs text-gray-600 dark:text-slate-400" data-l10n="OTA keysets — each with its own number and counter">OTA keysets — each with its own number and counter</span>
 			<div id="cards-keysets"></div>
-			<p class="text-xs text-gray-500 dark:text-slate-400" data-l10n="KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).">KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).</p>
+			<button type="button" onclick="cardsKeysetAdd()" class="mt-2 px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Add keyset">Add keyset</button>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).">KIc and KID must carry the same keyset number (their high nibble) in the range 01-0F — TS 102 225 A.2; each keyset has its own counter on the card (Annex A.1).</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 mb-3">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="SCP81 (HTTP OTA)">SCP81 (HTTP OTA)</legend>
@@ -11901,14 +11897,14 @@ const CARDS_TAR_ROLE_DESC = {
 function cardsTarRowHtml(e, i) {
 	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
 	const role = CARDS_TAR_ROLES[i] || '';
-	let cells = '<td class="py-1 px-1"><input id="cards-tr-' + i + '-tar" class="w-24 ' + cls + ' text-center" maxlength="6" placeholder="TAR" value="' + esc(e.tar || '') + '"></td>' +
-		'<td class="py-1 px-1"><input id="cards-tr-' + i + '-msl" class="w-14 ' + cls + ' text-center" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>';
+	let cells = '<td class="py-1 px-2"><input id="cards-tr-' + i + '-tar" class="w-24 ' + cls + '" maxlength="6" placeholder="TAR" value="' + esc(e.tar || '') + '"></td>' +
+		'<td class="py-1 px-2"><input id="cards-tr-' + i + '-msl" class="w-14 ' + cls + '" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>';
 	if (role) {
 		cells += '<td class="py-1 px-2 text-xs text-gray-600 dark:text-slate-400">' + esc(CARDS_TAR_ROLE_DESC[role] || '') + '</td>' +
-			'<td class="py-1 px-1"></td>';
+			'<td class="py-1 px-2"></td>';
 	} else {
-		cells += '<td class="py-1 px-1"><input id="cards-tr-' + i + '-desc" class="w-full ' + cls + '" placeholder="' + esc(t('Description (optional)')) + '" value="' + esc(e.desc || '') + '"></td>' +
-			'<td class="py-1 px-1"><button type="button" onclick="cardsTarRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove TAR')) + '">\u2715</button></td>';
+		cells += '<td class="py-1 px-2"><input id="cards-tr-' + i + '-desc" class="w-full ' + cls + '" placeholder="' + esc(t('Description (optional)')) + '" value="' + esc(e.desc || '') + '"></td>' +
+			'<td class="py-1 px-2"><button type="button" onclick="cardsTarRemove(' + i + ')" class="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" title="' + esc(t('Remove TAR')) + '">\u2715</button></td>';
 	}
 	return '<tr>' + cells + '</tr>';
 }
