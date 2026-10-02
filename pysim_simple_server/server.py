@@ -1538,7 +1538,8 @@ def _spi1_for_tar(preset, tar_hex, explicit='', prefer_msl=False):
     card or send more security than the application expects.
     Returns ``(spi1, warning)``."""
     explicit = str(explicit or '').strip().upper()
-    msl = presets.tar_msl(preset, tar_hex)
+    tar = str(tar_hex or '').strip().upper()
+    msl = presets.tar_msl(preset, tar)
     if prefer_msl and msl:
         return msl, ''
     if explicit:
@@ -1546,12 +1547,15 @@ def _spi1_for_tar(preset, tar_hex, explicit='', prefer_msl=False):
         if msl and _hex_lt(explicit, msl):
             warning = ('SPI1 %s is below the MSL %s of TAR %s - the card may '
                        'answer 0A (insufficient security level)'
-                       % (explicit, msl, tar_hex))
+                       % (explicit, msl, tar))
         return explicit, warning
     if msl:
         return msl, ''
+    if not tar:
+        raise ValueError('no TAR for the packet and no spi1 given - pass the '
+                         'TAR (add its MSL to the card preset) or spi1')
     raise ValueError('no MSL for TAR %s in the card preset - set it in the '
-                     'Cards tab or pass spi1' % (tar_hex or '?'))
+                     'Cards tab or pass spi1' % tar)
 
 
 # RAM command formats (TS 102 226 5.2.1): the bare C-APDU (compact) or the
@@ -7696,6 +7700,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                         privileges=privileges, install_params=install_params_hex,
                         stk_params=stk_params_hex, make_selectable=make_selectable)
                     step_name = 'INSTALL [for install]'
+                # SCP80 params: the SPI1 comes from the MSL of the packet's
+                # TAR (the operation uses the preset's table); a caller-supplied
+                # value is only the fallback for a TAR the preset does not carry.
+                preset = _preset_by_id(self.server, body.get('preset_id'))
+                tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
+                          or '000000').strip().upper()
+                try:
+                    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'),
+                                            prefer_msl=True)
+                except ValueError as e:
+                    err = {'success': False, 'error': str(e)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
                 sp_state = {
                     'spi1': spi1, 'spi2': body.get('spi2', '01'),
                     'kic': body.get('kic', '25'), 'kid': body.get('kid', '25'),

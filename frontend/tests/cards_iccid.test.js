@@ -58,6 +58,12 @@ function fakeAlert() {
 	return seen;
 }
 
+test('esc escapes quotes as well as the angle brackets', () => {
+	// the output is used inside attribute values (value="…", title="…",
+	// label="…") as well as in text contexts (v3.10.0 review fix)
+	assert.strictEqual(esc('a"b\'c<d>&'), 'a&quot;b&#39;c&lt;d&gt;&amp;');
+});
+
 test('cardsNormIccid accepts digits, separators and raw EF hex', () => {
 	assert.strictEqual(cardsNormIccid(DIGITS), DIGITS);
 	assert.strictEqual(cardsNormIccid(' 89 70 1190-0000 4600 098 '), DIGITS);
@@ -194,7 +200,7 @@ test('cardsRender highlights the equipped card preset', () => {
 	let rows = els['cards-tbody'].innerHTML.split('</tr>');
 	assert.ok(!/bg-emerald-50/.test(rows[0]), 'the other preset must stay plain');
 	assert.match(rows[1], /bg-emerald-50/);
-	assert.match(rows[1], /The equipped card's preset/);
+	assert.match(rows[1], /The equipped card&#39;s preset/);
 	// the same card stored as raw EF hex matches too
 	globalThis.cards[1].iccid = RAW_HEX;
 	cardsRender();

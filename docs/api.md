@@ -257,7 +257,8 @@ import also accepts presets exported by the older localStorage-based builds.
   hex are normalised to one form) is refused with
   `400 {"error": "card with this ICCID already exists: …"}`.
 - `POST /api/presets/update` — `{"id": "…", "fields": {…}}` (partial update;
-  a plain `{id, name, …}` body works too, and `keysets` replaces the list).
+  a plain `{id, name, …}` body works too, `keysets` replaces the list and
+  `tars` the TAR table — a non-list `tars` value is refused).
   A counter is written as given — this is the deliberate human edit; unknown
   ids answer `404`.
 - `POST /api/presets/delete` — `{"id": "…"}` → `{"ok": true, "removed": true}`.

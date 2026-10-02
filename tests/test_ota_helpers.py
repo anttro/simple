@@ -2341,6 +2341,10 @@ class Spi1ForTarTests(unittest.TestCase):
         self.assertIn('MSL', str(cm.exception))
         with self.assertRaises(ValueError):
             _spi1_for_tar({}, '000000')
+        # no TAR at all (a pre-built packet without one): the hint names that
+        with self.assertRaises(ValueError) as cm:
+            _spi1_for_tar(self.PRESET, '')
+        self.assertIn('no TAR', str(cm.exception))
 
 
 class CounterProbeTests(unittest.TestCase):

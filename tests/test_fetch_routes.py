@@ -737,6 +737,53 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertTrue(captured)
         self.assertEqual(set(captured), {'1A'})
 
+    def test_an_install_app_operation_derives_the_spi1_from_the_msl(self):
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        self.store.update(p['id'], {'tars': [
+            {'role': 'isd', 'tar': '000000', 'msl': '1A', 'desc': ''},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': ''},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''}]})
+        captured = []
+
+        def fake_step(server, scc, sp, state, name, apdu, silent=False):
+            captured.append((sp['spi1'], sp['tar']))
+            state['steps'].append({'name': name, 'por_status': 'por_ok', 'por_sw': '9000'})
+            return True
+
+        patches = [
+            mock.patch.object(self.srv, '_ram_detect_format', lambda *a, **k: 'compact'),
+            mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_step),
+        ]
+        for patch in patches:
+            patch.start()
+        try:
+            # INSTALL [for install]
+            status, resp = self._post('/api/ram-install-app', {
+                'mode': 'install', 'loadfile_aid': 'F0414C46416101',
+                'module_aid': 'F0414C4641610101', 'preset_id': p['id'],
+                'kic': '15', 'kid': '15'})
+            self.assertEqual(status, 200, resp)
+            self.assertTrue(resp['success'], resp)
+            # INSTALL [for make selectable]
+            status, resp = self._post('/api/ram-install-app', {
+                'mode': 'make_selectable', 'instance_aid': 'F0414C4641610101',
+                'preset_id': p['id'], 'kic': '15', 'kid': '15'})
+            self.assertEqual(status, 200, resp)
+            self.assertTrue(resp['success'], resp)
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(captured, [('1A', '000000'), ('1A', '000000')])
+
+    def test_an_install_app_without_an_msl_is_refused_before_the_card(self):
+        # no preset and no spi1: the resolution must refuse with the hint
+        # (v3.10.0 review: this endpoint once 500'd on an undefined spi1)
+        status, resp = self._post('/api/ram-install-app', {
+            'mode': 'make_selectable', 'instance_aid': 'F0414C4641610101',
+            'kic': '15', 'kid': '15'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('MSL', resp['error'])
+
     def test_a_counter_less_send_ota_body_still_answers(self):
         # a pre-built packet without a counter: no final_cntr, no persist,
         # and above all no int('') crash (v3.8.0 review fix)

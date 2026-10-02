@@ -7662,7 +7662,10 @@ async function pysimDetectSameOrigin() {
 pysimDetectSameOrigin();
 
 function esc(str) {
-	return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	// quotes too: the result is used inside attribute values (title, value,
+	// label) as well as in text contexts
+	return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 async function pysimFetch(path, body) {

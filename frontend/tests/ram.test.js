@@ -1443,7 +1443,7 @@ test('ramCompatRowsHtml lists AIDs with names, versions and probe state', () => 
 	assert.ok(out.includes('A0000000620101 <span class="text-gray-400 dark:text-slate-500">(javacard.framework)</span> \u2014 1.3'), out);
 	assert.ok(out.includes('1.3 \u2192 0.0 <span class="text-gray-500 dark:text-slate-400">(probe)</span>'), out);
 	assert.ok(out.includes('(appended \u2014 not in the CAP)'), out);
-	assert.ok(out.includes("(not in the CAP's import list)"), out);
+	assert.ok(out.includes('(not in the CAP&#39;s import list)'), out);
 	assert.ok(out.includes('(uicc.toolkit)'), out);
 	assert.strictEqual(ramCompatRowsHtml([]), '');
 });
@@ -1482,7 +1482,7 @@ test('ramCompatFailureHtml names the failing CAP section and the import list', (
 	};
 	const out = ramCompatFailureHtml(data, mem);
 	assert.ok(out.includes('Failed in: LOAD (1/2) \u2014 load-file bytes 0\u2013239 / 440 \u00b7 covers Header, Directory, Import \u00b7 completes Import'), out);
-	assert.ok(out.includes("The card verifies the load file's import list when the Import component is complete (JC VM spec 4.5.2)."), out);
+	assert.ok(out.includes("The card verifies the load file&#39;s import list when the Import component is complete (JC VM spec 4.5.2)."), out);
 	assert.ok(out.includes('remote SW 6985 \u2014 Conditions of use not satisfied'), out);
 	assert.ok(out.includes('Import list under test (6):'), out);
 	assert.ok(out.includes('(javacard.framework)'), out);

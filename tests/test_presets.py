@@ -110,10 +110,11 @@ class StoreCrudTests(unittest.TestCase):
             {'tar': 'AF4D02', 'msl': '0A', 'desc': 'My applet'},
             {'tar': '', 'msl': '', 'desc': ''},        # a blank editor row
         ]))
-        self.assertEqual([(t['role'], t['tar'], t['msl']) for t in p['tars']],
+        self.assertEqual([(t.get('role', ''), t['tar'], t['msl']) for t in p['tars']],
                          [('isd', 'AF4D01', '1A'), ('uiccRfm', 'B00000', '16'),
                           ('usimRfm', 'B00001', '16'), ('', 'AF4D02', '0A')])
         self.assertEqual(p['tars'][3]['desc'], 'My applet')
+        self.assertNotIn('role', p['tars'][3])   # free rows carry no role
         self.assertEqual(len(p['tars']), 4)     # the blank row was dropped
 
     def test_every_tar_needs_its_msl_and_a_unique_tar(self):
@@ -161,9 +162,10 @@ class StoreCrudTests(unittest.TestCase):
             {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'}]})
         self.assertEqual(presets.role_tar(upd, 'isd'), 'AF4D01')
         self.assertEqual(presets.tar_msl(upd, 'AF4D01'), '1A')
-        # a malformed tars value must not silently reset the table
-        again = self.store.update(p['id'], {'tars': 'nonsense'})
-        self.assertEqual(presets.role_tar(again, 'isd'), 'AF4D01')
+        # a malformed tars value is refused, not silently ignored or reset
+        with self.assertRaises(presets.PresetError):
+            self.store.update(p['id'], {'tars': 'nonsense'})
+        self.assertEqual(presets.role_tar(self.store.get(p['id']), 'isd'), 'AF4D01')
 
     def test_a_preset_carries_several_keysets(self):
         p = self.store.add(preset(keysets=[keyset(kic='15', kid='15'),

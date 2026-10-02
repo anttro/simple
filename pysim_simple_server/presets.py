@@ -336,7 +336,8 @@ class PresetStore:
                 continue
             if not (e['tar'] or e['msl'] or e['desc']):
                 continue        # a blank editor row
-            out.append(e)
+            # free entries carry no `role`: the three roles are the fixed ones
+            out.append({'tar': e['tar'], 'msl': e['msl'], 'desc': e['desc']})
         return out
 
     def _normalise_keyset(self, ks):
@@ -472,7 +473,9 @@ class PresetStore:
                     merged[k] = fields[k]
             if isinstance(fields, dict) and 'keysets' in fields:
                 merged['keysets'] = fields['keysets']
-            if isinstance(fields, dict) and isinstance(fields.get('tars'), list):
+            if isinstance(fields, dict) and 'tars' in fields:
+                if not isinstance(fields['tars'], list):
+                    raise PresetError('tars must be a list of TAR entries')
                 merged['tars'] = fields['tars']
             new = self._normalise(merged)
             new['id'] = cur['id']
