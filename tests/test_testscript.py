@@ -588,16 +588,26 @@ class TestRunnerActions(RunnerTestCase):
         {'id': 130, 'text': 'Кофе'}]}
 
     def test_menu_text_selection_matches_variant2_cyrillic(self):
+        # a lowercase exact match resolves by default (case-insensitive)
         scc = FakeScc().push('80C2', '', '9000')
         server = FakeServer(scc)
         server.sim_menu = dict(self.LIVE_MENU)
-        # a lowercase contains match resolves by default (case-insensitive)
         run = self.run_script(server, [
             {'type': 'action', 'kind': 'menu-select',
              'params': {'text': 'кофе'}},
         ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         self.assertIn('D30702020181900182', ''.join(scc.sent))
+        # a lowercase contains match resolves too (item 128)
+        scc = FakeScc().push('80C2', '', '9000')
+        server = FakeServer(scc)
+        server.sim_menu = dict(self.LIVE_MENU)
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'ыбор', 'mode': 'contains'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('D30702020181900180', ''.join(scc.sent))
         # an explicit case-sensitive spec misses and names the loose match
         server = FakeServer(FakeScc())
         server.sim_menu = dict(self.LIVE_MENU)

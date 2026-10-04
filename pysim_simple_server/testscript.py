@@ -281,9 +281,9 @@ def _normalise_params(kind, p):
             if mode not in ('exact', 'contains'):
                 raise ScriptError('menu-select: mode must be exact or contains')
             out['mode'] = mode
-            # Menu labels are UI text: case-insensitive by default (no test
-            # scripts predate this choice); `case_sensitive: true` forces an
-            # exact-case match.
+            # Menu labels are UI text: a case slip should not fail a run, so
+            # the match is case-insensitive by default; `case_sensitive: true`
+            # forces an exact-case match.
             out['case_sensitive'] = bool(p.get('case_sensitive', False))
         if not out:
             raise ScriptError('menu-select: item_id or text is required')

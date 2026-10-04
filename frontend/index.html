@@ -7094,7 +7094,7 @@ function testStepSummary(step) {
 	if (step.kind === 'envelope') s = 'ENVELOPE event=0x' + Number(p.event || 0).toString(16).toUpperCase().padStart(2, '0') + (p.data ? ' data=' + p.data : '');
 	else if (step.kind === 'menu-select') {
 		s = 'ENVELOPE(Menu Selection) ' + (p.text
-			? 'text ' + (p.mode === 'contains' ? '~' : '=') + JSON.stringify(p.text)
+			? 'text ' + (p.mode === 'contains' ? '~' : '=') + JSON.stringify(p.text) + (p.case_sensitive ? ' (case)' : '')
 			: 'item=' + p.item_id);
 	}
 	else if (step.kind === 'event') {
@@ -7391,6 +7391,10 @@ function testStepRender() {
 				'<div class="flex gap-2">' + testFormInput('test-f-itemtext', p.text, t('menu item text'))
 				+ testFormSelect('test-f-itemmode', p.mode || 'exact',
 					[{v: 'exact', l: t('Exact')}, {v: 'contains', l: t('Contains')}]) + '</div>');
+			html += testFormRow('Match case', testFormSelect('test-f-itemcase',
+				p.case_sensitive ? 'true' : 'false',
+				[{v: 'false', l: t('Case-insensitive (default)')},
+				 {v: 'true', l: t('Case-sensitive')}]));
 		} else if (step.kind === 'file-write' || step.kind === 'file-read') {
 			html += testFormRow('File path', testFormInput('test-f-path', p.path, 'ADF.USIM/EF.EST or MF/2FE2'));
 			html += testFormRow('Mode', testFormSelect('test-f-mode', p.mode || 'auto', [
@@ -7623,6 +7627,9 @@ function testStepCollect() {
 			if (text) {
 				p.text = text;
 				p.mode = val('test-f-itemmode') || 'exact';
+				// the editor authors the flag: true keeps an exact-case
+				// match (the server default is case-insensitive)
+				if (val('test-f-itemcase') === 'true') p.case_sensitive = true;
 			} else {
 				const id = num('test-f-item', 0);
 				if (id) p.item_id = id;
@@ -21141,6 +21148,9 @@ const LANG_RU = {
 	'give the item id or the text, not both': 'укажите item id или текст, но не оба',
 	'… or item text': '… или текст пункта',
 	'menu item text': 'текст пункта меню',
+	'Match case': 'Учёт регистра',
+	'Case-insensitive (default)': 'Без учёта регистра (по умолчанию)',
+	'Case-sensitive': 'С учётом регистра',
 	'file path is empty': 'путь к файлу пуст',
 	'command is required': 'команда обязательна',
 	'step must be an action or an expectation': 'шаг должен быть действием или ожиданием',

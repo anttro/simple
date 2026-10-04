@@ -16,7 +16,8 @@ localStorage export imports as-is), and any API client can create or run them
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
 RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `envelope` action's `src` override since 3.18.1, the inline `por` object, the
-`alpha`/`sms` checks and `scp80.params.format` since 3.19.0.
+`alpha`/`sms` checks, `scp80.params.format` and the case-insensitive
+`menu-select` text match since 3.19.0.
 
 ## Writing a test for an applet
 
@@ -177,7 +178,7 @@ continue correctly.
 |---|---|---|
 | `envelope` | `event` 0–255, `data` hex (optional), optional `src` | ENVELOPE(Event Download) with raw data; `src` overrides the device-identities source (`82` terminal / `83` network) |
 | `event` | `event` (name or hex), `fields` (object), optional `src` | semantic ENVELOPE(Event Download) for 0x03/0x0B/0x12/0x1D (see below) |
-| `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive: true` for an exact-case match — the default is case-insensitive), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
+| `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive: true` for an exact-case match — the default is case-insensitive; the step editor's **Match case** choice writes it), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
 | `file-read` | `path`, `mode`, `record` | READ BINARY/RECORD; verify with `check.data` |
 | `apdu` | `apdu` hex | raw transport, no auto-handler |

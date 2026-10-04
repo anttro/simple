@@ -303,6 +303,61 @@ test('the menu-select editor collects the item id or the text', () => {
 	assert.deepStrictEqual(_testEditStep.params, { item_id: 3 });
 });
 
+test('the menu-select editor authors the case-sensitive match', () => {
+	// the select stores the flag only when set (the server default is
+	// case-insensitive), so a step can keep an exact-case match
+	_testEditStep = { type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', mode: 'contains' } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	fakeForm({ 'test-step-kind': 'menu-select', 'test-f-item': '', 'test-f-itemtext': 'My menu',
+		'test-f-itemmode': 'contains', 'test-f-itemcase': 'true',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params,
+		{ text: 'My menu', mode: 'contains', case_sensitive: true });
+	// the default is omitted from the stored params
+	_testEditStep = { type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', mode: 'contains' } };
+	fakeForm({ 'test-step-kind': 'menu-select', 'test-f-item': '', 'test-f-itemtext': 'My menu',
+		'test-f-itemmode': 'contains', 'test-f-itemcase': 'false',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { text: 'My menu', mode: 'contains' });
+	// the summary flags it
+	assert.ok(testStepSummary({ type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', case_sensitive: true } }).includes(' (case)'));
+	// switching to the item id drops it (there is no text match then)
+	_testEditStep = { type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', case_sensitive: true } };
+	fakeForm({ 'test-step-kind': 'menu-select', 'test-f-item': '3', 'test-f-itemtext': '',
+		'test-f-itemmode': 'exact', 'test-f-itemcase': 'true',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { item_id: 3 });
+});
+
+test('the menu-select step form renders the case select', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', case_sensitive: true } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const body = els['test-step-body'].innerHTML;
+	assert.match(body, /id="test-f-itemcase"/);
+	assert.match(body, /<option value="true" selected>/);
+	// the default selection is case-insensitive
+	_testEditStep = { type: 'action', kind: 'menu-select', params: { text: 'My menu' } };
+	testStepRender();
+	assert.match(els['test-step-body'].innerHTML, /<option value="false" selected>/);
+});
+
 test('the envelope step collects the source override', () => {
 	_testEditStep = { type: 'action', kind: 'envelope', params: {} };
 	_testEditChecks = [];
