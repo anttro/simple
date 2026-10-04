@@ -729,12 +729,84 @@ class TestRunnerActions(RunnerTestCase):
     # 12 07 01 3F007F106F3A (one file: MF/7F10/6F3A).
     REFRESH_FCN_CMD = 'D0128103010100820283811207013F007F106F3A'
 
+    def test_the_run_log_carries_the_card_exchange_details(self):
+        # the semantic lines a verification needs: the plaintext C-APDU, the
+        # built secured packet, the FETCH/CMD/TR pair of an expectation and
+        # the menu selection's ENVELOPE with the resolved item
+        import contextlib
+        import io
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.SETUP_MENU_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80C2', '', '9000')
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
+                  'counter': '0000000A', 'tars': preset_tars()}
+        buf = io.StringIO()
+        with mock.patch.object(S, '_build_secured_packet', return_value=('CC' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': None}):
+            with contextlib.redirect_stderr(buf):
+                run = self.run_script(FakeServer(scc), [
+                    {'type': 'action', 'kind': 'scp80',
+                     'params': {'apdu': '80E2900000'}},
+                    {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+                     'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+                    {'type': 'expect', 'command': 'SET UP MENU',
+                     'respond': {'result': 'ok'}},
+                    {'type': 'action', 'kind': 'menu-select',
+                     'params': {'text': 'One'}},
+                ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 1: SCP80 C-APDU=80E2900000', log)
+        self.assertIn('TEST-RUN step 1: SCP80 SECURED=' + 'CC' * 10, log)
+        self.assertIn('TEST-RUN step 1: SCP80 -> SW=9000', log)
+        self.assertIn('TEST-RUN step 1: PoR[inline] none', log)
+        self.assertIn('TEST-RUN step 2: STATUS 1/2 -> 9102', log)
+        self.assertIn('TEST-RUN step 3: FETCH=', log)
+        self.assertIn('TEST-RUN step 3: CMD 0x25 SET UP MENU', log)
+        self.assertIn('TEST-RUN step 3: TR=', log)
+        self.assertIn('TEST-RUN step 4: MENU-SELECT ENVELOPE=', log)
+        self.assertIn("item=1 ('One')", log)
+
+    def test_the_run_log_carries_the_inline_por(self):
+        # the decoded PoR and its R-APDU are logged with the raw packet
+        import contextlib
+        import io
+        scc = FakeScc()
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
+                  'counter': '0000000A', 'tars': preset_tars()}
+        decoded = {'response_status': 'por_ok', 'tar': '000000', 'cntr': '0000000A',
+                   'raw': '0271000021AABB',
+                   'decoded': {'last_status_word': '9000', 'last_response_data': 'AABB'}}
+        buf = io.StringIO()
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': '0271000021AABB'}), \
+                mock.patch.object(S, '_decode_por', return_value=decoded):
+            with contextlib.redirect_stderr(buf):
+                run = self.run_script(FakeServer(scc), [
+                    {'type': 'action', 'kind': 'scp80',
+                     'params': {'apdu': '80E2900000'}},
+                ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 1: PoR[inline] status=por_ok', log)
+        self.assertIn('raw=0271000021AABB', log)
+        self.assertIn('TEST-RUN step 1: R-APDU SW=9000 data=AABB', log)
+
     def test_expect_decodes_the_submit_por(self):
+        import contextlib
+        import io
         scc = FakeScc()
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
                   'counter': '0000000A', 'tars': preset_tars()}
         decoded = {'response_status': 'por_ok', 'tar': '000000',
                    'decoded': {'last_status_word': '9000', 'last_response_data': 'AABB'}}
+        buf = io.StringIO()
         with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
                 mock.patch.object(S, '_send_secured_packet',
                                   return_value={'success': True, 'sw': '9102',
@@ -742,14 +814,18 @@ class TestRunnerActions(RunnerTestCase):
                 mock.patch.object(S, '_decode_por', return_value=decoded) as dec:
             scc.push('8012', self.SEND_SM_POR_CMD, '9000')
             scc.push('8014', '', '9000')
-            run = self.run_script(FakeServer(scc), [
-                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
-                 'check': {'sw': {'mode': 'mask', 'value': '91??'}, 'por': 'none'}},
-                {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
-                 'checks': [{'kind': 'por', 'status': 'por_ok', 'sw': '9000'}],
-                 'respond': {'result': 'ok'}},
-            ], preset)
+            with contextlib.redirect_stderr(buf):
+                run = self.run_script(FakeServer(scc), [
+                    {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
+                     'check': {'sw': {'mode': 'mask', 'value': '91??'}, 'por': 'none'}},
+                    {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+                     'checks': [{'kind': 'por', 'status': 'por_ok', 'sw': '9000'}],
+                     'respond': {'result': 'ok'}},
+                ], preset)
         self.assertEqual(run['status'], 'ok', run['steps'])
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 2: PoR[sms-submit] status=por_ok', log)
+        self.assertIn('TEST-RUN step 2: R-APDU SW=9000 data=AABB', log)
         self.assertEqual(run['steps'][1]['por']['response_status'], 'por_ok')
         labels = {c['label']: c for c in run['steps'][1]['checks']}
         self.assertTrue(labels['PoR status']['ok'], labels)

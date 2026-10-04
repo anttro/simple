@@ -567,6 +567,7 @@
 		<li><strong>Fail levels</strong> &mdash; a mismatch flags the step as <em>Error</em> (terminates the script) or <em>Warning</em> (continues); each check is reported with expected vs actual values.</li>
 		<li><strong>Templates</strong> &mdash; Empty, <em>STK menu browsing</em>, <em>Applet via SCP80</em>; the step editor is form-based (the event action's fields are a JSON object) and individual scripts export/import as JSON.</li>
 	</ul>
+	<p class="text-sm mb-3">Every step logs a semantic line to the server log under its step number (<code class="font-mono text-sm">TEST-RUN step N: …</code>), request before response: the APDU/data sent and the SW received, for SCP80 the plaintext C-APDU, the built secured packet and the PoR's R-APDU, for an expectation the FETCH / command / TERMINAL RESPONSE trio, and for a menu selection the complete ENVELOPE with the resolved item. Start the server with <code class="font-mono text-sm">--apdu-trace</code> to add the raw transport APDU log as well.</p>
 
 	<h3 id="bip" class="text-lg font-medium mb-2">8.10 BIP terminal (generic TCP)</h3>
 	<p class="text-sm mb-2">The <strong>BIP</strong> pill runs the terminal side of the Bearer Independent Protocol for cards that use TCP without HTTP OTA (SCP81): an applet or a push trigger can open a channel and exchange raw data. Only one BIP session runs at a time &mdash; starting here stops a running SCP81 listener, and starting the SCP81 listener stops this session (both report what was replaced).</p>

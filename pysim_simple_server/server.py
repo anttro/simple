@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.18.2'
+VERSION = '3.18.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1370,6 +1370,7 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
                                   submit_handler=submit_handler,
                                   handle_proactive=handle_proactive,
                                   poll_status=(i == total - 1))
+        sys.stderr.write('OTA SEND: ENVELOPE %d/%d -> %s\n' % (i + 1, total, sw))
         if sw != '9000' and not sw.startswith('91'):
             # A warning (62xx/63xx, e.g. the live card's 6200 for a low
             # counter) may still hold the PoR: pass it on so the caller can
@@ -5792,6 +5793,16 @@ def _test_action_checks(step, sw, data, por, kind):
     return checks
 
 
+def _test_log(msg):
+    """One semantic run-log line, prefixed with the current step number: the
+    verification trail (the plaintext C-APDU, the built secured packet, the
+    PoR R-APDU, the FETCH/TR of an expectation, the menu selection's ENVELOPE).
+    The raw transport view stays with `--apdu-trace`."""
+    step = _TEST_RUN.get('index')
+    n = (step + 1) if isinstance(step, int) else 0
+    sys.stderr.write('TEST-RUN step %d: %s\n' % (n, msg))
+
+
 def _test_run_status(scc, step):
     p = step['params']
     data, sw = '', ''
@@ -5799,6 +5810,7 @@ def _test_run_status(scc, step):
     for n in range(p['attempts']):
         data, sw = _send_status(scc)
         used = n + 1
+        _test_log('STATUS %d/%d -> %s' % (used, p['attempts'], sw))
         if testscript.match_value(step['check']['sw'], sw):
             break
         if n + 1 < p['attempts'] and p['interval_ms']:
@@ -5885,20 +5897,44 @@ def _test_run_scp80(server, step, ctx):
     if p.get('sp'):
         sp_hex = p['sp']
         source = 'sp'
+        _test_log('SCP80 SP=%s' % sp_hex)
     else:
         sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, counter,
                                           p['apdu'], kic_key, kid_key)
         source = 'apdu'
+        _test_log('SCP80 C-APDU=%s' % p['apdu'])
+    _test_log('SCP80 SECURED=%s (%d B) TAR=%s SPI1=%s SPI2=%s CNTR=%s'
+              % (sp_hex, len(sp_hex) // 2, tar or '-', spi1, spi2, counter))
     result = _send_secured_packet(scc, sp_hex, server.sms_oa, sm_sc=server.sms_sc,
                                   handle_proactive=False)
     sw = result.get('sw') or ''
     data = result.get('response_data') or ''
+    segments = result.get('segments') or 0
+    _test_log('SCP80 -> SW=%s%s' % (sw or '(none)',
+                                    ' (%d segment(s))' % segments if segments > 1 else ''))
     por = None
     if data:
         por = _decode_por(spi1, spi2, kic, kid, counter, kic_key, kid_key, data)
-    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s' % (
+    if por:
+        dec = por.get('decoded') or {}
+        extra = ''
+        if por.get('bad_format'):
+            extra = ' bad_format=%s (%s)' % (por['bad_format'],
+                                             por.get('bad_format_name') or '')
+        _test_log('PoR[inline] status=%s TAR=%s CNTR=%s%s raw=%s'
+                  % (por.get('response_status'), por.get('tar'),
+                     por.get('cntr'), extra, por.get('raw') or data))
+        _test_log('R-APDU SW=%s data=%s'
+                  % (dec.get('last_status_word') or '(none)',
+                     dec.get('last_response_data') or '(none)'))
+    elif data:
+        _test_log('PoR[inline] undecodable raw=%s' % data)
+    else:
+        _test_log('PoR[inline] none')
+    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s %s' % (
         source, tar or '-', spi1, spi2, counter,
-        (' kvn=%d' % kvn) if kvn else '')
+        (' kvn=%d' % kvn) if kvn else '',
+        ('SP=%s' % sp_hex) if source == 'sp' else ('C-APDU=%s' % p['apdu']))
     if sw and _counter_tracked(spi1):
         # The card answered and the packet asks for a counter check, so the
         # SCP80 counter was consumed: advance the working value of this key
@@ -5955,6 +5991,9 @@ def _test_run_action(server, step, ctx):
                                         bytes.fromhex(p['data']) if p['data'] else None,
                                         drain=False, src=p.get('src'))
         sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
+        _test_log('%s src=%s data=%s -> SW=%s%s'
+                  % (sent, p.get('src') or '82', p['data'] or '(none)', sw or '(none)',
+                     (' RESP=%s' % data) if data else ''))
     elif kind == 'event':
         # The semantic event download: the builder owns the byte layout.
         data_hex = events.build(p['event'], p.get('fields') or {})
@@ -5962,6 +6001,9 @@ def _test_run_action(server, step, ctx):
                                         drain=False, src=p.get('src'))
         sent = 'ENVELOPE(Event Download) type=0x%02X (%s) data=%s' % (
             p['event'], events.event_name(p['event']), data_hex)
+        _test_log('%s src=%s -> SW=%s%s'
+                  % (sent, p.get('src') or '82', sw or '(none)',
+                     (' RESP=%s' % data) if data else ''))
     elif kind == 'menu-select':
         item_id = p.get('item_id')
         if item_id is None:
@@ -5972,13 +6014,20 @@ def _test_run_action(server, step, ctx):
         data, sw = scc._tp.send_apdu(sent)
         if not (sw or '').startswith('91'):
             server.menu_active = False
+        _test_log('MENU-SELECT ENVELOPE=%s item=%d%s -> SW=%s%s'
+                  % (sent, item_id, (' (%r)' % p['text']) if 'text' in p else '',
+                     sw or '(none)', (' RESP=%s' % data) if data else ''))
     elif kind == 'apdu':
         sent = p['apdu']
         data, sw = scc._tp.send_apdu(sent)
+        _test_log('APDU TX=%s -> SW=%s%s'
+                  % (sent, sw or '(none)', (' RESP=%s' % data) if data else ''))
     elif kind == 'status':
         data, sw, sent = _test_run_status(scc, step)
     elif kind in ('file-write', 'file-read'):
         data, sw, sent = _test_run_file(server, step)
+        _test_log('%s -> SW=%s%s' % (sent, sw or '(none)',
+                                     (' RESP=%dB' % (len(data) // 2)) if data else ''))
     elif kind == 'scp80':
         data, sw, sent, por, counter = _test_run_scp80(server, step, ctx)
     else:
@@ -6092,17 +6141,34 @@ def _test_run_expect(server, step, pending, ctx=None):
             'no proactive command pending - the previous step must end with SW 91XX '
             '(or add a status action); the UICC announces pending commands in the '
             'response to a command (TS 102 221 7.4.2.1)')
-    fdata, fetch_sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, pending))
+    fetch_apdu = '%s120000%02x' % (scc.cat_cla, pending)
+    fdata, fetch_sw = scc._tp.send_apdu(fetch_apdu)
     if not fdata:
+        _test_log('FETCH=%s -> SW=%s (no data)' % (fetch_apdu, fetch_sw))
         raise testscript.ScriptError('FETCH returned no data (SW %s)' % fetch_sw)
     raw = bytes.fromhex(fdata)
+    _test_log('FETCH=%s -> SW=%s %s' % (fetch_apdu, fetch_sw, raw.hex().upper()))
     cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
     log_entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
     type_name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
+    _test_log('CMD 0x%02X %s qual=%s' % (
+        cmd_type, type_name, ('%02X' % cmd_qual) if cmd_qual is not None else '-'))
     # A SEND SHORT MESSAGE carries the PoR when the packet asked for it in
     # submit mode (SPI2 bit 0x20): decode it with the triggering scp80 step's
     # context so the checks can assert the PoR contents.
     por = _test_expect_por(ctx, raw) if cmd_type == 0x13 else None
+    if cmd_type == 0x13:
+        if por is not None:
+            dec = por.get('decoded') or {}
+            _test_log('PoR[sms-submit] status=%s TAR=%s CNTR=%s raw=%s'
+                      % (por.get('response_status'), por.get('tar'),
+                         por.get('cntr'), por.get('raw') or '(none)'))
+            _test_log('R-APDU SW=%s data=%s'
+                      % (dec.get('last_status_word') or '(none)',
+                         dec.get('last_response_data') or '(none)'))
+        else:
+            _test_log('PoR[sms-submit] none (no decodable PDU or no scp80 '
+                      'context)')
     if cmd_type == 0x25:
         # The card may re-send its menu (e.g. after an applet install); keep
         # the cache that text-based menu selection resolves against current.
@@ -6185,6 +6251,7 @@ def _test_run_expect(server, step, pending, ctx=None):
     tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, step['respond'])
     tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
     tr_sw = tr_rv[1]
+    _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_sw))
     _record_tr(log_entry, tr, tr_sw)
     status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
     result = {'status': status, 'sw': tr_sw, 'data': raw.hex().upper(),
@@ -7410,6 +7477,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             menu_tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, item_id])
             env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(menu_tlv), menu_tlv.hex())
             data, sw = scc._tp.send_apdu(env_hex)
+            sys.stderr.write('MENU-SELECT: ENVELOPE %s item=%d -> %s\n'
+                             % (env_hex, item_id, sw))
             resp = {'type': 'done', 'sw': sw}
             on_fetch = _make_menu_fetch_handler(self.server, resp)
             if sw.startswith('91'):

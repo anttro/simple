@@ -93,6 +93,34 @@ PoR-in-submit:
 5. **Counters**: the run starts from the preset's stored counter and persists
    each accepted packet's next value; consecutive runs continue correctly.
 
+### Reading the run log
+
+Every step writes a semantic line to the server log under its step number,
+request before response:
+
+```
+TEST-RUN step 1: SCP80 C-APDU=80E2900000
+TEST-RUN step 1: SCP80 SECURED=0100…1A2B (N B) TAR=B00001 SPI1=16 SPI2=21 CNTR=0000000A
+TEST-RUN step 1: SCP80 -> SW=9000
+TEST-RUN step 1: PoR[inline] status=por_ok TAR=B00001 CNTR=0000000A raw=0271…aabb
+TEST-RUN step 1: R-APDU SW=9000 data=AABB
+TEST-RUN step 2: STATUS 1/2 -> 9102
+TEST-RUN step 3: FETCH=8012000002 -> SW=9000 D03C8103012500…
+TEST-RUN step 3: CMD 0x25 SET UP MENU qual=00
+TEST-RUN step 3: TR=81030125008202828183020000 -> SW=9000
+TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One') -> SW=9103
+```
+
+- A PoR delivered as SEND SHORT MESSAGE is logged on the step that fetches it:
+  `PoR[sms-submit] …` followed by the same `R-APDU` line.
+- Other actions log their send/response pair too (`APDU TX=… -> SW=…`,
+  `ENVELOPE(Event Download) … -> SW=…`, `READ MF/… -> SW=…`).
+- The shared secured-packet sender logs each segment's answer
+  (`OTA SEND: ENVELOPE i/N -> <SW>`).
+- `--apdu-trace` adds the raw transport view
+  (`APDU-TRACE(…): <cmd> → SW: … RESP: …`) for every APDU, including the
+  file-manager reads and pySim's auto-handler traffic.
+
 ## Document shape
 
 ```json
