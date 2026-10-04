@@ -624,7 +624,7 @@ The canonical path removes the old ambiguity where the same file could be descri
 
 ## Simulator
 
-The **Simulator** tab provides real-time CAT session interaction. It has four pills: **Phone** (STK menu, STATUS and polling, subscribed events, proactive command log), **TR Config** (response data injected into TERMINAL RESPONSEs for proactive commands), **eSIM LPA** (local eUICC operations) and **Test script** (form-based scripts of card actions and proactive-command expectations).
+The **Simulator** tab provides real-time CAT session interaction. It has five pills: **Phone** (STK menu, STATUS and polling, subscribed events, proactive command log), **TR Config** (response data injected into TERMINAL RESPONSEs for proactive commands), **eSIM LPA** (local eUICC operations), **BIP** (the generic terminal side of BIP over TCP) and **Test script** (form-based scripts of card actions and proactive-command expectations, stored in a server-side store).
 
 **Subscribed Events** — the card's SET UP EVENT LIST is displayed with per-event **Send** buttons. Clicking opens a form specific to the event type:
 
