@@ -1109,19 +1109,44 @@ class TestRunnerActions(RunnerTestCase):
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
                   'kidKey': 'BB' * 16, 'counter': '00000001',
                   'tars': preset_tars()}
+        buf = io.StringIO()
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': self.APP_POR_RAW}):
+            with contextlib.redirect_stderr(buf):
+                run = self.run_script(FakeServer(FakeScc()), [
+                    {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '01'},
+                     'check': {'por': {'status': 'por_ok', 'data': '800110'}}},
+                ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][0]['checks']}
+        self.assertTrue(labels['PoR status']['ok'], labels)
+        self.assertTrue(labels['PoR data']['ok'], labels)
+        self.assertEqual(run['steps'][0]['por']['response_type'], 'raw')
+        # the log names application data instead of inventing an R-APDU line
+        self.assertIn('APP DATA=800110 (no R-APDU SW)', buf.getvalue())
+        self.assertNotIn('R-APDU SW=', buf.getvalue())
+
+    def test_scp80_por_sw_check_on_applet_data_reports_the_hint(self):
+        # a `por.sw` expectation cannot be satisfied by an applet's own TAR -
+        # the report explains why on the check row (the live confusion)
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                  'kidKey': 'BB' * 16, 'counter': '00000001',
+                  'tars': preset_tars()}
         with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
                 mock.patch.object(S, '_send_secured_packet',
                                   return_value={'success': True, 'sw': '9000',
                                                 'response_data': self.APP_POR_RAW}):
             run = self.run_script(FakeServer(FakeScc()), [
                 {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '01'},
-                 'check': {'por': {'status': 'por_ok', 'data': '800110'}}},
+                 'check': {'por': {'sw': '9000'}}},
             ], preset)
-        self.assertEqual(run['status'], 'ok', run['steps'])
-        labels = {c['label']: c for c in run['steps'][0]['checks']}
-        self.assertTrue(labels['PoR status']['ok'], labels)
-        self.assertTrue(labels['PoR data']['ok'], labels)
-        self.assertEqual(run['steps'][0]['por']['response_type'], 'raw')
+        self.assertNotEqual(run['status'], 'ok')
+        sw_check = [c for c in run['steps'][0]['checks'] if c['label'] == 'PoR SW'][0]
+        self.assertFalse(sw_check['ok'])
+        self.assertIn('application data', sw_check.get('detail') or '')
+        self.assertIn("assert it with 'data'", sw_check.get('detail') or '')
 
     def test_scp80_format_wraps_the_apdu(self):
         # `format` wraps the C-APDU in the expanded Command Scripting template

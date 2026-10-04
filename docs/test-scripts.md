@@ -34,6 +34,26 @@ and the card's preset):
 | PoR transport + expected PoR | `scp80.check.por`/`check.data` (inline) or `expect SEND SHORT MESSAGE` + `por` check | pick per the SPI2 the applet expects |
 | Delivery timing | a `status` action when the card delivers on poll | the runner never polls by itself |
 
+### The three status words (envelope SW · PoR status · R-APDU SW)
+
+An SCP80 step carries three different "SW" values; keep them apart when
+writing checks:
+
+| Where it comes from | What it means | Script field | Report row |
+|---|---|---|---|
+| the **ENVELOPE** exchange | the card's answer to the command that was sent (`9000` executed, `91XX` a proactive command is pending, `62XX`/`63XX` a warning) | the action's `check.sw` | `SW` |
+| the **PoR status** | the SCP80 security-processing verdict inside the response packet (`por_ok`, `cntr_low`, `rc_cc_ds_failed`, `tar_unknown`, …) | `por.status` (or `"por": "ok"`) | `PoR status` |
+| the **R-APDU SW** | the response payload's own status word - the last executed command's / GET RESPONSE's status in the compact form (TS 102 226 §5.1.2 Table 5.1), or the last R-APDU's in the scripting (`AB`/`AF`) form | `por.sw` | `PoR SW` |
+
+`por.sw` is a child of the **response payload**, not of the envelope: it
+exists only when the addressed TAR is a **remote-management application**
+(ISD / RFM).  A third-party applet's **own TAR** answers with
+application-defined bytes - the platform passes them through unchanged - so
+there is no R-APDU SW to check: `por.sw` reports `(none)` and the whole
+secured data is exposed as `por.data`.  Assert such a response with `data`
+and leave `sw` empty; the step's `check.sw` still asserts the envelope
+exchange.
+
 ### Worksheet 1 - RFM update → file change → REFRESH (full FCN)
 
 ```json
@@ -283,7 +303,9 @@ command-details byte 3 (one byte, exact/mask).
 SHORT MESSAGE is decoded with that step's keyset, SPI and counter.  `status`
 is the decoded response status name (`por_ok`, `cntr_low`,
 `rc_cc_ds_failed`, …; `ok` is accepted for `por_ok`); `sw` is the R-APDU
-status word and `data` the R-APDU response data (exact/mask) - both come from
+status word **inside the response payload** - not the envelope's, see
+*The three status words* in the authoring section - and `data` the R-APDU
+response data (exact/mask); both come from
 the decoded response (scripting `AB`/`AF`/compact forms).  An applet's **own
 TAR** answers with its application-defined bytes: when the data cannot be the
 compact remote response (its command count exceeds the command script that

@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.19.1';
+const SIMPLE_VERSION = '3.19.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7442,6 +7442,8 @@ function testStepRender() {
 				html += testFormRow('PoR status', testFormInput('test-f-porstatus', porObj.status, 'por_ok'));
 				html += testFormRow('PoR SW (hex)', testFormInput('test-f-por-sw', porObj.sw && porObj.sw.value, '6A88'));
 				html += testFormRow('PoR data (hex)', testFormInput('test-f-por-data', porObj.data && porObj.data.value, 'AA??'));
+				html += '<p class="mt-1 text-xs text-gray-400 dark:text-slate-500">'
+					+ esc(t("PoR SW is the R-APDU SW inside a remote-management TAR's response; an applet's own TAR returns application data - assert it with PoR data and leave SW empty.")) + '</p>';
 			}
 		}
 		html += testFormRow('On mismatch', testFormSelect('test-f-fail', step.on_fail || 'error', [
@@ -21194,6 +21196,7 @@ const LANG_RU = {
 	'PoR status': 'Статус PoR',
 	'PoR SW (hex)': 'SW PoR (hex)',
 	'PoR data (hex)': 'Данные PoR (hex)',
+	"PoR SW is the R-APDU SW inside a remote-management TAR's response; an applet's own TAR returns application data - assert it with PoR data and leave SW empty.": 'SW PoR — это SW R-APDU внутри ответа remote-management TAR; собственный TAR апплета возвращает данные приложения — проверяйте «Данные PoR», оставив SW пустым.',
 	'PoR check: status, SW or data is required': 'Проверка PoR: нужен status, SW или data',
 	'Command format': 'Формат команды',
 	'Compact': 'Компактный',

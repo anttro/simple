@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.19.1'
+VERSION = '3.19.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5839,9 +5839,14 @@ def _por_check_results(spec, por, level, prefix='PoR'):
                                          actual or '(none)', level))
     if 'sw' in spec:
         actual = str((por.get('decoded') or {}).get('last_status_word') or '')
-        checks.append(_test_check_result(
-            prefix + ' SW', testscript.match_value(spec['sw'], actual),
-            spec['sw']['value'], actual or '(none)', level))
+        ok = testscript.match_value(spec['sw'], actual)
+        detail = None
+        if not ok and por.get('response_type') == 'raw':
+            detail = ("the response is application data - an applet's own TAR "
+                      "has no R-APDU SW; assert it with 'data'")
+        checks.append(_test_check_result(prefix + ' SW', ok,
+                                         spec['sw']['value'], actual or '(none)',
+                                         level, detail=detail))
     if 'data' in spec:
         actual = str((por.get('decoded') or {}).get('last_response_data') or '')
         checks.append(_test_check_result(
@@ -6024,9 +6029,13 @@ def _test_run_scp80(server, step, ctx):
         _test_log('PoR[inline] status=%s TAR=%s CNTR=%s%s raw=%s'
                   % (por.get('response_status'), por.get('tar'),
                      por.get('cntr'), extra, por.get('raw') or data))
-        _test_log('R-APDU SW=%s data=%s'
-                  % (dec.get('last_status_word') or '(none)',
-                     dec.get('last_response_data') or '(none)'))
+        if por.get('response_type') == 'raw':
+            _test_log('APP DATA=%s (no R-APDU SW)'
+                      % (dec.get('last_response_data') or '(none)'))
+        else:
+            _test_log('R-APDU SW=%s data=%s'
+                      % (dec.get('last_status_word') or '(none)',
+                         dec.get('last_response_data') or '(none)'))
     elif data:
         _test_log('PoR[inline] undecodable raw=%s' % data)
     else:
@@ -6284,9 +6293,13 @@ def _test_run_expect(server, step, pending, ctx=None):
             _test_log('PoR[sms-submit] status=%s TAR=%s CNTR=%s raw=%s'
                       % (por.get('response_status'), por.get('tar'),
                          por.get('cntr'), por.get('raw') or '(none)'))
-            _test_log('R-APDU SW=%s data=%s'
-                      % (dec.get('last_status_word') or '(none)',
-                         dec.get('last_response_data') or '(none)'))
+            if por.get('response_type') == 'raw':
+                _test_log('APP DATA=%s (no R-APDU SW)'
+                          % (dec.get('last_response_data') or '(none)'))
+            else:
+                _test_log('R-APDU SW=%s data=%s'
+                          % (dec.get('last_status_word') or '(none)',
+                             dec.get('last_response_data') or '(none)'))
         else:
             _test_log('PoR[sms-submit] none (no decodable PDU or no scp80 '
                       'context)')

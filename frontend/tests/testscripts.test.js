@@ -250,6 +250,9 @@ test('the SCP80 step form renders the format select and the custom PoR fields', 
 	assert.match(body, /<option value="custom" selected>/);
 	assert.match(body, /id="test-f-porstatus" value="por_ok"/);
 	assert.match(body, /id="test-f-por-sw" value=""/);
+	// the block explains where PoR SW comes from (the applet-TAR confusion)
+	assert.ok(body.includes('R-APDU SW inside a remote-management'), body);
+	assert.ok(body.includes('leave SW empty'), body);
 	// the pre-built packet source has no format select (the wrapper applies
 	// to a C-APDU only)
 	_testEditStep = { type: 'action', kind: 'scp80', params: { source: 'sp', sp: 'AABB' } };
