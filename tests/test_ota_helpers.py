@@ -507,6 +507,34 @@ class TestDecodePor(unittest.TestCase):
                 msg='expected None for %r' % bad)
 
 
+    def test_applet_response_falls_back_to_raw(self):
+        # A third-party applet's own TAR answers with application bytes;
+        # `80 01 10` cannot be a compact response for a 1-byte command script
+        # (count 0x80 exceeds it), so the whole secured data is the response
+        # data and no status word is invented (live 2026-10-04).
+        raw = '027100000e0aaf4d0100020000190000800110'
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw, cmd_len=1)
+        self.assertEqual(r['response_type'], 'raw')
+        self.assertEqual(r['secured_data'], '800110')
+        self.assertEqual(r['decoded']['last_status_word'], '')
+        self.assertEqual(r['decoded']['last_response_data'], '800110')
+        self.assertIsNone(r['decoded']['number_of_commands'])
+        # without the command length the compact parse is kept (unknown
+        # context - the pre-fix behaviour)
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw)
+        self.assertEqual(r['response_type'], 'compact')
+        self.assertEqual(r['decoded']['number_of_commands'], 128)
+
+    def test_rfm_chain_response_stays_compact(self):
+        # a chained RFM command script is long enough for its count: the real
+        # SW (6a86) is decoded as before
+        raw = '027100000e0ab0000000020000180000016a86'
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw, cmd_len=68)
+        self.assertEqual(r['response_type'], 'compact')
+        self.assertEqual(r['decoded']['last_status_word'], '6a86')
+        self.assertEqual(r['secured_data'], '016A86')
+
+
 class TestProactiveDecode(unittest.TestCase):
     """Server-side proactive command/TR decode helpers (v1.8.0 log feature)."""
 

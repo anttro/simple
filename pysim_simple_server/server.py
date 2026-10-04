@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.19.0'
+VERSION = '3.19.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1793,7 +1793,8 @@ def _counter_probe(server, scc, preset, body, send_fn=None):
             if submit_hex:
                 por_hex = submit_hex
             por = _decode_por(p['spi1'], p['spi2'], p['kic'], p['kid'], cntr,
-                              p['kic_key'], p['kid_key'], por_hex) if por_hex else None
+                              p['kic_key'], p['kid_key'], por_hex,
+                              cmd_len=len(p['apdu']) // 2) if por_hex else None
         pstatus = str((por or {}).get('response_status') or '')
         out['packets'] += 1
         attempt = {'cntr': cntr, 'por_status': pstatus or None,
@@ -2003,7 +2004,8 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False)
                 por_hex = tpdu_b[idx:].hex()
                 por_src = 'sms-submit'
         por = _decode_por(spi1, spi2, sp['kic'], sp['kid'], state['cntr'],
-                          sp['kic_key'], sp['kid_key'], por_hex)
+                          sp['kic_key'], sp['kid_key'], por_hex,
+                          cmd_len=len(apdu_hex) // 2)
         step, step_error = _ram_step_result(step_name, last_sw, por, por_hex,
                                             result['bytes'], result['segments'])
         state['last_step'] = step
@@ -2144,7 +2146,13 @@ def _sms_submit_por(submit_handler):
     return '027100' + ud_hex
 
 
-def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
+def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex,
+                response_hex, cmd_len=None):
+    """Decode a response packet (PoR).  `cmd_len` is the length in bytes of the
+    plaintext command script the packet carried (None when unknown): the
+    TS 102 226 5.1.2 compact response's command count cannot exceed it, so a
+    larger count means the data is the application's own (a third-party
+    applet's TAR) and is reported as `raw` - no status word is invented."""
     from pySim.ota import OtaDialectSms, CompactRemoteResp
     from osmocom.utils import h2b, b2h
     if not response_hex:
@@ -2175,7 +2183,18 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
         'cc_rc': res['cc_rc'].hex().upper(),
         'raw': response_hex,
     }
-    
+    secured_hex = (bytes(res['secured_data']).hex().upper()
+                   if len(res['secured_data']) else '')
+    if secured_hex:
+        out['secured_data'] = secured_hex
+    # The compact structure's first byte (TS 102 226 5.1.2 Table 5.1) is the
+    # number of commands executed within the command script; each command
+    # needs at least one byte, so a count above the script's length proves
+    # the data is not a compact remote response.
+    compact_ok = (dec is not None
+                  and (cmd_len is None
+                       or int(dec.number_of_commands) <= int(cmd_len)))
+
     # TS 102 226 5.2.2 Response Scripting template (AB/AF): cards wrap the
     # R-APDU(s) of the executed remote command(s) this way instead of the
     # plain compact response.  The R-APDU's own SW and data are the useful
@@ -2196,7 +2215,7 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
                 out['bad_format'] = scripted['bad_format']
                 out['bad_format_name'] = _BAD_FORMAT_NAMES.get(scripted['bad_format'],
                                                                'unknown error type')
-        elif dec is not None:
+        elif compact_ok:
             out['response_type'] = 'compact'
             out['decoded'] = {
                 'number_of_commands': dec.number_of_commands,
@@ -2204,17 +2223,18 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
                 'last_response_data': str(dec.last_response_data),
             }
         else:
-            out['response_type'] = 'none'
-    elif dec is not None:
-        out['response_type'] = 'compact'
-        out['decoded'] = {
-            'number_of_commands': dec.number_of_commands,
-            'last_status_word': str(dec.last_status_word),
-            'last_response_data': str(dec.last_response_data),
-        }
+            # Not a compact remote response - the application's own bytes
+            # (e.g. a third-party applet's TAR); expose them as the response
+            # data, with no status word.
+            out['response_type'] = 'raw'
+            out['decoded'] = {
+                'number_of_commands': None,
+                'last_status_word': '',
+                'last_response_data': secured_hex,
+            }
     else:
         out['response_type'] = 'none'
-    
+
     return out
 
 
@@ -5956,10 +5976,13 @@ def _test_run_scp80(server, step, ctx):
     counter = counter or '00000000'
     # The PoR of this exchange may arrive as a SEND SHORT MESSAGE (PoR-in-
     # submit); the expect step decodes it with the parameters the packet was
-    # built from, so remember them.
+    # built from, so remember them.  `cmd_len` is the plaintext command
+    # script's length (before any format wrapping) - the compact PoR's
+    # command-count bound, None for a pre-built packet.
+    cmd_len = len(p.get('apdu') or '') // 2 or None
     ctx['last_scp80'] = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                          'counter': counter, 'kicKey': kic_key, 'kidKey': kid_key,
-                         'tar': tar}
+                         'tar': tar, 'cmd_len': cmd_len}
     fmt = p.get('format') or 'compact'
     apdu_hex = p.get('apdu') or ''
     if p.get('sp'):
@@ -5990,7 +6013,8 @@ def _test_run_scp80(server, step, ctx):
                                     ' (%d segment(s))' % segments if segments > 1 else ''))
     por = None
     if data:
-        por = _decode_por(spi1, spi2, kic, kid, counter, kic_key, kid_key, data)
+        por = _decode_por(spi1, spi2, kic, kid, counter, kic_key, kid_key, data,
+                          cmd_len=cmd_len)
     if por:
         dec = por.get('decoded') or {}
         extra = ''
@@ -6221,7 +6245,8 @@ def _test_expect_por(ctx, raw):
         return None
     por_hex = '027100' + ud_hex
     return _decode_por(last['spi1'], last['spi2'], last['kic'], last['kid'],
-                       last['counter'], last['kicKey'], last['kidKey'], por_hex)
+                       last['counter'], last['kicKey'], last['kidKey'], por_hex,
+                       cmd_len=last.get('cmd_len'))
 
 
 def _test_run_expect(server, step, pending, ctx=None):
@@ -7818,7 +7843,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                         failed_por = _decode_por(spi1, spi2,
                                                  body.get('kic', ''), body.get('kid', ''),
                                                  body.get('cntr', ''), body.get('kicKey', ''),
-                                                 body.get('kidKey', ''), failed_por_hex)
+                                                 body.get('kidKey', ''), failed_por_hex,
+                                                 cmd_len=len(body.get('apdu') or '') // 2 or None)
                         if failed_por:
                             resp['por'] = failed_por
                             low = _cntr_low_fields(failed_por.get('response_status'))
@@ -7855,7 +7881,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 por_src = 'sms-submit'
                         por = _decode_por(spi1, spi2, body.get('kic', ''),
                                           body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
-                                          body.get('kidKey', ''), por_hex)
+                                          body.get('kidKey', ''), por_hex,
+                                          cmd_len=len(body.get('apdu') or '') // 2 or None)
                         # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
                         por_required = bool(spi2_val & 0x01)
                         no_por_received = not por_hex and not (submit_handler and submit_handler.submit_tpdu_hex)

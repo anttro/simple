@@ -558,6 +558,13 @@ response carries them too, plus an `error`).
 fetched via a proactive command (FETCH). The response contains the
 same `por` structure if decoding succeeds.
 
+When the secured data cannot be the TS 102 226 compact remote response (its
+command count exceeds the command script that was sent - a third-party
+applet's own TAR answers with application bytes), `por.response_type` is
+`raw`, the whole secured data is reported as `decoded.last_response_data`
+and no status word is decoded; `secured_data` carries the response bytes in
+every case.
+
 The SPI2 `por_in_submit` bit (0x20) selects submit-mode PoR.
 
 ### `POST /api/cap-info`

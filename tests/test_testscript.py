@@ -1097,6 +1097,32 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIn('TEST-RUN step 2: SMS DA=79332505884 PID=00 DCS=00 UDL=8 '
                       'UD=4B1C12579C9D83', log)
 
+    # the live alfa-dsa applet's response packet (2026-10-04): the secured
+    # data `80 01 10` is the applet's own - the compact structure's command
+    # count (0x80) cannot fit the 1-byte command script
+    APP_POR_RAW = '027100000e0aaf4d0100020000190000800110'
+
+    def test_scp80_por_object_check_on_an_applet_response(self):
+        # the live alfa-dsa applet's response (2026-10-04): the secured data
+        # `80 01 10` is the applet's own, so the compact parse must not claim
+        # 128 commands - the runner exposes it as the PoR data
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                  'kidKey': 'BB' * 16, 'counter': '00000001',
+                  'tars': preset_tars()}
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': self.APP_POR_RAW}):
+            run = self.run_script(FakeServer(FakeScc()), [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '01'},
+                 'check': {'por': {'status': 'por_ok', 'data': '800110'}}},
+            ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][0]['checks']}
+        self.assertTrue(labels['PoR status']['ok'], labels)
+        self.assertTrue(labels['PoR data']['ok'], labels)
+        self.assertEqual(run['steps'][0]['por']['response_type'], 'raw')
+
     def test_scp80_format_wraps_the_apdu(self):
         # `format` wraps the C-APDU in the expanded Command Scripting template
         # (TS 102 226 5.2.1): `expanded` = AA/<len>/22/..., `expanded-ae` =

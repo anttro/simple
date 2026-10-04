@@ -284,7 +284,12 @@ SHORT MESSAGE is decoded with that step's keyset, SPI and counter.  `status`
 is the decoded response status name (`por_ok`, `cntr_low`,
 `rc_cc_ds_failed`, …; `ok` is accepted for `por_ok`); `sw` is the R-APDU
 status word and `data` the R-APDU response data (exact/mask) - both come from
-the decoded response (scripting `AB`/`AF`/compact forms).  A PoR split over
+the decoded response (scripting `AB`/`AF`/compact forms).  An applet's **own
+TAR** answers with its application-defined bytes: when the data cannot be the
+compact remote response (its command count exceeds the command script that
+was sent), the whole secured data is reported as `data` and no `sw` is
+decoded - assert such a response with `data` (the action's `por` object
+follows the same rule).  A PoR split over
 several SMS parts is accumulated across SEND SHORT MESSAGE expectations: put
 the `por` check on the step that completes the sequence (intermediate steps
 should use `raw` or no PoR check).
