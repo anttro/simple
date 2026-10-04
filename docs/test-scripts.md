@@ -177,7 +177,7 @@ continue correctly.
 |---|---|---|
 | `envelope` | `event` 0–255, `data` hex (optional), optional `src` | ENVELOPE(Event Download) with raw data; `src` overrides the device-identities source (`82` terminal / `83` network) |
 | `event` | `event` (name or hex), `fields` (object), optional `src` | semantic ENVELOPE(Event Download) for 0x03/0x0B/0x12/0x1D (see below) |
-| `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive`), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
+| `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive: true` for an exact-case match — the default is case-insensitive), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
 | `file-read` | `path`, `mode`, `record` | READ BINARY/RECORD; verify with `check.data` |
 | `apdu` | `apdu` hex | raw transport, no auto-handler |
@@ -362,8 +362,10 @@ then fetches.
  ]}
 ```
 
-The text is matched against the card's cached menu; the cache is refreshed
-whenever the card sends SET UP MENU (e.g. after an install + REFRESH).  If the
+The text is matched against the card's cached menu, **case-insensitively by
+default** (`case_sensitive: true` forces an exact-case match); the cache is
+refreshed whenever the card sends SET UP MENU (e.g. after an install +
+REFRESH).  If the
 script must wait for the menu, add a `status` action and an
 `expect SET UP MENU` before the selection.
 
@@ -427,6 +429,9 @@ PoR-in-submit (with the transport asserted by the expectation):
   has no entry in the preset and the step carries no `spi1`.
 - `no proactive command pending …` - an expectation ran without a `91XX` from
   the previous step (add a `status` action when the card delivers on poll).
+- `menu-select: no menu item matches …` - the error lists the cached menu; a
+  miss on an explicit `case_sensitive: true` names the case-insensitive
+  candidates.
 - `card verdict: no PoR (the card sent none for SPI2 …)` - an SCP80 operation
   expected a PoR that never arrived (check SPI2 and the transport).
 

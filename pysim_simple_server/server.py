@@ -6033,22 +6033,34 @@ def _test_run_scp80(server, step, ctx):
 def _menu_item_by_text(server, p):
     """Resolve a menu-select step's text against the cached SET UP MENU items
     (the item ids vary with the applet's install parameters, so a script
-    matches the text the card actually shows).  Raises a ScriptError naming
+    matches the text the card actually shows; the match is case-insensitive
+    unless the step sets `case_sensitive: true`).  Raises a ScriptError naming
     the available items when nothing - or more than one item - matches."""
     menu = getattr(server, 'sim_menu', None) or {}
     items = menu.get('items') or []
     spec = {'mode': p.get('mode', 'exact'), 'value': p['text'],
-            'case_sensitive': p.get('case_sensitive', True)}
+            'case_sensitive': p.get('case_sensitive', False)}
     matches = [it for it in items
                if testscript.match_text(spec, it.get('text') or '')]
     if not matches:
         listing = ', '.join('%s=%r' % (it.get('id'), it.get('text'))
                             for it in items)
+        hint = ''
+        if spec.get('case_sensitive') and items:
+            # A strict-case miss is a common authoring slip with non-ASCII
+            # menus: name the items a case-insensitive match would find.
+            loose = [it for it in items if testscript.match_text(
+                dict(spec, case_sensitive=False), it.get('text') or '')]
+            if loose:
+                hint = (' - a case-insensitive match exists (%s): set '
+                        '"case_sensitive": false or fix the case'
+                        % ', '.join('%s=%r' % (it.get('id'), it.get('text'))
+                                    for it in loose))
         raise testscript.ScriptError(
-            'menu-select: no menu item matches %r (%s)'
+            'menu-select: no menu item matches %r (%s)%s'
             % (p['text'], 'menu: ' + listing if listing
                else 'no menu cached - fetch the menu (a SET UP MENU '
-                    'expectation) first'))
+                    'expectation) first', hint))
     if len(matches) > 1:
         raise testscript.ScriptError(
             'menu-select: %d items match %r (%s) - use the item id'

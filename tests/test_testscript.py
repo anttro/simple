@@ -127,11 +127,17 @@ class TestValidation(unittest.TestCase):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'menu-select', 'params': {'item_id': 3}},
             {'type': 'action', 'kind': 'menu-select',
-             'params': {'text': 'My menu', 'mode': 'contains', 'case_sensitive': False}},
+             'params': {'text': 'My menu', 'mode': 'contains'}},
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'Exact', 'mode': 'exact', 'case_sensitive': True}},
         ]}, _resolver)
         self.assertEqual(script['steps'][0]['params'], {'item_id': 3})
+        # the text match is case-insensitive by default (menu labels are UI
+        # text); an explicit true is kept for an exact-case match
         self.assertEqual(script['steps'][1]['params'],
                          {'text': 'My menu', 'mode': 'contains', 'case_sensitive': False})
+        self.assertEqual(script['steps'][2]['params'],
+                         {'text': 'Exact', 'mode': 'exact', 'case_sensitive': True})
         with self.assertRaises(T.ScriptError):
             T.normalise_script({'steps': [{'type': 'action', 'kind': 'menu-select',
                                            'params': {}}]}, _resolver)
@@ -573,6 +579,38 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIn("3='Alpha'", note)
         self.assertEqual(scc.sent, [])
 
+    # The live card's menu (captured 2026-10-04 20:58): Annex A Variant 2
+    # Cyrillic items under the card's ids 128..130 - the compressed
+    # `81 <num_chars> 08 <chars>` form (the menu-select text must resolve
+    # against it; the card's ids stay out of the script).
+    LIVE_MENU = {'title': 'GPB MOBILE', 'items': [
+        {'id': 128, 'text': 'Выбор сети'}, {'id': 129, 'text': 'Язык'},
+        {'id': 130, 'text': 'Кофе'}]}
+
+    def test_menu_text_selection_matches_variant2_cyrillic(self):
+        scc = FakeScc().push('80C2', '', '9000')
+        server = FakeServer(scc)
+        server.sim_menu = dict(self.LIVE_MENU)
+        # a lowercase contains match resolves by default (case-insensitive)
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'кофе'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('D30702020181900182', ''.join(scc.sent))
+        # an explicit case-sensitive spec misses and names the loose match
+        server = FakeServer(FakeScc())
+        server.sim_menu = dict(self.LIVE_MENU)
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'кофе', 'case_sensitive': True}},
+        ])
+        self.assertEqual(run['status'], 'error')
+        note = run['steps'][0].get('note') or ''
+        self.assertIn("no menu item matches 'кофе'", note)
+        self.assertIn('case-insensitive match exists', note)
+        self.assertIn("130='Кофе'", note)
+
     def test_menu_text_selection_refuses_an_ambiguous_match(self):
         scc = FakeScc()
         server = FakeServer(scc)
@@ -1008,6 +1046,39 @@ class TestRunnerActions(RunnerTestCase):
         self.assertFalse(labels['SMS DCS']['ok'])
         self.assertEqual(labels['SMS DCS']['expected'], 'AA')
         self.assertEqual(labels['SMS DCS']['actual'], '00')
+
+    # The live applet's SEND SHORT MESSAGE (captured 2026-10-04 20:58): the
+    # Alpha identifier is Annex A Variant 2 Cyrillic ("Отправка...") and the
+    # TPDU is a real SMS-SUBMIT to +79332505884 with 7-bit user data.
+    APP_SEND_SM_CMD = ('D02F810301130082028183050E810B089EC2BFC0B0B2BAB02E2E2E'
+                       '0B1401000B919733525088F40000084B1C12579C9D83')
+
+    def test_expect_alpha_and_sms_checks_on_the_live_applet_sms(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.APP_SEND_SM_CMD, '9000')
+        scc.push('8014', '', '9000')
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+                 'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+                {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+                 'checks': [{'kind': 'alpha', 'mode': 'exact', 'value': 'Отправка...'},
+                            {'kind': 'sms', 'da': '79332505884', 'pid': '00',
+                             'dcs': '00', 'udl': 8, 'ud': '4B1C12579C9D83'}],
+                 'respond': {'result': 'ok'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][1]['checks']}
+        self.assertTrue(labels['Alpha']['ok'], labels)
+        self.assertEqual(labels['Alpha']['actual'], 'Отправка...')
+        for label in ('SMS DA', 'SMS PID', 'SMS DCS', 'SMS UDL', 'SMS UD'):
+            self.assertTrue(labels[label]['ok'], labels)
+        self.assertEqual(run['steps'][1]['sms']['da'], '79332505884')
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 2: SMS DA=79332505884 PID=00 DCS=00 UDL=8 '
+                      'UD=4B1C12579C9D83', log)
 
     def test_scp80_format_wraps_the_apdu(self):
         # `format` wraps the C-APDU in the expanded Command Scripting template
