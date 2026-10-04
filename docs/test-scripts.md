@@ -54,6 +54,14 @@ secured data is exposed as `por.data`.  Assert such a response with `data`
 and leave `sw` empty; the step's `check.sw` still asserts the envelope
 exchange.
 
+A `62XX`/`63XX` envelope answer does not guarantee a response packet: an
+application that refuses at the envelope level (e.g. an applet answering
+`6200` to an unknown command) sends none, while other warning paths still
+deliver one (the low-counter case arrives via SEND SHORT MESSAGE).  For a
+step expected to be refused, leave `por` at its `"any"` default or assert
+`"por": "none"`; the run report's `PoR[…]` log line and `por` field show
+which happened.
+
 ### Worksheet 1 - RFM update → file change → REFRESH (full FCN)
 
 ```json
