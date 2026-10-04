@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.18.0'
+VERSION = '3.18.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5953,7 +5953,7 @@ def _test_run_action(server, step, ctx):
     if kind == 'envelope':
         data, sw = _send_event_download(scc, p['event'],
                                         bytes.fromhex(p['data']) if p['data'] else None,
-                                        drain=False)
+                                        drain=False, src=p.get('src'))
         sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
     elif kind == 'event':
         # The semantic event download: the builder owns the byte layout.

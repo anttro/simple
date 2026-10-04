@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.18.0';
+const SIMPLE_VERSION = '3.18.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7328,6 +7328,7 @@ function testStepRender() {
 		if (step.kind === 'envelope') {
 			html += testFormRow('Event type', testFormInput('test-f-event', p.event === undefined ? 3 : p.event, '0..255'));
 			html += testFormRow('Event data (hex, optional)', testFormInput('test-f-data', p.data, '9B0100'));
+			html += testFormRow('Source override (hex, optional)', testFormInput('test-f-eventsrc', p.src, '82 terminal / 83 network'));
 		} else if (step.kind === 'event') {
 			// The semantic event download: the four events the server builds
 			// (others go through the raw envelope action with the hex the
@@ -7537,7 +7538,12 @@ function testStepCollect() {
 		const kind = val('test-step-kind') || step.kind;
 		step.kind = kind;
 		const p = {};
-		if (kind === 'envelope') { p.event = num('test-f-event', 3); p.data = hexNoMask('test-f-data'); }
+		if (kind === 'envelope') {
+			p.event = num('test-f-event', 3);
+			p.data = hexNoMask('test-f-data');
+			const src = hexNoMask('test-f-eventsrc');
+			if (src) p.src = src;
+		}
 		else if (kind === 'menu-select') {
 			const text = val('test-f-itemtext');
 			if (text) {
@@ -21110,6 +21116,7 @@ const LANG_RU = {
 	'event is required': 'нужен тип события',
 	'event fields must be an object': 'поля события должны быть объектом',
 	'Event data (hex)': 'Данные события (hex)',
+	'Source override (hex, optional)': 'Переопределение источника (hex, опционально)',
 	'Could not load the test scripts from the server': 'Не удалось загрузить тест-скрипты с сервера',
 	'Could not save the test script': 'Не удалось сохранить тест-скрипт',
 	'Could not delete the test script': 'Не удалось удалить тест-скрипт',

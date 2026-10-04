@@ -666,7 +666,8 @@ server resolves it from the preset store, so a run always uses the stored
 keysets, TARs and counters.  The inline `preset` form stays for external
 callers.
 
-**Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
+**Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`,
+optional `src` - the device-identities source override),
 `event` (`event` name or hex + `fields`, optional `src` - the semantic event
 download for 0x03/0x0B/0x12/0x1D), `menu-select` (`item_id` 1-255, or `text` +
 `mode` `exact`/`contains` with an

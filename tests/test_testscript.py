@@ -167,6 +167,15 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(T.ScriptError):
             T.normalise_script({'steps': [{'type': 'action', 'kind': 'event',
                 'params': {'event': 3, 'src': 'zz'}}]}, _resolver)
+        # the raw envelope action carries the same source override
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'envelope',
+             'params': {'event': 0x00, 'data': '', 'src': '83'}}]}, _resolver)
+        self.assertEqual(script['steps'][0]['params'],
+                         {'event': 0x00, 'data': '', 'src': '83'})
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'envelope',
+                'params': {'event': 3, 'src': 'zz'}}]}, _resolver)
 
     def test_scp80_keyset_number_and_new_content_checks(self):
         # kvn (1..15) selects the preset's keyset; `por`/`files` are expect
@@ -533,6 +542,15 @@ class TestRunnerActions(RunnerTestCase):
         self.assertEqual(run['status'], 'ok', run['steps'])
         apdu = scc2.sent[0].upper()
         self.assertIn('99010B82028381' + 'BF0108', apdu)
+        # the raw envelope action takes the same source override
+        scc3 = FakeScc()
+        scc3.push('80C2', '', '9000')
+        run = self.run_script(FakeServer(scc3), [
+            {'type': 'action', 'kind': 'envelope',
+             'params': {'event': 0x00, 'data': '', 'src': '83'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('99010082028381', scc3.sent[0].upper())
 
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()

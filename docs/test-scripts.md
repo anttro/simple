@@ -14,7 +14,8 @@ localStorage export imports as-is), and any API client can create or run them
 
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
-RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0.
+RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0 and
+the `envelope` action's `src` override since 3.18.1.
 
 ## Writing a test for an applet
 
@@ -131,7 +132,7 @@ continue correctly.
 
 | kind | params | notes |
 |---|---|---|
-| `envelope` | `event` 0–255, `data` hex (optional) | ENVELOPE(Event Download) with raw data |
+| `envelope` | `event` 0–255, `data` hex (optional), optional `src` | ENVELOPE(Event Download) with raw data; `src` overrides the device-identities source (`82` terminal / `83` network) |
 | `event` | `event` (name or hex), `fields` (object), optional `src` | semantic ENVELOPE(Event Download) for 0x03/0x0B/0x12/0x1D (see below) |
 | `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive`), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
@@ -147,7 +148,8 @@ or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
 
 The server builds the event objects for the events a test needs most; an
 event without a builder goes through the raw `envelope` action, whose data hex
-the Phone tab's event form shows (**Event data (hex)**, copyable).
+the Phone tab's event form shows (**Event data (hex)**, copyable).  Both
+actions take the same optional `src` device-identities override.
 
 ```json
 {"type": "action", "kind": "event",
@@ -177,8 +179,8 @@ the default is the terminal, matching the Phone tab's forms.
 - `sw` - default `{"mode": "exact", "value": "9000"}` (a `status` action with
   `attempts > 1` defaults to the `91??` mask).
 - `data` - the response data (for SCP80: the inline PoR packet).
-- `por` - `"any"` (default, no check), `"ok"` (`response_status == por_ok`),
-  `"none"` (no PoR expected).
+- `por` (SCP80 actions only) - `"any"` (default, no check), `"ok"`
+  (`response_status == por_ok`), `"none"` (no PoR expected).
 - A plain hex string is exact; a value containing `?` is a mask.  **A mask
   must have exactly the same length as the actual value** (`?` is a per-nibble
   wildcard) - e.g. `91??` matches `9102`, `027100????` matches a 4-byte

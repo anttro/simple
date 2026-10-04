@@ -209,6 +209,16 @@ test('the menu-select editor collects the item id or the text', () => {
 	assert.deepStrictEqual(_testEditStep.params, { item_id: 3 });
 });
 
+test('the envelope step collects the source override', () => {
+	_testEditStep = { type: 'action', kind: 'envelope', params: {} };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	fakeForm({ 'test-step-kind': 'envelope', 'test-f-event': '3', 'test-f-data': '9B0100',
+		'test-f-eventsrc': '83', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { event: 3, data: '9B0100', src: '83' });
+});
+
 test('the event step collects the type and the JSON fields', () => {
 	_testEditStep = { type: 'action', kind: 'event', params: {} };
 	_testEditChecks = [];

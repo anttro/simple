@@ -218,8 +218,15 @@ def _normalise_params(kind, p):
     if kind == 'envelope':
         if p.get('event') is None:
             raise ScriptError('envelope: event is required')
-        return {'event': _int(p['event'], 'envelope event', 0, 255),
-                'data': _data_hex(p.get('data'), 'envelope data', allow_empty=True)}
+        out = {'event': _int(p['event'], 'envelope event', 0, 255),
+               'data': _data_hex(p.get('data'), 'envelope data', allow_empty=True)}
+        src = str(p.get('src') or '').strip().upper()
+        if src:
+            if not re.fullmatch(r'[0-9A-F]{2}', src):
+                raise ScriptError('envelope: src must be one hex byte '
+                                  '(82 terminal / 83 network)')
+            out['src'] = src
+        return out
     if kind == 'event':
         # The semantic event download: the builder owns the field set and the
         # byte layout (events.py mirrors the PWA's forms for the supported
