@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.18.4'
+VERSION = '3.19.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2781,6 +2781,34 @@ def _decode_sms_ud(pid, dcs, ud, udhi, udl):
         out.append({'label': 'User data',
                     'value': '%d bytes: %s' % (len(data), data.hex().upper())})
     return out
+
+
+def _sms_tpdu_fields(raw):
+    """Parse the TPDU of a SEND SHORT MESSAGE command into the fields a test
+    script can assert (the same SMS_SUBMIT parse the log uses): the message
+    type, DA digits, PID/DCS, UDL and the raw user data.  None when the
+    command carries no TPDU."""
+    tpdu_hex = _find_sms_tpdu(raw)
+    if not tpdu_hex:
+        return None
+    try:
+        tpdu = bytes.fromhex(tpdu_hex)
+        mti = tpdu[0] & 0x03
+        out = {'mti': mti, 'tpdu': tpdu_hex.upper()}
+        if mti != 1:
+            return out
+        from pySim.sms import SMS_SUBMIT
+        s = SMS_SUBMIT.from_bytes(tpdu)
+        out.update({
+            'da': str(getattr(s.tp_da, 'digits', '') or '').rstrip('fF'),
+            'pid': '%02X' % s.tp_pid,
+            'dcs': '%02X' % s.tp_dcs,
+            'udl': int(s.tp_udl),
+            'ud': bytes(s.tp_ud).hex().upper(),
+        })
+        return out
+    except Exception:
+        return None
 
 
 def _decode_send_sm(raw):
@@ -5767,10 +5795,39 @@ def _test_finish_entry(entry, result):
     fields = {'status': result.get('status', 'ok'),
               'checks': result.get('checks', []),
               'ms': int((time.time() - (entry.get('started') or time.time())) * 1000)}
-    for key in ('sent', 'sw', 'data', 'note', 'por', 'counter', 'command'):
+    for key in ('sent', 'sw', 'data', 'note', 'por', 'sms', 'counter', 'command'):
         if result.get(key) is not None:
             fields[key] = result[key]
     _test_entry_update(entry, fields)
+
+
+def _por_check_results(spec, por, level, prefix='PoR'):
+    """The decoded-PoR assertion rows (status/sw/data), shared by the scp80
+    action's `check.por` object and the expectation's `por` content check."""
+    checks = []
+    if por is None:
+        checks.append(_test_check_result(
+            prefix, False, 'a decoded PoR',
+            'no PoR in this command (or no scp80 step before it)', level))
+        return checks
+    if 'status' in spec:
+        actual = str(por.get('response_status') or '')
+        want = spec['status']
+        ok = (actual.lower() == want.lower()
+              or (want.lower() == 'ok' and actual == 'por_ok'))
+        checks.append(_test_check_result(prefix + ' status', ok, want,
+                                         actual or '(none)', level))
+    if 'sw' in spec:
+        actual = str((por.get('decoded') or {}).get('last_status_word') or '')
+        checks.append(_test_check_result(
+            prefix + ' SW', testscript.match_value(spec['sw'], actual),
+            spec['sw']['value'], actual or '(none)', level))
+    if 'data' in spec:
+        actual = str((por.get('decoded') or {}).get('last_response_data') or '')
+        checks.append(_test_check_result(
+            prefix + ' data', testscript.match_value(spec['data'], actual),
+            spec['data']['value'], actual or '(none)', level))
+    return checks
 
 
 def _test_action_checks(step, sw, data, por, kind):
@@ -5786,15 +5843,19 @@ def _test_action_checks(step, sw, data, por, kind):
         else:
             checks.append(_test_check_result('Data', True, check['data']['value'],
                                              '(not checked - SW mismatch)', 'ok'))
-    if kind == 'scp80' and check.get('por') != 'any':
-        want = check['por']
-        if want == 'none':
-            ok = por is None
-            actual = 'none' if por is None else 'present'
-        else:
-            ok = bool(por) and por.get('response_status') == 'por_ok'
-            actual = (por or {}).get('response_status') or 'none'
-        checks.append(_test_check_result('PoR', ok, want, actual, level))
+    if kind == 'scp80':
+        want = check.get('por')
+        if isinstance(want, dict):
+            # the decoded-PoR assertion (inline or submit transport)
+            checks.extend(_por_check_results(want, por, level))
+        elif want != 'any':
+            if want == 'none':
+                ok = por is None
+                actual = 'none' if por is None else 'present'
+            else:
+                ok = bool(por) and por.get('response_status') == 'por_ok'
+                actual = (por or {}).get('response_status') or 'none'
+            checks.append(_test_check_result('PoR', ok, want, actual, level))
     return checks
 
 
@@ -5899,15 +5960,25 @@ def _test_run_scp80(server, step, ctx):
     ctx['last_scp80'] = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                          'counter': counter, 'kicKey': kic_key, 'kidKey': kid_key,
                          'tar': tar}
+    fmt = p.get('format') or 'compact'
+    apdu_hex = p.get('apdu') or ''
     if p.get('sp'):
         sp_hex = p['sp']
         source = 'sp'
         _test_log('SCP80 SP=%s' % sp_hex)
     else:
-        sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, counter,
-                                          p['apdu'], kic_key, kid_key)
         source = 'apdu'
-        _test_log('SCP80 C-APDU=%s' % p['apdu'])
+        if fmt != 'compact':
+            # TS 102 226 5.2.1: wrap the C-APDU in the Command Scripting
+            # template (the expanded remote-management format the RFM/GP
+            # applications expect for multi-command payloads)
+            apdu_hex = _ram_format_apdu(apdu_hex, fmt)
+            _test_log('SCP80 C-APDU=%s WRAPPED=%s (%s)'
+                      % (p['apdu'], apdu_hex, fmt))
+        else:
+            _test_log('SCP80 C-APDU=%s' % apdu_hex)
+        sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, counter,
+                                          apdu_hex, kic_key, kid_key)
     _test_log('SCP80 SECURED=%s (%d B) TAR=%s SPI1=%s SPI2=%s CNTR=%s'
               % (sp_hex, len(sp_hex) // 2, tar or '-', spi1, spi2, counter))
     result = _send_secured_packet(scc, sp_hex, server.sms_oa, sm_sc=server.sms_sc,
@@ -5936,10 +6007,12 @@ def _test_run_scp80(server, step, ctx):
         _test_log('PoR[inline] undecodable raw=%s' % data)
     else:
         _test_log('PoR[inline] none')
-    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s %s' % (
+    sent = 'SCP80 %s TAR=%s SPI1=%s SPI2=%s cntr=%s%s %s%s' % (
         source, tar or '-', spi1, spi2, counter,
         (' kvn=%d' % kvn) if kvn else '',
-        ('SP=%s' % sp_hex) if source == 'sp' else ('C-APDU=%s' % p['apdu']))
+        ('SP=%s' % sp_hex) if source == 'sp'
+        else ('C-APDU=%s' % apdu_hex),
+        (' format=%s' % fmt) if (source == 'apdu' and fmt != 'compact') else '')
     if sw and _counter_tracked(spi1):
         # The card answered and the packet asks for a counter check, so the
         # SCP80 counter was consumed: advance the working value of this key
@@ -6158,6 +6231,12 @@ def _test_run_expect(server, step, pending, ctx=None):
     type_name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
     _test_log('CMD 0x%02X %s qual=%s' % (
         cmd_type, type_name, ('%02X' % cmd_qual) if cmd_qual is not None else '-'))
+    sms_fields = _sms_tpdu_fields(raw) if cmd_type == 0x13 else None
+    if sms_fields and sms_fields.get('mti') == 1:
+        _test_log('SMS DA=%s PID=%s DCS=%s UDL=%s UD=%s'
+                  % (sms_fields.get('da'), sms_fields.get('pid'),
+                     sms_fields.get('dcs'), sms_fields.get('udl'),
+                     sms_fields.get('ud')))
     # A SEND SHORT MESSAGE carries the PoR when the packet asked for it in
     # submit mode (SPI2 bit 0x20): decode it with the triggering scp80 step's
     # context so the checks can assert the PoR contents.
@@ -6224,29 +6303,44 @@ def _test_run_expect(server, step, pending, ctx=None):
                                              testscript.match_value({'mode': c['mode'], 'value': c['value']}, actual),
                                              c['value'], actual, c['on_fail']))
         elif c['kind'] == 'por':
-            if por is None:
+            checks.extend(_por_check_results(c, por, c['on_fail']))
+        elif c['kind'] == 'alpha':
+            alpha = _cmd_tlv(httpota.proactive_tlvs(raw), 0x05)
+            text = None
+            if alpha:
+                try:
+                    text = _STK_DECODE._decode(alpha, {}, 'stk')
+                except Exception:
+                    text = None
+            checks.append(_test_check_result(
+                'Alpha', testscript.match_text(c, text),
+                c['value'], text if text is not None else '(none)', c['on_fail']))
+        elif c['kind'] == 'sms':
+            if sms_fields is None or sms_fields.get('mti') != 1:
                 checks.append(_test_check_result(
-                    'PoR', False, 'a decoded PoR',
-                    'no PoR in this command (or no scp80 step before it)',
+                    'SMS', False, 'a SUBMIT TPDU', 'none (not an SMS-SUBMIT)',
                     c['on_fail']))
             else:
-                if 'status' in c:
-                    actual = str(por.get('response_status') or '')
-                    want = c['status']
-                    ok = (actual.lower() == want.lower()
-                          or (want.lower() == 'ok' and actual == 'por_ok'))
-                    checks.append(_test_check_result('PoR status', ok, want,
-                                                     actual or '(none)', c['on_fail']))
-                if 'sw' in c:
-                    actual = str((por.get('decoded') or {}).get('last_status_word') or '')
+                if 'da' in c:
                     checks.append(_test_check_result(
-                        'PoR SW', testscript.match_value(c['sw'], actual),
-                        c['sw']['value'], actual or '(none)', c['on_fail']))
-                if 'data' in c:
-                    actual = str((por.get('decoded') or {}).get('last_response_data') or '')
+                        'SMS DA', sms_fields.get('da') == c['da'], c['da'],
+                        sms_fields.get('da') or '(none)', c['on_fail']))
+                for label, key in (('PID', 'pid'), ('DCS', 'dcs')):
+                    if key in c:
+                        actual = sms_fields.get(key) or ''
+                        checks.append(_test_check_result(
+                            'SMS ' + label, testscript.match_value(c[key], actual),
+                            c[key]['value'], actual or '(none)', c['on_fail']))
+                if 'udl' in c:
+                    actual = sms_fields.get('udl')
                     checks.append(_test_check_result(
-                        'PoR data', testscript.match_value(c['data'], actual),
-                        c['data']['value'], actual or '(none)', c['on_fail']))
+                        'SMS UDL', actual == c['udl'], str(c['udl']),
+                        '(none)' if actual is None else str(actual), c['on_fail']))
+                if 'ud' in c:
+                    actual = sms_fields.get('ud') or ''
+                    checks.append(_test_check_result(
+                        'SMS UD', testscript.match_value(c['ud'], actual),
+                        c['ud']['value'], actual or '(none)', c['on_fail']))
         elif c['kind'] == 'files':
             paths = _parse_file_list(raw)
             want = c['files']
@@ -6261,7 +6355,7 @@ def _test_run_expect(server, step, pending, ctx=None):
     status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
     result = {'status': status, 'sw': tr_sw, 'data': raw.hex().upper(),
               'sent': 'TR ' + tr.hex().upper(), 'checks': checks,
-              'por': por,
+              'por': por, 'sms': sms_fields,
               'command': {'type_hex': '%02X' % cmd_type, 'type_name': type_name,
                           'qualifier': '%02X' % cmd_qual if cmd_qual is not None else None,
                           'raw': raw.hex().upper()}}

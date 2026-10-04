@@ -677,25 +677,33 @@ SET UP MENU, which is refreshed whenever the card sends the menu), `file-write`
 verifies `check.data`),
 `apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, selected by
 the optional `source` field when both are present; optional `kvn` (keyset
-number 1-15), `tar`/`spi1`/`spi2` overrides - KIc/KID and the counter always
+number 1-15), `tar`/`spi1`/`spi2` overrides and `format` (`compact` default /
+`expanded` / `expanded-ae` - the TS 102 226 5.2.1 Command Scripting template
+around the C-APDU) - KIc/KID and the counter always
 come from the resolved preset, which must match the equipped card and be
 complete) or `status`
 (`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
 mask `91??`, i.e. poll until the card announces a command).
 
 `check` is `{"sw": ..., "data": ...}` (exact or `{"mode": "mask", "value":
-"91??"}`, `?` = per-nibble wildcard) plus `"por": "none"|"ok"|"any"` for
-SCP80.  `on_fail` is `error` (terminates the script) or `warning` (continues).
+"91??"}`, `?` = per-nibble wildcard) plus `"por"` for SCP80 -
+`"none"`/`"ok"`/`"any"` or an object `{"status"?, "sw"?, "data"?}` asserting
+the decoded PoR of this exchange (inline or SEND SHORT MESSAGE; at least one
+field).  `on_fail` is `error` (terminates the script) or `warning` (continues).
 
 **Expectation steps** (`type: "expect"`) require a command pending from the
 previous step (`91XX`); they never poll - a `9000` response means no command
 and is an error (TS 102 221 7.4.2.1 / TS 102 223 6.3; add a `status` action
 if the card delivers on poll).  `command` is a name or type code; `checks`
-may be `text` (contains/exact), `item` (`id`/`text` for SELECT ITEM / SET UP
-MENU), `raw` (mask), `por` (a SEND SHORT MESSAGE carrying the PoR of the
+may be `text` (contains/exact), `alpha` (the command's Alpha identifier
+`05`/`85`, contains/exact - distinct from the `8D` text string), `item`
+(`id`/`text` for SELECT ITEM / SET UP MENU), `raw` (mask), `por` (a SEND
+SHORT MESSAGE carrying the PoR of the
 preceding `scp80` step - PoR-in-submit, SPI2 bit `20`: `status` (the response
 status name, `ok` = `por_ok`), `sw` (the R-APDU status word, exact/mask) and
-`data` (the R-APDU response data, exact/mask)) or `files` (the File List of a
+`data` (the R-APDU response data, exact/mask)), `sms` (the SEND SHORT MESSAGE
+TPDU: `da` digits, `pid`/`dcs`/`ud` hex exact/mask, `udl` decimal; SMS-SUBMIT
+only) or `files` (the File List of a
 REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
 order-insensitively); `respond` is the TERMINAL RESPONSE in the TS 102 223
 6.8.0 object order (`result` name or value; `text`+`dcs` for GET INKEY/GET

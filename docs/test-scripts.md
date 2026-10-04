@@ -14,8 +14,9 @@ localStorage export imports as-is), and any API client can create or run them
 
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
-RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0 and
-the `envelope` action's `src` override since 3.18.1.
+RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
+`envelope` action's `src` override since 3.18.1, the inline `por` object, the
+`alpha`/`sms` checks and `scp80.params.format` since 3.19.0.
 
 ## Writing a test for an applet
 
@@ -24,9 +25,9 @@ and the card's preset):
 
 | What | Where it goes | Notes |
 |---|---|---|
-| Applet TAR (3 bytes) + MSL, or an explicit SPI1 | `scp80.params.tar` / `spi1` | the card preset must carry the TAR with its MSL, or the step passes `spi1` |
+| TAR to address (the RFM application or the applet's own) + MSL, or an explicit SPI1 | `scp80.params.tar` / `spi1` | the card preset must carry the TAR with its MSL, or the step passes `spi1`; RFM TARs: `B00000`/`B00001`/`B00010` compact, `B00120`/`B00140`/`B00130` expanded (see Worksheet 1) |
 | Keyset number | `scp80.params.kvn` (1–15) | only when the applet's keys are not the preset's first keyset |
-| Trigger C-APDUs | `scp80.params.apdu` | one secured packet per `scp80` step; the preset provides keys and counter |
+| Trigger C-APDUs (+ their format) | `scp80.params.apdu` / `format` | one secured packet per `scp80` step; the preset provides keys and counter, `format` wraps the APDU for an expanded-format application |
 | Expected file paths + contents | `file-read.params.path` + `check.data` | a mask must have **exactly** the actual value's length |
 | Expected proactive command(s) | `expect.command` + `qualifier`/`checks` | REFRESH `qualifier: "00"` = NAA init + full FCN, `files` asserts the changed EFs |
 | PoR transport + expected PoR | `scp80.check.por`/`check.data` (inline) or `expect SEND SHORT MESSAGE` + `por` check | pick per the SPI2 the applet expects |
@@ -38,7 +39,7 @@ and the card's preset):
 {"name": "applet RFM update",
  "steps": [
   {"type": "action", "kind": "scp80",
-   "params": {"apdu": "<RFM C-APDU>", "tar": "<applet TAR>", "kvn": 1, "spi2": "01"},
+   "params": {"apdu": "<RFM C-APDU>", "tar": "B00001", "kvn": 1, "spi2": "01"},
    "check": {"sw": {"mode": "mask", "value": "91??"}, "por": "none"},
    "label": "RFM update"},
   {"type": "expect", "command": "REFRESH", "qualifier": "00",
@@ -48,6 +49,17 @@ and the card's preset):
    "check": {"data": {"mode": "mask", "value": "<expected bytes, ? = wildcard>"}}}
  ]}
 ```
+
+`tar` addresses the **RFM application that owns the file system**, not the
+applet-under-test: `B00000` = UICC shared FS, `B00001` = ADF RFM, `B00010` =
+SIM FS (compact), and `B00120`/`B00140`/`B00130` the expanded-format twins
+(TS 101 220 Annex D; the probe list in the SCP80 tab carries the same names).
+An applet that accepts secured packets under its **own** TAR - the TAR given
+in its INSTALL [for install] parameters (TS 102 226 §8.2.1.3.2.7) - uses that
+TAR instead.  The preset must carry a TAR entry **with its MSL** or the step
+passes an explicit `spi1`; an expanded-format RFM application also expects the
+wrapped command template (`"format": "expanded"`/`"expanded-ae"`, see the
+actions table).
 
 ### Worksheet 2 - incoming data → particular PoR, no other actions
 
@@ -113,6 +125,9 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 
 - A PoR delivered as SEND SHORT MESSAGE is logged on the step that fetches it:
   `PoR[sms-submit] …` followed by the same `R-APDU` line.
+- A SEND SHORT MESSAGE expectation also logs its parsed TPDU
+  (`SMS DA=… PID=… DCS=… UDL=… UD=…`) after the `CMD` line, so an applet's own
+  SMS can be read even without an `sms` check.
 - Other actions log their send/response pair too (`APDU TX=… -> SW=…`,
   `ENVELOPE(Event Download) … -> SW=…`, `READ MF/… -> SW=…`).
 - The shared secured-packet sender logs each segment's answer
@@ -166,11 +181,16 @@ continue correctly.
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
 | `file-read` | `path`, `mode`, `record` | READ BINARY/RECORD; verify with `check.data` |
 | `apdu` | `apdu` hex | raw transport, no auto-handler |
-| `scp80` | `apdu` **xor** `sp` (optional `source`), `kvn`, `tar`, `spi1`, `spi2` | secured packet to the TAR |
+| `scp80` | `apdu` **xor** `sp` (optional `source`), `kvn`, `tar`, `spi1`, `spi2`, `format` | secured packet to the TAR; `format`: `compact` (default - the C-APDU verbatim), `expanded` (the `AA`-prefixed Command Scripting template) or `expanded-ae` (the `AE 80 … 00 00` form), TS 102 226 §5.2.1 |
 | `status` | `attempts` 1–1000, `interval_ms` 0–10000 | with `attempts > 1` the default SW check is `91??` (poll until a command) |
 
 `path` is `/`-separated: `MF` (or `3F00`) or an ADF name/AID first, then FIDs
 or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
+
+`file-write` sends a direct terminal-side UPDATE BINARY/RECORD - it does **not**
+fire the card's EVENT_REMOTE_FILE_UPDATE (that event reports an update done by
+a remote entity through OTA/RFM, TS 102 223 §7.5.9): assert the change with
+`file-read` or the REFRESH `files` check.
 
 ### Semantic events (`kind: "event"`)
 
@@ -208,7 +228,11 @@ the default is the terminal, matching the Phone tab's forms.
   `attempts > 1` defaults to the `91??` mask).
 - `data` - the response data (for SCP80: the inline PoR packet).
 - `por` (SCP80 actions only) - `"any"` (default, no check), `"ok"`
-  (`response_status == por_ok`), `"none"` (no PoR expected).
+  (`response_status == por_ok`), `"none"` (no PoR expected), or an **object**
+  `{"status"?, "sw"?, "data"?}` asserting the decoded PoR of this very
+  exchange (at least one field; the same fields as the expectation's `por`
+  check) - it works for both the inline and the SEND SHORT MESSAGE transport.
+  Example: `"por": {"status": "por_ok", "sw": "9000"}`.
 - A plain hex string is exact; a value containing `?` is a mask.  **A mask
   must have exactly the same length as the actual value** (`?` is a per-nibble
   wildcard) - e.g. `91??` matches `9102`, `027100????` matches a 4-byte
@@ -232,10 +256,12 @@ command-details byte 3 (one byte, exact/mask).
 
 | kind | fields | checks |
 |---|---|---|
-| `text` | `mode` contains/exact, `value`, `case_sensitive` | alpha identifier / text |
+| `text` | `mode` contains/exact, `value`, `case_sensitive` | the **Text string** (`8D`, DCS coded) of DISPLAY TEXT / GET INKEY / GET INPUT |
+| `alpha` | `mode` contains/exact, `value`, `case_sensitive` | the command's **Alpha identifier** (tag `05`/`85`, TS 102 223 §8.2, Annex A coded) - distinct from `text` when a command carries both |
 | `item` | `id`, `text`, `mode`, `case_sensitive` | items of SELECT ITEM / SET UP MENU |
 | `raw` | `mode` exact/mask, `value` | the whole fetched command (hex, exact length needed) |
 | `por` | `status`, `sw`, `data` | the PoR carried by a **SEND SHORT MESSAGE** (see below) |
+| `sms` | `da`, `pid`, `dcs`, `udl`, `ud` | the TPDU of a SEND SHORT MESSAGE (see below) |
 | `files` | `files` (list of path hex strings) or a comma/space separated string | the **File List** of a REFRESH, TS 102 223 §8.18; matched order-insensitively |
 
 `por` needs an SCP80 step **before** the expectation: the TPDU of the SEND
@@ -247,6 +273,14 @@ the decoded response (scripting `AB`/`AF`/compact forms).  A PoR split over
 several SMS parts is accumulated across SEND SHORT MESSAGE expectations: put
 the `por` check on the step that completes the sequence (intermediate steps
 should use `raw` or no PoR check).
+
+`sms` parses the fetched SEND SHORT MESSAGE's TPDU (SMS-SUBMIT only - any other
+MTI fails the check): `da` the destination digits (exact, whitespace ignored),
+`pid`/`dcs` single bytes and `ud` the raw user data (a UDH included) as hex
+exact/mask, `udl` the user-data length in decimal (octets, or septets for the
+7-bit alphabet - whatever the TPDU carries).  Use it for an applet's own SMS;
+the OTA PoR of the preceding scp80 step is what `por` decodes.  At least one
+field is required.
 
 ### `respond`
 
@@ -275,7 +309,8 @@ UCS2 answer to a GET INPUT:
 
 1. **Inline** - the card answers the ENVELOPE `9000` with the PoR in the
    response data.  Verify on the action: `"por": "ok"` and/or
-   `"data": {"mode": "mask", "value": "…"}`.
+   `"data": {"mode": "mask", "value": "…"}`, or assert the decoded PoR with
+   `"por": {"status": "por_ok", "sw": "9000"}`.
 2. **PoR-in-submit** (SPI2 bit `20`, e.g. `spi2: "21"`) - the card announces
    a **SEND SHORT MESSAGE** (`91XX`); the PoR is inside its SMS TPDU:
 

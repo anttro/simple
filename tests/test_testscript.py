@@ -213,6 +213,72 @@ class TestValidation(unittest.TestCase):
                 {'type': 'expect', 'command': 'ANY',
                  'checks': [{'kind': 'files', 'value': ['zz']}]}]}, _resolver)
 
+    def test_scp80_format_param_and_por_object(self):
+        # v3.19.0: the scp80 step may wrap the C-APDU in the expanded Command
+        # Scripting template (TS 102 226 5.2.1) and assert the decoded PoR
+        # inline (`check.por` as an object).
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'apdu': '80E2900000', 'format': 'expanded'},
+             'check': {'por': {'status': 'por_ok', 'sw': '6A8?',
+                               'data': {'mode': 'mask', 'value': 'AA??'}}}},
+        ]}, _resolver)
+        params = script['steps'][0]['params']
+        self.assertEqual(params['format'], 'expanded')
+        por = script['steps'][0]['check']['por']
+        self.assertEqual(por['status'], 'por_ok')
+        self.assertEqual(por['sw'], {'mode': 'mask', 'value': '6A8?'})
+        self.assertEqual(por['data'], {'mode': 'mask', 'value': 'AA??'})
+        # both codings are accepted; an unknown one is refused
+        for fmt in ('compact', 'expanded-ae'):
+            script = T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80',
+                 'params': {'apdu': '80E2', 'format': fmt}}]}, _resolver)
+            self.assertEqual(script['steps'][0]['params']['format'], fmt)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80',
+                 'params': {'apdu': '80E2', 'format': 'auto'}}]}, _resolver)
+        # an empty PoR object has nothing to assert; the object is scp80-only
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2'},
+                 'check': {'por': {}}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 1},
+                 'check': {'por': {'status': 'por_ok'}}}]}, _resolver)
+
+    def test_alpha_and_sms_content_checks(self):
+        # `alpha` reads the Alpha identifier ('05', Annex A coded); `sms`
+        # asserts the SEND SHORT MESSAGE TPDU fields (submit only).
+        script = T.normalise_script({'steps': [
+            {'type': 'expect', 'command': 'DISPLAY TEXT',
+             'checks': [{'kind': 'alpha', 'mode': 'contains', 'value': 'Alfa',
+                         'case_sensitive': False}]},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'checks': [{'kind': 'sms', 'da': '12 345', 'pid': '7F', 'dcs': '00',
+                         'udl': 5, 'ud': '0271??AABB'}]},
+        ]}, _resolver)
+        alpha = script['steps'][0]['checks'][0]
+        self.assertEqual(alpha['kind'], 'alpha')
+        self.assertEqual(alpha['mode'], 'contains')
+        self.assertFalse(alpha['case_sensitive'])
+        sms = script['steps'][1]['checks'][0]
+        self.assertEqual(sms['da'], '12345')
+        self.assertEqual(sms['pid'], {'mode': 'exact', 'value': '7F'})
+        self.assertEqual(sms['dcs'], {'mode': 'exact', 'value': '00'})
+        self.assertEqual(sms['udl'], 5)
+        self.assertEqual(sms['ud'], {'mode': 'mask', 'value': '0271??AABB'})
+        for check in ({'kind': 'alpha'},                      # no value
+                      {'kind': 'alpha', 'mode': 'nope', 'value': 'x'},
+                      {'kind': 'sms'},                        # no fields
+                      {'kind': 'sms', 'da': '12X'},
+                      {'kind': 'sms', 'udl': 256}):
+            with self.assertRaises(T.ScriptError):
+                T.normalise_script({'steps': [
+                    {'type': 'expect', 'command': 'ANY', 'checks': [check]}]}, _resolver)
+
 
 class TestMatchers(unittest.TestCase):
     def test_match_value(self):
@@ -882,6 +948,155 @@ class TestRunnerActions(RunnerTestCase):
         self.assertTrue(labels['Qualifier']['ok'], labels)
         self.assertTrue(labels['Files']['ok'], labels)
         self.assertEqual(labels['Files']['actual'], '3F007F106F3A')
+
+    # a DISPLAY TEXT carrying the Alpha identifier ('05' = 'Alfa') plus the
+    # text string ('8D' = 'hello') - the alpha check must not read the text
+    DISPLAY_TEXT_ALPHA_CMD = 'D0178103012100820281820504416C66618D060468656C6C6F'
+    # a SEND SHORT MESSAGE with an SMS-SUBMIT: DA 12345, PID 7F, DCS 00,
+    # UDL 5, UD 02 71 00 AA BB
+    SEND_SM_SUBMIT_CMD = 'D01A8103011300820283810B0F010005812143F57F0005027100AABB'
+
+    def test_expect_alpha_and_sms_checks(self):
+        # the Alpha identifier ('05', TS 102 223 8.2) and the SEND SHORT
+        # MESSAGE TPDU fields (an applet's own SMS, not the OTA PoR)
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.DISPLAY_TEXT_ALPHA_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.SEND_SM_SUBMIT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+                 'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+                {'type': 'expect', 'command': 'DISPLAY TEXT',
+                 'checks': [{'kind': 'alpha', 'mode': 'exact', 'value': 'Alfa'}],
+                 'respond': {'result': 'ok'}},
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+                 'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+                {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+                 'checks': [{'kind': 'sms', 'da': '12345', 'pid': '7F', 'dcs': '00',
+                             'udl': 5, 'ud': '027100AABB'}],
+                 'respond': {'result': 'ok'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][1]['checks']}
+        self.assertTrue(labels['Alpha']['ok'], labels)
+        self.assertEqual(labels['Alpha']['actual'], 'Alfa')
+        labels = {c['label']: c for c in run['steps'][3]['checks']}
+        for label in ('SMS DA', 'SMS PID', 'SMS DCS', 'SMS UDL', 'SMS UD'):
+            self.assertTrue(labels[label]['ok'], labels)
+        self.assertEqual(run['steps'][3]['sms']['da'], '12345')
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 4: SMS DA=12345 PID=7F DCS=00 UDL=5 UD=027100AABB', log)
+
+    def test_expect_sms_check_mismatch_terminates(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.SEND_SM_SUBMIT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+             'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'checks': [{'kind': 'sms', 'dcs': 'AA'}], 'respond': {'result': 'ok'}},
+        ])
+        self.assertNotEqual(run['status'], 'ok')
+        labels = {c['label']: c for c in run['steps'][1]['checks']}
+        self.assertFalse(labels['SMS DCS']['ok'])
+        self.assertEqual(labels['SMS DCS']['expected'], 'AA')
+        self.assertEqual(labels['SMS DCS']['actual'], '00')
+
+    def test_scp80_format_wraps_the_apdu(self):
+        # `format` wraps the C-APDU in the expanded Command Scripting template
+        # (TS 102 226 5.2.1): `expanded` = AA/<len>/22/..., `expanded-ae` =
+        # AE 80 ... 00 00.  A compact step keeps the APDU verbatim.
+        for fmt, want in (('', '80E2900000'),
+                          ('expanded', 'AA07220580E2900000'),
+                          ('expanded-ae', 'AE80220580E29000000000')):
+            scc = FakeScc()
+            preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                      'kidKey': 'BB' * 16, 'counter': '00000001',
+                      'tars': preset_tars()}
+            params = {'apdu': '80E2900000'}
+            if fmt:
+                params['format'] = fmt
+            buf = io.StringIO()
+            with mock.patch.object(S, '_build_secured_packet',
+                                   return_value=('AA' * 10, {})) as build, \
+                    mock.patch.object(S, '_send_secured_packet',
+                                      return_value={'success': True, 'sw': '9000',
+                                                    'response_data': None}):
+                with contextlib.redirect_stderr(buf):
+                    run = self.run_script(FakeServer(scc), [
+                        {'type': 'action', 'kind': 'scp80', 'params': params},
+                    ], preset)
+            self.assertEqual(run['status'], 'ok', run['steps'])
+            self.assertEqual(build.call_args[0][6], want)
+            log = buf.getvalue()
+            if fmt:
+                self.assertIn('TEST-RUN step 1: SCP80 C-APDU=80E2900000 '
+                              'WRAPPED=%s (%s)' % (want, fmt), log)
+                self.assertIn('C-APDU=%s format=%s' % (want, fmt),
+                              run['steps'][0]['sent'])
+            else:
+                self.assertIn('TEST-RUN step 1: SCP80 C-APDU=80E2900000', log)
+                self.assertNotIn('WRAPPED', log)
+                self.assertNotIn('format=', run['steps'][0]['sent'])
+
+    def test_scp80_inline_por_object_check(self):
+        # `check.por` as an object asserts the decoded PoR (status/SW/data) of
+        # this very exchange - inline here, the SEND SHORT MESSAGE transport
+        # works the same
+        decoded = {'response_status': 'por_ok', 'tar': '000000',
+                   'cntr': '0000000A', 'raw': '0271000021AABB',
+                   'decoded': {'last_status_word': '9000',
+                               'last_response_data': 'AABB'}}
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                  'kidKey': 'BB' * 16, 'counter': '0000000A',
+                  'tars': preset_tars()}
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': '0271000021AABB'}), \
+                mock.patch.object(S, '_decode_por', return_value=decoded):
+            run = self.run_script(FakeServer(FakeScc()), [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
+                 'check': {'por': {'status': 'por_ok', 'sw': '9000',
+                                   'data': 'AABB'}}},
+            ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][0]['checks']}
+        self.assertTrue(labels['PoR status']['ok'], labels)
+        self.assertTrue(labels['PoR SW']['ok'], labels)
+        self.assertTrue(labels['PoR data']['ok'], labels)
+        # a mismatch fails the step; without a decoded PoR the check names it
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': '0271000021AABB'}), \
+                mock.patch.object(S, '_decode_por', return_value=decoded):
+            run = self.run_script(FakeServer(FakeScc()), [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
+                 'check': {'por': {'status': 'por_error'}}},
+            ], preset)
+        self.assertNotEqual(run['status'], 'ok')
+        labels = {c['label']: c for c in run['steps'][0]['checks']}
+        self.assertFalse(labels['PoR status']['ok'])
+        self.assertEqual(labels['PoR status']['actual'], 'por_ok')
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': None}):
+            run = self.run_script(FakeServer(FakeScc()), [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
+                 'check': {'por': {'status': 'por_ok'}}},
+            ], preset)
+        labels = {c['label']: c for c in run['steps'][0]['checks']}
+        self.assertFalse(labels['PoR']['ok'])
+        self.assertIn('no PoR', labels['PoR']['actual'])
 
     def test_parse_file_list_splits_concatenated_paths(self):
         raw = bytes.fromhex('D016810301010082028381120B023F002FE23F007F106F3A')

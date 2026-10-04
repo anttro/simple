@@ -54,6 +54,21 @@ class ScriptError(ValueError):
 
 # ─── normalisation helpers ──────────────────────────────────────────────
 
+def _por_fields(c, what='por check'):
+    """The decoded-PoR assertion fields (status/sw/data); at least one."""
+    out = {}
+    status = c.get('status')
+    if status is not None and str(status).strip():
+        out['status'] = str(status).strip()
+    if c.get('sw') not in (None, ''):
+        out['sw'] = _check_spec(c.get('sw'), what + ' sw')
+    if c.get('data') not in (None, ''):
+        out['data'] = _check_spec(c.get('data'), what + ' data')
+    if not (out.get('status') or out.get('sw') or out.get('data')):
+        raise ScriptError(what + ': status, sw or data is required')
+    return out
+
+
 def _fail_level(value, default='error'):
     if value in (None, ''):
         return default
@@ -312,6 +327,15 @@ def _normalise_params(kind, p):
         # the counter stay preset-owned, the step only picks which keyset.
         if p.get('kvn') not in (None, ''):
             out['kvn'] = _int(p.get('kvn'), 'scp80 keyset number', 1, 15)
+        # The command format: the C-APDU verbatim (compact, the default) or
+        # wrapped in the expanded Command Scripting template (TS 102 226
+        # 5.2.1) - `expanded` = AA/<len>/22/..., `expanded-ae` = AE 80/22/00 00.
+        fmt = str(p.get('format') or '').strip().lower()
+        if fmt:
+            if fmt not in ('compact', 'expanded', 'expanded-ae'):
+                raise ScriptError('scp80: format must be compact, expanded or '
+                                  'expanded-ae')
+            out['format'] = fmt
         return out
     if kind == 'status':
         attempts = p.get('attempts')
@@ -337,14 +361,20 @@ def _normalise_check(check, kind, params):
             sw = {'mode': 'exact', 'value': '9000'}
     data = _check_spec(check.get('data'), 'check.data')
     por = check.get('por')
-    if por is None:
+    if isinstance(por, dict):
+        # The decoded-PoR assertion (available on scp80 actions whether the
+        # PoR arrived inline or via SEND SHORT MESSAGE).
+        if kind != 'scp80':
+            raise ScriptError('check.por is only valid for scp80 actions')
+        por = _por_fields(por, 'check.por')
+    elif por is None:
         por = 'any'
     else:
         por = str(por).lower()
         if kind != 'scp80':
             raise ScriptError('check.por is only valid for scp80 actions')
         if por not in POR_CHECKS:
-            raise ScriptError('check.por must be none, ok or any')
+            raise ScriptError('check.por must be none, ok, any or an object')
     return {'sw': sw, 'data': data, 'por': por}
 
 
@@ -416,15 +446,36 @@ def _normalise_content_check(c, default_level):
                 'on_fail': level}
     if kind == 'por':
         out = {'kind': 'por', 'on_fail': level}
-        status = c.get('status')
-        if status is not None and str(status).strip():
-            out['status'] = str(status).strip()
-        if c.get('sw') not in (None, ''):
-            out['sw'] = _check_spec(c.get('sw'), 'por check sw')
-        if c.get('data') not in (None, ''):
-            out['data'] = _check_spec(c.get('data'), 'por check data')
-        if not (out.get('status') or out.get('sw') or out.get('data')):
-            raise ScriptError('por check: status, sw or data is required')
+        out.update(_por_fields(c, 'por check'))
+        return out
+    if kind == 'alpha':
+        mode = str(c.get('mode') or 'contains').lower()
+        if mode not in ('contains', 'exact'):
+            raise ScriptError('alpha check: mode must be contains or exact')
+        if c.get('value') is None:
+            raise ScriptError('alpha check: value is required')
+        return {'kind': 'alpha', 'mode': mode, 'value': str(c['value']),
+                'case_sensitive': bool(c.get('case_sensitive', True)),
+                'on_fail': level}
+    if kind == 'sms':
+        # The SEND SHORT MESSAGE TPDU fields (an applet's own SMS, as opposed
+        # to the PoR of an OTA exchange).
+        out = {'kind': 'sms', 'on_fail': level}
+        da = c.get('da')
+        if da is not None and str(da).strip():
+            d = re.sub(r'\s', '', str(da))
+            if not re.fullmatch(r'[0-9*#+]{1,20}', d):
+                raise ScriptError('sms check: da must be up to 20 digits')
+            out['da'] = d
+        for key in ('pid', 'dcs'):
+            if c.get(key) not in (None, ''):
+                out[key] = _check_spec(c.get(key), 'sms check %s' % key)
+        if c.get('udl') not in (None, ''):
+            out['udl'] = _int(c.get('udl'), 'sms check udl', 0, 255)
+        if c.get('ud') not in (None, ''):
+            out['ud'] = _check_spec(c.get('ud'), 'sms check ud')
+        if not any(k in out for k in ('da', 'pid', 'dcs', 'udl', 'ud')):
+            raise ScriptError('sms check: da, pid, dcs, udl or ud is required')
         return out
     if kind == 'files':
         val = c.get('files', c.get('value'))

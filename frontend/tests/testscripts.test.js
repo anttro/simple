@@ -34,6 +34,7 @@ eval(extractBlock('const TEST_ACTION_KINDS = [', 'let _testScripts').replace(/^c
 eval(extractFunc(html, 'testTemplate'));
 eval(extractFunc(html, 'testMenuSelectProblem'));
 eval(extractFunc(html, 'testScriptProblem'));
+eval(extractFunc(html, 'testPorSpecSummary'));
 eval(extractFunc(html, 'testCheckSummary'));
 eval(extractFunc(html, 'testStepSummary'));
 eval(extractFunc(html, 'testCommandOptions'));
@@ -192,6 +193,97 @@ test('the SCP80 source switch sticks and preserves the other value', () => {
 	testStepCollect();
 	assert.strictEqual(_testEditStep.params.source, 'apdu');
 	assert.strictEqual(_testEditStep.params.sp, 'AABBCC');
+});
+
+test('the SCP80 step collects the format and the custom PoR object', () => {
+	_testEditStep = { type: 'action', kind: 'scp80', params: { apdu: '80E2900000' } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'apdu', 'test-f-apdu': '80E2900000',
+		'test-f-fmt': 'expanded', 'test-f-kvn': '', 'test-f-tar': '', 'test-f-spi1': '',
+		'test-f-spi2': '', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'custom',
+		'test-f-porstatus': 'por_ok', 'test-f-por-sw': '6a8?', 'test-f-por-data': 'aa??',
+		'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.format, 'expanded');
+	assert.deepStrictEqual(_testEditStep.check.por,
+		{ status: 'por_ok', sw: { mode: 'mask', value: '6A8?' },
+			data: { mode: 'mask', value: 'AA??' } });
+	// a custom PoR check with no fields refuses to save
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'apdu', 'test-f-apdu': '80E2900000',
+		'test-f-fmt': 'compact', 'test-f-kvn': '', 'test-f-tar': '', 'test-f-spi1': '',
+		'test-f-spi2': '', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'custom',
+		'test-f-fail': 'error' });
+	assert.match(testStepFormError(), /PoR check/);
+	assert.ok(!('format' in _testEditStep.params));    // compact is the default
+	// the plain string forms stay and their object is dropped on switch
+	fakeForm({ 'test-step-kind': 'scp80', 'test-f-src': 'apdu', 'test-f-apdu': '80E2900000',
+		'test-f-fmt': '', 'test-f-kvn': '', 'test-f-tar': '', 'test-f-spi1': '',
+		'test-f-spi2': '', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-por': 'none',
+		'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.check.por, 'none');
+	// the summary renders the effective format and the object's fields
+	const s = testStepSummary({ type: 'action', kind: 'scp80',
+		params: { apdu: '80E2', format: 'expanded-ae' },
+		check: { por: { status: 'por_ok', sw: { mode: 'mask', value: '6A8?' } } } });
+	assert.ok(s.includes('fmt=expanded-ae'), s);
+	assert.ok(s.includes('PoR status por_ok SW ~6A8?'), s);
+});
+
+test('the SCP80 step form renders the format select and the custom PoR fields', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'action', kind: 'scp80',
+		params: { apdu: '80E2900000', format: 'expanded' },
+		check: { por: { status: 'por_ok' } } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const body = els['test-step-body'].innerHTML;
+	assert.match(body, /id="test-f-fmt"/);
+	assert.match(body, /<option value="expanded" selected>/);
+	assert.match(body, /<option value="custom" selected>/);
+	assert.match(body, /id="test-f-porstatus" value="por_ok"/);
+	assert.match(body, /id="test-f-por-sw" value=""/);
+	// the pre-built packet source has no format select (the wrapper applies
+	// to a C-APDU only)
+	_testEditStep = { type: 'action', kind: 'scp80', params: { source: 'sp', sp: 'AABB' } };
+	testStepRender();
+	assert.ok(!els['test-step-body'].innerHTML.includes('id="test-f-fmt"'));
+});
+
+test('the alpha and sms checks collect and summarise', () => {
+	assert.strictEqual(testCheckSummary({ kind: 'alpha', mode: 'exact', value: 'Alfa' }),
+		'alpha ="Alfa"');
+	assert.strictEqual(testCheckSummary({ kind: 'sms', da: '12345',
+		pid: { mode: 'exact', value: '7F' }, dcs: { mode: 'exact', value: '00' },
+		udl: 5, ud: { mode: 'mask', value: 'AA??' } }),
+		'sms DA 12345 PID 7F DCS 00 UDL 5 UD ~AA??');
+	// the sms fields collect with hex masks and a decimal UDL (0 included)
+	_testEditChecks = [{ kind: 'sms' }];
+	fakeForm({ 'test-check-kind-0': 'sms', 'test-check-smsda-0': '12345',
+		'test-check-smspid-0': '7f', 'test-check-smsdcs-0': '00',
+		'test-check-smsudl-0': '0', 'test-check-smsud-0': 'aa??',
+		'test-check-fail-0': 'error' });
+	testChecksCollect();
+	assert.deepStrictEqual(_testEditChecks, [{ kind: 'sms', on_fail: 'error', da: '12345',
+		pid: { mode: 'exact', value: '7F' }, dcs: { mode: 'exact', value: '00' }, udl: 0,
+		ud: { mode: 'mask', value: 'AA??' } }]);
+	// an empty sms check is dropped on save; an alpha with a value survives
+	_testEditStep = { type: 'expect', command: 'SEND SHORT MESSAGE', checks: [],
+		respond: { result: 'ok' } };
+	_testEditChecks = [{ kind: 'sms' }, { kind: 'alpha', mode: 'contains', value: 'Alfa' }];
+	fakeForm({ 'test-check-kind-0': 'sms', 'test-check-fail-0': 'error',
+		'test-check-kind-1': 'alpha', 'test-check-mode-1': 'contains',
+		'test-check-value-1': 'Alfa', 'test-check-fail-1': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.checks,
+		[{ kind: 'alpha', on_fail: 'error', mode: 'contains', value: 'Alfa' }]);
 });
 
 test('the menu-select editor collects the item id or the text', () => {

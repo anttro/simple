@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.18.4';
+const SIMPLE_VERSION = '3.19.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -7040,9 +7040,18 @@ function testScriptProblem(script) {
 	return '';
 }
 
+function testPorSpecSummary(por) {
+	const parts = [];
+	if (por.status) parts.push('status ' + por.status);
+	if (por.sw) parts.push('SW ' + (por.sw.mode === 'mask' ? '~' : '') + por.sw.value);
+	if (por.data) parts.push('data ' + (por.data.mode === 'mask' ? '~' : '') + por.data.value);
+	return parts.join(' ');
+}
+
 function testCheckSummary(c) {
 	if (!c || !c.kind) return '';
 	if (c.kind === 'text') return 'text ' + (c.mode === 'exact' ? '=' : '~') + JSON.stringify(c.value || '');
+	if (c.kind === 'alpha') return 'alpha ' + (c.mode === 'exact' ? '=' : '~') + JSON.stringify(c.value || '');
 	if (c.kind === 'item') {
 		let s = 'item';
 		if (c.id) s += ' #' + c.id;
@@ -7050,12 +7059,15 @@ function testCheckSummary(c) {
 		return s;
 	}
 	if (c.kind === 'raw') return 'raw ' + (c.mode === 'mask' ? '~' : '=') + (c.value || '');
-	if (c.kind === 'por') {
+	if (c.kind === 'por') return 'por ' + testPorSpecSummary(c);
+	if (c.kind === 'sms') {
 		const parts = [];
-		if (c.status) parts.push('status ' + c.status);
-		if (c.sw) parts.push('SW ' + (c.sw.mode === 'mask' ? '~' : '') + c.sw.value);
-		if (c.data) parts.push('data ' + (c.data.mode === 'mask' ? '~' : '') + c.data.value);
-		return 'por ' + parts.join(' ');
+		if (c.da) parts.push('DA ' + c.da);
+		if (c.pid) parts.push('PID ' + (c.pid.mode === 'mask' ? '~' : '') + c.pid.value);
+		if (c.dcs) parts.push('DCS ' + (c.dcs.mode === 'mask' ? '~' : '') + c.dcs.value);
+		if (c.udl !== undefined) parts.push('UDL ' + c.udl);
+		if (c.ud) parts.push('UD ' + (c.ud.mode === 'mask' ? '~' : '') + c.ud.value);
+		return 'sms ' + parts.join(' ');
 	}
 	if (c.kind === 'files') return 'files ' + (c.files || []).join(' ');
 	return '';
@@ -7090,7 +7102,7 @@ function testStepSummary(step) {
 		s = 'EVENT ' + (EVENT_NAMES[code] || ('0x' + String(p.event || '?')));
 	}
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
-	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
+	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '') + (p.format && p.format !== 'compact' ? ' fmt=' + p.format : '');
 	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
 	else if (step.kind === 'file-read') s = 'READ ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '');
 	else if (step.kind === 'status') s = 'STATUS' + ((p.attempts || 1) > 1 ? ' x' + p.attempts + ' (poll)' : '');
@@ -7099,7 +7111,9 @@ function testStepSummary(step) {
 	const ck = [];
 	if (c.sw && c.sw.value && !(c.sw.mode !== 'mask' && c.sw.value === '9000')) ck.push('SW ' + (c.sw.mode === 'mask' ? '~' : '') + c.sw.value);
 	if (c.data && c.data.value) ck.push('data ' + (c.data.mode === 'mask' ? '~' : '') + c.data.value);
-	if (c.por && c.por !== 'any') ck.push('PoR ' + c.por);
+	if (c.por && c.por !== 'any') {
+		ck.push('PoR ' + (typeof c.por === 'string' ? c.por : testPorSpecSummary(c.por)));
+	}
 	if (step.on_fail === 'warning') ck.push('⚠');
 	return s + (ck.length ? ' · ' + ck.join(', ') : '');
 }
@@ -7390,7 +7404,13 @@ function testStepRender() {
 			html += testFormRow('Source', testFormSelect('test-f-src', src, [
 				{v: 'apdu', l: t('C-APDU (built with the preset)')}, {v: 'sp', l: t('Pre-built secured packet')}], 'testStepKindChanged()'));
 			if (src === 'sp') html += testFormRow('Secured packet (hex)', testFormInput('test-f-sp', p.sp, '01 00 ...'));
-			else html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
+			else {
+				html += testFormRow('C-APDU (hex)', testFormInput('test-f-apdu', p.apdu, '80E2900000'));
+				html += testFormRow('Command format', testFormSelect('test-f-fmt', p.format || 'compact', [
+					{v: 'compact', l: t('Compact')},
+					{v: 'expanded', l: t('Expanded (AA template)')},
+					{v: 'expanded-ae', l: t('Expanded (AE 80 template)')}]));
+			}
 			html += testFormRow('Keyset number (optional)',
 				testFormInput('test-f-kvn', p.kvn === undefined ? '' : p.kvn, t('empty = the preset\'s first keyset')));
 			html += testFormRow('TAR override (hex, optional)', testFormInput('test-f-tar', p.tar, 'B00000'));
@@ -7410,8 +7430,15 @@ function testStepRender() {
 			+ testFormSelect('test-f-cdata-mode', cd.mode || 'exact', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}])
 			+ testFormInput('test-f-cdata', cd.value, 'AA??') + '</div>');
 		if (step.kind === 'scp80') {
-			html += testFormRow('PoR check', testFormSelect('test-f-por', c.por || 'any', [
-				{v: 'any', l: t('Any')}, {v: 'none', l: t('No PoR expected')}, {v: 'ok', l: t('PoR = por_ok')}]));
+			const porObj = c.por && typeof c.por === 'object' ? c.por : null;
+			html += testFormRow('PoR check', testFormSelect('test-f-por', porObj ? 'custom' : (c.por || 'any'), [
+				{v: 'any', l: t('Any')}, {v: 'none', l: t('No PoR expected')}, {v: 'ok', l: t('PoR = por_ok')},
+				{v: 'custom', l: t('Custom (status / SW / data)')}], 'testStepKindChanged()'));
+			if (porObj) {
+				html += testFormRow('PoR status', testFormInput('test-f-porstatus', porObj.status, 'por_ok'));
+				html += testFormRow('PoR SW (hex)', testFormInput('test-f-por-sw', porObj.sw && porObj.sw.value, '6A88'));
+				html += testFormRow('PoR data (hex)', testFormInput('test-f-por-data', porObj.data && porObj.data.value, 'AA??'));
+			}
 		}
 		html += testFormRow('On mismatch', testFormSelect('test-f-fail', step.on_fail || 'error', [
 			{v: 'error', l: t('Error (stop the script)')}, {v: 'warning', l: t('Warning (continue)')}]));
@@ -7478,7 +7505,8 @@ function testRenderChecks() {
 		html += '<div class="flex items-start gap-2 mb-1">'
 			+ testFormSelect('test-check-kind-' + i, c.kind || 'text', [
 				{v: 'text', l: t('Text')}, {v: 'item', l: t('Item')}, {v: 'raw', l: t('Raw')},
-				{v: 'por', l: t('PoR')}, {v: 'files', l: t('Files')}], 'testCheckKindChanged()');
+				{v: 'alpha', l: t('Alpha')}, {v: 'por', l: t('PoR')}, {v: 'sms', l: t('SMS TPDU')},
+				{v: 'files', l: t('Files')}], 'testCheckKindChanged()');
 		if (c.kind === 'item') {
 			html += testFormInput('test-check-id-' + i, c.id, t('id'));
 			html += testFormInput('test-check-text-' + i, c.text, t('text'));
@@ -7491,6 +7519,12 @@ function testRenderChecks() {
 			html += testFormInput('test-check-porstatus-' + i, c.status, 'por_ok');
 			html += testFormInput('test-check-por-sw-' + i, c.sw && c.sw.value, '6A88');
 			html += testFormInput('test-check-por-data-' + i, c.data && c.data.value, 'AA??');
+		} else if (c.kind === 'sms') {
+			html += testFormInput('test-check-smsda-' + i, c.da, '12345');
+			html += testFormInput('test-check-smspid-' + i, c.pid && c.pid.value, '7F');
+			html += testFormInput('test-check-smsdcs-' + i, c.dcs && c.dcs.value, '00');
+			html += testFormInput('test-check-smsudl-' + i, c.udl === undefined ? '' : c.udl, 'UDL');
+			html += testFormInput('test-check-smsud-' + i, c.ud && c.ud.value, 'AA??');
 		} else if (c.kind === 'files') {
 			html += testFormInput('test-check-files-' + i, (c.files || []).join(', '), '3F007F106F3A');
 		} else {
@@ -7544,6 +7578,17 @@ function testChecksCollect() {
 			if (sw) row.sw = {mode: sw.includes('?') ? 'mask' : 'exact', value: sw};
 			const data = val('test-check-por-data-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
 			if (data) row.data = {mode: data.includes('?') ? 'mask' : 'exact', value: data};
+		} else if (kind === 'sms') {
+			const da = val('test-check-smsda-' + i);
+			if (da) row.da = da;
+			const pid = val('test-check-smspid-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+			if (pid) row.pid = {mode: pid.includes('?') ? 'mask' : 'exact', value: pid};
+			const dcs = val('test-check-smsdcs-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+			if (dcs) row.dcs = {mode: dcs.includes('?') ? 'mask' : 'exact', value: dcs};
+			const udl = val('test-check-smsudl-' + i);
+			if (udl !== '' && !isNaN(parseInt(udl, 10))) row.udl = parseInt(udl, 10);
+			const ud = val('test-check-smsud-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+			if (ud) row.ud = {mode: ud.includes('?') ? 'mask' : 'exact', value: ud};
 		} else if (kind === 'files') {
 			row.files = val('test-check-files-' + i).split(/[,\s]+/)
 				.map(s => s.replace(/[^0-9a-fA-F]/g, '').toUpperCase()).filter(Boolean);
@@ -7621,6 +7666,8 @@ function testStepCollect() {
 			['tar', 'spi1', 'spi2'].forEach(k => { const v = hexNoMask('test-f-' + k); if (v) p[k] = v; });
 			const kvn = (document.getElementById('test-f-kvn') || {}).value;
 			if (kvn !== undefined && String(kvn).trim() !== '') p.kvn = parseInt(String(kvn).trim(), 10);
+			const fmt = val('test-f-fmt');
+			if (fmt && fmt !== 'compact') p.format = fmt;
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
 		step.params = p;
@@ -7630,7 +7677,19 @@ function testStepCollect() {
 		const dataVal = hex('test-f-cdata');
 		if (dataVal) check.data = {mode: val('test-f-cdata-mode') || 'exact', value: dataVal};
 		const por = val('test-f-por');
-		if (kind === 'scp80' && por && por !== 'any') check.por = por;
+		if (kind === 'scp80' && por === 'custom') {
+			// the decoded-PoR assertion: status / SW / data, at least one
+			const spec = {};
+			const st = val('test-f-porstatus');
+			if (st) spec.status = st;
+			const psw = hex('test-f-por-sw');
+			if (psw) spec.sw = {mode: psw.includes('?') ? 'mask' : 'exact', value: psw};
+			const pdata = hex('test-f-por-data');
+			if (pdata) spec.data = {mode: pdata.includes('?') ? 'mask' : 'exact', value: pdata};
+			check.por = spec;
+		} else if (kind === 'scp80' && por && por !== 'any') {
+			check.por = por;
+		}
 		step.check = check;
 		step.on_fail = val('test-f-fail') || 'error';
 		const label = val('test-f-label');
@@ -7645,6 +7704,7 @@ function testStepCollect() {
 			if (c.kind === 'text') return !!(c.value || '').trim();
 			if (c.kind === 'item') return c.id || (c.text || '').trim();
 			if (c.kind === 'por') return !!(c.status || c.sw || c.data);
+			if (c.kind === 'sms') return !!(c.da || c.pid || c.dcs || c.udl !== undefined || c.ud);
 			if (c.kind === 'files') return !!(c.files && c.files.length);
 			return !!(c.value || '').trim();
 		});
@@ -7669,6 +7729,10 @@ function testStepFormError() {
 		if (step.kind === 'scp80') {
 			const src = p.source || (p.sp ? 'sp' : 'apdu');
 			if (src === 'sp' ? !p.sp : !p.apdu) return t('SCP80 needs an APDU or a secured packet');
+			const pc = (step.check || {}).por;
+			if (pc && typeof pc === 'object' && !pc.status && !pc.sw && !pc.data) {
+				return t('PoR check: status, SW or data is required');
+			}
 		}
 		if (step.kind === 'menu-select') {
 			const problem = testMenuSelectProblem(p);
@@ -21116,6 +21180,17 @@ const LANG_RU = {
 	'default: 9000 (91?? when polling)': 'по умолчанию: 9000 (91?? при опросе)',
 	'Expected data (hex, optional)': 'Ожидаемые данные (hex, опционально)',
 	'PoR check': 'Проверка PoR',
+	'Custom (status / SW / data)': 'Своя проверка (status / SW / data)',
+	'PoR status': 'Статус PoR',
+	'PoR SW (hex)': 'SW PoR (hex)',
+	'PoR data (hex)': 'Данные PoR (hex)',
+	'PoR check: status, SW or data is required': 'Проверка PoR: нужен status, SW или data',
+	'Command format': 'Формат команды',
+	'Compact': 'Компактный',
+	'Expanded (AA template)': 'Расширенный (шаблон AA)',
+	'Expanded (AE 80 template)': 'Расширенный (шаблон AE 80)',
+	'Alpha': 'Alpha',
+	'SMS TPDU': 'TPDU SMS',
 	'PoR ok': 'PoR: успешно',
 	'no PoR': 'PoR: нет',
 	'PoR error': 'Ошибка PoR',
