@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.18.1';
+const SIMPLE_VERSION = '3.18.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6878,6 +6878,10 @@ let _testCurrentIdx = -1;
 let _testRunState = null;
 let _testRunTimer = null;
 let _testSaveTimer = null;
+// One write chain per script object: saves of the same script run in order, so
+// two quick saves of an unsaved draft cannot both create it (the first assigns
+// the id before the second starts).
+let _testWriteChains = new WeakMap();
 let _testEditStep = null;
 let _testEditChecks = [];
 let _testLastPresetIdx = -1;
@@ -6937,11 +6941,23 @@ function testScriptsSave(immediate) {
 	const cur = testCurrent();
 	if (!cur) return;
 	if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
-	if (immediate) { testScriptsWriteback(cur); return; }
-	_testSaveTimer = setTimeout(() => { _testSaveTimer = null; testScriptsWriteback(cur); }, 600);
+	if (immediate) { testScriptsWritebackQueued(cur); return; }
+	_testSaveTimer = setTimeout(() => {
+		_testSaveTimer = null;
+		testScriptsWritebackQueued(cur);
+	}, 600);
+}
+
+// Serialize the writebacks of one script: the queued save reads `script.id`
+// only when it runs, so a create's id is adopted before the next update.
+function testScriptsWritebackQueued(script) {
+	const prev = _testWriteChains.get(script) || Promise.resolve();
+	const next = prev.then(() => testScriptsWriteback(script)).catch(() => {});
+	_testWriteChains.set(script, next);
 }
 
 async function testScriptsWriteback(script) {
+	if (script._deleted) return;   // queued before the delete: never resurrect
 	const problem = testScriptProblem(script);
 	if (problem) return;   // an incomplete draft stays local until it is valid
 	const payload = {name: script.name || '', steps: script.steps};
@@ -6952,7 +6968,13 @@ async function testScriptsWriteback(script) {
 		} else {
 			const resp = await pysimFetch('/api/test/scripts', payload);
 			if (resp.error) throw new Error(resp.error);
-			if (resp.script && resp.script.id) script.id = resp.script.id;
+			if (resp.script && resp.script.id) {
+				script.id = resp.script.id;
+				if (script._deleted) {
+					// deleted while the create was in flight: undo it
+					try { await pysimFetch('/api/test/scripts/delete', {id: script.id}); } catch (e) {}
+				}
+			}
 		}
 	} catch (e) {
 		ioStatus('test-io-status', t('Could not save the test script') + ': ' + e.message);
@@ -7150,6 +7172,8 @@ function testClone() {
 	if (!cur) return;
 	const copy = JSON.parse(JSON.stringify(cur));
 	delete copy.id;
+	delete copy._deleted;
+	delete copy._eventFieldsError;
 	copy.name = (copy.name || t('Script')) + ' (2)';
 	_testScripts.push(copy);
 	_testCurrentIdx = _testScripts.length - 1;
@@ -7161,11 +7185,16 @@ async function testDelete() {
 	const cur = testCurrent();
 	if (!cur) return;
 	if (!confirm(t('Delete this test script?'))) return;
+	// cancel a pending debounced write and mark the script: a queued or
+	// in-flight save must not resurrect it
+	if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
+	cur._deleted = true;
 	if (cur.id) {
 		try {
 			const resp = await pysimFetch('/api/test/scripts/delete', {id: cur.id});
 			if (resp.error) throw new Error(resp.error);
 		} catch (e) {
+			cur._deleted = false;   // the server still has it: keep it deletable
 			ioStatus('test-io-status', t('Could not delete the test script') + ': ' + e.message);
 			return;
 		}
@@ -7558,6 +7587,8 @@ function testStepCollect() {
 			p.event = val('test-f-evtype') || '03';
 			const raw = val('test-f-evfields');
 			p.fields = {};
+			// the flag reflects THIS collect, so fixing the JSON saves again
+			delete step._eventFieldsError;
 			if (raw) {
 				try {
 					const obj = JSON.parse(raw);
@@ -7567,7 +7598,6 @@ function testStepCollect() {
 					step._eventFieldsError = true;
 				}
 			}
-			if (!step._eventFieldsError && !raw) delete step._eventFieldsError;
 		}
 		else if (kind === 'file-write' || kind === 'file-read') {
 			p.path = val('test-f-path');

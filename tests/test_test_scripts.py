@@ -113,6 +113,32 @@ class StorePersistenceTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_an_entry_that_fails_the_validator_is_kept_and_survives_a_save(self):
+        # a tightened engine rule (or a hand edit) must not silently destroy a
+        # stored script on load - it stays, fails at run/update time, and the
+        # next save keeps it on disk
+        store = make_store(self.tmp.name, validator=lambda raw: raw)
+        store.add(script('one'))
+
+        def strict(raw):
+            if raw['name'] == 'one':
+                raise ValueError('rule tightened in a later version')
+            return raw
+
+        reopened = make_store(self.tmp.name, validator=strict)
+        self.assertEqual([s['name'] for s in reopened.list()], ['one'])
+        reopened.add(script('two'))
+        again = make_store(self.tmp.name, validator=strict)
+        self.assertEqual(sorted(s['name'] for s in again.list()), ['one', 'two'])
+        # the kept entry is refused by the mutation paths while it stays invalid
+        # (here the validator rejects the name 'one'), and renaming it - the
+        # editor's fix - succeeds
+        one = next(s for s in reopened.list() if s['name'] == 'one')
+        with self.assertRaises(test_scripts.TestScriptError):
+            reopened.update(one['id'], {'name': 'one'})
+        fixed = reopened.update(one['id'], {'name': 'renamed'})
+        self.assertEqual(fixed['name'], 'renamed')
+
     def test_round_trip_keeps_ids_and_timestamps(self):
         store = make_store(self.tmp.name)
         s = store.add(script('one'))

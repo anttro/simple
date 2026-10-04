@@ -321,3 +321,26 @@ test('the event form previews the bytes the send would deliver', () => {
 	pysimEventPreview();
 	assert.strictEqual(els['event-send-preview'].value, '');
 });
+
+test('the shared event vectors match the PWA builders', () => {
+	// the same fixture is asserted against the Python builders by
+	// tests/test_events.py - a change on either side fails the other suite
+	// until the fixture and both implementations agree
+	const vectors = JSON.parse(fs.readFileSync(path.join(__dirname, 'event_vectors.json'), 'utf8'));
+	assert.ok(vectors.events.length && vectors.scts.length, 'the fixture must not be empty');
+	for (const v of vectors.events) {
+		const build = EVENT_FORMS[parseInt(v.event, 16)].build;
+		assert.strictEqual(build(v.fields).toUpperCase(), v.hex,
+			'event 0x' + v.event + ' ' + JSON.stringify(v.fields));
+	}
+	for (const v of vectors.scts) {
+		const d = {
+			getFullYear: () => v.year, getMonth: () => v.month - 1,
+			getDate: () => v.day, getHours: () => v.hour,
+			getMinutes: () => v.min, getSeconds: () => v.sec,
+			getTimezoneOffset: () => -v.tz_east_min,
+		};
+		assert.strictEqual(eventDateTimeTlv(d).toUpperCase(), '2607' + v.hex,
+			'scts ' + JSON.stringify(v));
+	}
+});

@@ -1,0 +1,25 @@
+{
+  "_note": "Shared event-data vectors for the semantic test-script `event` action.  Generated from the PWA's EVENT_FORMS builders (frontend/index.html) and asserted by BOTH suites - frontend/tests/event_forms.test.js (against the JS builders) and tests/test_events.py (against pysim_simple_server/events.py) - so the two implementations cannot drift apart.  A builder change must update this file, which then fails the other suite until it matches.",
+  "events": [
+    {"event": "03", "fields": {"status": "0", "mcc": "250", "mnc": "01", "lac": "00FF", "cell": "0001"}, "hex": "9B0100930752F01000FF0001"},
+    {"event": "03", "fields": {"status": "1", "mcc": "250"}, "hex": "9B0101"},
+    {"event": "03", "fields": {"status": "0"}, "hex": "9B0100"},
+    {"event": "03", "fields": {"status": "0", "mcc": "310", "mnc": "410", "lac": "ABCD", "cell": "1234"}, "hex": "9B01009307130014ABCD1234"},
+    {"event": "0B", "fields": {"tech": "0"}, "hex": "BF0100"},
+    {"event": "0B", "fields": {"tech": "8"}, "hex": "BF0108"},
+    {"event": "0B", "fields": {"tech": "12"}, "hex": "BF010C"},
+    {"event": "12", "fields": {"reg_type": "0"}, "hex": "F40100BF0100F50102930552F0100000"},
+    {"event": "12", "fields": {"reg_type": "3", "mcc": "262", "mnc": "02", "lac": "00FF", "rac": "05", "access_tech": "3", "cause": "15"}, "hex": "F40103BF0103F5010FF30662F22000FF05"},
+    {"event": "12", "fields": {"reg_type": "9", "mcc": "310", "mnc": "260", "tac": "A1B2C3", "access_tech": "8", "cause": "7", "ext_cause": "22"}, "hex": "F40109BF0108F501077D06130062A1B2C3570116"},
+    {"event": "12", "fields": {"reg_type": "17", "tac": "0001", "access_tech": "10", "cause": "2"}, "hex": "F40111BF010AF501027D0552F0100001"},
+    {"event": "12", "fields": {"reg_type": "9", "access_tech": "8", "cause": "2", "ext_info_type": "1", "ext_info": "00000001"}, "hex": "F40109BF0108F501027D0552F0100001F2050100000001"},
+    {"event": "1D", "fields": {"status": "0", "type": "0", "ti": "00", "loc_status": "0"}, "hex": "9D0100AA01001C01009B0100"},
+    {"event": "1D", "fields": {"status": "1", "type": "2", "cause": "26", "ti": "85", "mcc": "250", "mnc": "01", "lac": "00FF", "cell": "0001", "tech": "8", "loc_status": "1", "apn": "internet", "pdp_type": "3"}, "hex": "9D0101AA0102AE011A1C0185130752F01000FF0001BF01089B0101C708696E7465726E65740B0103"},
+    {"event": "1D", "fields": {"status": "2", "type": "1", "ti": "", "mcc": "250", "loc_status": "2"}, "hex": "9D0102AA01011C0100130752F010000000019B0102"},
+    {"event": "1D", "fields": {"status": "0", "type": "2", "ti": "AA", "mcc": "262", "mnc": "01", "lac": "0001", "cell": "0002", "tech": "7", "loc_status": "1", "apn": "web.operator.example", "pdp_type": "4"}, "hex": "9D0100AA01021C01AA130762F21000010002BF01079B0101C7147765622E6F70657261746F722E6578616D706C650B0104"}
+  ],
+  "scts": [
+    {"year": 2026, "month": 9, "day": 30, "hour": 21, "min": 55, "sec": 0, "tz_east_min": 180, "hex": "62900312550021"},
+    {"year": 2026, "month": 1, "day": 5, "hour": 8, "min": 7, "sec": 9, "tz_east_min": -150, "hex": "62105080709009"}
+  ]
+}

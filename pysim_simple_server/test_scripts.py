@@ -4,7 +4,10 @@ Test scripts used to live in the browser's localStorage, although the runner
 that executes them is server-side - the store makes the bench state one unit
 (next to the card presets), lets every browser (or a plain API client) manage
 the same set, and validates a script before it is saved, so what is stored is
-what the runner accepts.
+what the runner accepts.  A load keeps an entry that no longer validates - a
+tightened rule (or a hand edit) must never destroy a stored script; it is
+served, fails at run start with the validator's message, and can be fixed in
+the editor, while the next save rewrites the file with it intact.
 
 A stored script is the script JSON (``name`` + ``steps``, the same shape the
 PWA exports) plus a stable uuid and timestamps::
@@ -97,9 +100,23 @@ class TestScriptStore:
         loaded = []
         for entry in items:
             try:
-                loaded.append(self._normalise(entry, keep_meta=True))
+                s = self._normalise(entry, keep_meta=True, validate=False)
             except TestScriptError as e:
-                sys.stderr.write('TESTSCRIPTS: dropping an invalid entry: %s\n' % e)
+                sys.stderr.write('TESTSCRIPTS: dropping an unreadable entry: %s\n' % e)
+                continue
+            if self._validator is not None:
+                try:
+                    self._validator(copy.deepcopy({'name': s['name'],
+                                                   'steps': s['steps']}))
+                except Exception as e:
+                    # Keep it: a tightened rule (or a hand edit) must never
+                    # destroy a stored script - it is served, fails at run start
+                    # with the validator's message, and can be fixed in the
+                    # editor.  A later save rewrites the file WITH this entry.
+                    sys.stderr.write('TESTSCRIPTS: keeping %r - it does not '
+                                     'validate now: %s\n'
+                                     % (s['name'] or '(unnamed)', e))
+            loaded.append(s)
         self._scripts = loaded
 
     def _save(self):
@@ -132,13 +149,14 @@ class TestScriptStore:
             pass
 
     # ------------------------------------------------------------- shaping
-    def _check(self, raw):
+    def _check(self, raw, validate=True):
         """The script dict, validated: the basic shape always, the full engine
-        pass when a validator was provided.  The *input* shape is kept - the
-        engine's normalised output is not meant to be re-normalised (it fills
-        defaults like an 'any' PoR check), and the runner normalises again at
-        start, so storing what was submitted keeps the store re-validatable and
-        hand-editable."""
+        pass when a validator was provided (and ``validate`` is set - a load
+        keeps an entry that no longer validates, the mutation paths refuse it).
+        The *input* shape is kept - the engine's normalised output is not meant
+        to be re-normalised (it fills defaults like an 'any' PoR check), and the
+        runner normalises again at start, so storing what was submitted keeps
+        the store re-validatable and hand-editable."""
         if not isinstance(raw, dict):
             raise TestScriptError('script must be an object')
         name = raw.get('name')
@@ -154,7 +172,7 @@ class TestScriptStore:
                 raise TestScriptError('step %d must be an action or an expectation'
                                       % (i + 1))
         script = {'name': name.strip(), 'steps': copy.deepcopy(steps)}
-        if self._validator is not None:
+        if validate and self._validator is not None:
             try:
                 self._validator(copy.deepcopy(script))
             except Exception as e:
@@ -162,13 +180,13 @@ class TestScriptStore:
                 raise TestScriptError(str(e))
         return script
 
-    def _normalise(self, entry, keep_meta=False):
+    def _normalise(self, entry, keep_meta=False, validate=True):
         """A stored entry: the validated script plus id and timestamps.  With
         ``keep_meta`` the stored id/timestamps are preserved (a load), else
         fresh ones are made (an add)."""
         if not isinstance(entry, dict):
             raise TestScriptError('script must be an object')
-        script = self._check(entry)
+        script = self._check(entry, validate=validate)
         now = time.time()
         rid = str(entry.get('id') or '').strip().lower()
         if not re.fullmatch(r'[0-9a-f]{32}', rid):

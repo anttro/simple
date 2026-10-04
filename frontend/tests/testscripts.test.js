@@ -49,12 +49,14 @@ eval(extractFunc(html, 'testStepFormError'));
 eval(extractFunc(html, 'testWriteBackCounter'));
 eval(extractFunc(html, 'testRunPreset'));
 eval(extractFunc(html, 'testScriptsWriteback', true));
+eval(extractFunc(html, 'testScriptsWritebackQueued'));
 eval(extractFunc(html, 'testScriptsSave'));
 eval(extractFunc(html, 'testRunStart', true));
+eval(extractFunc(html, 'testDelete', true));
 eval(extractFunc(html, 'testChecksCollect'));
 eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
 	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;'
-	+ ' var _testSaveTimer = null; var _testLastPresetIdx = -1;');
+	+ ' var _testSaveTimer = null; var _testWriteChains = new WeakMap(); var _testLastPresetIdx = -1;');
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 function fakeForm(values) {
@@ -235,9 +237,50 @@ test('the event step collects the type and the JSON fields', () => {
 	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
 		'test-f-evfields': '{oops', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
 	assert.match(testStepFormError(), /JSON object/);
+	// fixing the JSON saves again - the error flag is not sticky
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
+		'test-f-evfields': '{"status":0}', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	assert.strictEqual(testStepFormError(), '');
 	// the summary names the event
 	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
 		params: { event: '03', fields: {} } }), 'EVENT Location status');
+});
+
+test('two quick saves of a draft create one script, then update it', async () => {
+	// the per-script write chain serializes saves: without it both would see
+	// the draft's missing id and create two server-side scripts
+	const calls = [];
+	globalThis.pysimFetch = async (path) => {
+		calls.push(path);
+		await new Promise(r => setTimeout(r, 5));
+		return { ok: true, script: { id: 'd'.repeat(32) } };
+	};
+	globalThis.ioStatus = () => {};
+	_testScripts = [{ name: 'one', steps: [{ type: 'action', kind: 'status', params: { attempts: 1 } }] }];
+	_testCurrentIdx = 0;
+	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	testScriptsSave(true);
+	testScriptsSave(true);
+	await new Promise(r => setTimeout(r, 40));
+	assert.deepStrictEqual(calls, ['/api/test/scripts', '/api/test/scripts/update']);
+	assert.strictEqual(_testScripts[0].id, 'd'.repeat(32));
+});
+
+test('deleting a script cancels a pending debounced save', async () => {
+	const calls = [];
+	globalThis.pysimFetch = async (path) => { calls.push(path); return {}; };
+	globalThis.ioStatus = () => {};
+	globalThis.confirm = () => true;
+	globalThis.testRender = () => {};
+	_testScripts = [{ name: 'draft', steps: [{ type: 'action', kind: 'status', params: { attempts: 1 } }] }];
+	_testCurrentIdx = 0;
+	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	testScriptsSave();                       // schedules the 600 ms write
+	await testDelete();                      // a draft: local removal only
+	await new Promise(r => setTimeout(r, 700));
+	assert.deepStrictEqual(calls, []);       // the queued save never fired
+	assert.strictEqual(_testScripts.length, 1);
+	assert.strictEqual(_testScripts[0].name, 'New test script');
 });
 
 test('the STATUS step leaves the SW check to the server default', () => {
