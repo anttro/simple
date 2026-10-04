@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.18.3'
+VERSION = '3.18.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4652,11 +4652,14 @@ _EVENT_INNER_MAX = 252
 _EVENT_DATA_MAX = _EVENT_INNER_MAX - 8
 
 
-def _send_event_download(scc, event_type, event_data=None, drain=True, src=None):
+def _send_event_download(scc, event_type, event_data=None, drain=True, src=None,
+                         log=True):
     """Send ENVELOPE(Event Download) for the given event type.
     Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 <src> 81 [extra]).
     `src` is the source device identity (TS 102 223 8.7: '82' terminal,
-    '83' network); the default is the terminal."""
+    '83' network); the default is the terminal.  `log=False` suppresses the
+    generic ENVELOPE lines - the test runner logs its own step-annotated line
+    with the event name, the source and the response SW."""
     if event_data and len(event_data) > _EVENT_DATA_MAX:
         raise ValueError('event data does not fit one ENVELOPE (max %d bytes; '
                          'chained delivery is not implemented)' % _EVENT_DATA_MAX)
@@ -4679,12 +4682,14 @@ def _send_event_download(scc, event_type, event_data=None, drain=True, src=None)
         # read as a long-form indicator)
         d6_tlv = bytes([0xD6, 0x81, len(inner)]) + bytes(inner)
     env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(d6_tlv), d6_tlv.hex())
-    sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
+    if log:
+        sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
     data, sw = scc._tp.send_apdu(env_hex)
     if sw.startswith('61'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
-    sys.stderr.write('ENVELOPE SW: %s\n' % sw)
+    if log:
+        sys.stderr.write('ENVELOPE SW: %s\n' % sw)
     if drain and sw.startswith('91'):
         _handle_proactive_chain(scc, sw)
         sw = '9000'
@@ -5989,7 +5994,7 @@ def _test_run_action(server, step, ctx):
     if kind == 'envelope':
         data, sw = _send_event_download(scc, p['event'],
                                         bytes.fromhex(p['data']) if p['data'] else None,
-                                        drain=False, src=p.get('src'))
+                                        drain=False, src=p.get('src'), log=False)
         sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
         _test_log('%s src=%s data=%s -> SW=%s%s'
                   % (sent, p.get('src') or '82', p['data'] or '(none)', sw or '(none)',
@@ -5998,7 +6003,7 @@ def _test_run_action(server, step, ctx):
         # The semantic event download: the builder owns the byte layout.
         data_hex = events.build(p['event'], p.get('fields') or {})
         data, sw = _send_event_download(scc, p['event'], bytes.fromhex(data_hex),
-                                        drain=False, src=p.get('src'))
+                                        drain=False, src=p.get('src'), log=False)
         sent = 'ENVELOPE(Event Download) type=0x%02X (%s) data=%s' % (
             p['event'], events.event_name(p['event']), data_hex)
         _test_log('%s src=%s -> SW=%s%s'

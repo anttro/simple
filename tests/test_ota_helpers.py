@@ -297,6 +297,9 @@ class TestSmsConcatenation(unittest.TestCase):
             _ota_reference('16', '01', '15', '15', 'b00000', '0000000001', apdu, K, K)
 
     def test_send_secured_packet_sends_the_segments_in_order(self):
+        import contextlib
+        import io
+
         import pysim_simple_server.server as srv
         apdu = '80E80000F0' + '00' * 240 + '00'
         sp_hex, _ = _build_secured_packet('16', '01', '15', '15', 'b00000',
@@ -307,13 +310,19 @@ class TestSmsConcatenation(unittest.TestCase):
             sent.append(tpdu_hex.upper())
             return '', '9000'
 
+        buf = io.StringIO()
         with mock.patch.object(srv, '_send_envelope', side_effect=fake_envelope):
-            result = _send_secured_packet(object(), sp_hex, oa_number='12345')
+            with contextlib.redirect_stderr(buf):
+                result = _send_secured_packet(object(), sp_hex, oa_number='12345')
         self.assertTrue(result['success'], result)
         self.assertEqual(result['bytes'], len(sp_hex) // 2)
         self.assertEqual(result['segments'], len(sent))
         self.assertTrue(2 <= result['segments'] <= SCP80_MAX_SEGMENTS)
         total = result['segments']
+        # every segment's answer is logged (the send-ota and test-run logs)
+        log = buf.getvalue()
+        for num in range(1, total + 1):
+            self.assertIn('OTA SEND: ENVELOPE %d/%d -> 9000' % (num, total), log)
         for num, tpdu in enumerate(sent, start=1):
             concat = '000301%02X%02X' % (total, num)   # IEI 00, IEDL 3, ref 01
             udhl = '07' if num == 1 else '05'

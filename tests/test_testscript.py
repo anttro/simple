@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Tests for the test-script engine (pure parts) and the server-side runner."""
 
+import contextlib
+import io
 import sys
 import time
 import unittest
@@ -522,26 +524,39 @@ class TestRunnerActions(RunnerTestCase):
     def test_event_action_sends_the_built_object(self):
         scc = FakeScc()
         scc.push('80C2', '', '9000')
-        run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'event',
-             'params': {'event': 'location status',
-                        'fields': {'status': '0', 'mcc': '250', 'mnc': '01',
-                                   'lac': '00FF', 'cell': '0001'}}},
-        ])
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'event',
+                 'params': {'event': 'location status',
+                            'fields': {'status': '0', 'mcc': '250', 'mnc': '01',
+                                       'lac': '00FF', 'cell': '0001'}}},
+            ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         apdu = scc.sent[0].upper()
         # event list + device identities (terminal default) + the built object
         self.assertIn('99010382028281' + '9B0100930752F01000FF0001', apdu)
+        # the runner logs one step-annotated ENVELOPE line, not the generic
+        # sender pair as well (its line carries the name, src and SW)
+        log = buf.getvalue()
+        self.assertIn('TEST-RUN step 1: ENVELOPE(Event Download) type=0x03 '
+                      '(location_status) data=9B0100930752F01000FF0001 src=82 -> SW=9000',
+                      log)
+        self.assertNotIn('ENVELOPE(Event Download): type=', log)
+        self.assertNotIn('ENVELOPE SW:', log)
         # the src override names the network as the source
         scc2 = FakeScc()
         scc2.push('80C2', '', '9000')
-        run = self.run_script(FakeServer(scc2), [
-            {'type': 'action', 'kind': 'event',
-             'params': {'event': '0x0B', 'fields': {'tech': '8'}, 'src': '83'}},
-        ])
+        buf2 = io.StringIO()
+        with contextlib.redirect_stderr(buf2):
+            run = self.run_script(FakeServer(scc2), [
+                {'type': 'action', 'kind': 'event',
+                 'params': {'event': '0x0B', 'fields': {'tech': '8'}, 'src': '83'}},
+            ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         apdu = scc2.sent[0].upper()
         self.assertIn('99010B82028381' + 'BF0108', apdu)
+        self.assertIn('src=83 -> SW=9000', buf2.getvalue())
         # the raw envelope action takes the same source override
         scc3 = FakeScc()
         scc3.push('80C2', '', '9000')
@@ -733,8 +748,6 @@ class TestRunnerActions(RunnerTestCase):
         # the semantic lines a verification needs: the plaintext C-APDU, the
         # built secured packet, the FETCH/CMD/TR pair of an expectation and
         # the menu selection's ENVELOPE with the resolved item
-        import contextlib
-        import io
         scc = FakeScc()
         scc.push('80F2', '', '9102')
         scc.push('8012', self.SETUP_MENU_CMD, '9000')
@@ -770,11 +783,11 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIn('TEST-RUN step 3: TR=', log)
         self.assertIn('TEST-RUN step 4: MENU-SELECT ENVELOPE=', log)
         self.assertIn("item=1 ('One')", log)
+        # the report's label carries the plaintext APDU too (log/report parity)
+        self.assertIn('C-APDU=80E2900000', run['steps'][0]['sent'])
 
     def test_the_run_log_carries_the_inline_por(self):
         # the decoded PoR and its R-APDU are logged with the raw packet
-        import contextlib
-        import io
         scc = FakeScc()
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
                   'counter': '0000000A', 'tars': preset_tars()}
@@ -799,8 +812,6 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIn('TEST-RUN step 1: R-APDU SW=9000 data=AABB', log)
 
     def test_expect_decodes_the_submit_por(self):
-        import contextlib
-        import io
         scc = FakeScc()
         preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
                   'counter': '0000000A', 'tars': preset_tars()}
