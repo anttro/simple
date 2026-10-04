@@ -517,6 +517,39 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIs(preset, inline)
         self.assertIsNone(err)
 
+    def test_run_script_resolves_the_stored_id(self):
+        import types
+        entry = {'id': 'a' * 32, 'name': 'stored',
+                 'steps': [{'type': 'action', 'kind': 'status',
+                            'params': {'attempts': 1}}]}
+
+        class Store:
+            def get(self, sid):
+                return entry if sid == entry['id'] else None
+
+        server = types.SimpleNamespace(test_scripts=Store())
+        # the inline script wins (the PWA sends the edited copy) - the id is
+        # carried for the report
+        raw, sid, err = S._test_run_script_from_body(
+            server, {'script': {'name': 'inline', 'steps': [{}]},
+                     'script_id': entry['id']})
+        self.assertEqual(raw['name'], 'inline')
+        self.assertEqual(sid, entry['id'])
+        self.assertIsNone(err)
+        # script_id alone resolves from the store
+        raw, sid, err = S._test_run_script_from_body(server, {'script_id': entry['id']})
+        self.assertEqual(raw, {'name': 'stored', 'steps': entry['steps']})
+        self.assertEqual(sid, entry['id'])
+        self.assertIsNone(err)
+        raw, sid, err = S._test_run_script_from_body(server, {'script_id': 'nope'})
+        self.assertIsNone(raw)
+        self.assertIn('not found', err)
+        # neither form: the normaliser reports the missing script
+        raw, sid, err = S._test_run_script_from_body(server, {})
+        self.assertIsNone(raw)
+        self.assertIsNone(sid)
+        self.assertIsNone(err)
+
     def test_preset_completeness_is_validated(self):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'}},

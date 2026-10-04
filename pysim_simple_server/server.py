@@ -22,6 +22,7 @@ from pysim_simple_server import esim
 from pysim_simple_server import capmem
 from pysim_simple_server import testscript
 from pysim_simple_server import presets
+from pysim_simple_server import test_scripts
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
 
@@ -32,7 +33,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.15.0'
+VERSION = '3.16.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5572,7 +5573,8 @@ _TEST_RUNNING = False
 _TEST_RUN = {
     'running': False, 'stop': False, 'name': None, 'status': None,
     'session': None, 'index': 0, 'total': 0, 'steps': [],
-    'preset': None, 'scp80_counter': None, 'scp80_counters': {},
+    'preset': None, 'script_id': None,
+    'scp80_counter': None, 'scp80_counters': {},
     'started': None, 'finished': None, 'error': None,
 }
 _TEST_LOCK = threading.Lock()
@@ -5606,7 +5608,7 @@ _CARD_FREE_GET = frozenset([
     '/api/stk-status', '/api/poll-status', '/api/proactive-log',
     '/api/menu', '/api/events', '/api/terminal-profile',
     '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
-    '/api/net-state', '/api/mcc-mnc', '/api/presets',
+    '/api/net-state', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
 ])
@@ -5949,6 +5951,23 @@ def _test_run_action(server, step, ctx):
     return result, pending
 
 
+def _test_run_script_from_body(server, body):
+    """The script of a run: the inline `script` body (the PWA always sends the
+    edited copy) or the stored script named by `script_id`.  Returns
+    ``(script_raw, script_id, error)``; error is None on success."""
+    script_raw = body.get('script')
+    script_id = str(body.get('script_id') or '').strip()
+    if isinstance(script_raw, dict):
+        return script_raw, script_id or None, None
+    if not script_id:
+        return None, None, None
+    store = getattr(server, 'test_scripts', None)
+    entry = store.get(script_id) if store else None
+    if entry is None:
+        return None, None, 'test script %s not found' % script_id
+    return {'name': entry['name'], 'steps': entry['steps']}, entry['id'], None
+
+
 def _test_run_preset_from_body(server, body):
     """The preset of a run: the inline `preset` body (external API callers,
     docs/api.md) or the stored preset named by `preset_id` - the PWA sends the
@@ -6259,7 +6278,7 @@ def _test_run_worker(server, script, preset):
             _reset_poll_timer()
 
 
-def _test_run_start(server, script, preset):
+def _test_run_start(server, script, preset, script_id=None):
     """Start a run: suspend background polling, answer a paused interactive
     command, own the card via the worker thread."""
     global _TEST_THREAD, _TEST_RUNNING, _POLL_TIMER
@@ -6269,7 +6288,7 @@ def _test_run_start(server, script, preset):
             'session': getattr(server, 'card_session', 0), 'index': 0,
             'total': len(script['steps']), 'steps': [], 'started': time.time(),
             'finished': None, 'error': None, 'scp80_counter': None,
-            'scp80_counters': {},
+            'scp80_counters': {}, 'script_id': script_id,
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
         })
     _TEST_RUNNING = True
@@ -6332,6 +6351,24 @@ class PysimHandler(BaseHTTPRequestHandler):
         """A store I/O failure (read-only home, disk full, ...) answers a JSON
         500 instead of escaping the handler as a dropped connection."""
         resp = {'error': 'preset store write failed: %s' % e}
+        self._send_json(resp, 500)
+        self._log_resp(resp)
+
+    def _test_scripts_store_or_503(self):
+        """The test script store, or None after answering 503 (a server built
+        without one - e.g. a test harness - must not crash the endpoints)."""
+        store = getattr(self.server, 'test_scripts', None)
+        if store is None:
+            resp = {'error': 'test script store not initialized'}
+            self._send_json(resp, 503)
+            self._log_resp(resp)
+            return None
+        return store
+
+    def _test_scripts_store_error(self, e):
+        """A store I/O failure (read-only home, disk full, ...) answers a JSON
+        500 instead of escaping the handler as a dropped connection."""
+        resp = {'error': 'test script store write failed: %s' % e}
         self._send_json(resp, 500)
         self._log_resp(resp)
 
@@ -6711,6 +6748,15 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = _scp81_script_state()
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/test/scripts':
+            self._log_req()
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            resp = store.info()
+            resp['scripts'] = store.list()
+            self._send_json(resp)
+            self._log_resp({'path': resp['path'], 'count': resp['count']})
         elif self.path == '/api/presets':
             self._log_req()
             store = self._preset_store_or_503()
@@ -8149,6 +8195,86 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {'ok': True, 'seq': _BIP.seq}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/test/scripts':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            script = body.get('script') if isinstance(body.get('script'), dict) else body
+            try:
+                entry = store.add(script)
+            except test_scripts.TestScriptError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except OSError as e:
+                self._test_scripts_store_error(e)
+                return
+            resp = {'ok': True, 'script': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name']})
+        elif self.path == '/api/test/scripts/update':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            fields = body.get('script') if isinstance(body.get('script'), dict) else body
+            try:
+                entry = store.update(body.get('id'), fields)
+            except test_scripts.TestScriptError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except OSError as e:
+                self._test_scripts_store_error(e)
+                return
+            if entry is None:
+                resp = {'error': 'unknown test script id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True, 'script': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name']})
+        elif self.path == '/api/test/scripts/delete':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            try:
+                removed = store.remove(body.get('id'))
+            except OSError as e:
+                self._test_scripts_store_error(e)
+                return
+            resp = {'ok': True, 'removed': removed}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/scripts/import':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            items = body.get('scripts')
+            if not isinstance(items, list) or len(items) > 1000:
+                resp = {'error': 'scripts must be a list of at most 1000 entries'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
+            try:
+                resp = store.import_scripts(items, mode)
+            except OSError as e:
+                self._test_scripts_store_error(e)
+                return
+            resp['ok'] = True
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/test/run':
             body = self._read_body()
             self._log_req(body)
@@ -8157,8 +8283,14 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 409)
                 self._log_resp(resp)
                 return
+            script_raw, script_id, script_err = _test_run_script_from_body(self.server, body)
+            if script_err:
+                resp = {'error': script_err}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
             try:
-                script = testscript.normalise_script(body.get('script'), _test_command_type)
+                script = testscript.normalise_script(script_raw, _test_command_type)
             except testscript.ScriptError as e:
                 resp = {'error': str(e)}
                 self._send_json(resp, 400)
@@ -8179,7 +8311,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
                 return
             try:
-                _test_run_start(self.server, script, preset)
+                _test_run_start(self.server, script, preset, script_id or None)
             except Exception as e:
                 resp = {'error': 'could not start the test run: %s' % e}
                 self._send_json(resp, 500)

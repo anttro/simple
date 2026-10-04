@@ -981,5 +981,136 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 503, resp)
 
 
+class TestScriptStoreHttpTests(unittest.TestCase):
+    """The test script endpoints (v3.16.0): the PWA's Test script pill talks
+    to the server store instead of localStorage, and a run may name a stored
+    script by id."""
+
+    def setUp(self):
+        import tempfile
+        from pysim_simple_server import test_scripts
+        from pysim_simple_server import testscript
+        from pysim_simple_server import server as srv
+        self.srv = srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = test_scripts.TestScriptStore(
+            pathlib.Path(self.tmp.name) / 'test_scripts.json',
+            validator=lambda raw: testscript.normalise_script(raw, srv._test_command_type))
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        self.server.sl = None
+        self.server.scc = object()
+        self.server.test_scripts = self.store
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def _post(self, path, body):
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path),
+            data=json.dumps(body).encode(),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read() or b'{}')
+            e.close()
+            return e.code, body
+
+    def _get(self, path, timeout=5):
+        try:
+            with urllib.request.urlopen(
+                    'http://127.0.0.1:%d%s' % (self.port, path), timeout=timeout) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read() or b'{}')
+            e.close()
+            return e.code, body
+
+    def _script(self, **kw):
+        s = {'name': 'demo', 'steps': [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}]}
+        s.update(kw)
+        return s
+
+    def test_the_get_route_is_card_free_and_reports_the_store(self):
+        self.assertIn('/api/test/scripts', _CARD_FREE_GET)
+        with _CARD_LOCK:
+            status, resp = self._get('/api/test/scripts')
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['scripts'], [])
+        self.assertEqual(resp['path'], str(self.store.path))
+
+    def test_create_update_delete_round_trip(self):
+        status, resp = self._post('/api/test/scripts', self._script())
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        self.assertTrue(sid)
+        status, resp = self._get('/api/test/scripts')
+        self.assertEqual(len(resp['scripts']), 1)
+        self.assertEqual(resp['scripts'][0]['id'], sid)
+
+        status, resp = self._post('/api/test/scripts/update',
+                                  {'id': sid, 'script': {'name': 'renamed'}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['script']['name'], 'renamed')
+        self.assertEqual(resp['script']['id'], sid)
+        status, resp = self._post('/api/test/scripts/update',
+                                  {'id': 'nope', 'script': {}})
+        self.assertEqual(status, 404, resp)
+
+        status, resp = self._post('/api/test/scripts/delete', {'id': sid})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['removed'])
+        self.assertEqual(self.store.list(), [])
+
+    def test_create_validates_with_the_engine(self):
+        status, resp = self._post('/api/test/scripts', {'name': 'x', 'steps': []})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('at least one step', resp['error'])
+        status, resp = self._post('/api/test/scripts', {'name': 'x', 'steps': [
+            {'type': 'action', 'kind': 'nonsense', 'params': {}}]})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('unknown action kind', resp['error'])
+
+    def test_import_accepts_the_old_localstorage_export(self):
+        status, resp = self._post('/api/test/scripts/import', {'scripts': [
+            {'name': 'A', 'steps': [{'type': 'action', 'kind': 'status',
+                                     'params': {'attempts': 1}}]},
+            {'name': 'Broken', 'steps': []},
+        ]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 1)
+        self.assertEqual(resp['skipped'], 1)
+        self.assertEqual(self.store.list()[0]['name'], 'A')
+        status, resp = self._post('/api/test/scripts/import', {'scripts': 'nope'})
+        self.assertEqual(status, 400, resp)
+
+    def test_the_run_rejects_an_unknown_script_id(self):
+        status, resp = self._post('/api/test/run', {'script_id': 'nope'})
+        self.assertEqual(status, 404, resp)
+        self.assertIn('not found', resp['error'])
+
+    def test_a_store_write_failure_answers_a_json_500(self):
+        with mock.patch.object(self.store, 'add',
+                               side_effect=OSError('read-only file system')):
+            status, resp = self._post('/api/test/scripts', self._script())
+        self.assertEqual(status, 500, resp)
+        self.assertIn('test script store write failed', resp['error'])
+
+    def test_the_store_endpoints_answer_503_without_a_store(self):
+        self.server.test_scripts = None
+        status, resp = self._get('/api/test/scripts')
+        self.assertEqual(status, 503, resp)
+        status, resp = self._post('/api/test/scripts', self._script())
+        self.assertEqual(status, 503, resp)
+
+
 if __name__ == '__main__':
     unittest.main()

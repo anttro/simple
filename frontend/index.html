@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.15.0';
+const SIMPLE_VERSION = '3.16.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6866,18 +6866,18 @@ function decodeResponse() {
 }
 
 // ===== Test scripts (Simulator pill) =====
-// Scripts are stored locally (simple_tests) and executed server-side
-// (/api/test/run): the server owns the card while a run is active (other
-// card endpoints answer 409) and reports the steps through
-// /api/test/status.  This UI edits the script and monitors the run; the
+// Scripts are stored server-side (~/.pysim-simple-server/test_scripts.json)
+// and executed server-side (/api/test/run): the server owns the card while a
+// run is active (other card endpoints answer 409) and reports the steps
+// through /api/test/status.  This UI edits the script and monitors the run;
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
 // the final SCP80 counter is written back to it.
-const TEST_SCRIPT_STORAGE = 'simple_tests';
 const TEST_ACTION_KINDS = ['envelope', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status'];
 let _testScripts = null;
 let _testCurrentIdx = -1;
 let _testRunState = null;
 let _testRunTimer = null;
+let _testSaveTimer = null;
 let _testEditStep = null;
 let _testEditChecks = [];
 let _testLastPresetIdx = -1;
@@ -6907,21 +6907,56 @@ function testTemplate(kind) {
 	return {name: t('New test script'), steps: []};
 }
 
-function testScriptsLoad() {
-	if (_testScripts) return _testScripts;
+// Scripts live in the server-side store (~/.pysim-simple-server/test_scripts.json,
+// --test-scripts): the runner is server-side, so the store is the source of
+// truth and every browser manages the same set.  Export/import moves scripts
+// between benches (the old localStorage shape imports as-is).
+async function testScriptsFetch() {
 	try {
-		const raw = JSON.parse(localStorage.getItem(TEST_SCRIPT_STORAGE) || '[]');
-		_testScripts = Array.isArray(raw) ? raw.filter(s => s && typeof s === 'object') : [];
+		const data = await pysimFetchOk('/api/test/scripts');
+		_testScripts = Array.isArray(data.scripts) ? data.scripts : [];
 	} catch (e) {
-		_testScripts = [];
+		_testScripts = _testScripts || [];
+		ioStatus('test-io-status', t('Could not load the test scripts from the server') + ': ' + e.message);
 	}
 	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
 	if (_testCurrentIdx < 0 || _testCurrentIdx >= _testScripts.length) _testCurrentIdx = 0;
 	return _testScripts;
 }
 
-function testScriptsSave() {
-	localStorage.setItem(TEST_SCRIPT_STORAGE, JSON.stringify(_testScripts || []));
+function testScriptsLoad() {
+	if (!_testScripts) _testScripts = [testTemplate('empty')];
+	if (_testCurrentIdx < 0 || _testCurrentIdx >= _testScripts.length) _testCurrentIdx = 0;
+	return _testScripts;
+}
+
+// Write the current script through to the store: an unsaved draft is created
+// on the first valid save, later edits update it.  Discrete edits save
+// immediately, the name field (which fires per keystroke) is debounced.
+function testScriptsSave(immediate) {
+	const cur = testCurrent();
+	if (!cur) return;
+	if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
+	if (immediate) { testScriptsWriteback(cur); return; }
+	_testSaveTimer = setTimeout(() => { _testSaveTimer = null; testScriptsWriteback(cur); }, 600);
+}
+
+async function testScriptsWriteback(script) {
+	const problem = testScriptProblem(script);
+	if (problem) return;   // an incomplete draft stays local until it is valid
+	const payload = {name: script.name || '', steps: script.steps};
+	try {
+		if (script.id) {
+			const resp = await pysimFetch('/api/test/scripts/update', {id: script.id, script: payload});
+			if (resp.error) throw new Error(resp.error);
+		} else {
+			const resp = await pysimFetch('/api/test/scripts', payload);
+			if (resp.error) throw new Error(resp.error);
+			if (resp.script && resp.script.id) script.id = resp.script.id;
+		}
+	} catch (e) {
+		ioStatus('test-io-status', t('Could not save the test script') + ': ' + e.message);
+	}
 }
 
 function testCurrent() {
@@ -7078,7 +7113,6 @@ function testNew() {
 	const kind = (document.getElementById('test-template') || {}).value || 'empty';
 	_testScripts.push(testTemplate(kind));
 	_testCurrentIdx = _testScripts.length - 1;
-	testScriptsSave();
 	testRender();
 }
 
@@ -7086,28 +7120,39 @@ function testClone() {
 	const cur = testCurrent();
 	if (!cur) return;
 	const copy = JSON.parse(JSON.stringify(cur));
+	delete copy.id;
 	copy.name = (copy.name || t('Script')) + ' (2)';
 	_testScripts.push(copy);
 	_testCurrentIdx = _testScripts.length - 1;
-	testScriptsSave();
+	testScriptsSave(true);
 	testRender();
 }
 
-function testDelete() {
+async function testDelete() {
 	const cur = testCurrent();
 	if (!cur) return;
 	if (!confirm(t('Delete this test script?'))) return;
+	if (cur.id) {
+		try {
+			const resp = await pysimFetch('/api/test/scripts/delete', {id: cur.id});
+			if (resp.error) throw new Error(resp.error);
+		} catch (e) {
+			ioStatus('test-io-status', t('Could not delete the test script') + ': ' + e.message);
+			return;
+		}
+	}
 	_testScripts.splice(_testCurrentIdx, 1);
 	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
 	_testCurrentIdx = Math.max(0, _testCurrentIdx - 1);
-	testScriptsSave();
 	testRender();
 }
 
 function testExport() {
 	const cur = testCurrent();
 	if (!cur) return;
-	downloadJson((cur.name || 'test-script').replace(/[^\w.-]+/g, '_') + '.json', cur);
+	// the portable shape: no store metadata
+	downloadJson((cur.name || 'test-script').replace(/[^\w.-]+/g, '_') + '.json',
+		{name: cur.name || '', steps: cur.steps || []});
 }
 
 function testImportOpen() {
@@ -7120,7 +7165,7 @@ function testImportFile(input) {
 	if (input) input.value = '';
 	if (!file) return;
 	const reader = new FileReader();
-	reader.onload = () => {
+	reader.onload = async () => {
 		let obj = null;
 		try {
 			obj = JSON.parse(String(reader.result || ''));
@@ -7128,17 +7173,31 @@ function testImportFile(input) {
 			ioStatus('test-io-status', t('Import failed:') + ' ' + e.message);
 			return;
 		}
-		const problem = testScriptProblem(obj);
-		if (problem) {
-			ioStatus('test-io-status', t('Import failed:') + ' ' + problem);
+		// a single script or an exported array (the old localStorage shape)
+		const list = Array.isArray(obj) ? obj : [obj];
+		if (!list.length) {
+			ioStatus('test-io-status', t('Import failed:') + ' ' + t('no scripts found'));
 			return;
 		}
-		obj.name = obj.name || file.name.replace(/\.json$/i, '');
-		_testScripts.push(obj);
-		_testCurrentIdx = _testScripts.length - 1;
-		testScriptsSave();
-		testRender();
-		ioStatus('test-io-status', t('Imported:') + ' ' + obj.name);
+		for (const s of list) {
+			const problem = testScriptProblem(s);
+			if (problem) {
+				ioStatus('test-io-status', t('Import failed:') + ' ' + problem);
+				return;
+			}
+			if (!s.name) s.name = file.name.replace(/\.json$/i, '');
+		}
+		try {
+			const resp = await pysimFetch('/api/test/scripts/import', {scripts: list});
+			if (resp.error) throw new Error(resp.error);
+			await testScriptsFetch();
+			_testCurrentIdx = Math.max(0, _testScripts.length - (resp.added || list.length));
+			testRender();
+			ioStatus('test-io-status', t('Imported:') + ' ' + (resp.added || list.length) +
+				(resp.skipped ? ' — ' + t('skipped') + ': ' + resp.skipped : ''));
+		} catch (e) {
+			ioStatus('test-io-status', t('Import failed:') + ' ' + e.message);
+		}
 	};
 	reader.readAsText(file);
 }
@@ -7180,7 +7239,7 @@ function testStepSave() {
 	const step = _testEditStep;
 	if (_testEditStepIndex >= 0) cur.steps[_testEditStepIndex] = step;
 	else cur.steps.push(step);
-	testScriptsSave();
+	testScriptsSave(true);
 	document.getElementById('test-step-modal').classList.add('hidden');
 	_testEditStep = null;
 	_testEditChecks = [];
@@ -7194,7 +7253,7 @@ function testMoveStep(i, delta) {
 	const tmp = cur.steps[i];
 	cur.steps[i] = cur.steps[j];
 	cur.steps[j] = tmp;
-	testScriptsSave();
+	testScriptsSave(true);
 	testRenderSteps();
 }
 
@@ -7202,7 +7261,7 @@ function testDeleteStep(i) {
 	const cur = testCurrent();
 	if (!cur) return;
 	cur.steps.splice(i, 1);
-	testScriptsSave();
+	testScriptsSave(true);
 	testRenderSteps();
 }
 
@@ -7618,6 +7677,7 @@ async function testRunStart() {
 	}
 	try {
 		const body = {script: cur};
+		if (cur.id) body.script_id = cur.id;
 		if (presetId) body.preset_id = presetId;
 		const resp = await pysimFetch('/api/test/run', body);
 		if (resp.error) { testRunMessage(resp.error, 'error'); return; }
@@ -7713,7 +7773,7 @@ function testWriteBackCounter() {
 }
 
 async function testInit() {
-	testScriptsLoad();
+	await testScriptsFetch();
 	testRender();
 	try {
 		const st = await pysimFetch('/api/test/status');
@@ -20932,6 +20992,11 @@ const LANG_RU = {
 	'PoR': 'PoR',
 	'Files': 'Файлы',
 	'keyset number must be 1..15': 'номер keyset должен быть 1..15',
+	'Could not load the test scripts from the server': 'Не удалось загрузить тест-скрипты с сервера',
+	'Could not save the test script': 'Не удалось сохранить тест-скрипт',
+	'Could not delete the test script': 'Не удалось удалить тест-скрипт',
+	'no scripts found': 'скрипты не найдены',
+	'skipped': 'пропущено',
 	'Test script running:': 'Выполняется тест-скрипт:',
 	'Test script running': 'Выполняется тест-скрипт',
 	'Preset': 'Пресет',

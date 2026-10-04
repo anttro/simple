@@ -5,10 +5,12 @@ the card over the local server: ordered **actions** (each sends something and
 checks the response) and **expectations** (each fetches the proactive command
 the card announced, checks it, and sends the scripted TERMINAL RESPONSE).
 
-Scripts are imported into the PWA (Simulator → Test script → Import) and run
-with **Run** against the equipped card, or POSTed directly to
-`/api/test/run` (see `docs/api.md`).  While a run is active the card belongs to
-the script.
+Scripts live in the **server-side store**
+(`~/.pysim-simple-server/test_scripts.json`, `--test-scripts`): the PWA's Test
+script pill manages them (Import/Export move JSON in and out, the old
+localStorage export imports as-is), and any API client can create or run them
+(`POST /api/test/run` with an inline `script` or a stored `script_id` - see
+`docs/api.md`).  While a run is active the card belongs to the script.
 
 ## Document shape
 

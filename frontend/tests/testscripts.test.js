@@ -45,10 +45,13 @@ eval(extractFunc(html, 'testRenderChecks'));
 eval(extractFunc(html, 'testStepCollect'));
 eval(extractFunc(html, 'testWriteBackCounter'));
 eval(extractFunc(html, 'testRunPreset'));
+eval(extractFunc(html, 'testScriptsWriteback', true));
+eval(extractFunc(html, 'testScriptsSave'));
+eval(extractFunc(html, 'testRunStart', true));
 eval(extractFunc(html, 'testChecksCollect'));
 eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
 	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;'
-	+ ' var _testLastPresetIdx = -1;');
+	+ ' var _testSaveTimer = null; var _testLastPresetIdx = -1;');
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 function fakeForm(values) {
@@ -348,4 +351,72 @@ test('the check summary names the PoR and file-list checks', () => {
 		'por status por_ok SW ~6A8? data AABB');
 	assert.strictEqual(testCheckSummary({ kind: 'files', files: ['3F002FE2'] }),
 		'files 3F002FE2');
+});
+
+test('a new script is created in the server store and gets its id', async () => {
+	const calls = [];
+	globalThis.pysimFetch = async (path, body) => {
+		calls.push([path, body]);
+		return {ok: true, script: {id: 'a'.repeat(32)}};
+	};
+	globalThis.ioStatus = () => {};
+	const s = {name: 'new', steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]};
+	await testScriptsWriteback(s);
+	assert.strictEqual(calls[0][0], '/api/test/scripts');
+	assert.strictEqual(calls[0][1].name, 'new');
+	assert.strictEqual(s.id, 'a'.repeat(32));      // the store id is adopted
+	// every later write updates by id
+	await testScriptsWriteback(s);
+	assert.strictEqual(calls[1][0], '/api/test/scripts/update');
+	assert.strictEqual(calls[1][1].id, 'a'.repeat(32));
+});
+
+test('an incomplete draft is not written to the store', async () => {
+	const calls = [];
+	globalThis.pysimFetch = async (path) => { calls.push(path); return {}; };
+	globalThis.ioStatus = () => {};
+	await testScriptsWriteback({name: 'draft', steps: []});
+	await testScriptsWriteback({name: 'draft', steps: [{type: 'action'}]});
+	assert.deepStrictEqual(calls, []);
+});
+
+test('an immediate save writes the current script through', async () => {
+	const calls = [];
+	globalThis.pysimFetch = async (path) => { calls.push(path); return {ok: true, script: {id: 'c'.repeat(32)}}; };
+	globalThis.ioStatus = () => {};
+	_testScripts = [{name: 'one', steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]}];
+	_testCurrentIdx = 0;
+	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	testScriptsSave(true);
+	await new Promise(r => setTimeout(r, 0));      // the writeback is async
+	assert.deepStrictEqual(calls, ['/api/test/scripts']);
+	assert.strictEqual(_testScripts[0].id, 'c'.repeat(32));
+});
+
+test('a store failure is reported, not swallowed', async () => {
+	let msg = '';
+	globalThis.pysimFetch = async () => ({error: 'read-only file system'});
+	globalThis.ioStatus = (id, text) => { msg = text; };
+	await testScriptsWriteback({name: 'x', steps: [{type: 'action', kind: 'status', params: {}}]});
+	assert.match(msg, /read-only file system/);
+});
+
+test('the run sends the stored script id with the edited script', async () => {
+	let sent = null;
+	globalThis.pysimFetch = async (path, body) => {
+		sent = {path, body};
+		return {running: true, name: 'saved', index: 0, total: 1, steps: [], status: null};
+	};
+	globalThis.testCurrent = () => ({id: 'b'.repeat(32), name: 'saved',
+		steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]});
+	globalThis.testRunPreset = () => { throw new Error('no preset for a status-only script'); };
+	globalThis.testRunMessage = () => {};
+	globalThis.testRenderRun = () => {};
+	globalThis.testStartRunTimer = () => {};
+	globalThis.pysimApplyAvailability = () => {};
+	await testRunStart();
+	assert.strictEqual(sent.path, '/api/test/run');
+	assert.strictEqual(sent.body.script_id, 'b'.repeat(32));
+	assert.strictEqual(sent.body.script.name, 'saved');
+	assert.strictEqual(sent.body.preset_id, undefined);
 });

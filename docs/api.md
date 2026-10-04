@@ -48,10 +48,15 @@ a 3.x PWA).
 | `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/cap-compat` | POST | CAP compatibility test: LOAD only to the block completing the Import component (nothing committed) |
-| `/api/test/run` | POST | Start a test script (actions + proactive expectations) |
+| `/api/test/run` | POST | Start a test script (actions + proactive expectations; `script` inline or `script_id` from the store) |
 | `/api/test/status` | GET | Test script run state and per-step results |
 | `/api/test/stop` | POST | Request a running test script to stop |
 | `/api/test/clear` | POST | Clear the finished run report |
+| `/api/test/scripts` | GET | Test script store (server-side `test_scripts.json`): all scripts + the store path |
+| `/api/test/scripts` | POST | Create a test script (`{name, steps}` or `{script}`) |
+| `/api/test/scripts/update` | POST | Update a test script (`{id, script}`) |
+| `/api/test/scripts/delete` | POST | Delete a test script (`{id}`) |
+| `/api/test/scripts/import` | POST | Import scripts (`{scripts: [...], mode: merge\|replace}`; accepts the old localStorage export shape) |
 | `/api/sp-verify` | POST | Verify secured packet against pySim reference |
 | `/api/menu` | GET | Current STK menu (title + items + active) |
 | `/api/menu-select` | POST | ENVELOPE(Menu Selection) with item_id |
@@ -653,7 +658,10 @@ suspended; only `/api/test/*`, `/api/status`, `/api/poll-status`,
                      {"role": "usimRfm", "tar": "B00001", "msl": "16"}]}}
 ```
 
-The PWA sends `preset_id` (the stored preset's id) instead of `preset`; the
+The PWA sends the current script inline (a run always uses what the editor
+shows) plus `script_id` when the script is stored; sending `script_id` alone
+resolves the script from the store.  The PWA sends `preset_id` (the stored
+preset's id) instead of `preset`; the
 server resolves it from the preset store, so a run always uses the stored
 keysets, TARs and counters.  The inline `preset` form stays for external
 callers.
@@ -689,6 +697,27 @@ value, `item_id`, `text`+`dcs`, raw TLVs).
 The response is the initial state (`running: true`), the final counter
 (`scp80_counter`) and the step list; poll `/api/test/status`.  The PWA writes
 `scp80_counter` back to the card preset after the run.
+
+### `GET /api/test/scripts` and the script store
+
+Test scripts live in a server-side store (`~/.pysim-simple-server/test_scripts.json`,
+`--test-scripts PATH`) - the runner is server-side, so the store is the source
+of truth and every browser manages the same set.  The store validates with the
+same engine the runner uses, so a stored script can never fail at run start for
+a validation reason.
+
+```json
+{"path": "/home/user/.pysim-simple-server/test_scripts.json", "count": 1, "version": 1,
+ "scripts": [{"id": "…", "name": "applet RFM update", "steps": [...],
+              "created": 1690000000.0, "updated": 1690000000.0}]}
+```
+
+`POST /api/test/scripts` creates one (`{name, steps}` or `{script: {...}}`),
+`POST /api/test/scripts/update` replaces name/steps (`{id, script}`),
+`POST /api/test/scripts/delete` removes (`{id}`) and
+`POST /api/test/scripts/import` takes `{scripts: [...], mode: "merge"|"replace"}`
+(the old localStorage export shape; invalid entries are reported in `errors`
+instead of failing the whole import).
 
 ### `GET /api/test/status`
 
