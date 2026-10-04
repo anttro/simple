@@ -90,6 +90,12 @@ passes an explicit `spi1`; an expanded-format RFM application also expects the
 wrapped command template (`"format": "expanded"`/`"expanded-ae"`, see the
 actions table).
 
+A **scripted SELECT inside the secured packet** should ask for no response
+data (`P2='0C'`, e.g. `00A4000C02A153`): a card can refuse the `P2='00'`
+form (return the FCI) with `6A86` when it arrives inside a command script,
+and the script has nowhere to put an FCI anyway.  The RFM application starts
+in MF (TS 102 226 §7.2), so the selects walk from there.
+
 ### Worksheet 2 - incoming data → particular PoR, no other actions
 
 Inline PoR:
