@@ -32,7 +32,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.14.2'
+VERSION = '3.15.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5870,6 +5870,12 @@ def _test_run_scp80(server, step, ctx):
         counters[kvn] = (keyset or {}).get('cntr') or '00000000'
     counter = counters.get(kvn) if kvn else (ctx.get('counter') or '00000000')
     counter = counter or '00000000'
+    # The PoR of this exchange may arrive as a SEND SHORT MESSAGE (PoR-in-
+    # submit); the expect step decodes it with the parameters the packet was
+    # built from, so remember them.
+    ctx['last_scp80'] = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
+                         'counter': counter, 'kicKey': kic_key, 'kidKey': kid_key,
+                         'tar': tar}
     if p.get('sp'):
         sp_hex = p['sp']
         source = 'sp'
@@ -5943,7 +5949,82 @@ def _test_run_action(server, step, ctx):
     return result, pending
 
 
-def _test_run_expect(server, step, pending):
+def _test_run_preset_from_body(server, body):
+    """The preset of a run: the inline `preset` body (external API callers,
+    docs/api.md) or the stored preset named by `preset_id` - the PWA sends the
+    id, so the run always uses the store's authoritative keys/TARs/counters.
+    Returns ``(preset, error)``; error is None on success."""
+    preset = body.get('preset') or {}
+    if preset:
+        return preset, None
+    pid = str(body.get('preset_id') or '').strip()
+    if not pid:
+        return {}, None
+    preset = _preset_by_id(server, pid)
+    if preset is None:
+        return None, 'card preset %s not found' % pid
+    return preset, None
+
+
+def _parse_file_list(raw):
+    """The File List (TS 102 223 8.18; tag 12/92 per TS 101 220) of a fetched
+    proactive command, as a list of path hex strings; [] when absent.  The
+    value is the number of files followed by concatenated 2-byte FIDs - every
+    path starts with the MF ('3F'), which delimits the entries."""
+    try:
+        value = _cmd_tlv(httpota.proactive_tlvs(raw), 0x12)
+    except Exception:
+        return []
+    if not value:
+        return []
+    data = value[1:]
+    paths = []
+    cur = bytearray()
+    for i in range(0, len(data) - len(data) % 2, 2):
+        fid = data[i:i + 2]
+        if len(fid) < 2:
+            break
+        if fid[0] == 0x3F and cur:
+            paths.append(bytes(cur).hex().upper())
+            cur = bytearray()
+        cur += fid
+    if cur:
+        paths.append(bytes(cur).hex().upper())
+    return paths
+
+
+def _test_expect_por(ctx, raw):
+    """Decode the PoR carried by a fetched SEND SHORT MESSAGE command (the
+    PoR-in-submit transport, SPI2 bit 0x20, TS 102 225 5.1.1), using the
+    context of the scp80 step that triggered it.  None when the command is
+    not a PoR or no scp80 step ran."""
+    last = (ctx or {}).get('last_scp80')
+    if not last:
+        return None
+    tpdu_hex = _find_sms_tpdu(raw)
+    if not tpdu_hex:
+        return None
+    try:
+        ref, total, num, payload = _parse_sms_concat(bytes.fromhex(tpdu_hex))
+    except Exception:
+        return None
+    if total is not None and num is not None and total > 1:
+        segs = ctx.setdefault('por_segments', [])
+        segs.append((ref, total, num, payload.hex()))
+        matching = sorted([s for s in segs if s[0] == ref], key=lambda s: s[2])
+        if len(matching) < total:
+            return None
+        ud_hex = ''.join(s[3] for s in matching)
+    else:
+        ud_hex = payload.hex()
+    if not ud_hex:
+        return None
+    por_hex = '027100' + ud_hex
+    return _decode_por(last['spi1'], last['spi2'], last['kic'], last['kid'],
+                       last['counter'], last['kicKey'], last['kidKey'], por_hex)
+
+
+def _test_run_expect(server, step, pending, ctx=None):
     scc = server.scc
     if not pending:
         raise testscript.ScriptError(
@@ -5957,6 +6038,10 @@ def _test_run_expect(server, step, pending):
     cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
     log_entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
     type_name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
+    # A SEND SHORT MESSAGE carries the PoR when the packet asked for it in
+    # submit mode (SPI2 bit 0x20): decode it with the triggering scp80 step's
+    # context so the checks can assert the PoR contents.
+    por = _test_expect_por(ctx, raw) if cmd_type == 0x13 else None
     checks = []
     want_type = step['command'].get('type')
     type_ok = want_type is None or cmd_type == want_type
@@ -6000,6 +6085,36 @@ def _test_run_expect(server, step, pending):
             checks.append(_test_check_result('Raw',
                                              testscript.match_value({'mode': c['mode'], 'value': c['value']}, actual),
                                              c['value'], actual, c['on_fail']))
+        elif c['kind'] == 'por':
+            if por is None:
+                checks.append(_test_check_result(
+                    'PoR', False, 'a decoded PoR',
+                    'no PoR in this command (or no scp80 step before it)',
+                    c['on_fail']))
+            else:
+                if 'status' in c:
+                    actual = str(por.get('response_status') or '')
+                    want = c['status']
+                    ok = (actual.lower() == want.lower()
+                          or (want.lower() == 'ok' and actual == 'por_ok'))
+                    checks.append(_test_check_result('PoR status', ok, want,
+                                                     actual or '(none)', c['on_fail']))
+                if 'sw' in c:
+                    actual = str((por.get('decoded') or {}).get('last_status_word') or '')
+                    checks.append(_test_check_result(
+                        'PoR SW', testscript.match_value(c['sw'], actual),
+                        c['sw']['value'], actual or '(none)', c['on_fail']))
+                if 'data' in c:
+                    actual = str((por.get('decoded') or {}).get('last_response_data') or '')
+                    checks.append(_test_check_result(
+                        'PoR data', testscript.match_value(c['data'], actual),
+                        c['data']['value'], actual or '(none)', c['on_fail']))
+        elif c['kind'] == 'files':
+            paths = _parse_file_list(raw)
+            want = c['files']
+            checks.append(_test_check_result(
+                'Files', sorted(paths) == sorted(want), ', '.join(want),
+                ', '.join(paths) or '(none)', c['on_fail']))
     tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, step['respond'])
     tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
     tr_sw = tr_rv[1]
@@ -6007,6 +6122,7 @@ def _test_run_expect(server, step, pending):
     status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
     result = {'status': status, 'sw': tr_sw, 'data': raw.hex().upper(),
               'sent': 'TR ' + tr.hex().upper(), 'checks': checks,
+              'por': por,
               'command': {'type_hex': '%02X' % cmd_type, 'type_name': type_name,
                           'qualifier': '%02X' % cmd_qual if cmd_qual is not None else None,
                           'raw': raw.hex().upper()}}
@@ -6080,7 +6196,7 @@ def _test_run_execute(server, script, preset):
                 if step['type'] == 'action':
                     result, pending = _test_run_action(server, step, ctx)
                 else:
-                    result, pending = _test_run_expect(server, step, pending)
+                    result, pending = _test_run_expect(server, step, pending, ctx)
             _test_finish_entry(entry, result)
             if entry['status'] == 'error':
                 # Error terminates the script; Warning and OK continue.
@@ -8048,7 +8164,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
-            preset = body.get('preset') or {}
+            preset, preset_err = _test_run_preset_from_body(self.server, body)
+            if preset_err:
+                resp = {'error': preset_err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             needs_scp80 = any(s['type'] == 'action' and s['kind'] == 'scp80'
                               for s in script['steps'])
             err = _test_preset_error(script, preset) if needs_scp80 else None

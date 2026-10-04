@@ -653,13 +653,19 @@ suspended; only `/api/test/*`, `/api/status`, `/api/poll-status`,
                      {"role": "usimRfm", "tar": "B00001", "msl": "16"}]}}
 ```
 
+The PWA sends `preset_id` (the stored preset's id) instead of `preset`; the
+server resolves it from the preset store, so a run always uses the stored
+keysets, TARs and counters.  The inline `preset` form stays for external
+callers.
+
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
 `menu-select` (`item_id` 1-255), `file-write` (`path`, `data`, `mode`
 `auto`/`binary`/`record`, `record`), `file-read` (same, verifies `check.data`),
 `apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, selected by
-the optional `source` field when both are present; optional `tar`/`spi1`/`spi2`
-overrides - KIc/KID and the counter always come from the `preset`, which must
-match the equipped card and be complete) or `status`
+the optional `source` field when both are present; optional `kvn` (keyset
+number 1-15), `tar`/`spi1`/`spi2` overrides - KIc/KID and the counter always
+come from the resolved preset, which must match the equipped card and be
+complete) or `status`
 (`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
 mask `91??`, i.e. poll until the card announces a command).
 
@@ -672,7 +678,12 @@ previous step (`91XX`); they never poll - a `9000` response means no command
 and is an error (TS 102 221 7.4.2.1 / TS 102 223 6.3; add a `status` action
 if the card delivers on poll).  `command` is a name or type code; `checks`
 may be `text` (contains/exact), `item` (`id`/`text` for SELECT ITEM / SET UP
-MENU) or `raw` (mask); `respond` is the TERMINAL RESPONSE (`result` name or
+MENU), `raw` (mask), `por` (a SEND SHORT MESSAGE carrying the PoR of the
+preceding `scp80` step - PoR-in-submit, SPI2 bit `20`: `status` (the response
+status name, `ok` = `por_ok`), `sw` (the R-APDU status word, exact/mask) and
+`data` (the R-APDU response data, exact/mask)) or `files` (the File List of a
+REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
+order-insensitively); `respond` is the TERMINAL RESPONSE (`result` name or
 value, `item_id`, `text`+`dcs`, raw TLVs).
 
 The response is the initial state (`running: true`), the final counter

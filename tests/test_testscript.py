@@ -104,6 +104,40 @@ class TestValidation(unittest.TestCase):
                          '8103042300' + '82028182' + 'AA01BB' + '8D0600' + '68656C6C6F'
                          + '83020000')
 
+    def test_scp80_keyset_number_and_new_content_checks(self):
+        # kvn (1..15) selects the preset's keyset; `por`/`files` are expect
+        # content checks (the PoR contents / the REFRESH file list).
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'apdu': '80E2900000', 'kvn': 2}},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'checks': [{'kind': 'por', 'status': 'por_ok', 'sw': '6A8?',
+                         'data': {'mode': 'mask', 'value': 'AA??'}}]},
+            {'type': 'expect', 'command': 'REFRESH',
+             'checks': [{'kind': 'files', 'value': '3F007F106F3A, 3F002FE2'}]},
+        ]}, _resolver)
+        self.assertEqual(script['steps'][0]['params']['kvn'], 2)
+        por = script['steps'][1]['checks'][0]
+        self.assertEqual(por['status'], 'por_ok')
+        self.assertEqual(por['sw'], {'mode': 'mask', 'value': '6A8?'})
+        self.assertEqual(por['data'], {'mode': 'mask', 'value': 'AA??'})
+        self.assertEqual(script['steps'][2]['checks'][0]['files'],
+                         ['3F007F106F3A', '3F002FE2'])
+        # a keyset number outside 1..15, an empty por check and a bad path are
+        # refused before anything runs
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'scp80',
+                 'params': {'apdu': '80E2', 'kvn': 0}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'expect', 'command': 'ANY',
+                 'checks': [{'kind': 'por'}]}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'expect', 'command': 'ANY',
+                 'checks': [{'kind': 'files', 'value': ['zz']}]}]}, _resolver)
+
 
 class TestMatchers(unittest.TestCase):
     def test_match_value(self):
@@ -424,6 +458,65 @@ class TestRunnerActions(RunnerTestCase):
         self.assertEqual(args[4], 'B00001')   # tar override
         self.assertEqual(args[2], '15')       # kic stays preset-owned
 
+    def test_scp80_step_selects_the_keyset_by_kvn(self):
+        # the step's keyset number picks the keyset (v3.15.0: the normaliser
+        # dropped `kvn`, so scripts silently used the preset's first keyset)
+        scc = FakeScc()
+        preset = {'keysets': [
+                      {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                       'kidKey': 'BB' * 16, 'cntr': '00000001'},
+                      {'kic': '25', 'kid': '25', 'kicKey': 'CC' * 16,
+                       'kidKey': 'DD' * 16, 'cntr': '00000020'}],
+                  'tars': preset_tars()}
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})) as build, \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9000',
+                                                'response_data': None}):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'scp80',
+                 'params': {'apdu': '80E2900000', 'kvn': 2}},
+            ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        args = build.call_args[0]
+        self.assertEqual(args[2], '25')        # the second keyset's KIc/KID
+        self.assertEqual(args[3], '25')
+        self.assertEqual(args[5], '00000020')  # and its counter
+        self.assertEqual(args[7], 'CC' * 16)
+        self.assertEqual(args[8], 'DD' * 16)
+        self.assertEqual(run['scp80_counters'], {2: '00000021'})
+        self.assertEqual(run['scp80_counter'], '00000021')
+
+    def test_preset_completeness_validates_the_step_keyset(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'apdu': '80E2900000', 'kvn': 3}}]}, S._test_command_type)
+        preset = {'keysets': [{'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB',
+                               'cntr': '00000000'}],
+                  'tars': preset_tars()}
+        self.assertIn('keyset 3', S._test_preset_error(script, preset) or '')
+        good = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'apdu': '80E2900000', 'kvn': 1}}]}, S._test_command_type)
+        self.assertIsNone(S._test_preset_error(good, preset))
+
+    def test_run_preset_resolves_the_stored_id(self):
+        class Store:
+            def get(self, pid):
+                return {'id': pid, 'name': 'Card 1'} if pid == 'p1' else None
+
+        import types
+        server = types.SimpleNamespace(card_presets=Store())
+        preset, err = S._test_run_preset_from_body(server, {'preset_id': 'p1'})
+        self.assertEqual(preset['name'], 'Card 1')
+        self.assertIsNone(err)
+        preset, err = S._test_run_preset_from_body(server, {'preset_id': 'nope'})
+        self.assertIsNone(preset)
+        self.assertIn('not found', err)
+        inline = {'name': 'inline'}
+        preset, err = S._test_run_preset_from_body(server, {'preset': inline})
+        self.assertIs(preset, inline)
+        self.assertIsNone(err)
+
     def test_preset_completeness_is_validated(self):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'}},
@@ -434,6 +527,86 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIsNone(S._test_preset_error(script, full))
         no_tar = dict(full, tars=[])
         self.assertIn('TAR', S._test_preset_error(script, no_tar) or '')
+
+    # A SEND SHORT MESSAGE announcing the PoR-in-submit (SPI2 bit 0x20): the
+    # TPDU carries a submit PDUs with UD = 02 71 00 AA BB (the deliver-style
+    # PoR header); the runner must decode it with the scp80 step's context.
+    SEND_SM_POR_CMD = 'D0188103011300820283810B0D01000181127F0005027100AABB'
+    # A REFRESH (qualifier 00 = NAA init + full FCN) with the file list
+    # 12 07 01 3F007F106F3A (one file: MF/7F10/6F3A).
+    REFRESH_FCN_CMD = 'D0128103010100820283811207013F007F106F3A'
+
+    def test_expect_decodes_the_submit_por(self):
+        scc = FakeScc()
+        preset = {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
+                  'counter': '0000000A', 'tars': preset_tars()}
+        decoded = {'response_status': 'por_ok', 'tar': '000000',
+                   'decoded': {'last_status_word': '9000', 'last_response_data': 'AABB'}}
+        with mock.patch.object(S, '_build_secured_packet', return_value=('AA' * 10, {})), \
+                mock.patch.object(S, '_send_secured_packet',
+                                  return_value={'success': True, 'sw': '9102',
+                                                'response_data': None}), \
+                mock.patch.object(S, '_decode_por', return_value=decoded) as dec:
+            scc.push('8012', self.SEND_SM_POR_CMD, '9000')
+            scc.push('8014', '', '9000')
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'},
+                 'check': {'sw': {'mode': 'mask', 'value': '91??'}, 'por': 'none'}},
+                {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+                 'checks': [{'kind': 'por', 'status': 'por_ok', 'sw': '9000'}],
+                 'respond': {'result': 'ok'}},
+            ], preset)
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(run['steps'][1]['por']['response_status'], 'por_ok')
+        labels = {c['label']: c for c in run['steps'][1]['checks']}
+        self.assertTrue(labels['PoR status']['ok'], labels)
+        self.assertTrue(labels['PoR SW']['ok'], labels)
+        args = dec.call_args[0]
+        self.assertEqual(args[4], '0000000A')       # the command's counter
+        self.assertEqual(args[5], 'AA' * 16)        # the keyset's keys
+        self.assertEqual(args[6], 'BB' * 16)
+        self.assertEqual(args[-1], '027100027100aabb')
+
+    def test_expect_por_check_without_a_prior_scp80_fails(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.SEND_SM_POR_CMD, '9000')
+        scc.push('8014', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+             'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'checks': [{'kind': 'por', 'status': 'por_ok'}],
+             'respond': {'result': 'ok'}},
+        ])
+        self.assertIsNone(run['steps'][1].get('por'))
+        por_check = [c for c in run['steps'][1]['checks'] if c['label'] == 'PoR'][0]
+        self.assertFalse(por_check['ok'])
+        self.assertIn('no PoR', por_check['actual'])
+
+    def test_expect_checks_the_refresh_file_list(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.REFRESH_FCN_CMD, '9000')
+        scc.push('8014', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+             'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+            {'type': 'expect', 'command': 'REFRESH', 'qualifier': '00',
+             'checks': [{'kind': 'files', 'value': '3F007F106F3A'}],
+             'respond': {'result': 'ok'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        labels = {c['label']: c for c in run['steps'][1]['checks']}
+        self.assertTrue(labels['Command']['ok'], labels)
+        self.assertTrue(labels['Qualifier']['ok'], labels)
+        self.assertTrue(labels['Files']['ok'], labels)
+        self.assertEqual(labels['Files']['actual'], '3F007F106F3A')
+
+    def test_parse_file_list_splits_concatenated_paths(self):
+        raw = bytes.fromhex('D016810301010082028381120B023F002FE23F007F106F3A')
+        self.assertEqual(S._parse_file_list(raw), ['3F002FE2', '3F007F106F3A'])
+        self.assertEqual(S._parse_file_list(bytes.fromhex('D009810301010082028381')), [])
 
     def test_file_write_and_read_actions(self):
         class FakeLchan:

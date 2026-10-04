@@ -253,6 +253,10 @@ def _normalise_params(kind, p):
         for key in ('spi1', 'spi2'):
             if out.get(key) and len(out[key]) != 2:
                 raise ScriptError('scp80: %s must be 1 byte' % key)
+        # The keyset number (KIc/KID b8..b5, TS 102 225 5.1.2): the keys and
+        # the counter stay preset-owned, the step only picks which keyset.
+        if p.get('kvn') not in (None, ''):
+            out['kvn'] = _int(p.get('kvn'), 'scp80 keyset number', 1, 15)
         return out
     if kind == 'status':
         attempts = p.get('attempts')
@@ -355,6 +359,31 @@ def _normalise_content_check(c, default_level):
         spec = _check_spec(c.get('value') if 'value' in c else c, 'raw check')
         return {'kind': 'raw', 'mode': spec['mode'], 'value': spec['value'],
                 'on_fail': level}
+    if kind == 'por':
+        out = {'kind': 'por', 'on_fail': level}
+        status = c.get('status')
+        if status is not None and str(status).strip():
+            out['status'] = str(status).strip()
+        if c.get('sw') not in (None, ''):
+            out['sw'] = _check_spec(c.get('sw'), 'por check sw')
+        if c.get('data') not in (None, ''):
+            out['data'] = _check_spec(c.get('data'), 'por check data')
+        if not (out.get('status') or out.get('sw') or out.get('data')):
+            raise ScriptError('por check: status, sw or data is required')
+        return out
+    if kind == 'files':
+        val = c.get('files', c.get('value'))
+        if isinstance(val, str):
+            val = [x for x in re.split(r'[,\s]+', val) if x]
+        if not isinstance(val, list) or not val:
+            raise ScriptError('files check: a list of file paths is required')
+        files = []
+        for f in val:
+            path = re.sub(r'\s', '', str(f)).upper()
+            if not re.fullmatch(r'(?:[0-9A-F]{2})+', path) or len(path) < 4:
+                raise ScriptError('files check: each path must be hex FID bytes: %r' % f)
+            files.append(path)
+        return {'kind': 'files', 'files': files, 'on_fail': level}
     raise ScriptError('unknown check kind %r' % c.get('kind'))
 
 

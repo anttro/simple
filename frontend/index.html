@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.14.2';
+const SIMPLE_VERSION = '3.15.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6946,6 +6946,10 @@ function testScriptProblem(script) {
 				const src = p.source || (p.sp ? 'sp' : 'apdu');
 				const value = src === 'sp' ? p.sp : p.apdu;
 				if (!String(value || '').trim()) return at + t('SCP80 needs an APDU or a secured packet');
+				if (p.kvn !== undefined && String(p.kvn).trim() !== '') {
+					const kvn = parseInt(String(p.kvn).trim(), 10);
+					if (!(kvn >= 1 && kvn <= 15)) return at + t('keyset number must be 1..15');
+				}
 			}
 			if (s.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return at + t('item id must be 1..255');
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
@@ -6968,6 +6972,14 @@ function testCheckSummary(c) {
 		return s;
 	}
 	if (c.kind === 'raw') return 'raw ' + (c.mode === 'mask' ? '~' : '=') + (c.value || '');
+	if (c.kind === 'por') {
+		const parts = [];
+		if (c.status) parts.push('status ' + c.status);
+		if (c.sw) parts.push('SW ' + (c.sw.mode === 'mask' ? '~' : '') + c.sw.value);
+		if (c.data) parts.push('data ' + (c.data.mode === 'mask' ? '~' : '') + c.data.value);
+		return 'por ' + parts.join(' ');
+	}
+	if (c.kind === 'files') return 'files ' + (c.files || []).join(' ');
 	return '';
 }
 
@@ -7330,7 +7342,8 @@ function testRenderChecks() {
 	_testEditChecks.forEach((c, i) => {
 		html += '<div class="flex items-start gap-2 mb-1">'
 			+ testFormSelect('test-check-kind-' + i, c.kind || 'text', [
-				{v: 'text', l: t('Text')}, {v: 'item', l: t('Item')}, {v: 'raw', l: t('Raw')}], 'testCheckKindChanged()');
+				{v: 'text', l: t('Text')}, {v: 'item', l: t('Item')}, {v: 'raw', l: t('Raw')},
+				{v: 'por', l: t('PoR')}, {v: 'files', l: t('Files')}], 'testCheckKindChanged()');
 		if (c.kind === 'item') {
 			html += testFormInput('test-check-id-' + i, c.id, t('id'));
 			html += testFormInput('test-check-text-' + i, c.text, t('text'));
@@ -7339,6 +7352,12 @@ function testRenderChecks() {
 		} else if (c.kind === 'raw') {
 			html += testFormSelect('test-check-mode-' + i, c.mode || 'mask', [{v: 'exact', l: t('Exact')}, {v: 'mask', l: t('Mask ("?" = wildcard)')}]);
 			html += testFormInput('test-check-value-' + i, c.value, 'AA??');
+		} else if (c.kind === 'por') {
+			html += testFormInput('test-check-porstatus-' + i, c.status, 'por_ok');
+			html += testFormInput('test-check-por-sw-' + i, c.sw && c.sw.value, '6A88');
+			html += testFormInput('test-check-por-data-' + i, c.data && c.data.value, 'AA??');
+		} else if (c.kind === 'files') {
+			html += testFormInput('test-check-files-' + i, (c.files || []).join(', '), '3F007F106F3A');
 		} else {
 			html += testFormSelect('test-check-mode-' + i, c.mode || 'contains', [{v: 'contains', l: t('Contains')}, {v: 'exact', l: t('Exact')}]);
 			html += testFormInput('test-check-value-' + i, c.value, t('text'));
@@ -7383,6 +7402,16 @@ function testChecksCollect() {
 		} else if (kind === 'raw') {
 			row.mode = val('test-check-mode-' + i) || 'mask';
 			row.value = val('test-check-value-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+		} else if (kind === 'por') {
+			const status = val('test-check-porstatus-' + i);
+			if (status) row.status = status;
+			const sw = val('test-check-por-sw-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+			if (sw) row.sw = {mode: sw.includes('?') ? 'mask' : 'exact', value: sw};
+			const data = val('test-check-por-data-' + i).replace(/[^0-9a-fA-F?]/g, '').toUpperCase();
+			if (data) row.data = {mode: data.includes('?') ? 'mask' : 'exact', value: data};
+		} else if (kind === 'files') {
+			row.files = val('test-check-files-' + i).split(/[,\s]+/)
+				.map(s => s.replace(/[^0-9a-fA-F]/g, '').toUpperCase()).filter(Boolean);
 		} else {
 			row.mode = val('test-check-mode-' + i) || 'contains';
 			row.value = val('test-check-value-' + i);
@@ -7450,6 +7479,8 @@ function testStepCollect() {
 		step.checks = JSON.parse(JSON.stringify(_testEditChecks)).filter(c => {
 			if (c.kind === 'text') return !!(c.value || '').trim();
 			if (c.kind === 'item') return c.id || (c.text || '').trim();
+			if (c.kind === 'por') return !!(c.status || c.sw || c.data);
+			if (c.kind === 'files') return !!(c.files && c.files.length);
 			return !!(c.value || '').trim();
 		});
 		const r = {result: val('test-f-result') || 'ok'};
@@ -7567,34 +7598,28 @@ function testRunStepHtml(step) {
 function testRunPreset() {
 	const preset = cardsMatchedPreset();
 	if (!preset) return {error: t('No card preset matches the equipped card - SCP80 steps need one')};
-	if (!cardsScp80Complete(preset)) return {error: t('The matched card preset has incomplete SCP80 data (KIc/KID, SPI1/SPI2, counter, keys)')};
+	if (!cardsScp80Complete(preset)) return {error: t('The matched card preset has incomplete SCP80 data (a complete keyset and the role TARs with their MSLs)')};
 	_testLastPresetIdx = cards.indexOf(preset);
-	return {preset: {
-		name: preset.name || '',
-		iccid: preset.iccid || '',
-		kic: String(preset.kic || '').toUpperCase(),
-		kid: String(preset.kid || '').toUpperCase(),
-		kicKey: String(preset.kicKey || '').replace(/\s/g, '').toUpperCase(),
-		kidKey: String(preset.kidKey || '').replace(/\s/g, '').toUpperCase(),
-		counter: String(preset.cntr || '').replace(/\s/g, '').toUpperCase(),
-		tar: String(preset.tar || '').replace(/\s/g, '').toUpperCase(),
-		spi1: String(preset.spi1 || '').replace(/\s/g, '').toUpperCase(),
-		spi2: String(preset.spi2 || '').replace(/\s/g, '').toUpperCase(),
-	}};
+	// The run names the preset; the server resolves it from the store, so the
+	// run uses the stored keysets, TARs and counters (the flat preset fields
+	// this used to send no longer exist - the run failed with "no keyset").
+	return {preset_id: preset.id};
 }
 
 async function testRunStart() {
 	const cur = testCurrent();
 	const problem = testScriptProblem(cur);
 	if (problem) { testRunMessage(problem, 'error'); return; }
-	let preset = null;
+	let presetId = null;
 	if (cur.steps.some(s => s.type === 'action' && s.kind === 'scp80')) {
 		const found = testRunPreset();
 		if (found.error) { testRunMessage(found.error, 'error'); return; }
-		preset = found.preset;
+		presetId = found.preset_id;
 	}
 	try {
-		const resp = await pysimFetch('/api/test/run', {script: cur, preset: preset});
+		const body = {script: cur};
+		if (presetId) body.preset_id = presetId;
+		const resp = await pysimFetch('/api/test/run', body);
 		if (resp.error) { testRunMessage(resp.error, 'error'); return; }
 		testRenderRun(resp);
 		testStartRunTimer();
@@ -20904,6 +20929,9 @@ const LANG_RU = {
 	'Contains': 'Содержит',
 	'Item': 'Пункт',
 	'Raw': 'Raw',
+	'PoR': 'PoR',
+	'Files': 'Файлы',
+	'keyset number must be 1..15': 'номер keyset должен быть 1..15',
 	'Test script running:': 'Выполняется тест-скрипт:',
 	'Test script running': 'Выполняется тест-скрипт',
 	'Preset': 'Пресет',
@@ -20913,7 +20941,7 @@ const LANG_RU = {
 	'running': 'выполняется',
 	'Received': 'Получено',
 	'No card preset matches the equipped card - SCP80 steps need one': 'Ни один пресет карты не соответствует подключённой карте — для шагов SCP80 он нужен',
-	'The matched card preset has incomplete SCP80 data (KIc/KID, SPI1/SPI2, counter, keys)': 'У подобранного пресета неполные данные SCP80 (KIc/KID, SPI1/SPI2, счётчик, ключи)',
+	'The matched card preset has incomplete SCP80 data (a complete keyset and the role TARs with their MSLs)': 'У подобранного пресета неполные данные SCP80 (полный keyset и ролевые TAR с их MSL)',
 	'SCP80 counter saved to the preset:': 'Счётчик SCP80 сохранён в пресет:',
 	'STK menu': 'Меню STK',
 	'No menu set by the card': 'Меню не задано картой',

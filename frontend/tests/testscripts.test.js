@@ -44,6 +44,7 @@ eval(extractFunc(html, 'testStepRender'));
 eval(extractFunc(html, 'testRenderChecks'));
 eval(extractFunc(html, 'testStepCollect'));
 eval(extractFunc(html, 'testWriteBackCounter'));
+eval(extractFunc(html, 'testRunPreset'));
 eval(extractFunc(html, 'testChecksCollect'));
 eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
 	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;'
@@ -265,4 +266,86 @@ test('the Simulator hosts the Test script pill and its wiring', () => {
 	assert.match(html, /\/api\/test\/run/);
 	assert.match(html, /\/api\/test\/status/);
 	assert.match(html, /id="test-step-modal"/);
+});
+
+test('the run sends the stored preset id, not the removed flat fields', () => {
+	const preset = { id: 'p1', name: 'Card 1',
+		keysets: [{ kic: '15', kid: '15', kicKey: 'AA'.repeat(16),
+			kidKey: 'BB'.repeat(16), cntr: '0000000A' }],
+		tars: [{ role: 'isd', tar: '000000', msl: '16' }] };
+	globalThis.cards = [preset];
+	globalThis.cardsMatchedPreset = () => preset;
+	globalThis.cardsScp80Complete = () => true;
+	const found = testRunPreset();
+	// the preset body used to carry flat kic/kid/... fields that no longer
+	// exist on a stored preset - the server resolved an empty keyset and
+	// refused every SCP80 run
+	assert.deepStrictEqual(found, { preset_id: 'p1' });
+	assert.strictEqual(_testLastPresetIdx, 0);
+});
+
+test('the run refuses without a matched or complete preset', () => {
+	globalThis.cards = [];
+	globalThis.cardsMatchedPreset = () => null;
+	assert.match(testRunPreset().error, /No card preset matches/);
+	const preset = { id: 'p2' };
+	globalThis.cards = [preset];
+	globalThis.cardsMatchedPreset = () => preset;
+	globalThis.cardsScp80Complete = () => false;
+	assert.match(testRunPreset().error, /incomplete SCP80/);
+});
+
+test('the client-side problem check bounds the keyset number', () => {
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { apdu: '80E2', kvn: 2 } }] }), '');
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { apdu: '80E2', kvn: 16 } }] }), /keyset number/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
+		params: { apdu: '80E2', kvn: 0 } }] }), /keyset number/);
+});
+
+test('the PoR and file-list checks render and collect', () => {
+	const els = { 'test-checks': {} };
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditChecks = [{ kind: 'por', status: 'por_ok',
+		sw: { mode: 'mask', value: '6A8?' }, on_fail: 'error' }];
+	testRenderChecks();
+	const rendered = els['test-checks'].innerHTML;
+	assert.ok(rendered.includes('value="por" selected'), rendered);
+	assert.match(rendered, /id="test-check-porstatus-0"/);
+	assert.match(rendered, /id="test-check-por-sw-0"/);
+
+	const values = {
+		'test-check-kind-0': 'por',
+		'test-check-porstatus-0': 'por_ok',
+		'test-check-por-sw-0': '6A8?',
+		'test-check-por-data-0': 'aabb',
+		'test-check-fail-0': 'warning',
+	};
+	globalThis.document = { getElementById: id => (id in values ? { value: values[id] } : null) };
+	testChecksCollect();
+	assert.deepStrictEqual(_testEditChecks[0], {
+		kind: 'por', on_fail: 'warning', status: 'por_ok',
+		sw: { mode: 'mask', value: '6A8?' },
+		data: { mode: 'exact', value: 'AABB' },
+	});
+
+	_testEditChecks = [{ kind: 'files', files: ['3F007F106F3A'], on_fail: 'error' }];
+	globalThis.document = { getElementById: id => els[id] || null };
+	testRenderChecks();
+	assert.match(els['test-checks'].innerHTML, /id="test-check-files-0"/);
+	const values2 = { 'test-check-kind-0': 'files',
+		'test-check-files-0': '3F007F106F3A, 3f002fe2', 'test-check-fail-0': 'error' };
+	globalThis.document = { getElementById: id => (id in values2 ? { value: values2[id] } : null) };
+	testChecksCollect();
+	assert.deepStrictEqual(_testEditChecks[0],
+		{ kind: 'files', on_fail: 'error', files: ['3F007F106F3A', '3F002FE2'] });
+});
+
+test('the check summary names the PoR and file-list checks', () => {
+	assert.strictEqual(testCheckSummary({ kind: 'por', status: 'por_ok',
+		sw: { mode: 'mask', value: '6A8?' }, data: { mode: 'exact', value: 'AABB' } }),
+		'por status por_ok SW ~6A8? data AABB');
+	assert.strictEqual(testCheckSummary({ kind: 'files', files: ['3F002FE2'] }),
+		'files 3F002FE2');
 });
