@@ -31,6 +31,7 @@ function extractFunc(src, name, asyncFn) {
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
 eval(extractBlock('const TEST_ACTION_KINDS = [', 'let _testScripts').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'testTemplate'));
+eval(extractFunc(html, 'testMenuSelectProblem'));
 eval(extractFunc(html, 'testScriptProblem'));
 eval(extractFunc(html, 'testCheckSummary'));
 eval(extractFunc(html, 'testStepSummary'));
@@ -85,6 +86,13 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 		steps: [{ type: 'action', kind: 'scp80', params: { apdu: '' } }] }), /SCP80/);
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'menu-select', params: { item_id: 0 } }] }), /item id/);
+	// the item can be selected by its text instead of the install-dependent id
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'menu-select',
+		params: { text: 'My menu', mode: 'contains' } }] }), '');
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'menu-select',
+		params: {} }] }), /item id or text/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'menu-select',
+		params: { item_id: 1, text: 'My menu' } }] }), /not both/);
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'file-read', params: {} }] }), /file path/);
 	assert.match(testScriptProblem({ steps: [{ type: 'expect' }] }), /command is required/);
@@ -102,6 +110,10 @@ test('testStepSummary renders actions', () => {
 		testStepSummary({ type: 'action', kind: 'menu-select', params: { item_id: 3 },
 			check: { sw: { mode: 'mask', value: '91??' } } }),
 		'ENVELOPE(Menu Selection) item=3 · SW ~91??');
+	assert.strictEqual(
+		testStepSummary({ type: 'action', kind: 'menu-select',
+			params: { text: 'My menu', mode: 'exact' } }),
+		'ENVELOPE(Menu Selection) text ="My menu"');
 	assert.strictEqual(
 		testStepSummary({ type: 'action', kind: 'apdu', params: { apdu: '00A4' } }),
 		'APDU 00A4');
@@ -170,6 +182,23 @@ test('the SCP80 source switch sticks and preserves the other value', () => {
 	testStepCollect();
 	assert.strictEqual(_testEditStep.params.source, 'apdu');
 	assert.strictEqual(_testEditStep.params.sp, 'AABBCC');
+});
+
+test('the menu-select editor collects the item id or the text', () => {
+	// by text (the id varies with the applet's install parameters)
+	_testEditStep = { type: 'action', kind: 'menu-select', params: {} };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	fakeForm({ 'test-step-kind': 'menu-select', 'test-f-item': '', 'test-f-itemtext': 'My menu',
+		'test-f-itemmode': 'contains', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { text: 'My menu', mode: 'contains' });
+	// by id when no text is given
+	_testEditStep = { type: 'action', kind: 'menu-select', params: {} };
+	fakeForm({ 'test-step-kind': 'menu-select', 'test-f-item': '3', 'test-f-itemtext': '',
+		'test-f-itemmode': 'exact', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params, { item_id: 3 });
 });
 
 test('the STATUS step leaves the SW check to the server default', () => {

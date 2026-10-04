@@ -33,7 +33,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.16.0'
+VERSION = '3.17.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5210,6 +5210,17 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
                 entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
             except Exception as e:
                 sys.stderr.write('FETCH log error: %s (raw=%s)\n' % (e, raw.hex()))
+            try:
+                if cmd_type == 0x25:
+                    # Keep the cached menu current: text-based menu selection
+                    # and the Phone tab must see the menu the card sends now
+                    # (an applet install changes the items and their ids).
+                    menu = _parse_setup_menu_command(raw)
+                    if menu and _server_ref:
+                        _server_ref.sim_menu = menu
+            except Exception as e:
+                sys.stderr.write('SET UP MENU cache error: %s (raw=%s)\n'
+                                 % (e, raw.hex()))
         try:
             if raw and cmd_type in (0x03, 0x04):
                 _handle_card_poll_command(cmd_type, raw)
@@ -5446,20 +5457,10 @@ def _validate_input_response(pd, text):
 
 
 def _pack_gsm7(septets):
-    """Pack GSM 03.38 septets into 7-bit octets (TS 23.038 4, SMS packing)."""
-    out = bytearray()
-    acc = 0
-    bits = 0
-    for s in septets:
-        acc |= (s & 0x7F) << bits
-        bits += 7
-        while bits >= 8:
-            out.append(acc & 0xFF)
-            acc >>= 8
-            bits -= 8
-    if bits:
-        out.append(acc & 0xFF)
-    return bytes(out)
+    """Pack GSM 03.38 septets into 7-bit octets (TS 23.038 4, SMS packing).
+    One implementation, shared with the scripted TR builder
+    (`testscript.pack_gsm7`)."""
+    return testscript.pack_gsm7(septets)
 
 
 def _input_text_tlv(pd, text):
@@ -5513,12 +5514,13 @@ def _menu_send_response(server, result, item_id=None, text=None):
             duration_tlv = bytes([0x04, 0x02, pd['duration_unit'], value])
     cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'], 0x00])
     di = bytes([0x82, 0x02, pd['dev_dst'], pd['dev_src']])
+    # TS 102 223 6.8.0 object order: Result (C), Duration (D), Text string (E),
+    # Item identifier (F).
     tr_data = cd + di
+    tr_data += bytes([0x83, 0x02, gr, 0x00])
+    tr_data += duration_tlv + text_tlv
     if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
         tr_data += bytes([0x90, 0x01, item_id])
-    tr_data += bytes([0x83, 0x02, gr, 0x00])
-    # Table 6.8.0 order after Result: Duration (D) then Text string (E)
-    tr_data += duration_tlv + text_tlv
     tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
     tr_rv = scc._tp.send_apdu(tr_hex)
     sys.stderr.write('TR(menu): cmd=%02x type=%02x result=%02x -> %s\n' % (pd['cmd_num'], pd['cmd_type'], gr, tr_rv[1]))
@@ -5912,6 +5914,34 @@ def _test_run_scp80(server, step, ctx):
     return data, sw, sent, por, counter
 
 
+def _menu_item_by_text(server, p):
+    """Resolve a menu-select step's text against the cached SET UP MENU items
+    (the item ids vary with the applet's install parameters, so a script
+    matches the text the card actually shows).  Raises a ScriptError naming
+    the available items when nothing - or more than one item - matches."""
+    menu = getattr(server, 'sim_menu', None) or {}
+    items = menu.get('items') or []
+    spec = {'mode': p.get('mode', 'exact'), 'value': p['text'],
+            'case_sensitive': p.get('case_sensitive', True)}
+    matches = [it for it in items
+               if testscript.match_text(spec, it.get('text') or '')]
+    if not matches:
+        listing = ', '.join('%s=%r' % (it.get('id'), it.get('text'))
+                            for it in items)
+        raise testscript.ScriptError(
+            'menu-select: no menu item matches %r (%s)'
+            % (p['text'], 'menu: ' + listing if listing
+               else 'no menu cached - fetch the menu (a SET UP MENU '
+                    'expectation) first'))
+    if len(matches) > 1:
+        raise testscript.ScriptError(
+            'menu-select: %d items match %r (%s) - use the item id'
+            % (len(matches), p['text'],
+               ', '.join('%s=%r' % (it.get('id'), it.get('text'))
+                         for it in matches)))
+    return matches[0]['id']
+
+
 def _test_run_action(server, step, ctx):
     scc = server.scc
     kind = step['kind']
@@ -5924,7 +5954,10 @@ def _test_run_action(server, step, ctx):
                                         drain=False)
         sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
     elif kind == 'menu-select':
-        tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, p['item_id']])
+        item_id = p.get('item_id')
+        if item_id is None:
+            item_id = _menu_item_by_text(server, p)
+        tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, item_id])
         sent = '%sc20000%02x%s' % (scc.cat_cla, len(tlv), tlv.hex())
         server.menu_active = True
         data, sw = scc._tp.send_apdu(sent)
@@ -6061,6 +6094,12 @@ def _test_run_expect(server, step, pending, ctx=None):
     # submit mode (SPI2 bit 0x20): decode it with the triggering scp80 step's
     # context so the checks can assert the PoR contents.
     por = _test_expect_por(ctx, raw) if cmd_type == 0x13 else None
+    if cmd_type == 0x25:
+        # The card may re-send its menu (e.g. after an applet install); keep
+        # the cache that text-based menu selection resolves against current.
+        menu = _parse_setup_menu_command(raw)
+        if menu:
+            server.sim_menu = menu
     checks = []
     want_type = step['command'].get('type')
     type_ok = want_type is None or cmd_type == want_type

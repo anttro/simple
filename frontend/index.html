@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.16.0';
+const SIMPLE_VERSION = '3.17.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6964,6 +6964,17 @@ function testCurrent() {
 	return scripts[_testCurrentIdx] || null;
 }
 
+// The menu-select target: an item id (1-255) or the item text - the id varies
+// with the applet's install parameters, so the text can be matched instead.
+function testMenuSelectProblem(p) {
+	const raw = String(p && p.item_id !== undefined && p.item_id !== null ? p.item_id : '').trim();
+	const hasText = !!String((p && p.text) || '').trim();
+	if (raw !== '' && !(p.item_id >= 1 && p.item_id <= 255)) return t('item id must be 1..255');
+	if (!hasText && raw === '') return t('item id or text is required');
+	if (hasText && raw !== '') return t('give the item id or the text, not both');
+	return '';
+}
+
 // Local sanity check (the server validates again); '' when the script looks good.
 function testScriptProblem(script) {
 	if (!script || typeof script !== 'object') return t('Script must be an object');
@@ -6986,7 +6997,10 @@ function testScriptProblem(script) {
 					if (!(kvn >= 1 && kvn <= 15)) return at + t('keyset number must be 1..15');
 				}
 			}
-			if (s.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return at + t('item id must be 1..255');
+			if (s.kind === 'menu-select') {
+				const problem = testMenuSelectProblem(p);
+				if (problem) return at + problem;
+			}
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
 		} else if (s.type === 'expect') {
 			if (!String(s.command || '').trim()) return at + t('command is required');
@@ -7037,7 +7051,11 @@ function testStepSummary(step) {
 	const p = step.params || {};
 	let s = '';
 	if (step.kind === 'envelope') s = 'ENVELOPE event=0x' + Number(p.event || 0).toString(16).toUpperCase().padStart(2, '0') + (p.data ? ' data=' + p.data : '');
-	else if (step.kind === 'menu-select') s = 'ENVELOPE(Menu Selection) item=' + p.item_id;
+	else if (step.kind === 'menu-select') {
+		s = 'ENVELOPE(Menu Selection) ' + (p.text
+			? 'text ' + (p.mode === 'contains' ? '~' : '=') + JSON.stringify(p.text)
+			: 'item=' + p.item_id);
+	}
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
 	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
 	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
@@ -7300,7 +7318,11 @@ function testStepRender() {
 			html += testFormRow('Event type', testFormInput('test-f-event', p.event === undefined ? 3 : p.event, '0..255'));
 			html += testFormRow('Event data (hex, optional)', testFormInput('test-f-data', p.data, '9B0100'));
 		} else if (step.kind === 'menu-select') {
-			html += testFormRow('Item id (1-255)', testFormInput('test-f-item', p.item_id === undefined ? 1 : p.item_id, '1..255'));
+			html += testFormRow('Item id (1-255)', testFormInput('test-f-item', p.item_id === undefined ? '' : p.item_id, '1..255'));
+			html += testFormRow('\u2026 or item text',
+				'<div class="flex gap-2">' + testFormInput('test-f-itemtext', p.text, t('menu item text'))
+				+ testFormSelect('test-f-itemmode', p.mode || 'exact',
+					[{v: 'exact', l: t('Exact')}, {v: 'contains', l: t('Contains')}]) + '</div>');
 		} else if (step.kind === 'file-write' || step.kind === 'file-read') {
 			html += testFormRow('File path', testFormInput('test-f-path', p.path, 'ADF.USIM/EF.EST or MF/2FE2'));
 			html += testFormRow('Mode', testFormSelect('test-f-mode', p.mode || 'auto', [
@@ -7492,7 +7514,16 @@ function testStepCollect() {
 		step.kind = kind;
 		const p = {};
 		if (kind === 'envelope') { p.event = num('test-f-event', 3); p.data = hexNoMask('test-f-data'); }
-		else if (kind === 'menu-select') { p.item_id = num('test-f-item', 1); }
+		else if (kind === 'menu-select') {
+			const text = val('test-f-itemtext');
+			if (text) {
+				p.text = text;
+				p.mode = val('test-f-itemmode') || 'exact';
+			} else {
+				const id = num('test-f-item', 0);
+				if (id) p.item_id = id;
+			}
+		}
 		else if (kind === 'file-write' || kind === 'file-read') {
 			p.path = val('test-f-path');
 			p.mode = val('test-f-mode') || 'auto';
@@ -7564,7 +7595,10 @@ function testStepFormError() {
 			const src = p.source || (p.sp ? 'sp' : 'apdu');
 			if (src === 'sp' ? !p.sp : !p.apdu) return t('SCP80 needs an APDU or a secured packet');
 		}
-		if (step.kind === 'menu-select' && !(p.item_id >= 1 && p.item_id <= 255)) return t('item id must be 1..255');
+		if (step.kind === 'menu-select') {
+			const problem = testMenuSelectProblem(p);
+			if (problem) return problem;
+		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
 	} else if (!step.command) {
@@ -20928,6 +20962,10 @@ const LANG_RU = {
 	'APDU is empty': 'APDU пуст',
 	'SCP80 needs an APDU or a secured packet': 'SCP80 требует APDU или готовый защищённый пакет',
 	'item id must be 1..255': 'item id должен быть 1..255',
+	'item id or text is required': 'нужен item id или текст пункта',
+	'give the item id or the text, not both': 'укажите item id или текст, но не оба',
+	'… or item text': '… или текст пункта',
+	'menu item text': 'текст пункта меню',
 	'file path is empty': 'путь к файлу пуст',
 	'command is required': 'команда обязательна',
 	'step must be an action or an expectation': 'шаг должен быть действием или ожиданием',

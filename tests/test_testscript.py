@@ -94,15 +94,51 @@ class TestValidation(unittest.TestCase):
             T.normalise_script({'steps': [
                 {'type': 'action', 'kind': 'status', 'params': {'attempts': 'x'}}]}, _resolver)
 
-    def test_respond_text_and_raw(self):
+    def test_respond_text_codings_and_raw(self):
+        # TS 102 223 8.15 recommended codings: '00' GSM default alphabet
+        # 7 bits packed, '04' GSM default alphabet 8 bits, '08' UCS2.
         respond = T.normalise_respond({'result': 'ok', 'text': 'hello', 'dcs': '00',
                                        'raw': 'aa01bb'})
         self.assertEqual(respond['text'], 'hello')
         self.assertEqual(respond['raw'], 'AA01BB')
+        # 6.8.0 object order: command details, device identities, Result,
+        # then the command-specific objects (here Text), then the raw extras.
         tr = T.build_tr(4, 0x23, 0x81, 0x82, respond)
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + 'AA01BB' + '8D0600' + '68656C6C6F'
-                         + '83020000')
+                         '8103042300' + '82028182' + '83020000'
+                         + '8D0600' + 'E8329BFD06' + 'AA01BB')
+        # 8 bits: one octet per character
+        tr = T.build_tr(4, 0x23, 0x81, 0x82, {'result': 0x00, 'text': 'hello', 'dcs': 0x04})
+        self.assertEqual(tr.hex().upper(),
+                         '8103042300' + '82028182' + '83020000' + '8D0604' + '68656C6C6F')
+        # UCS2 (UTF-16-BE): 'A' U+0041, 'Ж' U+0416
+        tr = T.build_tr(4, 0x23, 0x81, 0x82,
+                        {'result': 0x00, 'text': 'A\u0416', 'dcs': 0x08})
+        self.assertEqual(tr.hex().upper(),
+                         '8103042300' + '82028182' + '83020000' + '8D0508' + '00410416')
+        # an empty answer is the null text string (Length 00, no DCS)
+        tr = T.build_tr(4, 0x23, 0x81, 0x82, {'result': 0x00, 'text': ''})
+        self.assertEqual(tr.hex().upper(),
+                         '8103042300' + '82028182' + '83020000' + '8D00')
+
+    def test_menu_select_params_accept_id_or_text(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'menu-select', 'params': {'item_id': 3}},
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'My menu', 'mode': 'contains', 'case_sensitive': False}},
+        ]}, _resolver)
+        self.assertEqual(script['steps'][0]['params'], {'item_id': 3})
+        self.assertEqual(script['steps'][1]['params'],
+                         {'text': 'My menu', 'mode': 'contains', 'case_sensitive': False})
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'menu-select',
+                                           'params': {}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'menu-select',
+                                           'params': {'item_id': 1, 'text': 'x'}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'menu-select',
+                                           'params': {'text': 'x', 'mode': 'nope'}}]}, _resolver)
 
     def test_scp80_keyset_number_and_new_content_checks(self):
         # kvn (1..15) selects the preset's keyset; `por`/`files` are expect
@@ -172,8 +208,10 @@ class TestMatchers(unittest.TestCase):
 
 class TestBuildTr(unittest.TestCase):
     def test_select_item_response_carries_the_identifier(self):
+        # TS 102 223 6.8.0: the item identifier (F) follows the Result (C)
         tr = T.build_tr(3, 0x24, 0x82, 0x81, {'result': 0x00, 'item_id': 7})
-        self.assertEqual(tr.hex().upper(), '81030324008202828190010783020000')
+        self.assertEqual(tr.hex().upper(),
+                         '81030324008202828183020000900107')
 
     def test_cancel_response_has_no_item_identifier(self):
         tr = T.build_tr(3, 0x24, 0x82, 0x81, {'result': 0x10, 'item_id': 7})
@@ -391,6 +429,58 @@ class TestRunnerActions(RunnerTestCase):
         self.run_script(server, [{'type': 'action', 'kind': 'menu-select',
                                   'params': {'item_id': 1}, 'check': {'sw': '91??'}}])
         self.assertTrue(server.menu_active)
+
+    # SET UP MENU (title 'Menu', item 1 = 'One') as the card sends it.
+    SETUP_MENU_CMD = 'D01581030125008202828185044D656E758F04014F6E65'
+
+    def test_expect_updates_the_cached_menu_and_text_selection_resolves(self):
+        # The item ids vary with the applet's install parameters: the menu the
+        # card sends must refresh the cache, and a text selection resolves
+        # against it (the live id is not in the script).
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', self.SETUP_MENU_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80C2', '', '9000')
+        server = FakeServer(scc)
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2},
+             'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
+            {'type': 'expect', 'command': 'SET UP MENU', 'respond': {'result': 'ok'}},
+            {'type': 'action', 'kind': 'menu-select', 'params': {'text': 'One'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(server.sim_menu['items'],
+                         [{'id': 1, 'text': 'One'}])
+        # the resolved Menu Selection TLV carries the item id the card gave
+        self.assertIn('D30702020181900101', ''.join(scc.sent))
+
+    def test_menu_text_selection_reports_the_available_items(self):
+        scc = FakeScc()
+        server = FakeServer(scc)
+        server.sim_menu = {'title': 'Menu', 'items': [{'id': 3, 'text': 'Alpha'}]}
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'menu-select', 'params': {'text': 'Beta'}},
+        ])
+        self.assertEqual(run['status'], 'error')
+        note = run['steps'][0].get('note') or ''
+        self.assertIn("no menu item matches 'Beta'", note)
+        self.assertIn("3='Alpha'", note)
+        self.assertEqual(scc.sent, [])
+
+    def test_menu_text_selection_refuses_an_ambiguous_match(self):
+        scc = FakeScc()
+        server = FakeServer(scc)
+        server.sim_menu = {'items': [{'id': 1, 'text': 'Alpha one'},
+                                     {'id': 2, 'text': 'Alpha two'}]}
+        run = self.run_script(server, [
+            {'type': 'action', 'kind': 'menu-select',
+             'params': {'text': 'Alpha', 'mode': 'contains'}},
+        ])
+        self.assertEqual(run['status'], 'error')
+        note = run['steps'][0].get('note') or ''
+        self.assertIn('2 items match', note)
+        self.assertIn('use the item id', note)
 
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()

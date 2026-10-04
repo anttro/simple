@@ -21,10 +21,13 @@ profiler), e.g. ``{"mode": "mask", "value": "91??"}``.
 
 import re
 
+import gsm0338  # registers the 'gsm03.38' codec (the default alphabet coding)
+
 __all__ = [
     'ScriptError', 'ACTION_KINDS', 'FAIL_LEVELS', 'POR_CHECKS', 'RESULT_NAMES',
     'normalise_script', 'normalise_step', 'normalise_respond',
     'match_value', 'match_text', 'match_item', 'combine_levels', 'build_tr',
+    'pack_gsm7',
 ]
 
 ACTION_KINDS = ('envelope', 'menu-select', 'file-write', 'file-read', 'apdu',
@@ -216,7 +219,25 @@ def _normalise_params(kind, p):
         return {'event': _int(p['event'], 'envelope event', 0, 255),
                 'data': _data_hex(p.get('data'), 'envelope data', allow_empty=True)}
     if kind == 'menu-select':
-        return {'item_id': _int(p.get('item_id'), 'menu item_id', 1, 255)}
+        # The item is named by its id, or by its text - the id varies with the
+        # applet's install parameters, so a script can match the text the card
+        # actually shows (the runner resolves it against the cached menu).
+        out = {}
+        if p.get('item_id') not in (None, ''):
+            out['item_id'] = _int(p.get('item_id'), 'menu item_id', 1, 255)
+        text = p.get('text')
+        if text is not None and str(text).strip():
+            out['text'] = str(text)
+            mode = str(p.get('mode') or 'exact').lower()
+            if mode not in ('exact', 'contains'):
+                raise ScriptError('menu-select: mode must be exact or contains')
+            out['mode'] = mode
+            out['case_sensitive'] = bool(p.get('case_sensitive', True))
+        if not out:
+            raise ScriptError('menu-select: item_id or text is required')
+        if 'item_id' in out and 'text' in out:
+            raise ScriptError('menu-select: give item_id or text, not both')
+        return out
     if kind in ('file-write', 'file-read'):
         path = str(p.get('path') or '').strip()
         if not path:
@@ -417,26 +438,57 @@ def normalise_respond(respond, cmd_type=None):
 
 # ─── scripted TERMINAL RESPONSE ─────────────────────────────────────────
 
+def pack_gsm7(septets):
+    """Pack GSM 03.38 septets into 7-bit octets (TS 23.038 4, SMS packing)."""
+    out = bytearray()
+    acc = 0
+    bits = 0
+    for s in septets:
+        acc |= (s & 0x7F) << bits
+        bits += 7
+        while bits >= 8:
+            out.append(acc & 0xFF)
+            acc >>= 8
+            bits -= 8
+    if bits:
+        out.append(acc & 0xFF)
+    return bytes(out)
+
+
 def _encode_text(text, dcs):
+    """Text string coding for a scripted TERMINAL RESPONSE (TS 102 223 8.15):
+    '00' = GSM default alphabet 7 bits packed, '04' (or any other 8-bit
+    scheme) = GSM default alphabet 8 bits (TS 23.038 via the gsm03.38 codec,
+    bit 8 clear), '08' = UCS2.  Matches the interactive GET INKEY/GET INPUT
+    response codings."""
     if (dcs & 0x0C) == 0x08:
         return text.encode('utf-16-be')
-    return text.encode('latin-1', 'replace')
+    if dcs == 0x00:
+        return pack_gsm7(text.encode('gsm03.38'))
+    return text.encode('gsm03.38')
 
 
 def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond):
-    """Flat COMPREHENSION-TLV TERMINAL RESPONSE payload (TS 102 223 6.8):
-    command details + device identities + optional item identifier / text
-    string / raw TLVs + result.  Matches the interactive menu TR layout."""
+    """Flat COMPREHENSION-TLV TERMINAL RESPONSE payload (TS 102 223 6.8) in the
+    6.8.0 object order: command details, device identities, Result, then the
+    command-specific objects (Text string for GET INKEY/GET INPUT, Item
+    identifier for SELECT ITEM) and any extra raw TLVs.  Matches the
+    interactive menu TR layout."""
     out = bytearray([0x81, 0x03, cmd_num & 0xFF, cmd_type & 0xFF, 0x00])
     out += bytes([0x82, 0x02, dev_dst & 0xFF, dev_src & 0xFF])
     result = int(respond.get('result', 0))
+    out += bytes([0x83, 0x02, result & 0xFF, 0x00])
+    if respond.get('text') is not None:
+        text = str(respond['text'])
+        if text == '':
+            # TS 102 223 8.15: a null text string is Length 00, no value part
+            out += bytes([0x8D, 0x00])
+        else:
+            dcs = int(respond.get('dcs', 0x00))
+            body = _encode_text(text, dcs)
+            out += bytes([0x8D, len(body) + 1, dcs]) + body
     if respond.get('item_id') is not None and result == 0x00:
         out += bytes([0x90, 0x01, respond['item_id'] & 0xFF])
     if respond.get('raw'):
         out += bytes.fromhex(respond['raw'])
-    if respond.get('text') is not None:
-        dcs = int(respond.get('dcs', 0x00))
-        body = _encode_text(respond['text'], dcs)
-        out += bytes([0x8D, len(body) + 1, dcs]) + body
-    out += bytes([0x83, 0x02, result & 0xFF, 0x00])
     return bytes(out)

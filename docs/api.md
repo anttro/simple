@@ -667,8 +667,11 @@ keysets, TARs and counters.  The inline `preset` form stays for external
 callers.
 
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
-`menu-select` (`item_id` 1-255), `file-write` (`path`, `data`, `mode`
-`auto`/`binary`/`record`, `record`), `file-read` (same, verifies `check.data`),
+`menu-select` (`item_id` 1-255, or `text` + `mode` `exact`/`contains` with an
+optional `case_sensitive` - the text is resolved against the card's cached
+SET UP MENU, which is refreshed whenever the card sends the menu), `file-write`
+(`path`, `data`, `mode` `auto`/`binary`/`record`, `record`), `file-read` (same,
+verifies `check.data`),
 `apdu` (raw transport, no auto-handler), `scp80` (`apdu` or `sp`, selected by
 the optional `source` field when both are present; optional `kvn` (keyset
 number 1-15), `tar`/`spi1`/`spi2` overrides - KIc/KID and the counter always
@@ -691,8 +694,10 @@ preceding `scp80` step - PoR-in-submit, SPI2 bit `20`: `status` (the response
 status name, `ok` = `por_ok`), `sw` (the R-APDU status word, exact/mask) and
 `data` (the R-APDU response data, exact/mask)) or `files` (the File List of a
 REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
-order-insensitively); `respond` is the TERMINAL RESPONSE (`result` name or
-value, `item_id`, `text`+`dcs`, raw TLVs).
+order-insensitively); `respond` is the TERMINAL RESPONSE in the TS 102 223
+6.8.0 object order (`result` name or value; `text`+`dcs` for GET INKEY/GET
+INPUT, `dcs` `00` packed / `04` 8-bit / `08` UCS2; `item_id`; extra `raw`
+TLVs appended after the standard objects).
 
 The response is the initial state (`running: true`), the final counter
 (`scp80_counter`) and the step list; poll `/api/test/status`.  The PWA writes
