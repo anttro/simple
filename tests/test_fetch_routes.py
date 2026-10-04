@@ -981,6 +981,19 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 503, resp)
 
 
+class TestActionKindsDriftTests(unittest.TestCase):
+    """The PWA's test-script action kinds must match the engine's (a missing
+    kind in either side breaks scripts silently)."""
+
+    def test_the_pwa_and_the_server_share_the_action_kinds(self):
+        from pysim_simple_server import testscript
+        html = (ROOT / 'frontend' / 'index.html').read_text(encoding='utf-8')
+        m = re.search(r"const TEST_ACTION_KINDS = \[(.*?)\];", html)
+        self.assertIsNotNone(m, 'TEST_ACTION_KINDS not found in the PWA')
+        pwa = re.findall(r"'([a-z0-9-]+)'", m.group(1))
+        self.assertEqual(pwa, list(testscript.ACTION_KINDS))
+
+
 class TestScriptStoreHttpTests(unittest.TestCase):
     """The test script endpoints (v3.16.0): the PWA's Test script pill talks
     to the server store instead of localStorage, and a run may name a stored

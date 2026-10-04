@@ -29,6 +29,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
+eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const TEST_ACTION_KINDS = [', 'let _testScripts').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'testTemplate'));
 eval(extractFunc(html, 'testMenuSelectProblem'));
@@ -44,6 +45,7 @@ eval(extractFunc(html, 'testFormSelect'));
 eval(extractFunc(html, 'testStepRender'));
 eval(extractFunc(html, 'testRenderChecks'));
 eval(extractFunc(html, 'testStepCollect'));
+eval(extractFunc(html, 'testStepFormError'));
 eval(extractFunc(html, 'testWriteBackCounter'));
 eval(extractFunc(html, 'testRunPreset'));
 eval(extractFunc(html, 'testScriptsWriteback', true));
@@ -93,6 +95,12 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 		params: {} }] }), /item id or text/);
 	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'menu-select',
 		params: { item_id: 1, text: 'My menu' } }] }), /not both/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: {} }] }), /event is required/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: { event: '03', fields: [] } }] }), /object/);
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: { event: '03', fields: { status: 0 } } }] }), '');
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'file-read', params: {} }] }), /file path/);
 	assert.match(testScriptProblem({ steps: [{ type: 'expect' }] }), /command is required/);
@@ -201,6 +209,27 @@ test('the menu-select editor collects the item id or the text', () => {
 	assert.deepStrictEqual(_testEditStep.params, { item_id: 3 });
 });
 
+test('the event step collects the type and the JSON fields', () => {
+	_testEditStep = { type: 'action', kind: 'event', params: {} };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '12',
+		'test-f-evfields': '{"reg_type":"9","cause":"2"}',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.deepStrictEqual(_testEditStep.params,
+		{ event: '12', fields: { reg_type: '9', cause: '2' } });
+	assert.strictEqual(_testEditStep._eventFieldsError, undefined);
+	// invalid JSON marks the form and the save refuses with a clear message
+	_testEditStep = { type: 'action', kind: 'event', params: {} };
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
+		'test-f-evfields': '{oops', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	assert.match(testStepFormError(), /JSON object/);
+	// the summary names the event
+	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
+		params: { event: '03', fields: {} } }), 'EVENT Location status');
+});
+
 test('the STATUS step leaves the SW check to the server default', () => {
 	_testEditStep = { type: 'action', kind: 'status', params: { attempts: 5, interval_ms: 200 } };
 	fakeForm({ 'test-step-kind': 'status', 'test-f-attempts': '5', 'test-f-interval': '200',
@@ -225,6 +254,25 @@ test('the step form renders the chosen source and no pre-filled SW', () => {
 	assert.match(body, /id="test-f-sp" value="AABB"/);
 	assert.match(body, /<option value="sp" selected>/);
 	assert.match(body, /id="test-f-sw" value=""/);
+});
+
+test('the event step form renders the event select and the JSON fields', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'action', kind: 'event',
+		params: { event: '12', fields: { reg_type: '9' } } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const body = els['test-step-body'].innerHTML;
+	assert.match(body, /id="test-f-evtype"/);
+	assert.match(body, /<option value="12" selected>/);
+	assert.match(body, /id="test-f-evfields"/);
+	assert.ok(body.includes('{"reg_type":"9"}'), body);
 });
 
 test('hex fields strip mask wildcards, check values keep them', () => {

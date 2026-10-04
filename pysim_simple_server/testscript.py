@@ -23,6 +23,8 @@ import re
 
 import gsm0338  # registers the 'gsm03.38' codec (the default alphabet coding)
 
+from pysim_simple_server import events
+
 __all__ = [
     'ScriptError', 'ACTION_KINDS', 'FAIL_LEVELS', 'POR_CHECKS', 'RESULT_NAMES',
     'normalise_script', 'normalise_step', 'normalise_respond',
@@ -30,8 +32,8 @@ __all__ = [
     'pack_gsm7',
 ]
 
-ACTION_KINDS = ('envelope', 'menu-select', 'file-write', 'file-read', 'apdu',
-                'scp80', 'status')
+ACTION_KINDS = ('envelope', 'event', 'menu-select', 'file-write', 'file-read',
+                'apdu', 'scp80', 'status')
 FAIL_LEVELS = ('error', 'warning')
 POR_CHECKS = ('none', 'ok', 'any')
 
@@ -218,6 +220,31 @@ def _normalise_params(kind, p):
             raise ScriptError('envelope: event is required')
         return {'event': _int(p['event'], 'envelope event', 0, 255),
                 'data': _data_hex(p.get('data'), 'envelope data', allow_empty=True)}
+    if kind == 'event':
+        # The semantic event download: the builder owns the field set and the
+        # byte layout (events.py mirrors the PWA's forms for the supported
+        # events; every other event uses the raw `envelope` action).
+        code = events.resolve_event(p.get('event'))
+        if code is None:
+            raise ScriptError('event: a supported event name or a hex byte is '
+                              'required (supported: %s)'
+                              % ', '.join('%s/0x%02X' % (events.event_name(c), c)
+                                          for c in sorted(events.BUILDERS)))
+        raw = p.get('fields')
+        if raw is not None and not isinstance(raw, dict):
+            raise ScriptError('event: fields must be an object')
+        try:
+            fields = events.normalise(code, raw or {})
+        except events.EventError as e:
+            raise ScriptError('event 0x%02X: %s' % (code, e))
+        out = {'event': code, 'fields': fields}
+        src = str(p.get('src') or '').strip().upper()
+        if src:
+            if not re.fullmatch(r'[0-9A-F]{2}', src):
+                raise ScriptError('event: src must be one hex byte '
+                                  '(82 terminal / 83 network)')
+            out['src'] = src
+        return out
     if kind == 'menu-select':
         # The item is named by its id, or by its text - the id varies with the
         # applet's install parameters, so a script can match the text the card

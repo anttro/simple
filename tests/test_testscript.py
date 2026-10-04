@@ -140,6 +140,34 @@ class TestValidation(unittest.TestCase):
             T.normalise_script({'steps': [{'type': 'action', 'kind': 'menu-select',
                                            'params': {'text': 'x', 'mode': 'nope'}}]}, _resolver)
 
+    def test_event_action_normalises_the_semantic_fields(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': 'location status',
+                        'fields': {'status': 1, 'mcc': '250'}}},
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': '0x1D', 'src': '83',
+                        'fields': {'status': '0', 'type': '0', 'ti': '00',
+                                   'loc_status': '0'}}},
+        ]}, _resolver)
+        p = script['steps'][0]['params']
+        self.assertEqual(p['event'], 0x03)
+        self.assertEqual(p['fields'], {'status': 1, 'mcc': '250'})
+        self.assertNotIn('src', p)
+        p = script['steps'][1]['params']
+        self.assertEqual(p['event'], 0x1D)
+        self.assertEqual(p['src'], '83')
+        # an unknown name, a bad field and a bad source are refused before the run
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'event',
+                                           'params': {'event': 'nope'}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'event',
+                'params': {'event': '0x03', 'fields': {'status': 9}}}]}, _resolver)
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [{'type': 'action', 'kind': 'event',
+                'params': {'event': 3, 'src': 'zz'}}]}, _resolver)
+
     def test_scp80_keyset_number_and_new_content_checks(self):
         # kvn (1..15) selects the preset's keyset; `por`/`files` are expect
         # content checks (the PoR contents / the REFRESH file list).
@@ -481,6 +509,30 @@ class TestRunnerActions(RunnerTestCase):
         note = run['steps'][0].get('note') or ''
         self.assertIn('2 items match', note)
         self.assertIn('use the item id', note)
+
+    def test_event_action_sends_the_built_object(self):
+        scc = FakeScc()
+        scc.push('80C2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': 'location status',
+                        'fields': {'status': '0', 'mcc': '250', 'mnc': '01',
+                                   'lac': '00FF', 'cell': '0001'}}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        apdu = scc.sent[0].upper()
+        # event list + device identities (terminal default) + the built object
+        self.assertIn('99010382028281' + '9B0100930752F01000FF0001', apdu)
+        # the src override names the network as the source
+        scc2 = FakeScc()
+        scc2.push('80C2', '', '9000')
+        run = self.run_script(FakeServer(scc2), [
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': '0x0B', 'fields': {'tech': '8'}, 'src': '83'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        apdu = scc2.sent[0].upper()
+        self.assertIn('99010B82028381' + 'BF0108', apdu)
 
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()

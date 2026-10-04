@@ -667,7 +667,9 @@ keysets, TARs and counters.  The inline `preset` form stays for external
 callers.
 
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`),
-`menu-select` (`item_id` 1-255, or `text` + `mode` `exact`/`contains` with an
+`event` (`event` name or hex + `fields`, optional `src` - the semantic event
+download for 0x03/0x0B/0x12/0x1D), `menu-select` (`item_id` 1-255, or `text` +
+`mode` `exact`/`contains` with an
 optional `case_sensitive` - the text is resolved against the card's cached
 SET UP MENU, which is refreshed whenever the card sends the menu), `file-write`
 (`path`, `data`, `mode` `auto`/`binary`/`record`, `record`), `file-read` (same,

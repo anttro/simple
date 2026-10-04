@@ -14,7 +14,7 @@ localStorage export imports as-is), and any API client can create or run them
 
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
-RESPONSE codings since 3.17.0.
+RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0.
 
 ## Writing a test for an applet
 
@@ -131,7 +131,8 @@ continue correctly.
 
 | kind | params | notes |
 |---|---|---|
-| `envelope` | `event` 0–255, `data` hex (optional) | ENVELOPE(Event Download) |
+| `envelope` | `event` 0–255, `data` hex (optional) | ENVELOPE(Event Download) with raw data |
+| `event` | `event` (name or hex), `fields` (object), optional `src` | semantic ENVELOPE(Event Download) for 0x03/0x0B/0x12/0x1D (see below) |
 | `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive`), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
 | `file-read` | `path`, `mode`, `record` | READ BINARY/RECORD; verify with `check.data` |
@@ -141,6 +142,29 @@ continue correctly.
 
 `path` is `/`-separated: `MF` (or `3F00`) or an ADF name/AID first, then FIDs
 or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
+
+### Semantic events (`kind: "event"`)
+
+The server builds the event objects for the events a test needs most; an
+event without a builder goes through the raw `envelope` action, whose data hex
+the Phone tab's event form shows (**Event data (hex)**, copyable).
+
+```json
+{"type": "action", "kind": "event",
+ "params": {"event": "location_status",
+            "fields": {"status": 0, "mcc": "250", "mnc": "01",
+                       "lac": "00FF", "cell": "0001"}}}
+```
+
+| `event` | fields |
+|---|---|
+| `location_status` / `0x03` | `status` 0 normal / 1 limited / 2 no service; for normal service `mcc`, `mnc`, `lac`, `cell` |
+| `access_tech` / `0x0B` | `tech` (TS 102 223 8.61 coding: 0 GSM, 3 UTRAN, 8 E-UTRAN, 10 NG-RAN, …) |
+| `network_rejection` / `0x12` | `reg_type` 0–17, `access_tech`, `cause`; the location object follows the registration group - LU: `lac`, GPRS: `lac`+`rac`, EPS/5GS: `tac` (4–6 hex) + optional `ext_cause`; `mcc`/`mnc`; optional `ext_info_type` (1 CAG ID / 2 NID / 3 RedCap) + `ext_info` |
+| `data_connection` / `0x1D` | `status` 0–2, `type` 0–2, optional `cause`, `ti` (hex byte), `datetime: "now"` (host clock, 8.39), `mcc`/`mnc`/`lac`/`cell`, `tech`, `loc_status`, `apn`, `pdp_type` |
+
+`src` overrides the device-identities source (`82` terminal, `83` network);
+the default is the terminal, matching the Phone tab's forms.
 
 ### `check` on actions
 
@@ -245,8 +269,25 @@ pending command the next step does not expect.
 
 ## Worked examples
 
-### Menu selection by text (the id varies with the install parameters)
+### Event download before an applet action
 
+```json
+{"name": "applet event",
+ "steps": [
+  {"type": "action", "kind": "event",
+   "params": {"event": "location_status",
+              "fields": {"status": 0, "mcc": "250", "mnc": "01",
+                         "lac": "00FF", "cell": "0001"}},
+   "check": {"sw": {"mode": "mask", "value": "91??"}}},
+  {"type": "expect", "command": "ANY", "respond": {"result": "ok"}}
+ ]}
+```
+
+The event's default SW check is an exact `9000`; a mask (`91??`) is needed
+when the applet answers with a proactive command, which the next expectation
+then fetches.
+
+### Menu selection by text (the id varies with the install parameters)
 ```json
 {"name": "applet menu",
  "steps": [
@@ -333,3 +374,6 @@ PoR-in-submit (with the transport asserted by the expectation):
   is checked on the action (`por`/`data`).
 - `files` matches the File List as a set (order-insensitive); duplicate paths
   are kept.
+- Semantic `event` actions cover four events (0x03/0x0B/0x12/0x1D); every
+  other event uses the raw `envelope` action with the data hex from the
+  Phone tab's event form.

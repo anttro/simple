@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.17.0';
+const SIMPLE_VERSION = '3.18.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6872,7 +6872,7 @@ function decodeResponse() {
 // through /api/test/status.  This UI edits the script and monitors the run;
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
 // the final SCP80 counter is written back to it.
-const TEST_ACTION_KINDS = ['envelope', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status'];
+const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status'];
 let _testScripts = null;
 let _testCurrentIdx = -1;
 let _testRunState = null;
@@ -7001,6 +7001,13 @@ function testScriptProblem(script) {
 				const problem = testMenuSelectProblem(p);
 				if (problem) return at + problem;
 			}
+			if (s.kind === 'event') {
+				if (!String(p.event || '').trim()) return at + t('event is required');
+				if (p.fields !== undefined && (typeof p.fields !== 'object'
+						|| p.fields === null || Array.isArray(p.fields))) {
+					return at + t('event fields must be an object');
+				}
+			}
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
 		} else if (s.type === 'expect') {
 			if (!String(s.command || '').trim()) return at + t('command is required');
@@ -7055,6 +7062,10 @@ function testStepSummary(step) {
 		s = 'ENVELOPE(Menu Selection) ' + (p.text
 			? 'text ' + (p.mode === 'contains' ? '~' : '=') + JSON.stringify(p.text)
 			: 'item=' + p.item_id);
+	}
+	else if (step.kind === 'event') {
+		const code = parseInt(p.event, 16);
+		s = 'EVENT ' + (EVENT_NAMES[code] || ('0x' + String(p.event || '?')));
 	}
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
 	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '');
@@ -7317,6 +7328,19 @@ function testStepRender() {
 		if (step.kind === 'envelope') {
 			html += testFormRow('Event type', testFormInput('test-f-event', p.event === undefined ? 3 : p.event, '0..255'));
 			html += testFormRow('Event data (hex, optional)', testFormInput('test-f-data', p.data, '9B0100'));
+		} else if (step.kind === 'event') {
+			// The semantic event download: the four events the server builds
+			// (others go through the raw envelope action with the hex the
+			// Phone form shows).
+			html += testFormRow('Event', testFormSelect('test-f-evtype', p.event || '03',
+				[0x03, 0x0B, 0x12, 0x1D].map(c => ({
+					v: c.toString(16).toUpperCase().padStart(2, '0'),
+					l: EVENT_NAMES[c]}))));
+			html += testFormRow('Event fields (JSON)', '<textarea id="test-f-evfields" rows="3" ' +
+				'placeholder=\'{"status": 0}\' class="w-full font-mono border border-gray-300 ' +
+				'dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">' +
+				esc(p.fields && Object.keys(p.fields).length ? JSON.stringify(p.fields) : '') +
+				'</textarea>');
 		} else if (step.kind === 'menu-select') {
 			html += testFormRow('Item id (1-255)', testFormInput('test-f-item', p.item_id === undefined ? '' : p.item_id, '1..255'));
 			html += testFormRow('\u2026 or item text',
@@ -7524,6 +7548,21 @@ function testStepCollect() {
 				if (id) p.item_id = id;
 			}
 		}
+		else if (kind === 'event') {
+			p.event = val('test-f-evtype') || '03';
+			const raw = val('test-f-evfields');
+			p.fields = {};
+			if (raw) {
+				try {
+					const obj = JSON.parse(raw);
+					if (obj && typeof obj === 'object' && !Array.isArray(obj)) p.fields = obj;
+					else step._eventFieldsError = true;
+				} catch (e) {
+					step._eventFieldsError = true;
+				}
+			}
+			if (!step._eventFieldsError && !raw) delete step._eventFieldsError;
+		}
 		else if (kind === 'file-write' || kind === 'file-read') {
 			p.path = val('test-f-path');
 			p.mode = val('test-f-mode') || 'auto';
@@ -7598,6 +7637,9 @@ function testStepFormError() {
 		if (step.kind === 'menu-select') {
 			const problem = testMenuSelectProblem(p);
 			if (problem) return problem;
+		}
+		if (step.kind === 'event' && step._eventFieldsError) {
+			return t('Event fields must be a JSON object');
 		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
@@ -14963,6 +15005,34 @@ function eventFitsOneEnvelope(eventDataHex) {
 	return eventEnvelopeSize(eventDataHex) <= EVENT_INNER_MAX;
 }
 
+// The visible event-form values (reads the DOM; a hidden or missing field is
+// left out).  Shared by the send action and the hex preview.
+function pysimEventValues() {
+	const cfg = EVENT_FORMS[_eventFormType];
+	const values = {};
+	((cfg && cfg.fields) || []).forEach(f => {
+		const el = document.getElementById('ev-f-' + f.id);
+		if (!el) return;
+		const wrap = el.closest ? el.closest('.event-field') : null;
+		if (wrap && wrap.style.display === 'none') return;
+		values[f.id] = String(el.value === undefined ? '' : el.value).trim();
+	});
+	return values;
+}
+
+// Build the current form's event data and show it - the exact bytes the send
+// would deliver, so a raw envelope test step can be authored by copying it.
+function pysimEventPreview() {
+	const el = document.getElementById('event-send-preview');
+	if (!el) return;
+	const cfg = EVENT_FORMS[_eventFormType];
+	let hex = '';
+	if (cfg && cfg.build) {
+		try { hex = cfg.build(pysimEventValues()) || ''; } catch (e) { hex = ''; }
+	}
+	el.value = hex ? hex.toUpperCase() : '';
+}
+
 function pysimEventSendForm(eventType) {
 	const modal = document.getElementById('event-send-modal');
 	const title = document.getElementById('event-send-title');
@@ -15021,7 +15091,14 @@ function pysimEventSendForm(eventType) {
 				esc(t('hidden parameters:') + ' ' + avail.hidden.length + ' \u00b7 ' + t('introduced after') + ' ' +
 					catReleaseLabel(eff.rel) + ' \u00b7 ' + src) + '</p>';
 		}
+		html += '<div class="mt-3"><label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' +
+			esc(t('Event data (hex)')) + '</label>' +
+			'<textarea id="event-send-preview" rows="2" readonly placeholder="\u2014" ' +
+			'class="w-full font-mono border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea></div>';
 		body.innerHTML = html;
+		body.oninput = pysimEventPreview;
+		body.onchange = pysimEventPreview;
+		pysimEventPreview();
 		btn.classList.remove('hidden');
 		if (eventType === 0x12) updateNetRejectionFields();
 		if (eventType === 0x02) updateCallCauseFields();
@@ -15067,13 +15144,11 @@ async function pysimEventSend() {
 	let eventSrc = (cfg && cfg.src) || null;
 
 	if (cfg && cfg.build) {
-		const values = {};
+		const values = pysimEventValues();
 		let valid = true;
 		cfg.fields.forEach(f => {
-			const el = document.getElementById('ev-f-' + f.id);
-			if (!el || el.closest('.event-field').style.display === 'none') return;
-			const v = el.value.trim();
-			values[f.id] = v;
+			const v = values[f.id];
+			if (v === undefined) return;      // hidden or not rendered
 			if (f.pattern && v && !new RegExp('^' + f.pattern + '$').test(v)) {
 				err.textContent = t('Invalid') + ': ' + t(f.label);
 				err.classList.remove('hidden');
@@ -21030,6 +21105,11 @@ const LANG_RU = {
 	'PoR': 'PoR',
 	'Files': 'Файлы',
 	'keyset number must be 1..15': 'номер keyset должен быть 1..15',
+	'Event fields (JSON)': 'Поля события (JSON)',
+	'Event fields must be a JSON object': 'Поля события должны быть объектом JSON',
+	'event is required': 'нужен тип события',
+	'event fields must be an object': 'поля события должны быть объектом',
+	'Event data (hex)': 'Данные события (hex)',
 	'Could not load the test scripts from the server': 'Не удалось загрузить тест-скрипты с сервера',
 	'Could not save the test script': 'Не удалось сохранить тест-скрипт',
 	'Could not delete the test script': 'Не удалось удалить тест-скрипт',

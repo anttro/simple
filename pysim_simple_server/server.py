@@ -23,6 +23,7 @@ from pysim_simple_server import capmem
 from pysim_simple_server import testscript
 from pysim_simple_server import presets
 from pysim_simple_server import test_scripts
+from pysim_simple_server import events
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
 
@@ -33,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.17.0'
+VERSION = '3.18.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5582,7 +5583,8 @@ _TEST_RUN = {
 _TEST_LOCK = threading.Lock()
 _TEST_THREAD = None
 _TEST_KIND_LABELS = {
-    'envelope': 'ENVELOPE(Event Download)', 'menu-select': 'ENVELOPE(Menu Selection)',
+    'envelope': 'ENVELOPE(Event Download)', 'event': 'ENVELOPE(Event Download)',
+    'menu-select': 'ENVELOPE(Menu Selection)',
     'file-write': 'UPDATE FILE', 'file-read': 'READ FILE', 'apdu': 'APDU',
     'scp80': 'SCP80', 'status': 'STATUS', 'cleanup': 'CLEANUP',
 }
@@ -5953,6 +5955,13 @@ def _test_run_action(server, step, ctx):
                                         bytes.fromhex(p['data']) if p['data'] else None,
                                         drain=False)
         sent = 'ENVELOPE(Event Download) type=0x%02X' % p['event']
+    elif kind == 'event':
+        # The semantic event download: the builder owns the byte layout.
+        data_hex = events.build(p['event'], p.get('fields') or {})
+        data, sw = _send_event_download(scc, p['event'], bytes.fromhex(data_hex),
+                                        drain=False, src=p.get('src'))
+        sent = 'ENVELOPE(Event Download) type=0x%02X (%s) data=%s' % (
+            p['event'], events.event_name(p['event']), data_hex)
     elif kind == 'menu-select':
         item_id = p.get('item_id')
         if item_id is None:

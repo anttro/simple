@@ -296,3 +296,28 @@ test('the single-envelope budget is enforced by the size helper', () => {
 	assert.ok(!eventFitsOneEnvelope('AB'.repeat(245)));
 	assert.ok(eventFitsOneEnvelope(null));
 });
+
+test('the event form previews the bytes the send would deliver', () => {
+	// the preview builds from the visible fields - the same bytes the send
+	// uses, so a raw-envelope test step can be authored by copying it
+	const els = {
+		'ev-f-status': { value: '0' },
+		'ev-f-mcc': { value: '250' },
+		'ev-f-mnc': { value: '01' },
+		'ev-f-lac': { value: '00FF' },
+		'ev-f-cell': { value: '0001' },
+		'event-send-preview': { value: '' },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	globalThis._eventFormType = 0x03;
+	pysimEventPreview();
+	assert.strictEqual(els['event-send-preview'].value, '9B0100930752F01000FF0001');
+	// a hidden field is left out of the build
+	els['ev-f-mcc'].closest = () => ({ style: { display: 'none' } });
+	pysimEventPreview();
+	assert.strictEqual(els['event-send-preview'].value, '9B0100');
+	// an event without a form leaves the preview empty
+	globalThis._eventFormType = 0x99;
+	pysimEventPreview();
+	assert.strictEqual(els['event-send-preview'].value, '');
+});
