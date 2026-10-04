@@ -103,8 +103,9 @@ PoR-in-submit:
 4. **Iterate**: a mismatch on `data` usually means the mask length differs from
    the actual value, or the value changed between runs - mask the varying
    bytes (counter, date-time) with `?`.
-5. **Counters**: the run starts from the preset's stored counter and persists
-   each accepted packet's next value; consecutive runs continue correctly.
+5. **Counters**: the run starts from the preset's stored counter and advances
+   it after every scp80 step the card answers (when SPI1 requests a counter
+   check); a refused packet moves it forward too - see the presets section.
 
 ### Reading the run log
 
@@ -129,8 +130,13 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 - A SEND SHORT MESSAGE expectation also logs its parsed TPDU
   (`SMS DA=… PID=… DCS=… UDL=… UD=…`) after the `CMD` line, so an applet's own
   SMS can be read even without an `sms` check.
+- A wrapped scp80 step logs both forms:
+  `SCP80 C-APDU=<plain> WRAPPED=<wrapped> (<format>)`; a pre-built packet logs
+  `SCP80 SP=…`.
 - Other actions log their send/response pair too (`APDU TX=… -> SW=…`,
-  `ENVELOPE(Event Download) … -> SW=…`, `READ MF/… -> SW=…`).
+  `ENVELOPE(Event Download) … -> SW=…`, `READ BINARY <path>`,
+  `READ RECORD <n> <path>`, `UPDATE BINARY <path>`, each with `-> SW=…`).
+- A failing step adds `TEST-RUN step N failed: …` with the reason.
 - The shared secured-packet sender logs each segment's answer
   (`OTA SEND: ENVELOPE i/N -> <SW>`).
 - `--apdu-trace` adds the raw transport view
@@ -164,9 +170,16 @@ preset's id** with the run; the server resolves it and takes:
 
 So before a run the matched preset (ICCID) must contain the keyset and, for
 every TAR the script addresses, either a TAR entry with its MSL or an explicit
-`spi1` in the step.  Counter handling: the run starts from the keyset's stored
-counter and persists each accepted packet's next value, so consecutive runs
-continue correctly.
+`spi1` in the step.  A step that omits them gets the preset's ISD role TAR as
+`tar`, that TAR's MSL as `spi1` and `01` as `spi2`; `kvn` defaults to the
+first keyset.
+
+Counter handling: the run starts from the keyset's stored counter and advances
+(and persists) its next value after **every** scp80 step the card answers, when
+the packet requests a counter check (SPI1 b5b4 ≠ 00, TS 102 225 §5.1.1) - a
+refused packet moves the local value forward too.  The local counter therefore
+only ever moves up, so a later packet is never below what the card has seen;
+consecutive runs continue correctly.
 
 ## Actions
 
@@ -232,7 +245,8 @@ the default is the terminal, matching the Phone tab's forms.
   (`response_status == por_ok`), `"none"` (no PoR expected), or an **object**
   `{"status"?, "sw"?, "data"?}` asserting the decoded PoR of this very
   exchange (at least one field; the same fields as the expectation's `por`
-  check) - it works for both the inline and the SEND SHORT MESSAGE transport.
+  check, `status` accepting `ok` for `por_ok`) - it works for both the inline
+  and the SEND SHORT MESSAGE transport.
   Example: `"por": {"status": "por_ok", "sw": "9000"}`.
 - A plain hex string is exact; a value containing `?` is a mask.  **A mask
   must have exactly the same length as the actual value** (`?` is a per-nibble
@@ -276,7 +290,9 @@ the `por` check on the step that completes the sequence (intermediate steps
 should use `raw` or no PoR check).
 
 `sms` parses the fetched SEND SHORT MESSAGE's TPDU (SMS-SUBMIT only - any other
-MTI fails the check): `da` the destination digits (exact, whitespace ignored),
+MTI fails the check): `da` the destination digits as the TPDU carries them
+(exact; whitespace and a leading `+` in the script are ignored - the
+international flag lives in the TPDU's type-of-number),
 `pid`/`dcs` single bytes and `ud` the raw user data (a UDH included) as hex
 exact/mask, `udl` the user-data length in decimal (octets, or septets for the
 7-bit alphabet - whatever the TPDU carries).  Use it for an applet's own SMS;
@@ -285,9 +301,9 @@ field is required.
 
 ### `respond`
 
-The TERMINAL RESPONSE for the fetched command, in the TS 102 223 §6.8.0
-object order (Command details, Device identities, **Result**, Duration, Text
-string, Item identifier, …):
+Optional - an omitted (or empty) object answers `ok` (`0x00`).  The TERMINAL
+RESPONSE follows the TS 102 223 §6.8.0 object order (Command details, Device
+identities, **Result**, Duration, Text string, Item identifier, …):
 
 - `result` - name or hex (`ok`, `partial`, `missing`, `refused`,
   `not_understood`, `modified`, `cancel`, `back`, `timeout`, `no_response`).
@@ -443,6 +459,10 @@ PoR-in-submit (with the transport asserted by the expectation):
   `status` action.
 - A `por` check only decodes SEND SHORT MESSAGE commands; the inline transport
   is checked on the action (`por`/`data`).
+- An expanded-format command (`"format": "expanded"`/`"expanded-ae"`) has no
+  in-packet GET RESPONSE (TS 102 226 §5.2.1.1): if the card answers `61xx`,
+  send the GET RESPONSE as a follow-up `scp80` step (its own secured packet,
+  same format).
 - `files` matches the File List as a set (order-insensitive); duplicate paths
   are kept.
 - Semantic `event` actions cover four events (0x03/0x0B/0x12/0x1D); every

@@ -467,7 +467,11 @@ def _normalise_content_check(c, default_level):
         da = c.get('da')
         if da is not None and str(da).strip():
             d = re.sub(r'\s', '', str(da))
-            if not re.fullmatch(r'[0-9*#+]{1,20}', d):
+            # The international flag lives in the TPDU's type-of-number, not
+            # in the digits: a leading '+' is accepted and dropped.
+            if d.startswith('+'):
+                d = d[1:]
+            if not re.fullmatch(r'[0-9*#]{1,20}', d):
                 raise ScriptError('sms check: da must be up to 20 digits')
             out['da'] = d
         for key in ('pid', 'dcs'):

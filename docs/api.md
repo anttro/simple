@@ -702,7 +702,8 @@ SHORT MESSAGE carrying the PoR of the
 preceding `scp80` step - PoR-in-submit, SPI2 bit `20`: `status` (the response
 status name, `ok` = `por_ok`), `sw` (the R-APDU status word, exact/mask) and
 `data` (the R-APDU response data, exact/mask)), `sms` (the SEND SHORT MESSAGE
-TPDU: `da` digits, `pid`/`dcs`/`ud` hex exact/mask, `udl` decimal; SMS-SUBMIT
+TPDU: `da` digits with whitespace skipped and a leading `+` ignored,
+`pid`/`dcs`/`ud` hex exact/mask, `udl` decimal; SMS-SUBMIT
 only) or `files` (the File List of a
 REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
 order-insensitively); `respond` is the TERMINAL RESPONSE in the TS 102 223

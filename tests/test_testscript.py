@@ -276,6 +276,13 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(sms['dcs'], {'mode': 'exact', 'value': '00'})
         self.assertEqual(sms['udl'], 5)
         self.assertEqual(sms['ud'], {'mode': 'mask', 'value': '0271??AABB'})
+        # a leading '+' (the TPDU keeps the international flag in its
+        # type-of-number) and whitespace are dropped from `da`
+        script = T.normalise_script({'steps': [
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'checks': [{'kind': 'sms', 'da': '+79 332 505 884'}]},
+        ]}, _resolver)
+        self.assertEqual(script['steps'][0]['checks'][0]['da'], '79332505884')
         for check in ({'kind': 'alpha'},                      # no value
                       {'kind': 'alpha', 'mode': 'nope', 'value': 'x'},
                       {'kind': 'sms'},                        # no fields
@@ -1075,7 +1082,7 @@ class TestRunnerActions(RunnerTestCase):
                  'check': {'sw': {'mode': 'mask', 'value': '91??'}}},
                 {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
                  'checks': [{'kind': 'alpha', 'mode': 'exact', 'value': 'Отправка...'},
-                            {'kind': 'sms', 'da': '79332505884', 'pid': '00',
+                            {'kind': 'sms', 'da': '+79 332 505 884', 'pid': '00',
                              'dcs': '00', 'udl': 8, 'ud': '4B1C12579C9D83'}],
                  'respond': {'result': 'ok'}},
             ])
