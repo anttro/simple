@@ -222,6 +222,33 @@ class MigrationTests(unittest.TestCase):
             # idempotent: nothing left to attach
             self.assertEqual(srv.migrate_scripts_to_suites(scripts, suites), 0)
 
+    def test_the_reconciliation_adopts_listed_and_missing_suite_scripts(self):
+        # The general invariant repair: a script whose suite_id points at a
+        # missing suite (a suites import with mode replace) joins "Imported
+        # scripts"; a script a suite lists but whose suite_id is empty or
+        # wrong adopts the listing suite (the member list is authoritative).
+        from pysim_simple_server import server as srv
+        from pysim_simple_server import test_scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = test_scripts.TestScriptStore(pathlib.Path(tmp) / 's.json')
+            suites = test_suites.TestSuiteStore(pathlib.Path(tmp) / 'u.json')
+            step = {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}
+            suite_a = suites.add({'name': 'A'})
+            gone = 'f' * 32
+            lost = scripts.add({'name': 'lost', 'suite_id': gone, 'steps': [step]})
+            listed = scripts.add({'name': 'listed', 'steps': [step]})
+            suites.update(suite_a['id'], {'scripts': [
+                {'script_id': listed['id'], 'role': 'setup', 'on_fail': 'stop'}]})
+            self.assertEqual(srv.reconcile_scripts_to_suites(scripts, suites), 2)
+            # the listing suite wins (its role is kept)
+            self.assertEqual(scripts.get(listed['id'])['suite_id'], suite_a['id'])
+            # the lost one is adopted by "Imported scripts"
+            imported = suites.find_by_name('Imported scripts')
+            self.assertEqual(scripts.get(lost['id'])['suite_id'], imported['id'])
+            self.assertEqual([e['script_id'] for e in imported['scripts']], [lost['id']])
+            # idempotent
+            self.assertEqual(srv.reconcile_scripts_to_suites(scripts, suites), 0)
+
 
 if __name__ == '__main__':
     unittest.main()

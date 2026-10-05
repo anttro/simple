@@ -1382,6 +1382,45 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['added'], 0)
         self.assertIn('unknown script', ' '.join(resp.get('errors') or []))
 
+    def test_scripts_import_replace_is_refused_while_suites_hold_scripts(self):
+        suite = self._suite()
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/scripts/import', {
+            'mode': 'replace',
+            'scripts': [{'name': 'new', 'steps': [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}]}]})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('dangling script references', resp['error'])
+        self.assertEqual(len(self.store.list()), 1)          # nothing was wiped
+        # with no suite holding scripts a replace is allowed
+        status, resp = self._post('/api/test/scripts/delete',
+                                  {'id': self.store.list()[0]['id']})
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/scripts/import', {
+            'mode': 'replace',
+            'scripts': [{'name': 'new', 'steps': [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}]}]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual([x['name'] for x in self.store.list()], ['new'])
+
+    def test_suites_import_replace_adopts_the_wiped_suites_scripts(self):
+        # a suites replace wipes the suite that owned a script: the script is
+        # not lost - the reconciliation adopts it into "Imported scripts"
+        suite = self._suite(name='old')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        status, resp = self._post('/api/test/suites/import', {
+            'mode': 'replace', 'suites': [{'name': 'new', 'scripts': []}]})
+        self.assertEqual(status, 200, resp)
+        imported = self.suites.find_by_name('Imported scripts')
+        self.assertIsNotNone(imported)
+        self.assertEqual(self.store.get(sid)['suite_id'], imported['id'])
+        self.assertEqual([e['script_id'] for e in imported['scripts']], [sid])
+        self.assertEqual(sorted(s['name'] for s in self.suites.list()),
+                         ['Imported scripts', 'new'])
+
     def test_import_accepts_the_old_localstorage_export(self):
         status, resp = self._post('/api/test/scripts/import', {'scripts': [
             {'name': 'A', 'steps': [{'type': 'action', 'kind': 'status',

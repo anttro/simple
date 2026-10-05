@@ -754,9 +754,13 @@ def _single_ef_value(hex_str):
 def _quota_tlv(tag, value):
     """A C7/C8 memory-quota TLV: the value is a 2-byte integer up to 32767
     and a 4-byte integer above (GP Card Spec 9.7 / Table 11-49; pySim's
-    ``StripHeaderAdapter(GreedyBytes, 4, steps=[2,4])``)."""
+    ``StripHeaderAdapter(GreedyBytes, 4, steps=[2,4])``).  An integral float
+    is accepted (a JSON client may send ``200.0``)."""
     try:
-        v = int(str(value).strip(), 10)
+        num = float(str(value).strip())
+        if not num.is_integer():
+            raise ValueError
+        v = int(num)
     except (TypeError, ValueError):
         raise ValueError('%s quota must be an integer in bytes' % tag)
     if not 0 <= v <= 0xFFFFFFFF:
@@ -5998,21 +6002,49 @@ def _test_script_move(store, suites, cur, target_id):
     return new, None, 200
 
 
-def migrate_scripts_to_suites(script_store, suite_store):
-    """Attach pre-suite scripts (no ``suite_id``) to an auto-created
-    "Imported scripts" suite: since v3.22.0 a script belongs to exactly one
-    suite, and the one-time migration keeps a v3.21.0 store usable - the
-    operator renames or regroups them with move/copy.  Returns the number of
-    attached scripts."""
+def reconcile_scripts_to_suites(script_store, suite_store):
+    """Make the ownership invariant hold again: every script belongs to
+    exactly one suite and that suite lists it.
+
+    - a script no suite lists (a v3.21.0 store, a suites import with
+      ``mode: "replace"``, a hand edit or an interrupted move) is attached to
+      the auto-created "Imported scripts" suite;
+    - a script a suite lists but whose ``suite_id`` is empty or points
+      elsewhere adopts the listing suite (the member list is authoritative).
+
+    Idempotent; returns the number of changed scripts.  Called at startup
+    (the v3.21.0 migration) and after a suites import."""
     if script_store is None or suite_store is None:
         return 0
-    orphans = script_store.orphans()
-    if not orphans:
+    suites = suite_store.list()
+    owner = {}
+    for s in suites:
+        for e in s['scripts']:
+            owner.setdefault(e['script_id'], s['id'])
+    orphans = []
+    adopted = 0
+    for script in script_store.list():
+        sid = script.get('suite_id') or None
+        if sid and owner.get(script['id']) == sid:
+            continue
+        listed_by = owner.get(script['id'])
+        if listed_by:
+            # the member list is authoritative: adopt the listing suite
+            try:
+                script_store.update(script['id'], {'suite_id': listed_by})
+                adopted += 1
+            except (test_scripts.TestScriptError, OSError) as e:
+                sys.stderr.write('TESTSUITES: cannot adopt %s: %s\n'
+                                 % (script['id'], e))
+            continue
+        orphans.append(script)
+    if not orphans and not adopted:
         return 0
     suite = suite_store.find_by_name('Imported scripts')
     if suite is None:
         suite = suite_store.add({'name': 'Imported scripts'})
     entries = list(suite['scripts'])
+    known = {e['script_id'] for e in entries}
     attached = 0
     for s in orphans:
         try:
@@ -6021,16 +6053,26 @@ def migrate_scripts_to_suites(script_store, suite_store):
             sys.stderr.write('TESTSUITES: cannot attach %s to "%s": %s\n'
                              % (s['id'], suite['name'], e))
             continue
-        entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
+        if s['id'] not in known:
+            entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
+            known.add(s['id'])
         attached += 1
     if attached:
         try:
             suite_store.update(suite['id'], {'scripts': entries})
         except (test_suites.TestSuiteError, OSError) as e:
             sys.stderr.write('TESTSUITES: cannot fill "%s": %s\n' % (suite['name'], e))
-    sys.stderr.write('TESTSUITES: attached %d script(s) to "%s"\n'
-                     % (attached, suite['name']))
-    return attached
+    if attached or adopted:
+        sys.stderr.write('TESTSUITES: reconciled %d script(s) (attached to "%s": %d, '
+                         'adopted by their suite: %d)\n'
+                         % (attached + adopted, suite['name'], attached, adopted))
+    return attached + adopted
+
+
+def migrate_scripts_to_suites(script_store, suite_store):
+    """The v3.21.0 -> v3.22.0 migration: attach the pre-suite scripts to the
+    "Imported scripts" suite (the general reconciliation, called at startup)."""
+    return reconcile_scripts_to_suites(script_store, suite_store)
 
 
 def _test_request_blocked(path):
@@ -9795,13 +9837,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             except OSError as e:
                 self._test_suites_store_error(e)
                 return
-            # The imported scripts carry the *old* suite id: point them at the
-            # suite that now owns them.
-            for suite in store.list():
-                for e in suite['scripts']:
-                    cur = scripts.get(e['script_id'])
-                    if cur is not None and cur.get('suite_id') != suite['id']:
-                        scripts.update(e['script_id'], {'suite_id': suite['id']})
+            # The ownership invariant: the imported scripts carry the *old*
+            # suite id, and a `replace` wiped the suites that owned the rest -
+            # the reconciliation re-points the listed scripts and adopts the
+            # newly unreferenced ones into "Imported scripts".
+            reconcile_scripts_to_suites(scripts, store)
             resp['scripts'] = {'added': script_result.get('added', 0),
                                'skipped': script_result.get('skipped', 0)}
             resp['skipped'] = resp.get('skipped', 0) + len(ref_errors)
@@ -9825,6 +9865,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
                 return
             mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
+            if mode == 'replace':
+                # A wipe would leave every suite's member list dangling: the
+                # scripts are the references' targets.  Merge is the normal
+                # path; delete the suites' scripts first if a replace is
+                # really wanted.
+                holders = [s for s in suites.list() if s['scripts']]
+                if holders:
+                    resp = {'error': 'replace would leave %d suite(s) with '
+                                     'dangling script references - delete their '
+                                     'scripts first, or import with merge'
+                                     % len(holders)}
+                    self._send_json(resp, 400)
+                    self._log_resp(resp)
+                    return
             target = suites.get(body.get('suite_id')) if body.get('suite_id') else None
             if body.get('suite_id') and target is None:
                 resp = {'error': 'unknown target suite'}

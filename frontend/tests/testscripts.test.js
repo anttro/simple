@@ -465,12 +465,17 @@ test('the event step collects the form values, the built data and the source', (
 	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '00', 'test-f-ev-ti': 'ZZZ',
 		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
 	assert.match(testStepFormError(), /Invalid/);
-	// the summary names the event and its source
+	// the summary names the event and its source; a legacy numeric event is
+	// the code itself (the editor stores the hex string form)
 	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
 		params: { event: '03', fields: {} } }), 'EVENT Location status');
 	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
 		params: { event: '00', data: '1C0101', src: '83' } }),
 		'EVENT MT call src=83');
+	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
+		params: { event: 10 } }), 'EVENT ' + EVENT_NAMES[10]);
+	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
+		params: { event: '0A' } }), 'EVENT ' + EVENT_NAMES[10]);
 });
 
 test('the shared event-form helpers render, prefill and collect', () => {

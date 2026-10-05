@@ -7197,7 +7197,8 @@ function testStepSummary(step) {
 			: 'item=' + p.item_id);
 	}
 	else if (step.kind === 'event') {
-		const code = parseInt(p.event, 16);
+		// a legacy numeric event is the code itself; the editor stores hex
+		const code = (typeof p.event === 'number') ? p.event : parseInt(p.event, 16);
 		s = 'EVENT ' + (EVENT_NAMES[code] || ('0x' + String(p.event || '?')));
 		if (p.src) s += ' src=' + p.src;
 	}
@@ -8290,7 +8291,9 @@ function testStepFormError() {
 			if (problem) return problem;
 		}
 		if (step.kind === 'event') {
-			const code = parseInt(String((step.params || {}).event || ''), 16);
+			const rawEvent = (step.params || {}).event;
+			const code = (typeof rawEvent === 'number') ? rawEvent
+				: parseInt(String(rawEvent || ''), 16);
 			const cfg = EVENT_FORMS[code];
 			if (!cfg) return t('No form for this event - use the raw Envelope action.');
 			const bad = eventFormPatternError(cfg, (step.params || {}).fields || {});

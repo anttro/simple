@@ -1586,6 +1586,9 @@ class CapApduSequenceTest(unittest.TestCase):
         # a 4-byte quota above 32767 (GP Card Spec 9.7)
         self.assertEqual(_compose_install_params('', '', volatile_quota=32768),
                          'C900EF06C70400008000')
+        # an integral float (a JSON client may send 200.0) is accepted
+        self.assertEqual(_compose_install_params('', '', nv_quota=200.0),
+                         'C900EF04C80200C8')
         # an EA-form STK part is a sibling of EF (the reference TCA form)
         self.assertEqual(_compose_install_params('', 'EA0480000000',
                                                  volatile_quota=100),

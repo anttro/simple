@@ -820,7 +820,10 @@ policy) and `POST /api/test/scripts/copy` (`{id, suite_id, name?}`) clones it
 into the target.  `POST /api/test/scripts/import` takes
 `{scripts: [...], mode: "merge"|"replace", suite_id?}` (the old localStorage
 export shape; invalid entries are reported in `errors` instead of failing the
-whole import; `suite_id` attaches the imported scripts to that suite).
+whole import; `suite_id` attaches the imported scripts to that suite).  A
+`replace` is **refused while any suite still lists scripts** — the wipe would
+leave dangling references; delete those scripts first, or import with
+`merge`.
 
 ### `GET /api/test/suites` and the suite store
 
@@ -852,7 +855,12 @@ removes it - refused while the suite still holds scripts - and
 `{suites: [...], scripts: [...], mode: "merge"|"replace"}`: the scripts are
 imported first (ids preserved; a collision gets a fresh uuid and the suites'
 references are remapped), then the suites; an unresolvable reference is
-reported in `errors` and the suite is skipped.
+reported in `errors` and the suite is skipped.  After the import the
+ownership invariant is reconciled: a script the imported suites list adopts
+its listing suite, and a script no suite lists any more — the `replace` mode
+wipes the suites that owned them — is **adopted into "Imported scripts"**
+instead of becoming invisible (the same reconciliation runs at startup for a
+v3.21.0 store).
 
 ### `POST /api/test/run` (single script or suite)
 
