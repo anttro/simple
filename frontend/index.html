@@ -1430,7 +1430,7 @@
 				<div id="test-view-report" class="hidden">
 					<div class="flex flex-wrap items-end gap-2 mb-3">
 						<button onclick="testViewShow('suites')" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
-						<span id="test-report-title" class="flex-1 text-sm font-medium"></span>
+						<span id="test-report-title" class="flex-1 text-sm font-medium text-gray-700 dark:text-slate-200"></span>
 						<button id="test-report-json" onclick="testReportExportJson()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export JSON">Export JSON</button>
 						<button id="test-report-md" onclick="testReportExportMarkdown()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export Markdown">Export Markdown</button>
 						<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
@@ -8295,14 +8295,25 @@ function testRenderReport() {
 	if (snap.adm && snap.adm.required) parts.push('ADM: ' + (snap.adm.verified ? t('verified') : t('not verified')));
 	if (snap.error) parts.push(esc(snap.error));
 	sumEl.innerHTML = esc(parts.join(' · '));
+	// A live run re-renders this block on every poll: replacing innerHTML
+	// creates fresh <details>, so an expanded Run log would collapse each
+	// time.  Carry the open state across the re-render (the member list is
+	// fixed at run start, so the index is a stable key).
+	const openLogs = {};
+	memEl.querySelectorAll('details[data-member]').forEach(d => {
+		openLogs[d.dataset.member] = d.open;
+	});
 	memEl.innerHTML = (s.members || []).map(testReportMemberHtml).join('');
+	memEl.querySelectorAll('details[data-member]').forEach(d => {
+		if (openLogs[d.dataset.member]) d.open = true;
+	});
 }
 
 function testReportMemberHtml(m, i) {
 	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded mb-2">'
 		+ '<div class="flex items-center gap-2 px-2 py-1.5 bg-gray-50 dark:bg-slate-800/50">'
 		+ '<span class="w-5 text-right text-xs text-gray-400">' + (i + 1) + '</span>'
-		+ '<span class="flex-1 truncate">' + esc(m.name || m.script_id || '') + '</span>';
+		+ '<span class="flex-1 truncate text-gray-700 dark:text-slate-200">' + esc(m.name || m.script_id || '') + '</span>';
 	if (m.role && m.role !== 'member') {
 		html += '<span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-slate-700">' + esc(t(m.role)) + '</span>';
 	}
@@ -8311,7 +8322,7 @@ function testReportMemberHtml(m, i) {
 	if (m.note) html += '<div class="px-2 py-1 text-xs text-red-500">' + esc(m.note) + '</div>';
 	if ((m.steps || []).length) html += '<div class="px-2 py-1">' + m.steps.map(testRunStepHtml).join('') + '</div>';
 	if ((m.log || []).length) {
-		html += '<details class="px-2 pb-1"><summary class="text-xs text-gray-500 cursor-pointer">'
+		html += '<details class="px-2 pb-1" data-member="' + i + '"><summary class="text-xs text-gray-500 cursor-pointer">'
 			+ esc(t('Run log')) + (m.log_truncated ? ' (' + esc(t('truncated')) + ')' : '') + '</summary>'
 			+ '<pre class="text-xs whitespace-pre-wrap break-all text-gray-500 dark:text-slate-400 max-h-64 overflow-auto">'
 			+ esc(m.log.join('\n')) + '</pre></details>';

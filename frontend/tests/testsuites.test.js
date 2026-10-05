@@ -184,3 +184,30 @@ test('role rows cannot be moved and the i18n refresh redraws the test views', ()
 	const i18n = extractFunc(html, 'refreshDynamicI18n');
 	assert.match(i18n, /isViewVisible\('phone-sub-test'\)\) testRender\(\)/);
 });
+
+test('the report keeps an expanded run log open across the live polls', () => {
+	// A live suite run re-renders the member blocks on every poll; replacing
+	// innerHTML creates fresh <details>, so the open state is carried over
+	// by the stable member index.
+	const member = extractFunc(html, 'testReportMemberHtml');
+	assert.match(member, /data-member="/);
+	const report = extractFunc(html, 'testRenderReport');
+	assert.match(report, /details\[data-member\]/);
+	assert.match(report, /openLogs\[d\.dataset\.member\]/);
+	assert.match(report, /d\.open = true/);
+});
+
+test('the report header classes are generated in the prebuilt stylesheet', () => {
+	// The stale-style trap (v3.22.0 review): style.css is a prebuilt Tailwind
+	// output - a class used only in the PWA source has no rule until
+	// `npm run build` runs in frontend/.  The report's member header is the
+	// regression case (a near-white bg + dark-theme text made titles vanish).
+	const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+	for (const sel of ['.bg-gray-50', '.dark\\:bg-slate-800\\/50',
+		'.dark\\:text-slate-200', '.bg-purple-100', '.dark\\:bg-purple-900\\/40',
+		'.min-w-\\[12rem\\]']) {
+		assert.ok(css.includes(sel), 'missing rule for ' + sel);
+	}
+	assert.match(extractFunc(html, 'testReportMemberHtml'),
+		/bg-gray-50 dark:bg-slate-800\/50/);
+});
