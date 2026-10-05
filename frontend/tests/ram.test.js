@@ -979,8 +979,9 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	assert.ok(sync.includes("own = view === 'sp'"), sync);
 	assert.ok(sync.includes('kvnOf(own)'), sync);
 	assert.ok(sync.includes('kvnOf(other)'), sync);
-	assert.ok(sync.includes("getElementById('sp-cntr')"), sync);
 	assert.ok(sync.includes('spKeysetSync()'), 'the keyset labels must refresh');
+	assert.ok(sync.includes('spCntrPlaceholder()'),
+		'the stored value must refresh the field placeholder (the field stays an override)');
 	assert.ok(sync.includes("ramListingSpi2('40')"),
 		'the RAM view must probe with the RAM listing transport (a PoR is required)');
 	assert.ok(sync.includes('data.counter_saved'),

@@ -31,7 +31,8 @@ let code = '';
 const ASYNC_FNS = ['cardsAdd', 'cardsImport', 'cardsRemove'];
 for (const fn of ['cardsFormValues', 'cardsClearForm', 'cardsEdit',
 	'cardsAdd', 'cardsImport', 'cardsRemove', 'ramCardIdxAfterRemove',
-	'spPresetIdx', 'spCntrSyncPreset', 'spCntrLocalSync', 'ramSaveCntr',
+	'spPresetIdx', 'spPresetCounterValue', 'spCntrPlaceholder', 'spCntrEffective',
+	'spCntrAhead', 'spCntrLocalSync', 'ramSaveCntr',
 	'cardsApplyFields', 'cardsApply', 'ramApplyCard',
 	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
 	'spTarKeyForPack', 'spPresetTar', 'spTarListRender', 'packToSp',
@@ -415,29 +416,25 @@ test('import posts the entries to the server store', async () => {
 	assert.strictEqual(apiCalls.length, 0);
 });
 
-test('the SCP80 counter edit is written to the store, a reported counter only locally', () => {
+test('the SCP80 counter field is an override - an edit is never written to the store', () => {
 	const els = setup();
 	globalThis.cards = [{ id: 'abc123', name: 'C', keysets: [
 		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
 	els['sp-card-sel'].value = '0';
 	els['sp-kic-hex'].value = '15';
 	els['sp-kid-hex'].value = '15';
-	els['sp-cntr'].value = '0000000009';
-	assert.strictEqual(spCntrSyncPreset(), true);
-	assert.strictEqual(cards[0].keysets[0].cntr, '0000000009');
-	assert.strictEqual(apiCalls.length, 1);
-	assert.strictEqual(apiCalls[0].path, '/api/presets/update');
-	assert.strictEqual(apiCalls[0].body.id, 'abc123');
-	assert.strictEqual(apiCalls[0].body.fields.keysets[0].cntr, '0000000009');
-	// a counter the server already persisted: display only, no second write
-	apiCalls = [];
+	els['sp-cntr'].value = '0000000009';           // an explicit override
+	// typing alone writes nothing (no spCntrSyncPreset anymore, v3.20.0)
+	assert.strictEqual(apiCalls.length, 0);
+	// a counter the server persisted: the local copy moves forward, display only
 	spCntrLocalSync('000000000A');
 	assert.strictEqual(cards[0].keysets[0].cntr, '000000000A');
 	assert.strictEqual(apiCalls.length, 0);
-	// no preset selected: nothing to write
-	els['sp-card-sel'].value = '';
-	assert.strictEqual(spCntrSyncPreset(), false);
-	assert.strictEqual(apiCalls.length, 0);
+	// and the copy never regresses (the store is monotonic)
+	spCntrLocalSync('0000000005');
+	assert.strictEqual(cards[0].keysets[0].cntr, '000000000A');
+	// the override in the field is untouched by the copy sync
+	assert.strictEqual(els['sp-cntr'].value, '0000000009');
 });
 
 test('applying a preset uses the TAR of the current operation and seeds the SPI1 from its MSL', () => {

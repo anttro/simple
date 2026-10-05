@@ -36,6 +36,7 @@ from pysim_simple_server.server import (
     _counter_probe,
     _counter_probe_candidates,
     _counter_probe_params,
+    _preset_counter_seed,
     _ram_normalize_format,
     _parse_proactive_header,
     _parse_display_text,
@@ -533,6 +534,43 @@ class TestDecodePor(unittest.TestCase):
         self.assertEqual(r['response_type'], 'compact')
         self.assertEqual(r['decoded']['last_status_word'], '6a86')
         self.assertEqual(r['secured_data'], '016A86')
+
+
+class TestPresetCounterSeed(unittest.TestCase):
+    """v3.20.0: the effective counter of an operation - explicit `cntr` wins,
+    otherwise the preset store's value for the packet's keyset."""
+
+    PRESET = {'keysets': [
+        {'kic': '15', 'kid': '15', 'kicKey': 'AA', 'kidKey': 'BB',
+         'cntr': '0000000001'},
+        {'kic': '25', 'kid': '25', 'kicKey': 'CC', 'kidKey': 'DD',
+         'cntr': '0000000020'}]}
+
+    def _server(self):
+        preset = self.PRESET
+
+        class Store:
+            def get(self, pid):
+                return preset if pid == 'p1' else None
+
+        return types.SimpleNamespace(card_presets=Store())
+
+    def test_explicit_counter_wins(self):
+        self.assertEqual(_preset_counter_seed(self._server(),
+                                              {'cntr': ' 0000000009 '}, 1),
+                         '0000000009')
+        # an explicit counter is used even without a preset
+        self.assertEqual(_preset_counter_seed(self._server(), {'cntr': '0000000009'}, 0),
+                         '0000000009')
+
+    def test_missing_counter_seeds_from_the_keyset(self):
+        self.assertEqual(_preset_counter_seed(self._server(), {'preset_id': 'p1'}, 2),
+                         '0000000020')
+        # no/unknown preset, unknown keyset or no kvn: nothing to seed
+        self.assertEqual(_preset_counter_seed(self._server(), {}, 1), '')
+        self.assertEqual(_preset_counter_seed(self._server(), {'preset_id': 'nope'}, 1), '')
+        self.assertEqual(_preset_counter_seed(self._server(), {'preset_id': 'p1'}, 3), '')
+        self.assertEqual(_preset_counter_seed(self._server(), {'preset_id': 'p1'}, 0), '')
 
 
 class TestProactiveDecode(unittest.TestCase):

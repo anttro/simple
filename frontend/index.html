@@ -658,7 +658,7 @@
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300">Counter (5 bytes)</label>
 				<div class="flex gap-1 items-center">
 					<button type="button" onclick="spCntrAdjust(-1)" class="px-2.5 py-2 border border-gray-300 dark:border-slate-600 text-sm rounded hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600">−</button>
-					<input id="sp-cntr" oninput="spInvalidate()" onchange="spCntrSyncPreset()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 flex-1 dark:bg-slate-800" placeholder="0000000001" maxlength="10" value="0000000001">
+					<input id="sp-cntr" oninput="spInvalidate()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 flex-1 dark:bg-slate-800" placeholder="auto" maxlength="10">
 					<button type="button" onclick="spCntrAdjust(1)" class="px-2.5 py-2 border border-gray-300 dark:border-slate-600 text-sm rounded hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600">+</button>
 				</div>
 			</div>
@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.19.2';
+const SIMPLE_VERSION = '3.20.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -4822,7 +4822,9 @@ function packToSp(sourceId) {
 }
 function spCntrAdjust(delta) {
 	const el = document.getElementById('sp-cntr');
-	let val = parseInt(el.value.replace(/[^0-9a-fA-F]/g, ''), 16) || 0;
+	// The ± buttons start from the effective counter (typed override, else the
+	// preset's next value) and turn it into an explicit override.
+	let val = parseInt(spCntrEffective(), 16) || 0;
 	val = Math.max(0, val + delta) % 0x10000000000;   // wrap the 5-byte counter
 	el.value = val.toString(16).padStart(10, '0').toUpperCase();
 }
@@ -5099,6 +5101,9 @@ function spShowSizeInfo() {
 }
 
 function _genSpBuild() {
+	// The counter the packet carries: the typed override, else the preset's
+	// next value (the server seeds the same way when the counter is omitted).
+	const cntrHex = spCntrEffective();
 	const apduHex = (document.getElementById('sp-apdu').value || '').replace(/[^0-9a-fA-F]/g, '');
 	if (!apduHex) { document.getElementById('sp-result').value = 'Error: specify APDU'; return; }
 
@@ -5107,7 +5112,6 @@ function _genSpBuild() {
 	const kicHex = document.getElementById('sp-kic-hex').value;
 	const kidHex = document.getElementById('sp-kid-hex').value;
 	const tarHex = (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6);
-	const cntrHex = (document.getElementById('sp-cntr').value || '').replace(/[^0-9a-fA-F]/g, '').padStart(10, '0').slice(0, 10);
 	const kicKeyHex = (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, '');
 	const kidKeyHex = (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, '');
 	const padByte = parseInt(document.getElementById('sp-padding').value, 16);
@@ -8569,42 +8573,58 @@ function spPresetIdx() {
 	return (!isNaN(idx) && cards[idx]) ? idx : -1;
 }
 
-// The SCP80 form's counter input: a deliberate human edit, written to the
-// server-side preset (v3.8.0).  The counter an *operation* accepted is
-// persisted by the server itself - the send/RAM flows only sync the local copy
-// through spCntrLocalSync().
-function spCntrSyncPreset() {
+// The SCP80 form's counter input is a per-send override (v3.20.0): an empty
+// field means "let the server seed the counter from the preset store" - the
+// store is the source of truth and advances monotonically on accepted
+// packets; typing a value overrides it for that send only and is never
+// written to the preset.  The preset's next value shows as the placeholder.
+function spPresetCounterValue() {
 	const idx = spPresetIdx();
-	if (idx < 0) return false;
-	const preset = cards[idx];
-	const value = (document.getElementById('sp-cntr').value || '').trim().toUpperCase();
+	if (idx < 0) return '';
 	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
 		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
-	const ks = spKeysetFor(preset, kvn);
-	if (ks) ks.cntr = value;
-	cardsRender();
-	if (preset.id && ks) {
-		pysimFetch('/api/presets/update', { id: preset.id, fields: { keysets: spKeysetList(preset) } })
-			.then(res => {
-				if (res && res.error) throw new Error(res.error);
-				// the store normalises the counter (fixed 10-hex form)
-				if (res && res.preset) { cards[idx] = res.preset; cardsRender(); spKeysetSync(); }
-			})
-			.catch(e => ioStatus('cards-io', t('Counter not saved:') + ' ' + e.message));
-	}
-	return true;
+	// the same fallback cardsApplyFields uses: the matching keyset, else the
+	// preset's first one (an undefined duplicate would otherwise leave the
+	// placeholder empty)
+	const ks = (kvn && spKeysetFor(cards[idx], kvn)) || spKeysetList(cards[idx])[0] || null;
+	return (ks && ks.cntr) || '';
 }
 
-// Keep the selected preset in step with a counter the server already persisted
-// (the operations report it as final_cntr): display only, no write.
+function spCntrPlaceholder() {
+	const el = document.getElementById('sp-cntr');
+	if (!el) return;
+	const v = spPresetCounterValue();
+	el.placeholder = v ? t('auto') + ': ' + v : t('auto');
+}
+
+// The counter the packet is built with (preview / verify): the typed
+// override, else the preset's next value, else the historic 1 default.
+function spCntrEffective() {
+	const el = document.getElementById('sp-cntr');
+	const typed = ((el && el.value) || '').replace(/[^0-9a-fA-F]/g, '');
+	const v = typed || spPresetCounterValue() || '1';
+	return v.toUpperCase().padStart(10, '0').slice(0, 10);
+}
+
+// Numeric "b is ahead of a" for two hex counters (the store is monotonic).
+function spCntrAhead(a, b) {
+	try { return parseInt(String(b), 16) > parseInt(String(a), 16); }
+	catch (e) { return false; }
+}
+
+// Keep the selected preset's copy in step with a counter the server already
+// persisted (the operations report it as final_cntr): display only, no write,
+// and the copy only moves forward (the store is monotonic).
 function spCntrLocalSync(value) {
 	const idx = spPresetIdx();
 	if (idx < 0) return;
 	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
 		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
 	const ks = spKeysetFor(cards[idx], kvn);
-	if (ks) ks.cntr = value;
+	const v = String(value || '').toUpperCase();
+	if (ks && v && (!ks.cntr || spCntrAhead(ks.cntr, v))) ks.cntr = v;
 	cardsRender();
+	spCntrPlaceholder();
 }
 
 function spParams() {
@@ -8616,11 +8636,14 @@ function spParams() {
 		kic: document.getElementById('sp-kic-hex').value,
 		kid: document.getElementById('sp-kid-hex').value,
 		tar: (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6),
-		cntr: document.getElementById('sp-cntr').value,
 		kicKey: document.getElementById('sp-kic-key').value,
 		kidKey: document.getElementById('sp-kid-key').value,
 		apdu: document.getElementById('sp-apdu').value,
 	};
+	// The counter is sent only when the field carries an explicit override;
+	// empty = the server seeds it from the preset store (v3.20.0).
+	const cntr = (document.getElementById('sp-cntr').value || '').replace(/[^0-9a-fA-F]/g, '');
+	if (cntr) p.cntr = cntr;
 	if (_spRamFormat) p.ram_format = _spRamFormat;
 	return p;
 }
@@ -8714,18 +8737,19 @@ async function pysimSendOta() {
 			// untouched - the card did not consume the packet (v3.6.3; the old
 			// "advance always" rule silently reverted preset edits).
 			if (spPorAccepted(por)) {
-				const cntrEl = document.getElementById('sp-cntr');
 				const spi1Now = (document.getElementById('sp-spi1') || {}).value;
+				let next = '';
 				if (data.final_cntr) {
-					// the server persisted the accepted counter; sync the display
-					cntrEl.value = data.final_cntr;
-					msg += ' | CNTR -> ' + cntrEl.value;
-					spCntrLocalSync(cntrEl.value);
+					// the server persisted the accepted counter; sync the local
+					// copy (display only - the form field is an override)
+					next = String(data.final_cntr);
 				} else if (spCounterTracked(spi1Now)) {
 					// an older server: advance the local working copy
-					cntrEl.value = spNextCntr(cntrEl.value);
-					msg += ' | CNTR -> ' + cntrEl.value;
-					spCntrLocalSync(cntrEl.value);
+					next = spNextCntr(spCntrEffective());
+				}
+				if (next) {
+					msg += ' | CNTR -> ' + next;
+					spCntrLocalSync(next);
 				} else {
 					// SPI1 without a counter check: the card keeps no replay
 					// value, so nothing is advanced (keyless SPI1 00 packets)
@@ -9217,18 +9241,22 @@ function getRamSpParams(selId) {
 	const sel = document.getElementById(selId || 'ram-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
 	const preset = (!isNaN(idx) && cards[idx]) ? cards[idx] : null;
-	return {
+	const p = {
 		preset_id: (preset && preset.id) || '',
 		spi1: document.getElementById('sp-spi1').value,
 		spi2: document.getElementById('sp-spi2-hex').value,
 		kic: document.getElementById('sp-kic-hex').value,
 		kid: document.getElementById('sp-kid-hex').value,
 		tar: (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6),
-		cntr: (document.getElementById('sp-cntr').value || '0000000001').replace(/[^0-9a-fA-F]/g, ''),
 		kicKey: (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		kidKey: (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		ram_format: (document.getElementById('ram-format') || {}).value || 'auto',
 	};
+	// Override only when typed; empty = the server seeds the counter from the
+	// preset store (v3.20.0).
+	const cntr = (document.getElementById('sp-cntr').value || '').replace(/[^0-9a-fA-F]/g, '');
+	if (cntr) p.cntr = cntr;
+	return p;
 }
 
 function ramIncrementCntr(cntr) {
@@ -9238,18 +9266,20 @@ function ramIncrementCntr(cntr) {
 
 function ramSaveCntr(cntr) {
 	// Keep the local copy in step with the counter the server persisted for the
-	// operation (v3.8.0): display only - the store already holds it.
-	const el = document.getElementById('sp-cntr');
-	if (el) el.value = cntr;
+	// operation (v3.8.0): display only - the store already holds it, and the
+	// copy only moves forward (the store is monotonic).  The form's counter
+	// field stays an explicit override; empty = the server seeds it.
 	const selIdx = parseInt((document.getElementById('ram-card-sel') || {}).value, 10);
 	if (!isNaN(selIdx) && cards[selIdx]) {
 		const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
 			spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
 		const ks = spKeysetFor(cards[selIdx], kvn);
-		if (ks) ks.cntr = cntr;
+		const v = String(cntr || '').toUpperCase();
+		if (ks && v && (!ks.cntr || spCntrAhead(ks.cntr, v))) ks.cntr = v;
 		cardsRender();
 		ramRender();
 	}
+	spCntrPlaceholder();
 }
 
 // Send a single GP APDU wrapped in SCP80 via /api/send-ota
@@ -11609,8 +11639,8 @@ async function ramSyncCounter(presetIdx, view) {
 			await cardsFetch();
 			// the keyset selects' labels carry the counter - refresh them too
 			spKeysetSync();
-			const cntrEl = document.getElementById('sp-cntr');
-			if (cntrEl && data.stored_cntr) cntrEl.value = data.stored_cntr;
+			// the field stays an override; its placeholder shows the stored value
+			spCntrPlaceholder();
 		}
 		if (data.success) {
 			const msg = t('Counter synced') + ': ' + esc(data.accepted_cntr) + ' \u2192 ' +
@@ -12498,7 +12528,10 @@ function spKeysetApply(ks) {
 	updateSpKid();
 	set('sp-kic-key', ks.kicKey || '');
 	set('sp-kid-key', ks.kidKey || '');
-	set('sp-cntr', ks.cntr || '');
+	// The counter field is an override: a keyset switch clears it (empty =
+	// the server seeds the packet counter, v3.20.0).
+	set('sp-cntr', '');
+	spCntrPlaceholder();
 	spInvalidate();
 	updateSp();
 }
@@ -12950,7 +12983,7 @@ function cardsAutoSelectByIccid(iccid) {
 // packet TAR alone: the plain SCP80 send re-reads only the preset-owned
 // counter/keys/SPI, a manually entered target TAR (push/link triggers,
 // applet OTA) must survive.
-function cardsApplyFields(idx, keepTar) {
+function cardsApplyFields(idx, keepTar, keepCntr) {
 	const c = cards[parseInt(idx)];
 	if (!c) return false;
 	// The TAR of the current operation (ISD for RAM/GP, the RFM TAR for the RFM
@@ -12986,10 +13019,18 @@ function cardsApplyFields(idx, keepTar) {
 		document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
 		document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
 		updateSpKid();
-		document.getElementById('sp-cntr').value = ks.cntr || '';
 		document.getElementById('sp-kic-key').value = ks.kicKey || '';
 		document.getElementById('sp-kid-key').value = ks.kidKey || '';
 	}
+	// The counter field is an override: applying a preset clears it (empty =
+	// auto, the server seeds from the store); the pre-send refresh keeps a
+	// typed override (`keepCntr`).  The placeholder always shows the preset's
+	// next value.
+	if (!keepCntr) {
+		const cntrEl = document.getElementById('sp-cntr');
+		if (cntrEl) cntrEl.value = '';
+	}
+	spCntrPlaceholder();
 	if (!keepTar) document.getElementById('sp-tar').value = cardsRoleTar(c, _spTarKey);
 	spTarListRender(c);
 	spInvalidate();
@@ -13000,8 +13041,8 @@ function cardsApplyFields(idx, keepTar) {
 	return true;
 }
 
-function cardsApply(idx, keepTar) {
-	if (!cardsApplyFields(idx, keepTar)) {
+function cardsApply(idx, keepTar, keepCntr) {
+	if (!cardsApplyFields(idx, keepTar, keepCntr)) {
 		// "— Select card —": there is no keyset to choose, and the preset
 		// warning must not outlive the selection it described.
 		spKeysetSync();
@@ -13014,16 +13055,18 @@ function cardsApply(idx, keepTar) {
 }
 
 // SCP80/RAM operations re-read the selected preset before starting: the
-// Cards tab (or a counter write-back) may have changed it after the form was
-// filled, and a stale counter is rejected by the card (cntr_low) and would
-// then be written back over the preset.  Returns the preset counter ('' when
-// no preset is selected).
+// Cards tab (or another window) may have changed the keys, SPI or the
+// counter the server will seed.  A typed counter override survives the
+// refresh - it is the user's explicit choice for the send.  Returns the
+// preset's counter ('' when no preset is selected).
 function spRefreshFromPreset(selId, keepTar) {
 	const sel = document.getElementById(selId || 'sp-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
 	if (isNaN(idx) || !cards[idx]) return '';
 	if (selId === 'ram-card-sel') _spTarKey = 'isd';
-	cardsApply(idx, keepTar);
+	// keepCntr: the form field is an override; do not re-fill it from the
+	// preset (empty = the server seeds the packet counter, v3.20.0).
+	cardsApply(idx, keepTar, true);
 	return cards[idx].cntr;
 }
 
@@ -21244,6 +21287,7 @@ const LANG_RU = {
 	'Test script running': 'Выполняется тест-скрипт',
 	'Preset': 'Пресет',
 	'Counter': 'Счётчик',
+	'auto': 'авто',
 	'Counter (hex)': 'Счётчик (hex)',
 	'No run yet.': 'Запусков пока нет.',
 	'running': 'выполняется',
@@ -21774,6 +21818,8 @@ function refreshDynamicI18n() {
 	if (isViewVisible('profiler-scan-modal')) profilerScanRefreshOptions();
 	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();
+	// the counter field's placeholder carries a t() string (auto / авто)
+	spCntrPlaceholder();
 	if (isViewVisible('tab-cards')) {
 		cardsRender();
 		cardsSetFormMode();
@@ -21841,6 +21887,8 @@ chainInit('chain-ram');
 ramResetGrants();
 updateInstallParamsHex();
 translatePage();
+// the counter field's placeholder carries a t() string (auto / авто)
+spCntrPlaceholder();
 // PWA
 let deferredPrompt;
 const installBtn = document.getElementById('install-btn');

@@ -30,6 +30,8 @@ const FNS = ['hexToBytes', 'bytesToHex', 'des3Keys', 'des3EncryptBlock', 'des3Cb
 	'xorBytes', 'zeroPad', 'crc32Bytes', 'cbcMac', 'aesCbcEncrypt', 'aesShiftLeft1', 'aesCmacSubkeys',
 	'aesCmac', '_genSpBuild', 'genSp', 'spNextCntr', 'scp80SegmentInfo', 'spSizeInfoText',
 	'spShowSizeInfo',
+	// the counter of a built packet: typed override, else the preset's (v3.20.0)
+	'spCntrEffective', 'spPresetCounterValue',
 	// the key-version guard genSp runs before building (TS 102 225 A.2)
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spPresetIdx', 'spKeysetGuard'];

@@ -580,9 +580,63 @@ class PresetStoreHttpTests(unittest.TestCase):
             status, resp = self._post('/api/counter-probe', {'preset_id': pid})
         self.assertEqual(status, 200, resp)
         self.assertTrue(resp['success'], resp)
+        self.assertEqual(resp['start'], '0000000001')   # seeded from the keyset
         self.assertEqual(resp['accepted_cntr'], '0000000002')
         self.assertEqual(resp['stored_cntr'], '0000000003')
         self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000003')
+
+    def test_send_ota_without_cntr_seeds_the_preset_counter(self):
+        """v3.20.0: the PWA's send buttons omit an untouched counter; the
+        server then uses the preset store's value for the packet's keyset."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        self.server.app = object()      # /api/send-ota refuses an uninitialized app
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               return_value=('00' * 20, {})) as build, \
+             mock.patch.object(self.srv, '_send_secured_packet', return_value={
+                 'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                 'response_data': '027100000e0ab0000000000000010000019000'}), \
+             mock.patch.object(self.srv, '_decode_por',
+                               return_value={'response_status': 'por_ok'}):
+            status, resp = self._post('/api/send-ota', {
+                'preset_id': pid, 'apdu': '80E2900000', 'tar': 'B00001',
+                'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'kicKey': 'AA', 'kidKey': 'BB'})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp.get('success'), resp)
+        self.assertEqual(build.call_args[0][5], '0000000001')   # seeded
+        self.assertEqual(resp['cntr'], '0000000001')
+        self.assertEqual(resp['final_cntr'], '0000000002')
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000002')
+
+    def test_send_ota_explicit_lower_counter_does_not_regress_the_store(self):
+        """An explicit counter is used for the packet (a hand send), but the
+        store keeps its higher value (monotonic persistence, v3.20.0)."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        keysets = [dict(ks, cntr='0000000010') for ks in resp['preset']['keysets']]
+        status, resp = self._post('/api/presets/update',
+                                  {'id': pid, 'fields': {'keysets': keysets}})
+        self.assertEqual(status, 200, resp)
+        self.server.app = object()      # /api/send-ota refuses an uninitialized app
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               return_value=('00' * 20, {})) as build, \
+             mock.patch.object(self.srv, '_send_secured_packet', return_value={
+                 'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                 'response_data': '027100000e0ab0000000000000010000019000'}), \
+             mock.patch.object(self.srv, '_decode_por',
+                               return_value={'response_status': 'por_ok'}):
+            status, resp = self._post('/api/send-ota', {
+                'preset_id': pid, 'apdu': '80E2900000', 'tar': 'B00001',
+                'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'cntr': '0000000005', 'kicKey': 'AA', 'kidKey': 'BB'})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(build.call_args[0][5], '0000000005')   # explicit wins
+        self.assertEqual(resp['final_cntr'], '0000000006')
+        # the lower value never regresses the store
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000010')
 
     def test_create_update_delete_round_trip(self):
         status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))

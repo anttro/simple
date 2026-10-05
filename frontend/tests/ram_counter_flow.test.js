@@ -29,6 +29,7 @@ function extractFunc(src, name) {
 let code = '';
 for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr',
 	'getRamSpParams', 'spPorAccepted', 'ramRemoteSwOk', 'ramShowProgress',
+	'spPresetIdx', 'spPresetCounterValue', 'spCntrPlaceholder', 'spCntrAhead',
 	'ramHideProgress', 'ramDeleteFromExplorer',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'escHtml', 'esc',
@@ -94,7 +95,9 @@ test('accepted delete persists the consumed counter and drops the record', async
 	assert.strictEqual(calls.sent.spi2, '01', 'the computed SPI2 byte must be used');
 	assert.strictEqual(cards[0].keysets[0].cntr, '0000000006',
 		'the preset must carry the counter the card consumed');
-	assert.strictEqual(els['sp-cntr'].value, '0000000006');
+	// the form field is an override (empty = auto, the server seeds it); the
+	// operation only syncs the local preset copy, never the field (v3.20.0)
+	assert.strictEqual(els['sp-cntr'].value, '0000000005');
 	assert.strictEqual(calls.sent.preset_id, 'preset-1',
 		'the operation must name the server-side preset that persists the counter');
 	assert.deepStrictEqual(calls.removed, { aid: 'F0414C46416101', cascade: false });

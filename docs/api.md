@@ -341,7 +341,9 @@ resolves to neither is refused with a hint **before any packet is sent**.  The
 resolved SPI1 must carry a counter check (b5b4 ≠ 00) and ask for a PoR.
 Every accepted packet consumes a counter, which is persisted into the keyset
 like any other operation, so the probe is refused when the SPI1 has no counter
-check or the named preset does not define the keyset number.
+check or the named preset does not define the keyset number.  A missing
+`cntr` is seeded from that keyset (v3.20.0; an explicit value wins but never
+lowers the stored counter).
 
 ```json
 {"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
@@ -506,8 +508,24 @@ scripts) must not be wrapped.
 
 `final_cntr` is reported for the plain `sp` path too (a pre-built packet):
 the counter that was sent, advanced by one when the card accepted the packet.
-A request without a `cntr` (nothing to advance) simply reports no
-`final_cntr` — it never fails the send.  With `preset_id` the server persists
+
+**`cntr` is optional (v3.20.0)** — the preset store is the source of truth:
+
+- with `apdu` (the server builds the packet) a missing `cntr` is seeded from
+  the named preset's keyset (the one the packet's KIc/KID resolve to); the
+  effective value is echoed back as `cntr`, so a caller that omits it learns
+  what was used;
+- an explicit `cntr` always wins — the packet uses it verbatim (a hand send,
+  the counter probe or a pre-built `sp` may deliberately pick one);
+- the store only moves **forward**: an explicit value (or its next counter)
+  below the stored one is used for the packet but never lowers the store; a
+  higher accepted value is persisted;
+- the `sp` (pre-built packet) path never seeds — the packet carries its own
+  counter — so pass `cntr` with it to get `final_cntr` / persistence.  A
+  request with neither simply reports no `final_cntr` — it never fails the
+  send.
+
+With `preset_id` the server persists
 the counter into the keyset the packet used (see *Card
 presets*), so a lost response or a closed tab cannot lose the increment; the
 request is refused when KIc/KID carry different keyset numbers (TS 102 225 A.2)
@@ -771,7 +789,7 @@ Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
-Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it.  The **NV footprint** is measured around the chain: a best-effort `GET DATA FF21` (Extended Card Resources, TS 102 226 §8.2.1.7.2) read before the first step and again after the last one (also on failure) reports the free non-volatile memory and its delta — the read is silent (no step record, no failure) and a card without FF21 simply yields no fields.  The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
+Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  A missing `cntr` is seeded from the preset's keyset (v3.20.0); an explicit value wins but never lowers the stored counter (only forward moves are persisted).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it.  The **NV footprint** is measured around the chain: a best-effort `GET DATA FF21` (Extended Card Resources, TS 102 226 §8.2.1.7.2) read before the first step and again after the last one (also on failure) reports the free non-volatile memory and its delta — the read is silent (no step record, no failure) and a card without FF21 simply yields no fields.  The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
 
 **Request body:**
 ```json
@@ -890,13 +908,13 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 | `install_params` / `stk_params` | no | As in `/api/ram-install` (the PWA composes `C9`+`EF`+raw and appends the STK part) |
 | `ram_format` | no | As in `/api/ram-install`: `auto` (default — a read-only probe step decides), `compact` or `expanded` |
 
-**Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "ram_format": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.
+**Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "ram_format": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.  A missing `cntr` is seeded from the preset's keyset (v3.20.0; an explicit value wins but never lowers the stored counter).
 
 ### `POST /api/cap-compat`
 
 Run the **CAP compatibility test**: the format check, `INSTALL [for load]` and the LOAD blocks only up to the block that completes the **Import** component (the point where the JCRE verifies the import list, JC VM spec 4.5.2), then stop — no last-block flag and no `INSTALL [for install]`, so nothing is committed and nothing has to be deleted afterwards.  The verdict (`imports_ok`) covers the **LOAD/import gate only**; the link gate is what a real install checks at `INSTALL [for install]`.
 
-**Request body:** as `/api/ram-install` (`cap_hex`, the SCP80 fields, optional `load_block_size` and `ram_format`), plus:
+**Request body:** as `/api/ram-install` (`cap_hex`, the SCP80 fields, optional `load_block_size` and `ram_format`) — a missing `cntr` is seeded from the preset's keyset (v3.20.0) — plus:
 
 | Field | Req | Description |
 |---|---|---|
@@ -911,7 +929,9 @@ Run the **CAP compatibility test**: the format check, `INSTALL [for load]` and t
 
 Cross-check a secured packet against pySim's `OtaDialectSms.encode_cmd`
 reference. Returns the JS-generated packet, pySim reference, a match flag,
-and the decoded SPI fields.
+and the decoded SPI fields.  A missing `cntr` is seeded from the named
+preset's keyset (v3.20.0) — the same rule the PWA's builder uses, so a
+reference for a packet built from an untouched counter field matches.
 
 ```json
 {"spi1": "16", "spi2": "01", "kic": "15", "kid": "15", "tar": "b00000",

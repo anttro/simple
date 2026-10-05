@@ -31,6 +31,8 @@ let code = '';
 for (const fn of ['cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsApplyFields', 'cardsApply',
 	'spRefreshFromPreset', 'spPorAccepted', 'spNextCntr', 'spPresetIdx',
+	'spPresetCounterValue', 'spCntrPlaceholder', 'spCntrEffective', 'spCntrAhead',
+	'spCntrAdjust',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
@@ -51,6 +53,7 @@ eval(code);
 globalThis._genSpBuild = () => {};
 globalThis.spShowSizeInfo = () => {};
 globalThis.spKeysetSync = globalThis.spKeysetSync || (() => {});
+globalThis.t = s => s;
 
 // The SP form is a working copy: the preset is the source of truth, and
 // every SCP80/RAM operation re-reads it before starting (v3.6.3).  The plain
@@ -81,16 +84,23 @@ function fakeEnv(selValue, selId, presetCntr) {
 	return { els, gen: () => gen };
 }
 
-test('spRefreshFromPreset re-reads the edited preset before an operation', () => {
+test('spRefreshFromPreset keeps an explicit counter override, empty = auto', () => {
 	const env = fakeEnv('0', 'sp-card-sel', '00000000AA');
-	env.els['sp-cntr'].value = '0000000001';        // stale form copy
+	env.els['sp-cntr'].value = '0000000001';        // explicit override
 	assert.strictEqual(spRefreshFromPreset('sp-card-sel'), '00000000AA');
-	assert.strictEqual(env.els['sp-cntr'].value, '00000000AA');
-	assert.ok(env.gen() > 0, 'the packet must be regenerated from the new counter');
+	assert.strictEqual(env.els['sp-cntr'].value, '0000000001',
+		'a typed counter survives the pre-send refresh');
+	assert.ok(env.gen() > 0, 'the packet must be regenerated from the preset');
+	// an empty field means "auto": the server seeds the counter, and the
+	// preset's next value is shown as the placeholder (v3.20.0)
+	env.els['sp-cntr'].value = '';
+	spRefreshFromPreset('sp-card-sel');
+	assert.strictEqual(env.els['sp-cntr'].value, '');
+	assert.match(env.els['sp-cntr'].placeholder, /00000000AA/);
 	// no preset selected: the manual form is left alone
 	globalThis.cards = [];
 	assert.strictEqual(spRefreshFromPreset('sp-card-sel'), '');
-	assert.strictEqual(env.els['sp-cntr'].value, '00000000AA');
+	assert.strictEqual(env.els['sp-cntr'].value, '');
 });
 
 test('spRefreshFromPreset for the RAM selector targets the ISD TAR', () => {
@@ -105,21 +115,32 @@ test('the pre-send refresh keeps a hand-edited packet TAR (v3.6.21)', () => {
 	env.els['sp-tar'].value = 'AF4D01';   // e.g. a push/link trigger target
 	assert.strictEqual(spRefreshFromPreset('sp-card-sel', true), '0000000020');
 	assert.strictEqual(env.els['sp-tar'].value, 'AF4D01', 'the typed TAR must survive the send');
-	assert.strictEqual(env.els['sp-cntr'].value, '0000000020', 'the counter still refreshes');
+	assert.strictEqual(env.els['sp-cntr'].value, '', 'the counter field stays an override');
+	assert.match(env.els['sp-cntr'].placeholder, /0000000020/);
 	// an explicit preset apply (or a pack) still sets the TAR
 	cardsApplyFields(0);
 	assert.strictEqual(env.els['sp-tar'].value, 'B00000');
 });
 
-test('cardsApplyFields fills the form without generating a packet', () => {
+test('cardsApplyFields leaves the counter to the server (auto) and shows it as a placeholder', () => {
 	const env = fakeEnv('0', 'sp-card-sel', '0000000007');
-	env.els['sp-cntr'].value = 'nonsense';
+	env.els['sp-cntr'].value = 'nonsense';          // an old override
 	assert.strictEqual(cardsApplyFields(0), true);
-	assert.strictEqual(env.els['sp-cntr'].value, '0000000007');
+	assert.strictEqual(env.els['sp-cntr'].value, '',
+		'applying a preset clears the override (empty = the server seeds it)');
+	assert.match(env.els['sp-cntr'].placeholder, /0000000007/);
 	assert.strictEqual(env.gen(), 0, 'a plain field refresh must not rebuild the packet');
 	cardsApply(0);
 	assert.strictEqual(env.gen(), 1);
 	assert.strictEqual(cardsApplyFields(3), false);
+});
+
+test('the counter +/- buttons start from the preset value and create an override', () => {
+	const env = fakeEnv('0', 'sp-card-sel', '0000000020');
+	spCntrAdjust(1);
+	assert.strictEqual(env.els['sp-cntr'].value, '0000000021');
+	spCntrAdjust(-1);
+	assert.strictEqual(env.els['sp-cntr'].value, '0000000020');
 });
 
 test('spPorAccepted treats a missing PoR and por_ok as accepted', () => {

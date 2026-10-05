@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.19.2'
+VERSION = '3.20.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1512,6 +1512,24 @@ def _preset_by_id(server, preset_id):
     if store is None or not preset_id:
         return None
     return store.get(preset_id)
+
+
+def _preset_counter_seed(server, body, kvn):
+    """The effective SCP80 counter for an operation: an explicit `cntr` in the
+    request wins (a hand send or a probe may deliberately pick one); otherwise
+    the counter the preset store holds for the packet's keyset - the operation
+    persists the next value on acceptance, so the store *is* the next counter
+    (v3.20.0).  '' when neither is available (the packet then carries 0 and
+    nothing is tracked)."""
+    explicit = str((body or {}).get('cntr') or '').strip().upper()
+    if explicit:
+        return explicit
+    preset = _preset_by_id(server, (body or {}).get('preset_id'))
+    if preset is None or not kvn:
+        return ''
+    keyset = next((ks for ks in _preset_keysets(preset)
+                   if presets.keyset_kvn(ks) == kvn), None)
+    return str((keyset or {}).get('cntr') or '').strip().upper()
 
 
 def _hex_lt(a, b):
@@ -7795,9 +7813,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                     kic = body.get('kic', '25')
                     kid = body.get('kid', '25')
                     tar = body.get('tar', '000000')
-                    cntr = body.get('cntr', '')
                     kic_key = body.get('kicKey', '')
                     kid_key = body.get('kidKey', '')
+                    # The counter: an explicit `cntr` wins; otherwise the
+                    # preset store's value for the packet's keyset - the
+                    # server owns the counters (v3.20.0).
+                    cntr = _preset_counter_seed(self.server, body, kvn)
                     # RAM command format: only when the caller opted in with a
                     # ram_format value (the RAM views do; applet-directed or
                     # pre-built payloads must not be wrapped).  The probe(s)
@@ -7818,9 +7839,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         apdu = _ram_format_apdu(apdu, ram_format)
                     sp_hex, _ = _build_secured_packet(spi1, spi2, kic, kid, tar, cntr, apdu, kic_key, kid_key)
                 else:
-                    # Regular SCP80: use pre-built secured packet
+                    # Regular SCP80: use pre-built secured packet.  The packet
+                    # carries its own counter; `cntr` here is the caller's
+                    # bookkeeping value for `final_cntr`/persistence (no
+                    # preset seed - the packet may hold anything).
                     sp_hex = sp
-                    cntr = body.get('cntr', '')
+                    cntr = str(body.get('cntr') or '').strip().upper()
                 spi2_val = int(spi2, 16)
                 # Capture the PoR from either transport: inline in the
                 # ENVELOPE response or as a proactive SEND SHORT MESSAGE (some
@@ -7835,7 +7859,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 try:
                     sys.stderr.write('OTA SEND: SPI %s %s KIc %s KID %s TAR %s CNTR %s LEN %dB\n' % (
                         spi1, spi2, body.get('kic', ''),
-                        body.get('kid', ''), body.get('tar', ''), body.get('cntr', ''),
+                        body.get('kid', ''), body.get('tar', ''), cntr,
                         len(sp_hex) // 2))
                     sys.stderr.write('RAM C-APDU: %s\n' % apdu if apdu else sp)
                     sys.stderr.write('RAM SECURED-PACKET: %s\n' % sp_hex)
@@ -7948,6 +7972,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                 finally:
                     if submit_handler and hasattr(scc, '_tp'):
                         scc._tp.proactive_handler = old_proactive
+                if cntr:
+                    # echo the effective counter (a request without one got
+                    # the preset's value - v3.20.0)
+                    resp['cntr'] = cntr
                 if counter_tracked:
                     _preset_counter_persist(self.server, body.get('preset_id'),
                                             resp.get('final_cntr'), 'send-ota', kvn)
@@ -7966,8 +7994,13 @@ class PysimHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             self._log_req(body)
             try:
+                # The reference must be built from the same counter the JS
+                # packet used: an explicit body value wins, otherwise the
+                # preset's (v3.20.0 - the PWA omits an untouched counter).
+                kvn_ref = _kvn_of(body.get('kic', ''), body.get('kid', ''))[0]
+                cntr_ref = _preset_counter_seed(self.server, body, kvn_ref)
                 ref, spi = _ota_reference(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
-                                          body.get('kid', ''), body.get('tar', ''), body.get('cntr', ''),
+                                          body.get('kid', ''), body.get('tar', ''), cntr_ref,
                                           body.get('apdu', ''), body.get('kicKey', ''), body.get('kidKey', ''))
                 js_sp = (body.get('sp', '') or '').replace(' ', '').lower()
                 ref_l = ref.lower()
@@ -8038,6 +8071,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+
+                # The counter: explicit `cntr` wins, else the preset's value
+                # for this keyset (the server owns the counters, v3.20.0).
+                cntr = _preset_counter_seed(self.server, body, kvn) or cntr
 
                 # LOAD block size: the default 240-byte payload cannot be sent
                 # over SCP80 (pySim refuses a secured packet above one SMS).
@@ -8220,6 +8257,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+                # The counter: explicit `cntr` wins, else the preset's value
+                # for this keyset (the server owns the counters, v3.20.0).
+                sp_state['cntr'] = _preset_counter_seed(self.server, body, kvn) or sp_state['cntr']
                 state = {'steps': [], 'encode_error': None, 'failure': {},
                          'cntr': sp_state['cntr'], 'preset_id': body.get('preset_id'),
                          'kvn': kvn}
@@ -8341,6 +8381,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+                # The counter: explicit `cntr` wins, else the preset's value
+                # for this keyset (the server owns the counters, v3.20.0).
+                cntr = _preset_counter_seed(self.server, body, kvn) or cntr
                 state = {'steps': steps, 'encode_error': None, 'failure': {},
                          'cntr': cntr, 'preset_id': body.get('preset_id'),
                          'kvn': kvn}
@@ -8671,7 +8714,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     return
                 resolved.append((tar, label, tar_spi1))
             state = {'steps': [], 'encode_error': None, 'failure': {},
-                     'cntr': body.get('cntr', '00000000'),
+                     # the counter: explicit `cntr` wins, else the preset's
+                     # value for this keyset (the server owns the counters,
+                     # v3.20.0)
+                     'cntr': _preset_counter_seed(self.server, body, kvn) or '00000000',
                      'preset_id': body.get('preset_id'), 'kvn': kvn}
             sp = {'spi1': spi1_base, 'spi2': spi2, 'kic': kic, 'kid': kid, 'tar': '000000',
                   'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
