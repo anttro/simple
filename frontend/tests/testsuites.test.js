@@ -26,9 +26,13 @@ function extractFunc(src, name, asyncFn) {
 
 let code = '';
 for (const fn of ['testStatusBadge', 'testRunStepHtml', 'testReportMemberHtml',
-	'testReportMarkdown', 'testSuiteProgress', 'testRoleOptions', 'testFailOptions']) {
+	'testReportMarkdown', 'testSuiteProgress', 'testRoleOptions', 'testFailOptions',
+	'testSuiteSave']) {
 	code += extractFunc(html, fn) + '\n';
 }
+code += 'var _testSuites = []; var _testScripts = []; var _testSuiteIdx = -1;'
+	+ ' var _testView = "suite"; var _testSuiteSaveTimer = null;'
+	+ ' var _testSuiteTarget = null; var _testScriptId = null; var _testScriptDraft = null;\n';
 eval(code);
 globalThis.t = s => s;
 globalThis.esc = s => String(s);
@@ -148,4 +152,35 @@ test('a single script run sends its require_adm flag and keeps its id', () => {
 	assert.match(src, /require_adm: !!cur\.require_adm/);
 	assert.match(src, /body\.script_id = cur\.id/);
 	assert.match(src, /testRenderRun\(resp\)/);
+});
+
+test('the suite save adopts the stored suite (the server normalises the order)', async () => {
+	const calls = [];
+	const suite = {id: 'a'.repeat(32), name: 'edited', require_adm: false, scripts: []};
+	_testSuites = [suite];
+	_testSuiteIdx = 0;
+	globalThis.testCurrentSuite = () => suite;
+	globalThis.testSuites = () => _testSuites;
+	globalThis.testRenderSuiteScripts = () => {};
+	globalThis.ioStatus = () => {};
+	globalThis.pysimFetch = async (path, body) => {
+		calls.push([path, body]);
+		return {ok: true, suite: Object.assign({}, suite, {name: 'stored'})};
+	};
+	testSuiteSave(true);
+	await new Promise(r => setTimeout(r, 10));
+	assert.strictEqual(calls[0][0], '/api/test/suites/update');
+	assert.strictEqual(calls[0][1].suite.scripts.length, 0);
+	assert.strictEqual(_testSuites[0].name, 'stored');
+});
+
+test('role rows cannot be moved and the i18n refresh redraws the test views', () => {
+	const rows = extractFunc(html, 'testRenderSuiteScripts');
+	assert.match(rows, /const movable = e\.role === 'member'/);
+	assert.match(rows, /!movable \|\| i === 0/);
+	assert.match(rows, /!movable \|\| i === entries\.length - 1/);
+	const del = extractFunc(html, 'testSuiteDelete', true);
+	assert.match(del, /_testSuiteSaveTimer/);
+	const i18n = extractFunc(html, 'refreshDynamicI18n');
+	assert.match(i18n, /isViewVisible\('phone-sub-test'\)\) testRender\(\)/);
 });

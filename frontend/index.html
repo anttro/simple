@@ -7319,6 +7319,8 @@ async function testSuiteDelete(i) {
 	const s = testSuites()[i];
 	if (!s) return;
 	if (!confirm(t('Delete this test suite?'))) return;
+	// a pending debounced name write must not 404 after the delete
+	if (_testSuiteSaveTimer) { clearTimeout(_testSuiteSaveTimer); _testSuiteSaveTimer = null; }
 	try {
 		const resp = await pysimFetch('/api/test/suites/delete', {id: s.id});
 		if (resp.error) throw new Error(resp.error);
@@ -7381,6 +7383,13 @@ function testSuiteSave(immediate) {
 				id: s.id, suite: {name: s.name || '', require_adm: !!s.require_adm,
 					scripts: s.scripts || []}});
 			if (resp.error) throw new Error(resp.error);
+			// Adopt the stored suite: the server normalises the order (setup
+			// first, teardown last) and may adjust the roles.
+			if (resp.suite) {
+				const i = testSuites().findIndex(x => x.id === s.id);
+				if (i >= 0) _testSuites[i] = resp.suite;
+				if (_testView === 'suite') testRenderSuiteScripts();
+			}
 		} catch (e) {
 			ioStatus('test-io-status', t('Could not save the test suite') + ': ' + e.message);
 		}
@@ -7420,14 +7429,17 @@ function testRenderSuiteScripts() {
 	entries.forEach((e, i) => {
 		const script = testScriptById(e.script_id);
 		const name = script ? (script.name || script.id) : ('(' + t('unknown script') + ': ' + String(e.script_id || '').slice(0, 8) + ')');
+		// The roles define the order (setup first, teardown last): only the
+		// member rows can be moved.
+		const movable = e.role === 'member';
 		html += '<div class="flex items-center gap-1.5 px-2 py-1.5">'
 			+ '<span class="w-5 text-right text-xs text-gray-400">' + (i + 1) + '</span>'
 			+ roleBadge(e.role)
 			+ '<span class="flex-1 truncate ' + (script ? '' : 'text-red-500') + '">' + esc(name) + '</span>'
 			+ '<select onchange="testSuiteRoleChanged(' + i + ', this.value)" class="' + sel + '">' + testRoleOptions(e.role) + '</select>'
 			+ '<select onchange="testSuiteFailChanged(' + i + ', this.value)" class="' + sel + '" title="' + esc(t('on failure')) + '">' + testFailOptions(e.on_fail) + '</select>'
-			+ '<button onclick="testSuiteMoveScript(' + i + ',-1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === 0 ? 'disabled' : '') + '>&uarr;</button>'
-			+ '<button onclick="testSuiteMoveScript(' + i + ',1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === entries.length - 1 ? 'disabled' : '') + '>&darr;</button>'
+			+ '<button onclick="testSuiteMoveScript(' + i + ',-1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (!movable || i === 0 ? 'disabled' : '') + '>&uarr;</button>'
+			+ '<button onclick="testSuiteMoveScript(' + i + ',1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (!movable || i === entries.length - 1 ? 'disabled' : '') + '>&darr;</button>'
 			+ (script ? '<button data-needs="card" onclick="testOpenScript(\'' + e.script_id + '\', true)" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Run')) + '</button>' : '')
 			+ (script ? '<button onclick="testOpenScript(\'' + e.script_id + '\')" class="' + btn + '">' + esc(t('Edit')) + '</button>' : '')
 			+ '<button onclick="testSuitePickTarget(' + i + ',\'move\')" class="' + btn + '">' + esc(t('Move')) + '</button>'
@@ -22505,6 +22517,7 @@ function refreshDynamicI18n() {
 			pysimProactiveLogRender();
 		}
 		if (isViewVisible('phone-sub-tr')) pysimPliRender();
+		if (isViewVisible('phone-sub-test')) testRender();
 		if (isViewVisible('phone-sub-esim')) {
 			esimRenderChip();
 			esimRenderProfiles();

@@ -6873,8 +6873,10 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
     answered = []
     try:
         while len(answered) < max_commands:
+            # fetch_len 0 (a 9100 SW) means "length unknown": fetch the full
+            # 255 bytes - `%02x` of 0x100 would emit an odd-length APDU
             fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla,
-                                                            fetch_len or 0x100))
+                                                            fetch_len or 0xff))
             if not fdata:
                 break
             raw = bytes.fromhex(fdata)
@@ -6904,16 +6906,24 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
                               for a in answered)}
 
 
-def _test_run_script(server, script, preset):
+def _test_run_script(server, script, preset, shared=None):
     """One script's steps - the single-script run or one suite member.  The
     live steps land in `_TEST_RUN['steps']` (the snapshot the PWA renders),
     the semantic lines in `_TEST_RUN['log']` (the report's excerpt).  Returns
     ``(ctx, stopped)``: the per-script context (preset, per-keyset counters)
-    and whether the stop request cut the script short."""
+    and whether the stop request cut the script short.
+
+    `shared` carries the counter state across a suite's members (the SCP80
+    counter is per keyset and per card session: a second member must start
+    from what the first consumed - the server persisted it, but the in-memory
+    preset copy is the suite-start snapshot).  The dict is created once per
+    suite and reused; a single script passes None."""
+    shared = shared if shared is not None else {}
     scc = server.scc
     ctx = {'preset': dict(preset or {}),
-           'counter': str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper(),
-           'counters': {},
+           'counter': (shared.get('counter')
+                       or str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper()),
+           'counters': shared.setdefault('counters', {}),
            'uses_scp80': any(s['type'] == 'action' and s['kind'] == 'scp80'
                              for s in script['steps'])}
     if ctx['uses_scp80']:
@@ -6984,6 +6994,9 @@ def _test_run_script(server, script, preset):
         with _TEST_LOCK:
             _TEST_RUN['scp80_counter'] = ctx['counter']
             _TEST_RUN['scp80_counters'] = dict(ctx.get('counters') or {})
+    # The no-keyset counter is a plain value in the ctx: carry it into the
+    # shared state so the next suite member starts where this one ended.
+    shared['counter'] = ctx.get('counter') or ''
     return ctx, stopped
 
 
@@ -7180,6 +7193,11 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
     teardown_i = next((i for i, (e, _s) in enumerate(members)
                        if e['role'] == 'teardown'), None)
     member_idx = [i for i, (e, _s) in enumerate(members) if e['role'] == 'member']
+    # The counter state is per card session: one shared dict for the whole
+    # suite, so a second SCP80 script starts from what the first consumed
+    # (the store persists each packet's counter; the preset dict here is the
+    # suite-start snapshot).
+    shared = {}
 
     def run_member(i):
         entry, script = members[i]
@@ -7192,7 +7210,7 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
             _TEST_RUN['total'] = len(script['steps'])
             _TEST_RUN['log_prefix'] = _test_member_prefix(i, member)
             log_from = len(_TEST_RUN['log'])
-        ctx, member_stopped = _test_run_script(server, script, preset)
+        ctx, member_stopped = _test_run_script(server, script, preset, shared=shared)
         with _TEST_LOCK:
             steps = json.loads(json.dumps(_TEST_RUN['steps']))
             log = list(_TEST_RUN['log'][log_from:])

@@ -1615,8 +1615,8 @@ class TestSuiteRunner(SuiteRunnerTestCase):
         real = S._test_run_script
         calls = []
 
-        def wrapped(srv, script, preset):
-            ctx, stopped = real(srv, script, preset)
+        def wrapped(srv, script, preset, shared=None):
+            ctx, stopped = real(srv, script, preset, shared=shared)
             calls.append(script['name'])
             if srv is server and len(calls) == 1:
                 S._TEST_RUN['stop'] = True         # the operator stops here
@@ -1638,8 +1638,8 @@ class TestSuiteRunner(SuiteRunnerTestCase):
         server = FakeServer(scc)
         real = S._test_run_script
 
-        def wrapped(srv, script, preset):
-            ctx, stopped = real(srv, script, preset)
+        def wrapped(srv, script, preset, shared=None):
+            ctx, stopped = real(srv, script, preset, shared=shared)
             if srv is server and len(scc.sent) <= 1:
                 srv.card_session += 1              # the card reset mid-suite
             return ctx, stopped
@@ -1667,6 +1667,36 @@ class TestSuiteRunner(SuiteRunnerTestCase):
                          ['ok', 'skipped'])
         self.assertEqual(run['suite']['members'][1]['note'],
                          'no card in the reader')
+
+    def test_scp80_members_share_the_counter_state(self):
+        # The counter is per keyset and per card session: the second SCP80
+        # script must send what the first consumed + 1, not the suite-start
+        # snapshot again (the store persists each packet's counter, but the
+        # in-memory preset copy does not move).
+        built = []
+        server = FakeServer(FakeScc())
+        step = {'type': 'action', 'kind': 'scp80',
+                'params': {'apdu': '80E2900000', 'tar': 'B00000'}}
+        script = T.normalise_script({'name': 'scp80', 'steps': [step]},
+                                    S._test_command_type)
+        preset = {'id': 'p1',
+                  'keysets': [{'kic': '15', 'kid': '15', 'kicKey': '00' * 16,
+                               'kidKey': '00' * 16, 'cntr': '0000000010'}],
+                  'tars': [{'role': 'isd', 'tar': 'B00000', 'msl': '16'}]}
+        members = [({'script_id': 'a' * 32, 'role': 'member', 'on_fail': 'stop'}, script),
+                   ({'script_id': 'b' * 32, 'role': 'member', 'on_fail': 'stop'}, script)]
+        with mock.patch.object(S, '_build_secured_packet',
+                               side_effect=lambda *a, **k: (
+                                   built.append(a[5]) or ('00' * 20, {}))), \
+             mock.patch.object(S, '_send_secured_packet', return_value={
+                 'success': True, 'sw': '9000', 'response_data': '',
+                 'bytes': 10, 'segments': 1}), \
+             mock.patch.object(S, '_decode_por', return_value=None), \
+             mock.patch.object(S, '_preset_counter_persist', return_value=None):
+            run = self.suite_run(server, members, preset=preset)
+        self.assertEqual(built, ['0000000010', '0000000011'])
+        self.assertEqual([m['status'] for m in run['suite']['members']], ['ok', 'ok'])
+        self.assertEqual(run['scp80_counters'], {1: '0000000012'})
 
 
 class TestAdmGate(unittest.TestCase):
