@@ -2783,10 +2783,13 @@ function ramResetGrants() {
 
 // Pure SIM/UICC toolkit install-parameter builder shared by the RAM install
 // form (buildRcToolkitParams) and the RAM/GP chain rows (buildTkParams).
-// `v` carries the field values; returns the CA/EA TLV hex, or null when a
-// value cannot be coded: each TAR is 3 bytes (6 hex digits), and menu item
-// identifiers 128..255 are reserved for the toolkit framework, so only
-// 01..7F may be requested (TS 102 226 8.2.1.3.2.3).  In EA mode `v.fsAccess`
+// `v` carries the field values; returns the STK part of the install
+// parameters - the EF-wrapped CA (`EF { CA ... }`, TS 102 226 8.2.1.3.2.1;
+// composeRamInstallParams() merges the memory quotas into that EF) or the
+// top-level EA template - or null when a value cannot be coded: each TAR is
+// 3 bytes (6 hex digits), and menu item identifiers 128..255 are reserved for
+// the toolkit framework, so only 01..7F may be requested (TS 102 226
+// 8.2.1.3.2.3).  In EA mode `v.fsAccess`
 // adds the UICC file-access parameters (tag '81') and `v.adfAccess` extends
 // them with an ADF entry (AID from `v.adfAid`, default ADF.USIM); the SIM path
 // grants access via the CA Access Domain field instead.
@@ -2888,6 +2891,7 @@ function updateStkParamsHex() {
 	// field is edited again (this clears the flag).
 	if (el.dataset) delete el.dataset.manual;
 	// A rejected value must not vanish silently: say why the field is empty.
+	updateInstallParamsHex();
 	const hint = document.getElementById('ram-stk-hint');
 	if (!hint) return;
 	if (tk === null) {
@@ -2956,35 +2960,68 @@ function ramQuotaValue(n) {
 		: '04' + v.toString(16).padStart(8, '0').toUpperCase();
 }
 
-// The applet-specific prefix of the install parameters, in the vendor's
-// order: `C9 <applet-specific parameters>` + `EF <C7/C8 memory quotas>`.
-// The server appends the STK (`EA`/`EF+CA`) part after it.  C9 is mandatory
-// in the Install Parameters (GP Table 11-49), so an empty field is sent as
-// `C9 00` - like the reference tools; a prefix without C9 makes the card
-// reject the data field with 6A80 (live 2026-09-28).
-function ramParamsPrefix(c9Hex, c7, c8) {
-	const c9 = (c9Hex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	let out = 'C9' + berLenStr(c9.length / 2) + c9;
-	let ef = '';
-	if (String(c7 ?? '') !== '' && !isNaN(parseInt(c7, 10))) ef += 'C7' + ramQuotaValue(c7);
-	if (String(c8 ?? '') !== '' && !isNaN(parseInt(c8, 10))) ef += 'C8' + ramQuotaValue(c8);
-	if (ef) out += 'EF' + berLenStr(ef.length / 2) + ef;
+// The quota TLVs of the install EF: `C7 <len> <quota>` (volatile) and
+// `C8 <len> <quota>` (non-volatile), in the vendor's order.
+function ramQuotaTlvs(c7, c8) {
+	let out = '';
+	if (String(c7 ?? '') !== '' && !isNaN(parseInt(c7, 10))) out += 'C7' + ramQuotaValue(c7);
+	if (String(c8 ?? '') !== '' && !isNaN(parseInt(c8, 10))) out += 'C8' + ramQuotaValue(c8);
 	return out;
 }
 
-function ramInstallParamsPrefix() {
-	return ramParamsPrefix(
-		document.getElementById('rc-c9').value,
-		document.getElementById('rc-quota-c7').value,
-		document.getElementById('rc-quota-c8').value);
+// Compose the INSTALL [for install] parameters.  The memory quotas (C7/C8)
+// and an EF-form STK part (the CA) share ONE System Specific Parameters EF
+// (TS 102 226 8.2.1.3.2.1; GPD_SPE_013 v1.1 Table 6-5 - pySim's
+// gen_install_parameters); an EA-form (or opaque) STK part is a sibling of
+// EF, like the reference TCA loader's `C9 00 EF 00 EA ...`.  A second EF
+// makes the card read the quotas and ignore the CA (live 2026-10-05: por_ok
+// but no toolkit registration, no menu), so the combination is refused
+// server-side: never send two.
+//   returns {install_params, stk_params}
+function composeRamInstallParams(c9Hex, c7, c8, extraHex, stkHex) {
+	const c9 = (c9Hex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	const extra = (extraHex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	const stk = (stkHex || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	const quota = ramQuotaTlvs(c7, c8);
+	const installParams = 'C9' + berLenStr(c9.length / 2) + c9;
+	// C9 is mandatory (GP Table 11-49): an empty field is sent as `C9 00`.
+	const stkTlvs = stk ? parseTlvList(stk) : [];
+	const stkEf = (stkTlvs.length === 1 && stkTlvs[0].tag === 'EF' &&
+		stkTlvs[0].raw === stk) ? stkTlvs[0] : null;
+	if (stkEf) {
+		// the quotas belong inside this EF; the STK field carries the merged
+		// EF and the server appends it (one EF in the final parameters)
+		const inner = quota + stkEf.value;
+		return {
+			install_params: installParams + extra,
+			stk_params: 'EF' + berLenStr(inner.length / 2) + inner,
+			quota_in_stk: !!quota,
+		};
+	}
+	return {
+		install_params: installParams + (quota ? 'EF' + berLenStr(quota.length / 2) + quota : '') + extra,
+		stk_params: stk,
+		quota_in_stk: false,
+	};
+}
+
+// The RAM install form's composed install parameters.
+function ramInstallParamsCompose() {
+	const val = id => (document.getElementById(id) || {}).value || '';
+	return composeRamInstallParams(
+		val('rc-c9'), val('rc-quota-c7'), val('rc-quota-c8'),
+		val('ram-install-params-hex'), val('ram-stk-params'));
 }
 
 function updateInstallParamsHex() {
-	const prefix = ramInstallParamsPrefix();
 	const el = document.getElementById('ram-install-params-hex');
-	// The field carries extra raw TLVs; the generated prefix is shown in the
-	// placeholder so the composed parameters stay visible.
-	el.placeholder = prefix ? prefix + ' …' : 'extra TLVs (optional)';
+	if (!el) return;
+	const composed = ramInstallParamsCompose();
+	// The field carries extra raw TLVs; the generated prefix (with an EF-form
+	// STK part already carrying the quotas) is shown in the placeholder.
+	let text = composed.install_params ? composed.install_params + ' …' : 'extra TLVs (optional)';
+	if (composed.quota_in_stk) text += ' (' + t('quotas in the STK EF') + ')';
+	el.placeholder = text;
 }
 
 // ===== GSM 7-bit alphabet =====
@@ -11210,14 +11247,14 @@ async function ramInstallCap(sp) {
 	// never be sent silently.
 	updateRcPriv();
 
+	const composed = ramInstallParamsCompose();
 	const body = {
 		cap_hex: capHex,
 		preset_id: sp.preset_id,
 		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
 		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
-		install_params: (ramInstallParamsPrefix() +
-			(document.getElementById('ram-install-params-hex').value || '').replace(/[^0-9a-fA-F]/g, '')).toUpperCase(),
-		stk_params: (document.getElementById('ram-stk-params').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		install_params: composed.install_params,
+		stk_params: composed.stk_params,
 		make_selectable: document.getElementById('ram-make-sel').checked,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
@@ -11263,6 +11300,7 @@ async function ramInstallApp(sp, op) {
 	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
 		updateStkParamsHex();
 	}
+	const composed = ramInstallParamsCompose();
 	const body = {
 		mode: mode,
 		preset_id: sp.preset_id,
@@ -11270,9 +11308,8 @@ async function ramInstallApp(sp, op) {
 		module_aid: module,
 		instance_aid: instance,
 		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
-		install_params: (ramInstallParamsPrefix() +
-			(document.getElementById('ram-install-params-hex').value || '').replace(/[^0-9a-fA-F]/g, '')).toUpperCase(),
-		stk_params: (document.getElementById('ram-stk-params').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		install_params: composed.install_params,
+		stk_params: composed.stk_params,
 		make_selectable: document.getElementById('ram-make-sel').checked,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
@@ -11719,6 +11756,10 @@ function ramShowInstallResult(data, okText, capMem) {
 	if (data.success) {
 		resultEl.textContent = (okText || t('OK')) + probeNote;
 		resultEl.classList.remove('hidden', 'text-red-600'); resultEl.classList.add('text-green-600');
+	} else if (!data.steps && data.error) {
+		// a refused request (400): nothing was sent to the card
+		resultEl.textContent = t('Install FAILED:') + ' ' + data.error;
+		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
 	} else {
 		const hint = ramInstallFailHint(data, capMem || null);
 		resultEl.textContent = t('Install FAILED at step:') + ' ' + data.failed_step + (data.error ? ' (' + data.error + ')' : '') +
@@ -20824,6 +20865,8 @@ const LANG_RU = {
 	'Step': 'Шаг',
 	'Install OK': 'Установка OK',
 	'Install FAILED at step:': 'Установка не удалась на шаге:',
+	'Install FAILED:': 'Установка не удалась:',
+	'quotas in the STK EF': 'квоты в EF STK-параметров',
 	'Hint:': 'Подсказка:',
 	'Set all 0.0': 'Все 0.0',
 	'CAP compatibility test': 'Проверка совместимости CAP',

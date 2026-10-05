@@ -724,16 +724,112 @@ def _encode_scts(dt=None):
     ])
 
 
+def _single_ef_value(hex_str):
+    """The value of a lone EF (System Specific Parameters) TLV, or None when
+    the input is not EF-form at all.  A blob that starts with the EF tag but
+    does not parse as exactly one TLV is refused - appending it could add a
+    second EF object (TS 102 226 8.2.1.3.2.1), and a bare CA is refused too:
+    the CA belongs *inside* the EF."""
+    if not hex_str:
+        return None
+    try:
+        data = bytes.fromhex(hex_str)
+    except ValueError:
+        raise ValueError('stk_params is not valid hex')
+    if data[0] == 0xCA:
+        raise ValueError('the CA (SIM file access and toolkit parameters) '
+                         'belongs inside the System Specific Parameters EF '
+                         '(TS 102 226 8.2.1.3.2.1): send EF <len> CA ...')
+    if data[0] != 0xEF:
+        return None
+    ln, off = _ber_len_at(data, 1)
+    if off + ln != len(data):
+        raise ValueError('stk_params: malformed EF TLV (the length does not '
+                         'match the value)')
+    return data[off:off + ln].hex().upper()
+
+
+def _quota_tlv(tag, value):
+    """A C7/C8 memory-quota TLV: the value is a 2-byte integer up to 32767
+    and a 4-byte integer above (GP Card Spec 9.7 / Table 11-49; pySim's
+    ``StripHeaderAdapter(GreedyBytes, 4, steps=[2,4])``)."""
+    try:
+        v = int(str(value).strip(), 10)
+    except (TypeError, ValueError):
+        raise ValueError('%s quota must be an integer in bytes' % tag)
+    if not 0 <= v <= 0xFFFFFFFF:
+        raise ValueError('%s quota out of range (0..4294967295): %d' % (tag, v))
+    return tag + ('%02X%04X' % (2, v) if v <= 0x7FFF else '%02X%08X' % (4, v))
+
+
+def _compose_install_params(install_params, stk_params, nv_quota=None,
+                            volatile_quota=None):
+    """The INSTALL [for install] parameter field, with the composition the
+    spec mandates enforced:
+
+    - the memory quotas (C7 volatile / C8 non-volatile) and an EF-form STK
+      part (the CA) share **one** System Specific Parameters EF (TS 102 226
+      8.2.1.3.2.1; GPD_SPE_013 v1.1 Table 6-5 - pySim's
+      ``gen_install_parameters``);
+    - an EF-form STK part next to a caller-composed EF is refused: the card
+      takes the first EF (quotas) and the CA is ignored - live 2026-10-05:
+      por_ok but no toolkit registration, no menu;
+    - an EA-form (or opaque) STK part is a sibling of EF (the reference TCA
+      loader sends ``C9 00 EF 00 EA ...``);
+    - the quotas are composed from the primitives only when no
+      ``install_params`` were given (there is no EF to place them into
+      otherwise).
+
+    Raises ValueError (-> HTTP 400) on a refusal.
+    """
+    raw = (install_params or '').replace(' ', '')
+    stk = (stk_params or '').replace(' ', '')
+    has_quota = (str(nv_quota or '').strip() != ''
+                 or str(volatile_quota or '').strip() != '')
+    stk_ef = _single_ef_value(stk)
+    if raw:
+        if has_quota:
+            raise ValueError('memory quotas are composed only when '
+                             'install_params is empty; merge them into the '
+                             'install EF instead')
+        try:
+            tlvs = _ber_tlv_list(bytes.fromhex(raw))
+        except ValueError:
+            raise ValueError('install_params is not valid hex')
+        if stk_ef is not None and any(tag == 0xEF for tag, _ in tlvs):
+            raise ValueError('the EF-form STK part would add a second System '
+                             'Specific Parameters (EF) object (TS 102 226 '
+                             '8.2.1.3.2.1): merge the CA into the install '
+                             'parameters\' EF, or pass the quotas via '
+                             'volatile_quota/nv_quota with an empty '
+                             'install_params')
+        return (raw + stk).upper()
+    # Compose from the primitives: C9 is mandatory (GP Table 11-49).
+    inner = ''
+    if str(volatile_quota or '').strip() != '':
+        inner += _quota_tlv('C7', volatile_quota)
+    if str(nv_quota or '').strip() != '':
+        inner += _quota_tlv('C8', nv_quota)
+    if stk_ef is not None:
+        inner += stk_ef
+        stk = ''
+    params = 'C900'
+    if inner:
+        params += 'EF' + _ber_len(len(inner) // 2) + inner
+    return (params + stk).upper()
+
+
 def _cap_install_apdu(loadfile_aid, module_aid, instance_aid='', privileges='00',
-                      install_params='', stk_params='', make_selectable=True):
+                      install_params='', stk_params='', make_selectable=True,
+                      nv_quota=None, volatile_quota=None):
     """INSTALL [for install] APDU (GP Card Spec 11.5.2.3.2, Table 11-43) - the
     final step of `_cap_apdu_sequence` and the /api/ram-install-app operation.
     Case 3: no trailing Le (a trailing byte becomes a phantom command on the
     card's SCP80 layer)."""
     instance = instance_aid or module_aid
-    params = install_params if install_params else 'C900'
-    if stk_params:
-        params += stk_params
+    params = _compose_install_params(install_params, stk_params,
+                                     nv_quota=nv_quota,
+                                     volatile_quota=volatile_quota)
     p1 = 0x0C if make_selectable else 0x04
     data = (_lv(loadfile_aid) + _lv(module_aid) + _lv(instance) +
             _lv(privileges or '00') + _lv(params) + '00')
@@ -750,7 +846,8 @@ def _cap_make_selectable_apdu(instance_aid, privileges='00'):
 
 def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
                        privileges='00', install_params='', stk_params='',
-                       make_selectable=True, block_size=240, instance_aid=None):
+                       make_selectable=True, block_size=240, instance_aid=None,
+                       nv_quota=None, volatile_quota=None):
     """RAM (GP) APDU sequence for a parsed .cap: INSTALL [for load], LOAD
     blocks (240-byte payloads, block counter in P2, last block P1=0x80),
     INSTALL [for install]. Shared by the SCP80 delivery path and the SCP81
@@ -776,7 +873,8 @@ def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
     apdus.append(_cap_install_apdu(
         loadfile_aid, module_aid, instance_aid=instance_aid,
         privileges=privileges, install_params=install_params,
-        stk_params=stk_params, make_selectable=make_selectable))
+        stk_params=stk_params, make_selectable=make_selectable,
+        nv_quota=nv_quota, volatile_quota=volatile_quota))
     return apdus
 
 
@@ -3677,7 +3775,11 @@ def _scp81_gen_install(body):
             privileges=re.sub(r'\s', '', body.get('privileges') or '') or '00',
             install_params=re.sub(r'\s', '', body.get('install_params') or ''),
             stk_params=re.sub(r'\s', '', body.get('stk_params') or ''),
-            make_selectable=bool(body.get('make_selectable', True)))
+            make_selectable=bool(body.get('make_selectable', True)),
+            nv_quota=body.get('nv_quota'), volatile_quota=body.get('volatile_quota'))
+    except ValueError as e:
+        # the install-parameter composition rule (or a CAP parse refusal)
+        return {'ok': False, 'error': str(e)}
     except Exception as e:
         return {'ok': False, 'error': 'cap parse failed: %s' % e}
     _BIP.log('gen-install', apdus=len(seq), load_file_aid=loadfile_aid,
@@ -8111,12 +8213,24 @@ class PysimHandler(BaseHTTPRequestHandler):
                             'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                             'include_cpi': body.get('includeCpi', True)}
 
-                # INSTALL [for load] -> LOAD blocks -> INSTALL [for install]
-                seq = _cap_apdu_sequence(
-                    loadfile_aid, module_aid, loadfile_data, sd_aid=sd_aid,
-                    privileges=privileges_hex,
-                    install_params=install_params_hex, stk_params=stk_params_hex,
-                    make_selectable=make_selectable, block_size=block_size)
+                # INSTALL [for load] -> LOAD blocks -> INSTALL [for install].
+                # The install parameters are composed per the spec: an
+                # EF-form STK part shares one System Specific Parameters EF
+                # with the quotas (TS 102 226 8.2.1.3.2.1; v3.20.0) - an
+                # invalid combination is refused before anything is sent.
+                try:
+                    seq = _cap_apdu_sequence(
+                        loadfile_aid, module_aid, loadfile_data, sd_aid=sd_aid,
+                        privileges=privileges_hex,
+                        install_params=install_params_hex, stk_params=stk_params_hex,
+                        make_selectable=make_selectable, block_size=block_size,
+                        nv_quota=body.get('nv_quota'),
+                        volatile_quota=body.get('volatile_quota'))
+                except ValueError as e:
+                    err = {'success': False, 'error': str(e)}
+                    self._send_json(err, 400)
+                    self._log_resp(err)
+                    return
 
                 # Live progress for the PWA's operation modal (the request holds
                 # _CARD_LOCK until the chain is done; /api/status carries this)
@@ -8226,10 +8340,18 @@ class PysimHandler(BaseHTTPRequestHandler):
                         self._send_json(err, 400)
                         self._log_resp(err)
                         return
-                    apdu = _cap_install_apdu(
-                        loadfile_aid, module_aid, instance_aid=instance_aid,
-                        privileges=privileges, install_params=install_params_hex,
-                        stk_params=stk_params_hex, make_selectable=make_selectable)
+                    try:
+                        apdu = _cap_install_apdu(
+                            loadfile_aid, module_aid, instance_aid=instance_aid,
+                            privileges=privileges, install_params=install_params_hex,
+                            stk_params=stk_params_hex, make_selectable=make_selectable,
+                            nv_quota=body.get('nv_quota'),
+                            volatile_quota=body.get('volatile_quota'))
+                    except ValueError as e:
+                        err = {'success': False, 'error': str(e)}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
                     step_name = 'INSTALL [for install]'
                 # SCP80 params: the SPI1 comes from the MSL of the packet's
                 # TAR (the operation uses the preset's table); a caller-supplied

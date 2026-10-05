@@ -812,7 +812,7 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 {
   "cap_hex": "DECAFFED...",
   "sd_aid": "A000000003000000",
-  "install_params": "C90000",
+  "install_params": "C900",
   "stk_params": "",
   "nv_quota": 0,
   "volatile_quota": 0,
@@ -830,13 +830,30 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 |---|---|---|
 | `cap_hex` | yes | Even-length hex of the `.cap` file (zipped Java Card CAP), max 48 kB (98304 hex chars) |
 | `sd_aid` | no | Security Domain AID for INSTALL[for load]; empty → default ISD `A000000003000000` |
-| `install_params` | no | Hex C9 TLV install parameters; if empty, `gen_install_parameters()` is used with the quota/stk params |
-| `stk_params` | no | Hex CA TLV (TS 102 226 §8.2.1.3.2.1) for SIM toolkit app-specific params |
-| `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) for `gen_install_parameters()` |
+| `install_params` | no | Hex of the install-parameter field — the mandatory `C9` TLV (application-specific parameters; `C900` when empty), the System Specific Parameters `EF`, extra raw TLVs. When empty the server **composes** it from `volatile_quota`/`nv_quota` and `stk_params` (see below) |
+| `stk_params` | no | The STK part appended to the install parameters: the **EF-wrapped** CA (`EF <len> CA <len> …`, TS 102 226 §8.2.1.3.2.1 — the SIM access domain leads the CA value as `01 <ad>` / `00`) or the UICC template (`EA <len> 80 … [81 …]`). A bare `CA` is refused (it belongs inside the EF) |
+| `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) coded as `C8` / `C7` in the install EF; only composed when `install_params` is empty |
 | `make_selectable` | no | If true (default), final INSTALL uses P1=`0C` (install + make selectable) |
 | `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
 | `ram_format` | no | RAM command format: `auto` (default — the read-only probe decides, recorded as `FORMAT CHECK (...)` steps), `compact` or `expanded` to pin it |
 | `includeCpi` | no | As in `/api/send-ota`: `true` (default) marks the delivered SMS with the OTA CPI IE; `false` drops it (the full 140-octet single-SM budget then applies) |
+
+**Install-parameter composition (TS 102 226 §8.2.1.3.2.1; GPD_SPE_013 v1.1
+Table 6-5).**  The memory quotas (`C7`/`C8`) and an EF-form STK part (the CA)
+must share **one** System Specific Parameters `EF`; an EA-form STK part is a
+sibling of `EF` (the reference TCA loader sends `C9 00 EF 00 EA …`).  A
+second `EF` makes the card read the quotas and ignore the CA (live
+2026-10-05: `por_ok` but no toolkit registration and no menu), so the server
+refuses the combination with a 400 and names the fix:
+
+- caller-composed `install_params` that already carry an `EF` **plus** an
+  EF-form `stk_params` → refused;
+- `nv_quota`/`volatile_quota` next to non-empty `install_params` → refused;
+- with an empty `install_params` the server composes
+  `C900 EF{C7?,C8?,CA}` (or `C900 EF{quotas} EA…` for the EA form).
+
+The PWA composes the same single EF itself, so its RAM installs never hit the
+refusal.
 
 **Response (success):**
 ```json
@@ -922,7 +939,8 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 | `module_aid` | cond | Executable module / applet class AID (required for `mode: "install"`) |
 | `instance_aid` | no | Application AID; empty → the module AID |
 | `privileges` | no | Hex privileges value (1 or 3 bytes), default `00` |
-| `install_params` / `stk_params` | no | As in `/api/ram-install` (the PWA composes `C9`+`EF`+raw and appends the STK part) |
+| `install_params` / `stk_params` | no | As in `/api/ram-install`: the `C9` field (with any extra TLVs) and the STK part; an EF-form STK part must not follow a caller-composed `EF` (the quotas and the CA share one `EF`, v3.20.0) |
+| `nv_quota` / `volatile_quota` | no | As in `/api/ram-install`: composed into the install `EF` only when `install_params` is empty |
 | `ram_format` | no | As in `/api/ram-install`: `auto` (default — a read-only probe step decides), `compact` or `expanded` |
 | `includeCpi` | no | As in `/api/ram-install`: `true` (default) marks the delivered SMS with the OTA CPI IE |
 
@@ -1502,10 +1520,15 @@ the returned list. The `.cap` is parsed server-side (same parser as
 
 ```json
 {"cap_hex": "504B0304...", "sd_aid": "A000000003000000", "privileges": "00",
- "install_params": "", "stk_params": "", "make_selectable": true}
+ "install_params": "", "stk_params": "", "nv_quota": 0, "volatile_quota": 0,
+ "make_selectable": true}
 ```
 
-`sd_aid` empty = the ISD. Responds with `{"ok": true, "apdus": [...],
+`sd_aid` empty = the ISD.  `install_params`, `stk_params` and the
+`nv_quota`/`volatile_quota` primitives follow the composition rule of
+`/api/ram-install` (the quotas and an EF-form STK part share one System
+Specific Parameters `EF`); an invalid combination answers
+`{"ok": false, "error": "..."}`.  Responds with `{"ok": true, "apdus": [...],
 "load_file_aid": ..., "module_aid": ...}`.
 
 ### `GET /api/scp81/script`

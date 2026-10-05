@@ -1514,6 +1514,63 @@ class CapApduSequenceTest(unittest.TestCase):
             'F0414C46416101', 'F0414C4641610101',
             make_selectable=False).startswith('80E60400'))
 
+    def test_install_params_composition_enforces_one_ef(self):
+        # TS 102 226 8.2.1.3.2.1 / GPD_SPE_013 v1.1 Table 6-5: the memory
+        # quotas (C7/C8) and an EF-form STK part (CA) share ONE System
+        # Specific Parameters EF.  Two EFs made the card read the quotas and
+        # ignore the CA (live 2026-10-05: por_ok, no toolkit registration).
+        from pysim_simple_server.server import _compose_install_params
+        # primitives: quotas and the CA are placed in one EF
+        self.assertEqual(_compose_install_params('', '', nv_quota=200,
+                                                 volatile_quota=100),
+                         'C900EF08C7020064C80200C8')
+        self.assertEqual(_compose_install_params('', 'EF04CA0201F0'),
+                         'C900EF04CA0201F0')
+        self.assertEqual(_compose_install_params('', 'EF04CA0201F0', nv_quota=200,
+                                                 volatile_quota=100),
+                         'C900EF0CC7020064C80200C8CA0201F0')
+        # a 4-byte quota above 32767 (GP Card Spec 9.7)
+        self.assertEqual(_compose_install_params('', '', volatile_quota=32768),
+                         'C900EF06C70400008000')
+        # an EA-form STK part is a sibling of EF (the reference TCA form)
+        self.assertEqual(_compose_install_params('', 'EA0480000000',
+                                                 volatile_quota=100),
+                         'C900EF04C7020064EA0480000000')
+        # a caller-composed EF plus an EF-form STK part is refused
+        with self.assertRaises(ValueError):
+            _compose_install_params('C900EF04C7020064', 'EF04CA0201F0')
+        # a bare CA is refused: it belongs inside the EF
+        with self.assertRaises(ValueError):
+            _compose_install_params('', 'CA0401F00000')
+        # a malformed EF is refused
+        with self.assertRaises(ValueError):
+            _compose_install_params('', 'EF05CA0100')
+        # quotas next to raw install parameters are refused
+        with self.assertRaises(ValueError):
+            _compose_install_params('C900', '', nv_quota=100)
+        # a bad quota value is refused
+        with self.assertRaises(ValueError):
+            _compose_install_params('', '', volatile_quota='-1')
+        # a caller-composed EF with an EA part stays as it was
+        self.assertEqual(_compose_install_params('C900EF04C7020064', 'EA0480000000'),
+                         'C900EF04C7020064EA0480000000')
+
+    def test_install_apdu_carries_the_composed_parameters(self):
+        from pysim_simple_server.server import _cap_install_apdu
+        # CA-form STK + quotas: `C9 00 EF{C7,C8,CA}` - one EF (the form the
+        # PWA composes; an external caller gets the same via the primitives).
+        apdu = _cap_install_apdu('F0414C46416101', 'F0414C4641610101',
+                                 stk_params='EF0ACA080000000000000000',
+                                 volatile_quota=100)
+        self.assertEqual(
+            apdu,
+            '80E60C0030' + '07F0414C46416101' + '08F0414C4641610101'
+            + '08F0414C4641610101' + '0100'
+            + '12C900EF0EC7020064CA080000000000000000' + '00')
+        # case 3: the length is header + Lc data, no trailing Le
+        lc = int(apdu[8:10], 16)
+        self.assertEqual(len(apdu), 10 + 2 * lc)
+
     def test_make_selectable_apdu(self):
         # GP Card Spec 11.5.2.3.3, Table 11-44: '00' '00' lv(AID)
         # lv(privileges) lv(params) lv(token); case 3.

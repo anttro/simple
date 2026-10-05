@@ -715,6 +715,31 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['final_cntr'], '0000000002')
         self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000002')
 
+    def test_ram_install_app_rejects_the_two_ef_combination(self):
+        """v3.20.0: an EF-form STK part next to a caller-composed EF is
+        refused before anything is built (TS 102 226 8.2.1.3.2.1)."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        self.server.app = object()
+        status, resp = self._post('/api/ram-install-app', {
+            'mode': 'install',
+            'preset_id': pid, 'kic': '15', 'kid': '15',
+            'kicKey': 'AA', 'kidKey': 'BB',
+            'loadfile_aid': 'F0414C46416101', 'module_aid': 'F0414C4641610101',
+            'install_params': 'C900EF04C7020064', 'stk_params': 'EF04CA0201F0'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('second System Specific Parameters', resp['error'])
+        # quotas next to a caller-composed install_params are refused too
+        status, resp = self._post('/api/ram-install-app', {
+            'mode': 'install',
+            'preset_id': pid, 'kic': '15', 'kid': '15',
+            'kicKey': 'AA', 'kidKey': 'BB',
+            'loadfile_aid': 'F0414C46416101', 'module_aid': 'F0414C4641610101',
+            'install_params': 'C900EF04C7020064', 'volatile_quota': 100})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('composed only when install_params is empty', resp['error'])
+
     def test_create_update_delete_round_trip(self):
         status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
         self.assertEqual(status, 200, resp)

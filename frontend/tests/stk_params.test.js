@@ -23,8 +23,9 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['berLenStr', 'stkParamsBuild', 'buildRcToolkitParams',
-	'updateStkParamsHex', 'adfAidFromFci', 'ramParamsPrefix', 'ramQuotaValue',
-	'ramInstallParamsPrefix']) code += extractFunc(html, fn) + '\n';
+	'updateStkParamsHex', 'updateInstallParamsHex', 'adfAidFromFci', 'ramQuotaValue', 'ramQuotaTlvs',
+	'composeRamInstallParams', 'ramInstallParamsCompose',
+	'parseTlvList', 'parseBerLen']) code += extractFunc(html, fn) + '\n';
 eval(code);
 
 const base = { mode: 'ea', priority: '0', timers: '0', textLen: '0', menus: '0',
@@ -128,24 +129,61 @@ test('adfAidFromFci extracts the DF name (tag 84) from an FCI', () => {
 	assert.strictEqual(adfAidFromFci('ZZZZ'), '');
 });
 
-test('ramParamsPrefix composes C9 + EF (C7/C8) like the vendor scripts', () => {
+test('composeRamInstallParams composes C9 + EF (C7/C8) like the vendor scripts', () => {
 	// The vendor's working install (samples/uicc/applets/STK3):
 	//   C9 22 <config>  EF 08 C7 02 0000 C8 02 0000  EA ...
 	// C9 is mandatory (GP Table 11-49): an empty field is sent as C9 00 -
 	// without it the card rejects the data field with 6A80 (live 2026-09-28).
-	assert.strictEqual(ramParamsPrefix('', '', ''), 'C900');
-	assert.strictEqual(ramParamsPrefix('082905112000012066', '', ''),
+	assert.strictEqual(composeRamInstallParams('', '', '', '', '').install_params, 'C900');
+	assert.strictEqual(
+		composeRamInstallParams('082905112000012066', '', '', '', '').install_params,
 		'C909082905112000012066');
-	assert.strictEqual(ramParamsPrefix('', '0', '0'), 'C900EF08C7020000C8020000');
-	assert.strictEqual(ramParamsPrefix('', '32768', ''), 'C900EF06C70400008000');
-	assert.strictEqual(ramParamsPrefix('AA', '', '1234'), 'C901AAEF04C80204D2');
+	assert.strictEqual(composeRamInstallParams('', '0', '0', '', '').install_params,
+		'C900EF08C7020000C8020000');
+	assert.strictEqual(composeRamInstallParams('', '32768', '', '', '').install_params,
+		'C900EF06C70400008000');
+	assert.strictEqual(composeRamInstallParams('AA', '', '1234', '', '').install_params,
+		'C901AAEF04C80204D2');
+	// extra raw TLVs follow the generated prefix
+	assert.strictEqual(composeRamInstallParams('', '', '', 'CB02AABB', '').install_params,
+		'C900CB02AABB');
 });
 
-test('the RAM form composes the C9/quota prefix into the install parameters', () => {
+test('an EF-form STK part takes the quotas into its own EF (one EF, TS 102 226 8.2.1.3.2.1)', () => {
+	// Two EFs made the card read the quotas and ignore the CA (live
+	// 2026-10-05: por_ok but no STK menu): the CA and the quotas share one
+	// System Specific Parameters EF (GPD_SPE_013 Table 6-5).
+	const ca = stkParamsBuild(vals({ mode: 'ca' }));      // EF0ACA08...
+	assert.strictEqual(ca, 'EF0ACA080000000000000000');
+	const c = composeRamInstallParams('', '100', '', '', ca);
+	assert.strictEqual(c.install_params, 'C900');
+	assert.strictEqual(c.stk_params, 'EF0EC7020064CA080000000000000000');
+	assert.strictEqual(c.quota_in_stk, true);
+	// without quotas the EF passes through unchanged
+	const c2 = composeRamInstallParams('', '', '', '', ca);
+	assert.strictEqual(c2.install_params, 'C900');
+	assert.strictEqual(c2.stk_params, ca);
+	assert.strictEqual(c2.quota_in_stk, false);
+	// an EA-form STK part is a sibling of EF: the quotas keep their own EF
+	const ea = stkParamsBuild(vals({ mode: 'ea' }));
+	const c3 = composeRamInstallParams('', '100', '', '', ea);
+	assert.strictEqual(c3.install_params, 'C900EF04C7020064');
+	assert.strictEqual(c3.stk_params, ea);
+	assert.strictEqual(c3.quota_in_stk, false);
+});
+
+test('the RAM form composes the install parameters from its fields', () => {
 	const els = fakeForm({ 'rc-c9': 'AA', 'rc-quota-c7': '0' });
-	assert.strictEqual(ramInstallParamsPrefix(), 'C901AAEF04C7020000');
+	assert.deepStrictEqual(ramInstallParamsCompose(),
+		{ install_params: 'C901AAEF04C7020000', stk_params: '', quota_in_stk: false });
 	els['rc-quota-c8'].value = '5';
-	assert.strictEqual(ramInstallParamsPrefix(), 'C901AAEF08C7020000C8020005');
+	assert.strictEqual(ramInstallParamsCompose().install_params, 'C901AAEF08C7020000C8020005');
+	// a CA-form STK field takes the quotas into its EF
+	els['ram-stk-params'].value = 'EF0ACA080000000000000000';
+	const c = ramInstallParamsCompose();
+	assert.strictEqual(c.install_params, 'C901AA');
+	assert.strictEqual(c.stk_params, 'EF12C7020000C8020005CA080000000000000000');
+	assert.strictEqual(c.quota_in_stk, true);
 });
 
 test('updateStkParamsHex names the rejection reason', () => {
@@ -166,7 +204,12 @@ test('updateStkParamsHex names the rejection reason', () => {
 
 test('the install body composes the C9/quota prefix', () => {
 	const fn = extractFunc(html, 'ramInstallCap');
-	assert.ok(/install_params: \(ramInstallParamsPrefix\(\)/.test(fn), fn);
+	assert.ok(/const composed = ramInstallParamsCompose\(\)/.test(fn), fn);
+	assert.ok(/install_params: composed\.install_params/.test(fn), fn);
+	assert.ok(/stk_params: composed\.stk_params/.test(fn), fn);
+	const app = extractFunc(html, 'ramInstallApp');
+	assert.ok(/const composed = ramInstallParamsCompose\(\)/.test(app), app);
+	assert.ok(/install_params: composed\.install_params/.test(app), app);
 });
 
 test('the ADF AID From-card button is wired', () => {
