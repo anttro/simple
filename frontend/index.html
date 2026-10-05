@@ -5760,7 +5760,9 @@ function genBerPcValue(row, tag) {
 
 function berLenStr(n) {
 	if (n < 128) return n.toString(16).padStart(2,'0').toUpperCase();
-	return '81' + n.toString(16).padStart(2,'0').toUpperCase();
+	if (n < 256) return '81' + n.toString(16).padStart(2,'0').toUpperCase();
+	if (n < 65536) return '82' + n.toString(16).padStart(4,'0').toUpperCase();
+	return '83' + n.toString(16).padStart(6,'0').toUpperCase();
 }
 
 function genBerTlv() {
@@ -6945,7 +6947,6 @@ let _testSuites = null;         // the suite store cache
 let _testView = 'suites';       // suites | suite | script | report
 let _testSuiteIdx = -1;         // the suite being edited (index into _testSuites)
 let _testScriptId = null;       // the script being edited (store id)
-let _testScriptDraft = null;    // a new, not-yet-saved script
 let _testRunState = null;
 let _testRunScriptRef = null;   // the script object a single run belongs to
 let _testRunTimer = null;
@@ -7019,7 +7020,7 @@ function testScripts() { return _testScripts || []; }
 function testSuiteById(id) { return testSuites().find(s => s.id === id) || null; }
 function testScriptById(id) { return testScripts().find(s => s.id === id) || null; }
 function testCurrentSuite() { return testSuites()[_testSuiteIdx] || null; }
-function testCurrentScript() { return _testScriptDraft || testScriptById(_testScriptId); }
+function testCurrentScript() { return testScriptById(_testScriptId); }
 function testSuiteEntry(i) {
 	const s = testCurrentSuite();
 	return s ? ((s.scripts || [])[i] || null) : null;
@@ -7064,7 +7065,6 @@ async function testScriptsWriteback(script) {
 			if (resp.script && resp.script.id) {
 				script.id = resp.script.id;
 				_testScriptId = script.id;
-				_testScriptDraft = null;
 				const list = testScripts();
 				if (!list.some(s => s.id === script.id)) list.push(resp.script);
 				await testSuitesRefetch();   // the suite gained the member
@@ -7500,9 +7500,19 @@ async function testSuiteDeleteScript(i) {
 	if (!s || !e) return;
 	if (!confirm(t('Delete this test script?'))) return;
 	const script = testScriptById(e.script_id);
+	if (!script) {
+		// The reference is already dangling (the script is gone from the
+		// store): no script endpoint can reach it, so the row's Delete prunes
+		// the member entry - the one member-set change the suite update
+		// accepts (v3.22.0 review) - and saves the suite.
+		s.scripts.splice(i, 1);
+		testSuiteSave(true);
+		testRenderSuiteScripts();
+		return;
+	}
 	// A pending debounced save must not resurrect the script: cancel it and
 	// mark the object (a queued writeback checks the flag when it runs).
-	if (script && script === testCurrentScript()) {
+	if (script === testCurrentScript()) {
 		if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
 		script._deleted = true;
 	}
@@ -7577,7 +7587,6 @@ async function testSuiteTargetGo(i) {
 
 function testOpenScript(id, run) {
 	_testScriptId = id;
-	_testScriptDraft = null;
 	_testSuiteTarget = null;
 	testViewShow('script');
 	if (run) testRunStart();

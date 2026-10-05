@@ -1612,6 +1612,30 @@ class CapApduSequenceTest(unittest.TestCase):
         self.assertEqual(_compose_install_params('C900EF04C7020064', 'EA0480000000'),
                          'C900EF04C7020064EA0480000000')
 
+    def test_install_params_zero_quota_and_truncated_ef(self):
+        # `0` is a valid quota (the vendor reference form carried
+        # `C7 02 0000 C8 02 0000`): only an absent/empty field is unset.
+        from pysim_simple_server.server import (_compose_install_params,
+                                                _single_ef_value)
+        self.assertEqual(_compose_install_params('', '', nv_quota=0),
+                         'C900EF04C8020000')
+        self.assertEqual(_compose_install_params('', '', volatile_quota=0,
+                                                 nv_quota=0),
+                         'C900EF08C7020000C8020000')
+        self.assertEqual(_compose_install_params('', '', nv_quota='0'),
+                         'C900EF04C8020000')
+        self.assertEqual(_compose_install_params('', '', nv_quota=0.0),
+                         'C900EF04C8020000')
+        # an absent/empty field is not composed
+        self.assertEqual(_compose_install_params('', '', nv_quota='',
+                                                 volatile_quota=None), 'C900')
+        # a truncated EF length is malformed, not an empty EF
+        for bad in ('EF', 'EF81', 'EF80', 'EF8201'):
+            with self.assertRaises(ValueError, msg=bad):
+                _single_ef_value(bad)
+        # an empty EF (EF 00) is legal
+        self.assertEqual(_single_ef_value('EF00'), '')
+
     def test_install_apdu_carries_the_composed_parameters(self):
         from pysim_simple_server.server import _cap_install_apdu
         # CA-form STK + quotas: `C9 00 EF{C7,C8,CA}` - one EF (the form the

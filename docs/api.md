@@ -775,8 +775,10 @@ INPUT, `dcs` `00` packed / `04` 8-bit / `08` UCS2; `item_id`; extra `raw`
 TLVs appended after the standard objects).
 
 The response is the initial state (`running: true`), the final counter
-(`scp80_counter`) and the step list; poll `/api/test/status`.  The PWA writes
-`scp80_counter` back to the card preset after the run.
+(`scp80_counter`) and the step list; poll `/api/test/status`.  The **server
+persists** every counter an SCP80 step consumed into the preset store as the
+run proceeds; the snapshot's `scp80_counter`/`scp80_counters` carry the
+latest values (the PWA only syncs its local copy - nothing is written back).
 
 A run that ends (an error, a stop, an unexpected pending command) with a
 command still announced **drains it with `ok` (0x00)** - fetching while the
@@ -853,9 +855,11 @@ the script endpoints, not here), `POST /api/test/suites/delete` (`{id}`)
 removes it - refused while the suite still holds scripts - and
 `POST /api/test/suites/import` takes
 `{suites: [...], scripts: [...], mode: "merge"|"replace"}`: the scripts are
-imported first (ids preserved; a collision gets a fresh uuid and the suites'
-references are remapped), then the suites; an unresolvable reference is
-reported in `errors` and the suite is skipped.  After the import the
+imported first **always with `merge`** (a script replace would wipe the other
+suites' scripts; the mode applies to the suite store), ids preserved, a
+collision gets a fresh uuid and the suites' references are remapped; then the
+suites are imported (`replace` wipes the suite store first); an unresolvable
+reference is reported in `errors` and the suite is skipped.  After the import the
 ownership invariant is reconciled: a script the imported suites list adopts
 its listing suite, and a script no suite lists any more — the `replace` mode
 wipes the suites that owned them — is **adopted into "Imported scripts"**
@@ -900,8 +904,9 @@ expected/actual pairs are reported per check.
 ### `POST /api/test/stop`
 
 Requests a stop (`{"stop": true}` is set on the run); the runner finishes the
-current step, answers any pending proactive command with a cancel TERMINAL
-RESPONSE and reports the run as `stopped`.
+current step, drains any pending proactive command with an **ok** (0x00)
+TERMINAL RESPONSE (the same bounded cleanup as a run that ends - a cancel is
+never sent automatically, v3.21.0) and reports the run as `stopped`.
 
 ### `POST /api/test/clear`
 
@@ -936,7 +941,7 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 | `sd_aid` | no | Security Domain AID for INSTALL[for load]; empty → default ISD `A000000003000000` |
 | `install_params` | no | Hex of the install-parameter field — the mandatory `C9` TLV (application-specific parameters; `C900` when empty), the System Specific Parameters `EF`, extra raw TLVs. When empty the server **composes** it from `volatile_quota`/`nv_quota` and `stk_params` (see below) |
 | `stk_params` | no | The STK part appended to the install parameters: the **EF-wrapped** CA (`EF <len> CA <len> …`, TS 102 226 §8.2.1.3.2.1 — the SIM access domain leads the CA value as `01 <ad>` / `00`) or the UICC template (`EA <len> 80 … [81 …]`). A bare `CA` is refused (it belongs inside the EF) |
-| `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) coded as `C8` / `C7` in the install EF; only composed when `install_params` is empty |
+| `nv_quota` / `volatile_quota` | no | Integer memory quotas (bytes) coded as `C8` / `C7` in the install EF; only composed when `install_params` is empty.  `0` is a valid quota (the vendor reference form carried `C7 02 0000 C8 02 0000`); omit the field to leave the TLV out |
 | `make_selectable` | no | If true (default), final INSTALL uses P1=`0C` (install + make selectable) |
 | `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
 | `ram_format` | no | RAM command format: `auto` (default — the read-only probe decides, recorded as `FORMAT CHECK (...)` steps), `compact` or `expanded` to pin it |

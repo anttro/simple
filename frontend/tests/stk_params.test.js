@@ -147,6 +147,10 @@ test('composeRamInstallParams composes C9 + EF (C7/C8) like the vendor scripts',
 	// extra raw TLVs follow the generated prefix
 	assert.strictEqual(composeRamInstallParams('', '', '', 'CB02AABB', '').install_params,
 		'C900CB02AABB');
+	// a C9 above 255 bytes uses the 2-byte BER length (0x12C = 300)
+	const longC9 = 'AA'.repeat(300);
+	assert.strictEqual(composeRamInstallParams(longC9, '', '', '', '').install_params,
+		'C982012C' + longC9);
 });
 
 test('an EF-form STK part takes the quotas into its own EF (one EF, TS 102 226 8.2.1.3.2.1)', () => {

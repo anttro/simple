@@ -36,7 +36,8 @@ RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `envelope` action's `src` override since 3.18.1, the inline `por` object, the
 `alpha`/`sms` checks, `scp80.params.format` and the case-insensitive
 `menu-select` text match since 3.19.0, the `proactive` cleanup action and the
-ok-answering bounded cleanup since 3.21.0, the suites since 3.22.0.
+ok-answering bounded cleanup since 3.21.0, the suites and the Simulator's
+event forms for all modelled events since 3.22.0.
 
 ## Writing a test for an applet
 
@@ -158,7 +159,8 @@ PoR-in-submit:
 1. **Client-side**: the PWA import (or `testScriptProblem`) rejects structural
    mistakes; the server validates again with the same engine at run start.
 2. **Import** the JSON (PWA → Simulator → Test script → Import, or
-   `POST /api/test/scripts`), select the matched preset, **Run**.
+   `POST /api/test/scripts/import`; a direct `POST /api/test/scripts` needs a
+   `suite_id`), select the matched preset, **Run**.
 3. **Read the report**: every action/expectation shows expected vs actual per
    check; ⚠ = warning (continues), ✗ = error (stops).  A failed step names the
    reason (`note`).
@@ -348,7 +350,9 @@ next step.
 
 - `sw` - default `{"mode": "exact", "value": "9000"}` (a `status` action with
   `attempts > 1` defaults to the `91??` mask).
-- `data` - the response data (for SCP80: the inline PoR packet).
+- `data` - the response data (for SCP80: the inline PoR packet).  The
+  `proactive` action does not take a `data` check - assert the drained
+  commands with `require` and the final status with `sw`.
 - `por` (SCP80 actions only) - `"any"` (default, no check), `"ok"`
   (`response_status == por_ok`), `"none"` (no PoR expected), or an **object**
   `{"status"?, "sw"?, "data"?}` asserting the decoded PoR of this very
@@ -605,6 +609,7 @@ expectation's `respond`, or the proactive action's `first`).
   same format).
 - `files` matches the File List as a set (order-insensitive); duplicate paths
   are kept.
-- Semantic `event` actions cover four events (0x03/0x0B/0x12/0x1D); every
-  other event uses the raw `envelope` action with the data hex from the
-  Phone tab's event form.
+- Semantic `event` actions cover every event the Simulator models: the four
+  server-built events (0x03/0x0B/0x12/0x1D) from `fields`, every other event
+  from the editor-built `data` hex (the raw `envelope` action stays for
+  hand-built data).

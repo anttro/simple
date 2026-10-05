@@ -398,6 +398,13 @@ def _normalise_check(check, kind, params):
         else:
             sw = {'mode': 'exact', 'value': '9000'}
     data = _check_spec(check.get('data'), 'check.data')
+    if kind == 'proactive' and data is not None:
+        # The proactive cleanup's result data is the drained command list, not
+        # a single response: a `data` check would be silently ignored, so it
+        # is refused here (assert the drained commands with `require`).
+        raise ScriptError('check.data is not used by the proactive action - '
+                          'assert what was drained with require, or the final '
+                          'status word with check.sw')
     por = check.get('por')
     if isinstance(por, dict):
         # The decoded-PoR assertion (available on scp80 actions whether the

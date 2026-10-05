@@ -314,6 +314,16 @@ test('genBerRowValue wraps a C-APDU row in the 22 command TLV', () => {
 	assert.strictEqual(genBerRowValue(cmdRow('hex', '')), '');
 });
 
+test('berLenStr uses the BER long form for 2- and 3-byte lengths', () => {
+	assert.strictEqual(berLenStr(0), '00');
+	assert.strictEqual(berLenStr(127), '7F');
+	assert.strictEqual(berLenStr(128), '8180');
+	assert.strictEqual(berLenStr(255), '81FF');
+	assert.strictEqual(berLenStr(256), '820100');
+	assert.strictEqual(berLenStr(65535), '82FFFF');
+	assert.strictEqual(berLenStr(65536), '83010000');
+});
+
 test('the embedded pickers offer the RFM/RAM command sets without GET RESPONSE', () => {
 	assert.ok(chainCommands('ber-sim-1').some(c => c.value === 'select'));
 	assert.ok(chainCommands('ber-usim-1').some(c => c.value === 'create-file'));

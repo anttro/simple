@@ -1330,6 +1330,36 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('member set changes through the script endpoints', resp['error'])
 
+    def test_suite_update_prunes_a_dangling_reference(self):
+        # The store keeps a suite whose script is gone (servable by design);
+        # pruning the member entry is the one member-set change the update
+        # endpoint accepts - no script endpoint can reach it any more.
+        suite = self._suite(name='stale')
+        self.suites.update(suite['id'], {'scripts': [
+            {'script_id': 'f' * 32, 'role': 'member', 'on_fail': 'stop'}]})
+        # the full list (with the dangling id) is still refused...
+        status, resp = self._post('/api/test/suites/update', {
+            'id': suite['id'], 'suite': {'name': 'renamed', 'scripts': [
+                {'script_id': 'f' * 32, 'role': 'member', 'on_fail': 'stop'}]}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('unknown test script', resp['error'])
+        # ...but the prune is accepted, and the suite is editable again
+        status, resp = self._post('/api/test/suites/update', {
+            'id': suite['id'], 'suite': {'scripts': []}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suite']['scripts'], [])
+        status, resp = self._post('/api/test/suites/update', {
+            'id': suite['id'], 'suite': {'name': 'renamed'}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suite']['name'], 'renamed')
+        # removing a script that still exists stays the script endpoint's job
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/suites/update', {
+            'id': suite['id'], 'suite': {'scripts': []}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('member set changes', resp['error'])
+
     def test_move_and_copy_between_suites(self):
         a = self._suite(name='a')
         b = self._suite(name='b')

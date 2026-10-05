@@ -222,6 +222,33 @@ class MigrationTests(unittest.TestCase):
             # idempotent: nothing left to attach
             self.assertEqual(srv.migrate_scripts_to_suites(scripts, suites), 0)
 
+    def test_an_invalid_script_is_still_listed_by_the_reconciliation(self):
+        # The script store keeps an entry that no longer validates (a
+        # tightened rule must not destroy it).  Its suite_id write is refused
+        # by the same validator, but the member list is authoritative: the
+        # script must be listed, or it would be invisible in the PWA and
+        # could never be fixed in the editor.
+        from pysim_simple_server import server as srv
+        from pysim_simple_server import test_scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / 's.json'
+            step = {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}
+            scripts = test_scripts.TestScriptStore(path)      # permissive
+            script = scripts.add({'name': 'stale', 'steps': [step]})
+
+            def validator(raw):
+                raise ValueError('the rule tightened')
+
+            strict = test_scripts.TestScriptStore(path, validator=validator)
+            suites = test_suites.TestSuiteStore(pathlib.Path(tmp) / 'u.json')
+            self.assertEqual(srv.reconcile_scripts_to_suites(strict, suites), 1)
+            imported = suites.find_by_name('Imported scripts')
+            self.assertEqual([e['script_id'] for e in imported['scripts']],
+                             [script['id']])
+            # the suite_id write could not go through - the listing is what
+            # keeps the script visible and fixable
+            self.assertIsNone(strict.get(script['id'])['suite_id'])
+
     def test_the_reconciliation_adopts_listed_and_missing_suite_scripts(self):
         # The general invariant repair: a script whose suite_id points at a
         # missing suite (a suites import with mode replace) joins "Imported

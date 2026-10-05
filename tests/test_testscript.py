@@ -119,6 +119,17 @@ class TestValidation(unittest.TestCase):
                 T.normalise_script({'steps': [{'type': 'action', 'kind': 'proactive',
                                                'params': bad}]}, _resolver)
 
+    def test_the_proactive_action_refuses_a_data_check(self):
+        # The proactive result's data is the drained-command list, not a
+        # single response: a `data` check would be silently ignored, so the
+        # engine refuses it (assert what was drained with `require`).
+        with self.assertRaises(T.ScriptError) as cm:
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'proactive',
+                 'check': {'data': 'AABB'}}]}, _resolver)
+        self.assertIn('check.data is not used by the proactive action',
+                      str(cm.exception))
+
     def test_integer_fields_accept_decimals_with_leading_zeros_and_hex(self):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'status',

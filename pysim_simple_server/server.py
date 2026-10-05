@@ -744,6 +744,14 @@ def _single_ef_value(hex_str):
                          '(TS 102 226 8.2.1.3.2.1): send EF <len> CA ...')
     if data[0] != 0xEF:
         return None
+    if len(data) < 2:
+        raise ValueError('stk_params: malformed EF TLV (the length byte is '
+                         'missing)')
+    first = data[1]
+    if first == 0x80:
+        raise ValueError('stk_params: malformed EF TLV (indefinite length)')
+    if first >= 0x80 and len(data) < 2 + (first & 0x7F):
+        raise ValueError('stk_params: malformed EF TLV (truncated length)')
     ln, off = _ber_len_at(data, 1)
     if off + ln != len(data):
         raise ValueError('stk_params: malformed EF TLV (the length does not '
@@ -768,6 +776,14 @@ def _quota_tlv(tag, value):
     return tag + ('%02X%04X' % (2, v) if v <= 0x7FFF else '%02X%08X' % (4, v))
 
 
+def _quota_provided(value):
+    """Whether a memory-quota field was given: ``None`` and blank strings
+    mean "not requested", while ``0`` is a valid quota (the vendor reference
+    form carried ``C7 02 0000 C8 02 0000``), so an integral zero must be
+    composed, not dropped."""
+    return value is not None and str(value).strip() != ''
+
+
 def _compose_install_params(install_params, stk_params, nv_quota=None,
                             volatile_quota=None):
     """The INSTALL [for install] parameter field, with the composition the
@@ -790,8 +806,7 @@ def _compose_install_params(install_params, stk_params, nv_quota=None,
     """
     raw = (install_params or '').replace(' ', '')
     stk = (stk_params or '').replace(' ', '')
-    has_quota = (str(nv_quota or '').strip() != ''
-                 or str(volatile_quota or '').strip() != '')
+    has_quota = _quota_provided(nv_quota) or _quota_provided(volatile_quota)
     stk_ef = _single_ef_value(stk)
     if raw:
         if has_quota:
@@ -812,9 +827,9 @@ def _compose_install_params(install_params, stk_params, nv_quota=None,
         return (raw + stk).upper()
     # Compose from the primitives: C9 is mandatory (GP Table 11-49).
     inner = ''
-    if str(volatile_quota or '').strip() != '':
+    if _quota_provided(volatile_quota):
         inner += _quota_tlv('C7', volatile_quota)
-    if str(nv_quota or '').strip() != '':
+    if _quota_provided(nv_quota):
         inner += _quota_tlv('C8', nv_quota)
     if stk_ef is not None:
         inner += stk_ef
@@ -6050,9 +6065,14 @@ def reconcile_scripts_to_suites(script_store, suite_store):
         try:
             script_store.update(s['id'], {'suite_id': suite['id']})
         except (test_scripts.TestScriptError, OSError) as e:
-            sys.stderr.write('TESTSUITES: cannot attach %s to "%s": %s\n'
+            # The member list is authoritative: list the script anyway.  The
+            # store keeps a script that no longer validates (a tightened rule
+            # must not destroy it) and its suite_id write is refused by the
+            # same validator - without the listing the script would be
+            # invisible in the PWA and could never be fixed in the editor.
+            sys.stderr.write('TESTSUITES: cannot set the suite id of %s '
+                             '(listed in "%s" so the editor can fix it): %s\n'
                              % (s['id'], suite['name'], e))
-            continue
         if s['id'] not in known:
             entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
             known.add(s['id'])
@@ -9726,15 +9746,23 @@ class PysimHandler(BaseHTTPRequestHandler):
             if 'scripts' in (fields or {}):
                 old_ids = [e['script_id'] for e in cur['scripts']]
                 new = fields['scripts'] if isinstance(fields['scripts'], list) else []
-                new_ids = [str((e or {}).get('script_id') or '').lower()
+                new_ids = [str((e or {}).get('script_id') or '').strip().lower()
                            for e in new if isinstance(e, dict)]
                 if set(new_ids) != set(old_ids):
-                    resp = {'error': 'the member set changes through the script '
-                                     'endpoints (add/move/delete), not by '
-                                     'editing the suite'}
-                    self._send_json(resp, 400)
-                    self._log_resp(resp)
-                    return
+                    # The member set changes through the script endpoints
+                    # (add/move/delete) - with one repair exception: a
+                    # reference whose script is already gone (the store keeps
+                    # such a suite servable) can be pruned here, since no
+                    # script endpoint can reach it any more.
+                    removed = set(old_ids) - set(new_ids)
+                    added = set(new_ids) - set(old_ids)
+                    if added or any(scripts.get(sid) is not None for sid in removed):
+                        resp = {'error': 'the member set changes through the script '
+                                         'endpoints (add/move/delete), not by '
+                                         'editing the suite'}
+                        self._send_json(resp, 400)
+                        self._log_resp(resp)
+                        return
             err = _test_suite_refs_error(scripts, fields)
             if err:
                 resp = {'error': err}
