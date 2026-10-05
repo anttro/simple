@@ -6940,7 +6940,8 @@ function decodeResponse() {
 // run is active (other card endpoints answer 409) and reports the steps
 // through /api/test/status.  This UI edits the script and monitors the run;
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
-// the final SCP80 counter is written back to it.
+// the server persists the counter each send consumed into that preset (the
+// run snapshot carries the latest values; this UI only displays them).
 const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status', 'proactive-drain'];
 let _testScripts = null;        // the script store cache (all suites)
 let _testSuites = null;         // the suite store cache

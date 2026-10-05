@@ -411,7 +411,10 @@ the decoded response (scripting `AB`/`AF`/compact forms).  An applet's **own
 TAR** answers with its application-defined bytes (the response form follows
 the command's TAR - see *The three status words*): its secured data is
 reported as `data` and no `sw` is decoded - assert such a response with
-`data` (the action's `por` object follows the same rule).  A PoR split over
+`data` (the action's `por` object follows the same rule).  The same raw
+fallback covers a remote-management reply that cannot be the compact
+structure - its command count exceeds the command script that was sent, or
+the data is too short for Table 5.1 (TS 102 226 §5.1.2).  A PoR split over
 several SMS parts is accumulated across SEND SHORT MESSAGE expectations: put
 the `por` check on the step that completes the sequence (intermediate steps
 should use `raw` or no PoR check).
