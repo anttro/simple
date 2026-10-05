@@ -7800,9 +7800,6 @@ class PysimHandler(BaseHTTPRequestHandler):
             # keyless SPI1 00 case) the field is ignored and never updated, so
             # no counter is advanced or persisted.
             counter_tracked = _counter_tracked(spi1)
-            if body.get('cntr') and not counter_tracked:
-                sys.stderr.write('OTA SEND: counter not tracked (SPI1 %s: '
-                                 'no counter check)\n' % spi1)
             include_cpi = body.get('includeCpi', True)
             ram_format = None
             try:
@@ -7845,6 +7842,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                     # preset seed - the packet may hold anything).
                     sp_hex = sp
                     cntr = str(body.get('cntr') or '').strip().upper()
+                if cntr and not counter_tracked:
+                    # the packet carries a counter (explicit or seeded) but
+                    # the card will not track it: SPI1.b5b4 = 00 means
+                    # "present, ignored, never updated" (TS 102 225 5.1.1)
+                    sys.stderr.write('OTA SEND: counter not tracked (SPI1 %s: '
+                                     'no counter check)\n' % spi1)
                 spi2_val = int(spi2, 16)
                 # Capture the PoR from either transport: inline in the
                 # ENVELOPE response or as a proactive SEND SHORT MESSAGE (some
@@ -7879,7 +7882,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                             failed_por_hex = _sms_submit_por(submit_handler)
                         failed_por = _decode_por(spi1, spi2,
                                                  body.get('kic', ''), body.get('kid', ''),
-                                                 body.get('cntr', ''), body.get('kicKey', ''),
+                                                 cntr, body.get('kicKey', ''),
                                                  body.get('kidKey', ''), failed_por_hex,
                                                  cmd_len=len(body.get('apdu') or '') // 2 or None)
                         if failed_por:
@@ -7917,7 +7920,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 por_hex = tpdu_b[idx:].hex()
                                 por_src = 'sms-submit'
                         por = _decode_por(spi1, spi2, body.get('kic', ''),
-                                          body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
+                                          body.get('kid', ''), cntr, body.get('kicKey', ''),
                                           body.get('kidKey', ''), por_hex,
                                           cmd_len=len(body.get('apdu') or '') // 2 or None)
                         # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR

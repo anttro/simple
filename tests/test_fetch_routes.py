@@ -598,7 +598,7 @@ class PresetStoreHttpTests(unittest.TestCase):
                  'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
                  'response_data': '027100000e0ab0000000000000010000019000'}), \
              mock.patch.object(self.srv, '_decode_por',
-                               return_value={'response_status': 'por_ok'}):
+                               return_value={'response_status': 'por_ok'}) as decode:
             status, resp = self._post('/api/send-ota', {
                 'preset_id': pid, 'apdu': '80E2900000', 'tar': 'B00001',
                 'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
@@ -606,9 +606,38 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         self.assertTrue(resp.get('success'), resp)
         self.assertEqual(build.call_args[0][5], '0000000001')   # seeded
+        # the PoR decode must use the counter the packet was built with - a
+        # different one breaks the RC/CC check and loses the verdict
+        self.assertEqual(decode.call_args[0][4], '0000000001')
         self.assertEqual(resp['cntr'], '0000000001')
         self.assertEqual(resp['final_cntr'], '0000000002')
         self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000002')
+
+    def test_send_ota_failure_reports_the_effective_counter(self):
+        """A refused ENVELOPE still echoes the counter the packet carried and
+        decodes its PoR with it (v3.20.0)."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        self.server.app = object()
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               return_value=('00' * 20, {})), \
+             mock.patch.object(self.srv, '_send_secured_packet',
+                               return_value={'success': False, 'sw': '6A82',
+                                             'bytes': 34, 'segments': 1,
+                                             'error': 'card refused'}), \
+             mock.patch.object(self.srv, '_decode_por',
+                               return_value={'response_status': 'cntr_low'}) as decode:
+            status, resp = self._post('/api/send-ota', {
+                'preset_id': pid, 'apdu': '80E2900000', 'tar': 'B00001',
+                'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'kicKey': 'AA', 'kidKey': 'BB'})
+        self.assertEqual(status, 200, resp)
+        self.assertFalse(resp['success'], resp)
+        self.assertEqual(resp['cntr'], '0000000001')
+        self.assertEqual(decode.call_args[0][4], '0000000001')
+        # the store must not move for a rejected packet
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000001')
 
     def test_send_ota_explicit_lower_counter_does_not_regress_the_store(self):
         """An explicit counter is used for the packet (a hand send), but the
@@ -637,6 +666,54 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['final_cntr'], '0000000006')
         # the lower value never regresses the store
         self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000010')
+
+    def test_sp_verify_seeds_the_reference_counter(self):
+        """v3.20.0: a verify without `cntr` builds the pySim reference from
+        the preset's keyset - the same value the JS packet was built with."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        key = '00112233445566778899AABBCCDDEEFF'   # synthetic, tests only
+        body = {'preset_id': pid, 'apdu': '00A40000023F00', 'tar': 'B00000',
+                'spi1': '16', 'spi2': '01', 'kic': '15', 'kid': '15',
+                'kicKey': key, 'kidKey': key}
+        status, seeded = self._post('/api/sp-verify', body)
+        self.assertEqual(status, 200, seeded)
+        status, pinned = self._post('/api/sp-verify', dict(body, cntr='0000000001'))
+        self.assertEqual(status, 200, pinned)
+        self.assertEqual(seeded['py_sp'], pinned['py_sp'])
+        # the JS packet built with that counter matches the reference
+        status, match = self._post('/api/sp-verify', dict(body, sp=seeded['py_sp']))
+        self.assertEqual(status, 200, match)
+        self.assertTrue(match['match'], match)
+        # an explicit counter still wins over the store's
+        status, other = self._post('/api/sp-verify',
+                                   dict(body, sp=seeded['py_sp'], cntr='0000000002'))
+        self.assertFalse(other['match'])
+
+    def test_tar_probe_without_cntr_seeds_the_preset_counter(self):
+        """v3.20.0: the probe's first packet carries the preset's counter."""
+        status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))
+        self.assertEqual(status, 200, resp)
+        pid = resp['preset']['id']
+        self.server.app = object()      # the TAR probe needs an app + scc
+        with mock.patch.object(self.srv, '_build_secured_packet',
+                               return_value=('00' * 20, {})) as build, \
+             mock.patch.object(self.srv, '_send_secured_packet', return_value={
+                 'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                 'response_data': '027100000e0ab0000000000000010000019000'}), \
+             mock.patch.object(self.srv, '_decode_por', return_value={
+                 'response_status': 'por_ok', 'tar': 'B00000', 'cntr': '0000000001',
+                 'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': ''}):
+            status, resp = self._post('/api/tar-probe', {
+                'preset_id': pid, 'kic': '15', 'kid': '15', 'spi1': '16',
+                'spi2': '01', 'kicKey': 'AA', 'kidKey': 'BB',
+                'tars': ['B00000']})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp.get('success'), resp)
+        self.assertEqual(build.call_args[0][5], '0000000001')   # seeded
+        self.assertEqual(resp['final_cntr'], '0000000002')
+        self.assertEqual(self.store.get(pid)['keysets'][0]['cntr'], '0000000002')
 
     def test_create_update_delete_round_trip(self):
         status, resp = self._post('/api/presets', self._preset(iccid='8970119000004600098'))

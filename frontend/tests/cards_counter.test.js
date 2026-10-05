@@ -64,6 +64,10 @@ function fakeEnv(selValue, selId, presetCntr) {
 		'sp-kid-idx', 'sp-kid-alg', 'sp-tar', 'sp-cntr', 'sp-kic-key', 'sp-kid-key']) {
 		els[id] = { value: '' };
 	}
+	// the combined key bytes the server reads (updateSpKic maintains them in
+	// the real form): the fake preset's keyset resolves to kvn 1
+	els['sp-kic-hex'] = { value: '15' };
+	els['sp-kid-hex'] = { value: '15' };
 	els[selId || 'sp-card-sel'] = { value: selValue };
 	globalThis.document = { getElementById: id => els[id] || null };
 	globalThis.cards = [{ name: 'C', cntr: presetCntr,
@@ -141,6 +145,22 @@ test('the counter +/- buttons start from the preset value and create an override
 	assert.strictEqual(env.els['sp-cntr'].value, '0000000021');
 	spCntrAdjust(-1);
 	assert.strictEqual(env.els['sp-cntr'].value, '0000000020');
+});
+
+test('spCntrEffective mirrors the server seed: matched keyset, else 0', () => {
+	const env = fakeEnv('0', 'sp-card-sel', '0000000020');
+	assert.strictEqual(spCntrEffective(), '0000000020');
+	env.els['sp-cntr'].value = '0000000042';         // a typed override wins
+	assert.strictEqual(spCntrEffective(), '0000000042');
+	env.els['sp-cntr'].value = '';
+	env.els['sp-kic-hex'].value = '00';              // keyless: no keyset
+	env.els['sp-kid-hex'].value = '00';
+	assert.strictEqual(spCntrEffective(), '0000000000',
+		'the server seeds nothing for kvn 0 - the packet carries 0');
+	env.els['sp-kic-hex'].value = '15';
+	env.els['sp-kid-hex'].value = '15';
+	globalThis.cards = [];                           // no preset: no seed
+	assert.strictEqual(spCntrEffective(), '0000000000');
 });
 
 test('spPorAccepted treats a missing PoR and por_ok as accepted', () => {

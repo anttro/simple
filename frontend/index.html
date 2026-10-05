@@ -8583,10 +8583,12 @@ function spPresetCounterValue() {
 	if (idx < 0) return '';
 	const kvn = spKeysetKvnOf((document.getElementById('sp-kic-hex') || {}).value) ||
 		spKeysetKvnOf((document.getElementById('sp-kid-hex') || {}).value) || 0;
-	// the same fallback cardsApplyFields uses: the matching keyset, else the
-	// preset's first one (an undefined duplicate would otherwise leave the
-	// placeholder empty)
-	const ks = (kvn && spKeysetFor(cards[idx], kvn)) || spKeysetList(cards[idx])[0] || null;
+	// Only a keyset the packet's KIc/KID actually resolve - exactly the value
+	// the server's _preset_counter_seed() uses (the body carries the same two
+	// bytes).  No preset / kvn 0 / an unknown keyset = no seed: the packet
+	// then carries counter 0, and neither the preview nor the pySim reference
+	// may show a value the send would not use.
+	const ks = kvn ? spKeysetFor(cards[idx], kvn) : null;
 	return (ks && ks.cntr) || '';
 }
 
@@ -8598,11 +8600,12 @@ function spCntrPlaceholder() {
 }
 
 // The counter the packet is built with (preview / verify): the typed
-// override, else the preset's next value, else the historic 1 default.
+// override, else the preset's next value, else 0 - the same value the
+// server's empty seed puts into the packet (v3.20.0).
 function spCntrEffective() {
 	const el = document.getElementById('sp-cntr');
 	const typed = ((el && el.value) || '').replace(/[^0-9a-fA-F]/g, '');
-	const v = typed || spPresetCounterValue() || '1';
+	const v = typed || spPresetCounterValue() || '0';
 	return v.toUpperCase().padStart(10, '0').slice(0, 10);
 }
 

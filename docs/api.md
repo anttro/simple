@@ -514,7 +514,10 @@ the counter that was sent, advanced by one when the card accepted the packet.
 - with `apdu` (the server builds the packet) a missing `cntr` is seeded from
   the named preset's keyset (the one the packet's KIc/KID resolve to); the
   effective value is echoed back as `cntr`, so a caller that omits it learns
-  what was used;
+  what was used.  The seed uses the packet's keyset whatever `SPI1.b5b4`
+  says — with no counter check the CNTR field is spec-ignored, nothing is
+  advanced or persisted, and the `OTA SEND: counter not tracked` line names
+  it;
 - an explicit `cntr` always wins — the packet uses it verbatim (a hand send,
   the counter probe or a pre-built `sp` may deliberately pick one);
 - the store only moves **forward**: an explicit value (or its next counter)
