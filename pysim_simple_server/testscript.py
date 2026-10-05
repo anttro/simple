@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 ACTION_KINDS = ('envelope', 'event', 'menu-select', 'file-write', 'file-read',
-                'apdu', 'scp80', 'status')
+                'apdu', 'scp80', 'status', 'proactive')
 FAIL_LEVELS = ('error', 'warning')
 POR_CHECKS = ('none', 'ok', 'any')
 
@@ -207,17 +207,17 @@ def normalise_step(step, command_resolver=None):
         raise ScriptError('each step must be an object')
     typ = step.get('type')
     if typ == 'action':
-        return _normalise_action(step)
+        return _normalise_action(step, command_resolver)
     if typ == 'expect':
         return _normalise_expect(step, command_resolver)
     raise ScriptError("step type must be 'action' or 'expect'")
 
 
-def _normalise_action(step):
+def _normalise_action(step, command_resolver=None):
     kind = str(step.get('kind') or '').lower()
     if kind not in ACTION_KINDS:
         raise ScriptError("unknown action kind %r" % step.get('kind'))
-    params = _normalise_params(kind, step.get('params') or {})
+    params = _normalise_params(kind, step.get('params') or {}, command_resolver)
     on_fail = _fail_level(step.get('on_fail'))
     check = _normalise_check(step.get('check'), kind, params)
     out = {'type': 'action', 'kind': kind, 'params': params,
@@ -227,7 +227,7 @@ def _normalise_action(step):
     return out
 
 
-def _normalise_params(kind, p):
+def _normalise_params(kind, p, command_resolver=None):
     if not isinstance(p, dict):
         raise ScriptError('%s: params must be an object' % kind)
     if kind == 'envelope':
@@ -346,6 +346,30 @@ def _normalise_params(kind, p):
         interval = p.get('interval_ms')
         interval = _int(200 if interval is None else interval, 'status interval_ms', 0, 10000)
         return {'attempts': attempts, 'interval_ms': interval}
+    if kind == 'proactive':
+        # The proactive cleanup: consume whatever the card announces (the
+        # TERMINAL RESPONSE is `first` for the first command, `respond` for
+        # the rest) and confirm the card is idle; `require` asserts what was
+        # drained (at least one match - an empty drain fails it).
+        out = {'respond': normalise_respond(p.get('respond') or {}),
+               'attempts': _int(3 if p.get('attempts') is None else p.get('attempts'),
+                                'proactive attempts', 1, 1000),
+               'interval_ms': _int(200 if p.get('interval_ms') is None
+                                   else p.get('interval_ms'),
+                                   'proactive interval_ms', 0, 10000)}
+        if p.get('first') is not None:
+            out['first'] = normalise_respond(p['first'])
+        req = p.get('require')
+        if req is not None:
+            if not isinstance(req, dict):
+                raise ScriptError('proactive require must be an object')
+            ctype, cname = _resolve_command(req.get('command'), 'proactive require',
+                                            command_resolver)
+            qualifier = _check_spec(req.get('qualifier'), 'proactive require.qualifier')
+            if qualifier and '?' not in qualifier['value'] and len(qualifier['value']) != 2:
+                raise ScriptError('proactive require.qualifier must be one byte')
+            out['require'] = {'type': ctype, 'name': cname, 'qualifier': qualifier}
+        return out
     raise ScriptError('unknown action kind %r' % kind)
 
 
@@ -381,26 +405,30 @@ def _normalise_check(check, kind, params):
     return {'sw': sw, 'data': data, 'por': por}
 
 
-def _normalise_expect(step, command_resolver=None):
-    cmd = step.get('command')
+def _resolve_command(cmd, what, command_resolver=None):
+    """A proactive command spec: a name (resolved to a type code through
+    ``command_resolver``), a hex type code or ANY.  Returns (type|None,
+    name|None)."""
     if cmd is None or isinstance(cmd, bool):
-        raise ScriptError('expect: command is required')
+        raise ScriptError('%s: command is required' % what)
     if isinstance(cmd, int):
-        ctype, cname = cmd, None
-    else:
-        s = str(cmd).strip()
-        up = s.upper()
-        if up in ('ANY', '*'):
-            ctype, cname = None, 'ANY'
-        elif re.fullmatch(r'(0X)?[0-9A-F]{2}', up):
-            ctype, cname = int(up.replace('0X', ''), 16), None
-        elif command_resolver is not None:
-            ctype = command_resolver(up)
-            if ctype is None:
-                raise ScriptError('expect: unknown proactive command %r' % s)
-            cname = up
-        else:
-            raise ScriptError('expect: command must be a hex type code')
+        return cmd, None
+    s = str(cmd).strip()
+    up = s.upper()
+    if up in ('ANY', '*'):
+        return None, 'ANY'
+    if re.fullmatch(r'(0X)?[0-9A-F]{2}', up):
+        return int(up.replace('0X', ''), 16), None
+    if command_resolver is not None:
+        ctype = command_resolver(up)
+        if ctype is None:
+            raise ScriptError('%s: unknown proactive command %r' % (what, s))
+        return ctype, up
+    raise ScriptError('%s: command must be a hex type code' % what)
+
+
+def _normalise_expect(step, command_resolver=None):
+    ctype, cname = _resolve_command(step.get('command'), 'expect', command_resolver)
     qualifier = _check_spec(step.get('qualifier'), 'qualifier')
     if qualifier and '?' not in qualifier['value'] and len(qualifier['value']) != 2:
         raise ScriptError('qualifier must be one byte')

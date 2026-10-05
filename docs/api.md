@@ -592,12 +592,16 @@ response carries them too, plus an `error`).
 fetched via a proactive command (FETCH). The response contains the
 same `por` structure if decoding succeeds.
 
-When the secured data cannot be the TS 102 226 compact remote response (its
-command count exceeds the command script that was sent - a third-party
-applet's own TAR answers with application bytes), `por.response_type` is
-`raw`, the whole secured data is reported as `decoded.last_response_data`
-and no status word is decoded; `secured_data` carries the response bytes in
-every case.
+The response form follows the command's TAR (v3.21.0): a remote-management
+TAR (the preset's role entries and the standard ISD/RFM allocations of
+TS 101 220 Annex D) is decoded as an RM response; any other TAR's secured
+data is the receiving application's own (TS 102 226 4) and is reported with
+`por.response_type` `raw` - the whole secured data in
+`decoded.last_response_data` and no status word (`secured_data` carries the
+response bytes in every case).  The same `raw` classification covers a
+secured data that cannot be the compact structure (its command count exceeds
+the command script that was sent, or it is too short for Table 5.1), while a
+genuinely malformed packet or a failed RC/CC/DS check still yields no `por`.
 
 The SPI2 `por_in_submit` bit (0x20) selects submit-mode PoR.
 
@@ -722,20 +726,29 @@ number 1-15), `tar`/`spi1`/`spi2` overrides and `format` (`compact` default /
 `expanded` / `expanded-ae` - the TS 102 226 5.2.1 Command Scripting template
 around the C-APDU) - KIc/KID and the counter always
 come from the resolved preset, which must match the equipped card and be
-complete) or `status`
+complete), `status`
 (`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
-mask `91??`, i.e. poll until the card announces a command).
+mask `91??`, i.e. poll until the card announces a command) or `proactive`
+(the proactive cleanup: poll STATUS and consume every announced command -
+`respond`/`first` TERMINAL RESPONSE results, `attempts`/`interval_ms` bound,
+optional `require` `{command, qualifier?}` asserting at least one drained
+command; the final SW is the step's `check.sw`, so a still-pending card fails
+and hands the command to the next step - an empty drain passes unless
+`require` was given).
 
 `check` is `{"sw": ..., "data": ...}` (exact or `{"mode": "mask", "value":
 "91??"}`, `?` = per-nibble wildcard) plus `"por"` for SCP80 -
 `"none"`/`"ok"`/`"any"` or an object `{"status"?, "sw"?, "data"?}` asserting
 the decoded PoR of this exchange (inline or SEND SHORT MESSAGE; at least one
-field).  `on_fail` is `error` (terminates the script) or `warning` (continues).
+field).  `on_fail` is `error` (terminates the script) or `warning` (continues)
+and applies to every step failure - including an expectation that finds no
+pending command (v3.21.0; `warning` is the tolerant consume-if-pending form).
 
 **Expectation steps** (`type: "expect"`) require a command pending from the
 previous step (`91XX`); they never poll - a `9000` response means no command
-and is an error (TS 102 221 7.4.2.1 / TS 102 223 6.3; add a `status` action
-if the card delivers on poll).  `command` is a name or type code; `checks`
+and fails the step at its `on_fail` level (TS 102 221 7.4.2.1 / TS 102 223
+6.3; a `status` action with `attempts > 1` polls when the card delivers on
+poll).  `command` is a name or type code; `checks`
 may be `text` (contains/exact), `alpha` (the command's Alpha identifier
 `05`/`85`, contains/exact - distinct from the `8D` text string), `item`
 (`id`/`text` for SELECT ITEM / SET UP MENU), `raw` (mask), `por` (a SEND
@@ -755,6 +768,14 @@ TLVs appended after the standard objects).
 The response is the initial state (`running: true`), the final counter
 (`scp80_counter`) and the step list; poll `/api/test/status`.  The PWA writes
 `scp80_counter` back to the card preset after the run.
+
+A run that ends (an error, a stop, an unexpected pending command) with a
+command still announced **drains it with `ok` (0x00)** - fetching while the
+TERMINAL RESPONSE answers `91XX` (bounded); a cancel is never sent
+automatically (it tells the card the user aborted the session and can push
+assertive applications onto an error path).  The cleanup is reported as a
+`cleanup` step; a script that wants the refusal path answers explicitly (an
+expectation's `respond`, or the `proactive` action's `first`).
 
 ### `GET /api/test/scripts` and the script store
 

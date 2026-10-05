@@ -85,6 +85,39 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(check['sw'], {'mode': 'mask', 'value': '91??'})
         self.assertEqual(check['data'], {'mode': 'mask', 'value': 'AA??'})
 
+    def test_proactive_action_normalises(self):
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'proactive',
+             'params': {'respond': {'result': 'ok'}, 'first': {'result': 'cancel'},
+                        'attempts': 5, 'interval_ms': 0,
+                        'require': {'command': 'REFRESH', 'qualifier': '00'}}},
+        ]}, _resolver)
+        p = script['steps'][0]['params']
+        self.assertEqual(p['respond'], {'result': 0x00})
+        self.assertEqual(p['first'], {'result': 0x10})
+        self.assertEqual(p['attempts'], 5)
+        self.assertEqual(p['interval_ms'], 0)
+        self.assertEqual(p['require']['type'], 0x01)
+        self.assertEqual(p['require']['name'], 'REFRESH')
+        self.assertEqual(p['require']['qualifier'], {'mode': 'exact', 'value': '00'})
+        # the defaults: ok / 3 attempts / 200 ms, no first, no require
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'proactive'}]}, _resolver)
+        p = script['steps'][0]['params']
+        self.assertEqual(p['respond'], {'result': 0x00})
+        self.assertNotIn('first', p)
+        self.assertNotIn('require', p)
+        self.assertEqual(p['attempts'], 3)
+        self.assertEqual(p['interval_ms'], 200)
+        # a bad require is refused
+        for bad in ({'require': {'qualifier': '00'}},
+                    {'require': 'REFRESH'},
+                    {'require': {'command': 'NOT A COMMAND'}},
+                    {'attempts': 0}):
+            with self.assertRaises(T.ScriptError, msg=repr(bad)):
+                T.normalise_script({'steps': [{'type': 'action', 'kind': 'proactive',
+                                               'params': bad}]}, _resolver)
+
     def test_integer_fields_accept_decimals_with_leading_zeros_and_hex(self):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'status',
@@ -440,7 +473,29 @@ class TestRunnerDialogue(RunnerTestCase):
              'checks': [{'kind': 'text', 'value': 'hello'}], 'respond': {}},
         ])
         self.assertEqual(run['status'], 'error')
-        self.assertIn('no proactive command pending', run['steps'][0]['note'])
+        self.assertEqual(run['steps'][0]['status'], 'error')
+        check = run['steps'][0]['checks'][0]
+        self.assertEqual(check['label'], 'Command')
+        self.assertFalse(check['ok'])
+        self.assertEqual(check['expected'], 'DISPLAY TEXT')
+        self.assertEqual(check['actual'], '(none)')
+        self.assertIn('no proactive command pending', check['detail'])
+
+    def test_expectation_warning_without_pending_continues(self):
+        # on_fail "warning" is the tolerant consume-if-pending form (v3.21.0):
+        # the empty poll warns and the script continues
+        scc = FakeScc()
+        scc.push('80F2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'expect', 'command': 'ANY', 'respond': {},
+             'on_fail': 'warning'},
+            {'type': 'action', 'kind': 'status', 'params': {}},
+        ])
+        self.assertEqual(run['status'], 'warning')
+        self.assertEqual(len(run['steps']), 2)
+        self.assertEqual(run['steps'][0]['status'], 'warning')
+        self.assertIn('no proactive command pending',
+                      run['steps'][0]['checks'][0]['detail'])
 
     def test_text_mismatch_fails_the_expectation(self):
         scc = FakeScc()
@@ -471,9 +526,31 @@ class TestRunnerDialogue(RunnerTestCase):
         ])
         self.assertEqual(run['status'], 'error')
         self.assertIn('unexpected proactive command pending', run['steps'][1]['note'])
-        # the drain FETCHed the command and answered with a cancel TR (0x10)
+        # the drain FETCHed the command and answered with an ok TR (0x00,
+        # v3.21.0: a cancel told the card the user aborted the session)
         self.assertTrue(any(a.startswith('8012') for a in scc.sent[1:]))
-        self.assertTrue(any('83021000' in a for a in scc.sent))
+        self.assertTrue(any('83020000' in a for a in scc.sent))
+        self.assertIn('TR ok', run['steps'][1]['sent'])
+
+    def test_drain_answers_ok_and_follows_the_next_command(self):
+        # answering one command can make the application emit another; the
+        # drain keeps fetching while the TR answers 91XX (bounded, v3.21.0)
+        scc = FakeScc()
+        scc.push('80C2', '', '9103')                     # menu selection
+        scc.push('8012', SELECT_ITEM_CMD, '9000')        # FETCH #1
+        scc.push('8014', '', '9102')                     # TR -> another pending
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')       # FETCH #2
+        scc.push('8014', '', '9000')                     # TR -> idle
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'menu-select', 'params': {'item_id': 1},
+             'check': {'sw': '91??'}},
+            {'type': 'action', 'kind': 'apdu', 'params': {'apdu': '00A40000023F00'}},
+        ])
+        self.assertEqual(run['status'], 'error')   # the unexpected pending stops the script
+        entry = run['steps'][1]
+        self.assertEqual(entry['sent'].count('TR ok'), 2)
+        self.assertEqual(entry['sw'], '9000')
+        self.assertIn(SELECT_ITEM_CMD, entry['data'])
 
     def test_sw_mismatch_error_stops_the_script_warning_continues(self):
         scc = FakeScc()
@@ -530,6 +607,117 @@ class TestRunnerDialogue(RunnerTestCase):
         ], stop=True)
         self.assertEqual(run['status'], 'stopped')
         self.assertEqual(run['steps'], [])
+
+
+class TestRunnerProactive(RunnerTestCase):
+    """The proactive cleanup action (v3.21.0): consume whatever the card
+    announces, answer it and confirm the card is idle."""
+
+    def test_empty_drain_passes(self):
+        # the point of the action: an empty first poll is fine
+        scc = FakeScc()
+        scc.push('80F2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive', 'params': {}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        entry = run['steps'][0]
+        self.assertEqual(entry['status'], 'ok')
+        self.assertEqual(entry['sent'], 'STATUS x1; TR x0')
+        self.assertEqual(entry['drained'], [])
+        self.assertEqual(entry['checks'][0]['label'], 'SW')
+        self.assertTrue(entry['checks'][0]['ok'])
+
+    def test_drains_a_pending_command_and_confirms_idle(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')          # STATUS: DISPLAY TEXT pending
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')          # TR ok
+        scc.push('80F2', '', '9000')          # confirming STATUS: idle
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive', 'params': {'attempts': 3, 'interval_ms': 0}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        entry = run['steps'][0]
+        self.assertEqual(entry['sent'], 'STATUS x2; TR x1')
+        self.assertEqual(len(entry['drained']), 1)
+        self.assertEqual(entry['drained'][0]['type_name'], 'DISPLAY TEXT')
+        self.assertEqual(entry['drained'][0]['qualifier'], '00')
+        self.assertTrue(any('83020000' in a for a in scc.sent))
+
+    def test_require_matches_a_drained_command(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80F2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive',
+             'params': {'attempts': 3, 'interval_ms': 0, 'require': {'command': 'DISPLAY TEXT'}}}, 
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        req = [c for c in run['steps'][0]['checks'] if c['label'] == 'Require'][0]
+        self.assertTrue(req['ok'])
+
+    def test_require_fails_on_a_mismatch(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80F2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive',
+             'params': {'attempts': 3, 'interval_ms': 0,
+                        'require': {'command': 'REFRESH', 'qualifier': '00'}}}, 
+        ])
+        self.assertEqual(run['status'], 'error')
+        req = [c for c in run['steps'][0]['checks'] if c['label'] == 'Require'][0]
+        self.assertFalse(req['ok'])
+        self.assertIn('DISPLAY TEXT', req['actual'])
+
+    def test_require_fails_on_an_empty_drain(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive',
+             'params': {'require': {'command': 'REFRESH'}}},
+        ])
+        self.assertEqual(run['status'], 'error')
+        req = [c for c in run['steps'][0]['checks'] if c['label'] == 'Require'][0]
+        self.assertEqual(req['actual'], '(nothing was pending)')
+
+    def test_first_uses_a_different_result(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')          # STATUS: DISPLAY TEXT pending
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9102')          # TR cancel -> another pending
+        scc.push('80F2', '', '9102')          # STATUS: SELECT ITEM pending
+        scc.push('8012', SELECT_ITEM_CMD, '9000')
+        scc.push('8014', '', '9000')          # TR ok
+        scc.push('80F2', '', '9000')          # confirming STATUS
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive',
+             'params': {'attempts': 4, 'interval_ms': 0, 'respond': {'result': 'ok'},
+                        'first': {'result': 'cancel'}}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(len(run['steps'][0]['drained']), 2)
+        self.assertTrue(any('83021000' in a for a in scc.sent))   # the first TR
+        self.assertTrue(any('83020000' in a for a in scc.sent))   # the second
+
+    def test_bound_leaves_the_pending_for_the_next_step(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9102')          # another command pending
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'proactive', 'params': {'attempts': 1}},
+        ])
+        # the bound stopped with 91XX: the SW check fails and the pending is
+        # handed to the next step
+        self.assertEqual(run['status'], 'error')
+        self.assertEqual(run['steps'][0]['sw'], '9102')
+        self.assertFalse(run['steps'][0]['checks'][0]['ok'])
 
 
 class TestRunnerActions(RunnerTestCase):

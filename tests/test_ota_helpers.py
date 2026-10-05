@@ -25,6 +25,7 @@ from pysim_simple_server.server import (
     _build_tr,
     _decode_cmd,
     _decode_por,
+    _tar_is_rm,
     _decode_tr,
     _log_proactive,
     _ota_reference,
@@ -534,6 +535,59 @@ class TestDecodePor(unittest.TestCase):
         self.assertEqual(r['response_type'], 'compact')
         self.assertEqual(r['decoded']['last_status_word'], '6a86')
         self.assertEqual(r['secured_data'], '016A86')
+
+    def test_non_rm_tar_is_application_data(self):
+        # v3.21.0: the response form follows the command's TAR.  A non-RM TAR
+        # answers with application data (TS 102 226 4); `01 00 0B 91 ...`
+        # happens to parse as a compact response (count 1, SW 000B) and must
+        # not be split into a fabricated status word (live 2026-10-05).
+        raw = '027100000e0aaf4d010000000001000001000B919733525088F4'
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw, rm=False)
+        self.assertEqual(r['response_type'], 'raw')
+        self.assertEqual(r['response_status'], 'por_ok')
+        self.assertEqual(r['secured_data'], '01000B919733525088F4')
+        self.assertEqual(r['decoded']['last_response_data'], '01000B919733525088F4')
+        self.assertEqual(r['decoded']['last_status_word'], '')
+        self.assertIsNone(r['decoded']['number_of_commands'])
+        # without the TAR context the same bytes still parse as compact
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw)
+        self.assertEqual(r['response_type'], 'compact')
+        self.assertEqual(r['decoded']['last_status_word'], '000b')
+
+    def test_short_applet_reply_falls_back_to_raw(self):
+        # a 2-byte secured data cannot be a compact response (TS 102 226 5.1.2
+        # Table 5.1 needs a count plus two status bytes): pySim's decode raises
+        # and the packet is reported raw instead of "undecodable"
+        raw = '027100000e0aaf4d01000000000100000400'
+        r = _decode_por('16', '01', '15', '15', '0000000001', K, K, raw)
+        self.assertEqual(r['response_type'], 'raw')
+        self.assertEqual(r['response_status'], 'por_ok')
+        self.assertEqual(r['secured_data'], '0400')
+        self.assertEqual(r['decoded']['last_response_data'], '0400')
+
+
+class TestTarIsRm(unittest.TestCase):
+    """v3.21.0: the response form follows the command's TAR - the preset's
+    role entries plus the standard ISD/RFM allocations of TS 101 220 Annex D."""
+
+    def test_standard_allocations(self):
+        for tar in ('000000', 'B00000', 'B00001', 'B00010', 'B20100',
+                    'B00120', 'B00130', 'B00140'):
+            self.assertTrue(_tar_is_rm(None, tar), tar)
+
+    def test_application_allocations_are_not_rm(self):
+        # the Annex D application TARs (USAT interpreter, multiplexing, CASD,
+        # OMA) and any custom TAR: application-specific data (TS 102 226 4)
+        for tar in ('AF4D01', 'B20000', 'B20200', 'B20201', 'B20202',
+                    'B20203', 'B00200'):
+            self.assertFalse(_tar_is_rm(None, tar), tar)
+
+    def test_preset_roles_win(self):
+        preset = {'tars': [{'role': 'isd', 'tar': 'A11300', 'msl': '16'},
+                           {'role': '', 'tar': 'AF4D01', 'msl': '16'}]}
+        self.assertTrue(_tar_is_rm(preset, 'A11300'))
+        self.assertFalse(_tar_is_rm(preset, 'AF4D01'))
+        self.assertIsNone(_tar_is_rm(preset, ''))
 
 
 class TestPresetCounterSeed(unittest.TestCase):

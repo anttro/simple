@@ -54,6 +54,13 @@ secured data is exposed as `por.data`.  Assert such a response with `data`
 and leave `sw` empty; the step's `check.sw` still asserts the envelope
 exchange.
 
+The form is decided by the command's **TAR** (v3.21.0): the preset's role
+TARs and the standard ISD/RFM allocations (TS 101 220 Annex D) are decoded as
+RM responses; any other TAR - an applet's own - is reported `raw` regardless
+of whether its bytes happen to parse as a compact response, so no status word
+is ever fabricated (a 2-byte reply cannot be one: Table 5.1 needs the command
+count plus two status bytes - it is reported raw too).
+
 A `62XX`/`63XX` envelope answer does not guarantee a response packet: an
 application that refuses at the envelope level (e.g. an applet answering
 `6200` to an unknown command) sends none, while other warning paths still
@@ -172,6 +179,9 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 - Other actions log their send/response pair too (`APDU TX=… -> SW=…`,
   `ENVELOPE(Event Download) … -> SW=…`, `READ BINARY <path>`,
   `READ RECORD <n> <path>`, `UPDATE BINARY <path>`, each with `-> SW=…`).
+- A `proactive` action logs its rounds (`STATUS i/N -> …`, `FETCH=…`,
+  `CMD 0x…`, `TR=… -> SW=…`); the run cleanup logs
+  `TEST-RUN drain: <CMD> (0xNN) TR=… -> SW=…`.
 - A failing step adds `TEST-RUN step N failed: …` with the reason.
 - The shared secured-packet sender logs each segment's answer
   (`OTA SEND: ENVELOPE i/N -> <SW>`).
@@ -193,7 +203,11 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 
 Every step may carry `on_fail`: `"error"` (default - stops the run) or
 `"warning"` (continues, the report shows ⚠).  Each entry of `checks` may
-override it with its own `on_fail`.
+override it with its own `on_fail`.  The level applies to **every** step
+failure, including an expectation that finds no pending command (v3.21.0) -
+the tolerant "consume a command if there is one" form is an expectation with
+`on_fail: "warning"`; to drain and confirm the card is idle, use the
+`proactive` action.
 
 ## Presets: where the keys, TARs and counters come from
 
@@ -233,6 +247,7 @@ consecutive runs continue correctly.
 | `apdu` | `apdu` hex | raw transport, no auto-handler |
 | `scp80` | `apdu` **xor** `sp` (optional `source`), `kvn`, `tar`, `spi1`, `spi2`, `format` | secured packet to the TAR; `format`: `compact` (default - the C-APDU verbatim), `expanded` (the `AA`-prefixed Command Scripting template) or `expanded-ae` (the `AE 80 … 00 00` form), TS 102 226 §5.2.1 |
 | `status` | `attempts` 1–1000, `interval_ms` 0–10000 | with `attempts > 1` the default SW check is `91??` (poll until a command) |
+| `proactive` | `respond`, `first`, `attempts` 1–1000 (default 3), `interval_ms` (default 200), `require` | drain the card's announced proactive commands and confirm it is idle (see below) |
 
 `path` is `/`-separated: `MF` (or `3F00`) or an ADF name/AID first, then FIDs
 or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
@@ -265,6 +280,37 @@ actions take the same optional `src` device-identities override.
 
 `src` overrides the device-identities source (`82` terminal, `83` network);
 the default is the terminal, matching the Phone tab's forms.
+
+### Proactive cleanup (`kind: "proactive"`)
+
+Consume whatever the card announces and leave it idle - at the start, in the
+middle or at the end of a script (a leftover command from a previous run must
+not derail the next step).  Each round polls STATUS; a `91XX` answer fetches
+the command and answers it (the first command with `first`, the rest with
+`respond` - both `{"result": …}` like an expectation's response).  The loop
+ends when STATUS answers `9000` (idle), a non-`91XX` SW appears or `attempts`
+rounds are spent; the **final SW is the step's `check.sw`** (default `9000`),
+so a still-pending card fails the step and hands the pending command to the
+next step.
+
+```json
+{"type": "action", "kind": "proactive",
+ "params": {"respond": {"result": "ok"},
+            "first": {"result": "cancel"},
+            "attempts": 5, "interval_ms": 200,
+            "require": {"command": "REFRESH", "qualifier": "00"}},
+ "check": {"sw": "9000"},
+ "label": "serve whatever is pending, leave the card idle"}
+```
+
+- An **empty drain passes** (that is the point) - unless `require` is given:
+  the step then fails with "nothing was pending".
+- `require` asserts **at least one** consumed command matches (`command` name
+  or hex type, `ANY` allowed; optional `qualifier`, exact/mask).
+- `first` lets a script test the card's refusal path for the first command
+  (e.g. `{"result": "cancel"}`) while the rest are answered `ok`.
+- Every consumed command is reported (type, qualifier, the TR's SW) and
+  logged (`STATUS`/`FETCH`/`CMD`/`TR` lines under the step).
 
 ### `check` on actions
 
@@ -302,6 +348,12 @@ The card must have announced a command (`91XX`) in the previous step - the
 runner never polls by itself.  `command` is a name (as shown in the proactive
 log) or a hex type; `ANY`/`*` skips the type check.  `qualifier` is the
 command-details byte 3 (one byte, exact/mask).
+
+When nothing is pending the step fails at its own `on_fail` level (the
+default stops the run; `on_fail: "warning"` warns and continues - the
+tolerant consume-if-pending form, v3.21.0).  "Add a `status` action" applies
+when the card delivers on poll: `status` with `attempts > 1` polls until a
+command appears; it cannot make one appear when the card has none.
 
 ### Content checks
 
@@ -364,6 +416,10 @@ UCS2 answer to a GET INPUT:
 {"type": "expect", "command": "GET INPUT",
  "respond": {"result": "ok", "text": "Пароль", "dcs": "08"}}
 ```
+
+The `proactive` action's `respond`/`first` use the same shape (the command
+type varies per drained command, so `text`/`item_id` apply where the command
+carries them).
 
 ## The two PoR transports (SPI2)
 
@@ -487,13 +543,28 @@ PoR-in-submit (with the transport asserted by the expectation):
   is outside the preset's keysets.
 - `no MSL for TAR … - set it in the Cards tab or pass spi1` - the step's TAR
   has no entry in the preset and the step carries no `spi1`.
-- `no proactive command pending …` - an expectation ran without a `91XX` from
-  the previous step (add a `status` action when the card delivers on poll).
+- `no proactive command pending` - an expectation ran without a `91XX` from
+  the previous step; it fails at the step's `on_fail` level (the check row
+  names it).  A `status` action with `attempts > 1` polls until a command
+  appears when the card delivers on poll; `on_fail: "warning"` tolerates the
+  empty case, and the `proactive` action drains and confirms idle.
 - `menu-select: no menu item matches …` - the error lists the cached menu; a
   miss on an explicit `case_sensitive: true` names the case-insensitive
   candidates.
 - `card verdict: no PoR (the card sent none for SPI2 …)` - an SCP80 operation
   expected a PoR that never arrived (check SPI2 and the transport).
+
+## Run cleanup
+
+When a run ends (an error, a stop request, or an unexpected pending command)
+with a command still announced, the runner fetches it and answers **`ok`
+(0x00)** and keeps draining while the TERMINAL RESPONSE answers `91XX`
+(bounded) - a cancel (`0x10`) is not sent automatically: it tells the card
+the user aborted the proactive session, which can push assertive applications
+onto an error path and make them queue a further command.  The cleanup is
+reported like a normal step (`TR ok …`, `pending REFRESH (0x01) answered with
+ok`); a script that wants to test the refusal path answers explicitly (an
+expectation's `respond`, or the proactive action's `first`).
 
 ## Known limitations
 

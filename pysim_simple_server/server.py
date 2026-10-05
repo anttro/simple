@@ -34,7 +34,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.20.0'
+VERSION = '3.21.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1910,7 +1910,8 @@ def _counter_probe(server, scc, preset, body, send_fn=None):
                 por_hex = submit_hex
             por = _decode_por(p['spi1'], p['spi2'], p['kic'], p['kid'], cntr,
                               p['kic_key'], p['kid_key'], por_hex,
-                              cmd_len=len(p['apdu']) // 2) if por_hex else None
+                              cmd_len=len(p['apdu']) // 2,
+                              rm=_tar_is_rm(preset, p['tar'])) if por_hex else None
         pstatus = str((por or {}).get('response_status') or '')
         out['packets'] += 1
         attempt = {'cntr': cntr, 'por_status': pstatus or None,
@@ -2121,7 +2122,9 @@ def _ram_send_gp_apdu(server, scc, sp, state, step_name, apdu_hex, silent=False)
                 por_src = 'sms-submit'
         por = _decode_por(spi1, spi2, sp['kic'], sp['kid'], state['cntr'],
                           sp['kic_key'], sp['kid_key'], por_hex,
-                          cmd_len=len(apdu_hex) // 2)
+                          cmd_len=len(apdu_hex) // 2,
+                          rm=_tar_is_rm(_preset_by_id(server, state.get('preset_id')),
+                                        sp.get('tar')))
         step, step_error = _ram_step_result(step_name, last_sw, por, por_hex,
                                             result['bytes'], result['segments'])
         state['last_step'] = step
@@ -2262,33 +2265,94 @@ def _sms_submit_por(submit_handler):
     return '027100' + ud_hex
 
 
+def _por_header_parse(data, otak, spi):
+    """Header-only parse of an SMS response packet (TS 102 225 5.2 Table 3).
+
+    Everything `OtaDialectSms.decode_resp` validates *before* the compact
+    response parse: the UDH/RPI check, the response header, deciphering, the
+    PCNTR padding and the RC/CC/DS verification.  Used when the secured data
+    is not a compact/scripting RM response (TS 102 226 4: the receiving
+    application's own format) - a valid packet is then reported raw instead
+    of "undecodable".  Returns the parsed response or None."""
+    from pySim.ota import OtaDialectSms
+    from pySim.sms import UserDataHeader
+    try:
+        if not data or data[0] != 0x02:
+            return None
+        udhd, remainder = UserDataHeader.from_bytes(data)
+        if not udhd.has_ie(0x71):
+            return None
+        res = OtaDialectSms.SmsResponsePacket.parse(remainder)
+        if spi['por_shall_be_ciphered']:
+            deciph = otak.crypt.decrypt(remainder[6:])
+            temp_data = remainder[:6] + deciph
+            res = OtaDialectSms.SmsResponsePacket.parse(temp_data)
+            if res['pcntr'] != 0:
+                res['secured_data'] = res['secured_data'][:-res['pcntr']]
+            remainder = temp_data
+        len_sig = res['rhl'] - 10
+        if spi['por_rc_cc_ds'] == 'no_rc_cc_ds':
+            if len_sig:
+                return None
+        elif spi['por_rc_cc_ds'] == 'cc':
+            # UDH + RPL/RHL/TAR/CNTR/PCNTR/STS are part of the CC input
+            udh = data[:3]
+            header = remainder[:13]
+            otak.auth.check_sig(udh + header + remainder[13 + len_sig:],
+                                res['cc_rc'])
+        else:
+            return None
+    except Exception:
+        # a malformed packet or a failed check is not a response packet
+        return None
+    return res
+
+
 def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex,
-                response_hex, cmd_len=None):
-    """Decode a response packet (PoR).  `cmd_len` is the length in bytes of the
-    plaintext command script the packet carried (None when unknown): the
-    TS 102 226 5.1.2 compact response's command count cannot exceed it, so a
-    larger count means the data is the application's own (a third-party
-    applet's TAR) and is reported as `raw` - no status word is invented."""
-    from pySim.ota import OtaDialectSms, CompactRemoteResp
-    from osmocom.utils import h2b, b2h
+                response_hex, cmd_len=None, rm=None):
+    """Decode a response packet (PoR).
+
+    `rm` tells whether the command was addressed to a remote-management TAR
+    (TS 102 226 4: only those answer with the compact/scripting structures of
+    5.1.2/5.2.2):
+
+    - ``True``: decode as an RM response;
+    - ``False``: any other TAR - the secured data is the receiving
+      application's own (application specific, "not defined" in the spec) and
+      is reported raw; no status word is invented;
+    - ``None`` (unknown): decode, falling back to raw when the compact parse
+      cannot apply.
+
+    `cmd_len` is the length in bytes of the plaintext command script the
+    packet carried (None when unknown): the TS 102 226 5.1.2 compact
+    response's command count cannot exceed it, so a larger count means the
+    data is the application's own and is reported as `raw`."""
+    from pySim.ota import OtaDialectSms
+    from osmocom.utils import h2b
     if not response_hex:
         return None
     try:
         otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
         spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
-    except Exception:
-        # a malformed counter/key (e.g. a hand-made request) is not a PoR
-        # either - the same rule as the decode below: never raise here.
-        return None
-    try:
         data = h2b(response_hex)
-        if not data or data[0] != 0x02:
-            return None
-        res, dec = OtaDialectSms().decode_resp(otak, spi, data)
     except Exception:
-        # any malformed/garbage PoR (non-hex, bad UDL, truncated fields,
-        # bad CC) is not a POR; never let decoding crash the request handler.
+        # a malformed counter/key/hex (e.g. a hand-made request) is not a PoR
         return None
+    dec = None
+    if rm is False:
+        res = _por_header_parse(data, otak, spi)
+        if res is None:
+            return None
+    else:
+        try:
+            res, dec = OtaDialectSms().decode_resp(otak, spi, data)
+        except Exception:
+            # pySim's decode fails when the secured data is not a compact
+            # response (e.g. a third-party applet's short reply): fall back
+            # to the header parse and report the data raw, not lost.
+            res = _por_header_parse(data, otak, spi)
+            if res is None:
+                return None
     out = {
         'response_status': str(res['response_status']),
         'tar': res['tar'].hex().upper(),
@@ -2315,9 +2379,11 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex,
     # R-APDU(s) of the executed remote command(s) this way instead of the
     # plain compact response.  The R-APDU's own SW and data are the useful
     # result (a bare CompactRemoteResp parse would read `AB` as the command
-    # count and produce garbage).
+    # count and produce garbage).  A non-RM TAR's payload is application data
+    # (rm False): never parse it as an RM structure.
     if res.response_status == 'por_ok' and len(res['secured_data']):
-        scripted = _parse_response_scripting(bytes(res['secured_data']))
+        scripted = (_parse_response_scripting(bytes(res['secured_data']))
+                    if rm is not False else None)
         if scripted is not None:
             out['response_type'] = 'scripting'
             out['decoded'] = {
@@ -5761,6 +5827,7 @@ _TEST_KIND_LABELS = {
     'menu-select': 'ENVELOPE(Menu Selection)',
     'file-write': 'UPDATE FILE', 'file-read': 'READ FILE', 'apdu': 'APDU',
     'scp80': 'SCP80', 'status': 'STATUS', 'cleanup': 'CLEANUP',
+    'proactive': 'PROACTIVE',
 }
 # Card-touching endpoints refused while a script owns the card.
 _TEST_BLOCKED_PATHS = frozenset([
@@ -5812,6 +5879,28 @@ TAR_PROBE_TARS = [
     ('B00200', 'RFU (control)'),
 ]
 TAR_PROBE_DEFAULT_APDU = '00A40000023F00'   # SELECT MF: harmless, applet-visible
+
+# The TARs the tool treats as remote-management targets: the preset's role
+# entries (checked at call time - a card may use non-standard values) plus
+# the ISD/RFM allocations of TS 101 220 V18.3.0 Annex D, Table D.1.  A command
+# sent to any other TAR goes to a receiving application whose data format is
+# application-specific (TS 102 226 4), so its response is reported raw -
+# never decoded as an RM response with a fabricated status word.
+RM_TAR_ALLOCATIONS = ('000000', 'B20100', 'B00000', 'B00001', 'B00010',
+                      'B00120', 'B00130', 'B00140')
+
+
+def _tar_is_rm(preset, tar):
+    """True when `tar` is a remote-management TAR (a preset role entry or a
+    standard ISD/RFM allocation), False for any other TAR; None when the TAR
+    is empty (unknown).  Drives the response-form decision of `_decode_por`."""
+    t = str(tar or '').strip().upper()
+    if not t:
+        return None
+    for entry in (preset or {}).get('tars') or []:
+        if entry.get('role') and str(entry.get('tar') or '').strip().upper() == t:
+            return True
+    return t in RM_TAR_ALLOCATIONS
 
 
 def _tar_probe_verdict(step):
@@ -5935,7 +6024,8 @@ def _test_finish_entry(entry, result):
     fields = {'status': result.get('status', 'ok'),
               'checks': result.get('checks', []),
               'ms': int((time.time() - (entry.get('started') or time.time())) * 1000)}
-    for key in ('sent', 'sw', 'data', 'note', 'por', 'sms', 'counter', 'command'):
+    for key in ('sent', 'sw', 'data', 'note', 'por', 'sms', 'counter',
+                'command', 'drained'):
         if result.get(key) is not None:
             fields[key] = result[key]
     _test_entry_update(entry, fields)
@@ -6029,6 +6119,102 @@ def _test_run_status(scc, step):
     return data or '', sw, ('STATUS x%d' % used if used > 1 else 'STATUS')
 
 
+def _proactive_require_match(req, consumed):
+    """Whether one consumed command satisfies a proactive action's `require`
+    spec: the command type/name (ANY matches all) and an optional qualifier
+    (exact/mask)."""
+    if req.get('type') is not None and consumed.get('type_hex') != '%02X' % req['type']:
+        return False
+    q = req.get('qualifier')
+    if q and not testscript.match_value(q, consumed.get('qualifier')):
+        return False
+    return True
+
+
+def _proactive_require_label(req):
+    """The `require` spec as the report's expected string."""
+    if req.get('type') is not None:
+        name = req.get('name') or '0x%02X' % req['type']
+    else:
+        name = 'ANY'
+    q = req.get('qualifier')
+    return name + ((' q=%s' % q['value']) if q else '')
+
+
+def _test_run_proactive(server, step):
+    """The proactive cleanup action: poll STATUS and consume every announced
+    command - the TERMINAL RESPONSE is `first` for the first one, `respond`
+    for the rest - until the card answers 9000 (idle), a non-91XX SW appears
+    or the attempt budget is spent.  The final SW is the step's SW check; an
+    optional `require` asserts what was drained (at least one match; an empty
+    drain fails it)."""
+    scc = server.scc
+    p = step['params']
+    consumed = []
+    sw = ''
+    polls = 0
+    for n in range(p['attempts']):
+        data, sw = _send_status(scc)
+        polls = n + 1
+        _test_log('STATUS %d/%d -> %s' % (polls, p['attempts'], sw))
+        if not (sw or '').startswith('91'):
+            break
+        fetch_apdu = '%s120000%02x' % (scc.cat_cla, int(sw[2:], 16))
+        fdata, fetch_sw = scc._tp.send_apdu(fetch_apdu)
+        if not fdata:
+            _test_log('FETCH=%s -> SW=%s (no data)' % (fetch_apdu, fetch_sw))
+            sw = fetch_sw
+            break
+        raw = bytes.fromhex(fdata)
+        _test_log('FETCH=%s -> SW=%s %s' % (fetch_apdu, fetch_sw, raw.hex().upper()))
+        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+        name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
+        _test_log('CMD 0x%02X %s qual=%s' % (
+            cmd_type, name, ('%02X' % cmd_qual) if cmd_qual is not None else '-'))
+        if cmd_type == 0x25:
+            # keep the cached menu (text-based selection) current
+            menu = _parse_setup_menu_command(raw)
+            if menu:
+                server.sim_menu = menu
+        respond = p['first'] if (not consumed and p.get('first')) else p['respond']
+        tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond)
+        tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
+        _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_rv[1]))
+        consumed.append({'type_hex': '%02X' % cmd_type, 'type_name': name,
+                         'qualifier': ('%02X' % cmd_qual) if cmd_qual is not None else None,
+                         'tr_sw': tr_rv[1], 'raw': raw.hex().upper()})
+        sw = tr_rv[1]
+        if not (sw or '').startswith('91') and sw != '9000':
+            # a TERMINAL RESPONSE the card rejected: stop and let the SW
+            # check name it
+            break
+        if n + 1 < p['attempts'] and p['interval_ms']:
+            time.sleep(p['interval_ms'] / 1000.0)
+    checks = [_test_check_result('SW', testscript.match_value(step['check']['sw'], sw),
+                                 step['check']['sw']['value'], sw or '(none)',
+                                 step['on_fail'])]
+    req = p.get('require')
+    if req:
+        matched = any(_proactive_require_match(req, c) for c in consumed)
+        if consumed:
+            actual = ', '.join(
+                '%s%s' % (c['type_name'],
+                          (' q=%s' % c['qualifier']) if c['qualifier'] else '')
+                for c in consumed)
+        else:
+            actual = '(nothing was pending)'
+        checks.append(_test_check_result('Require', matched,
+                                         _proactive_require_label(req), actual,
+                                         step['on_fail']))
+    status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok'
+                                        for c in checks])
+    result = {'status': status, 'sw': sw or '', 'data': '',
+              'sent': 'STATUS x%d; TR x%d' % (polls, len(consumed)),
+              'checks': checks, 'drained': consumed}
+    pending = int(sw[2:], 16) if (sw or '').startswith('91') else None
+    return result, pending
+
+
 def _test_run_file(server, step):
     """UPDATE/READ a file by path (extends the network simulator's writes to
     arbitrary files); returns (data, sw, sent)."""
@@ -6107,7 +6293,8 @@ def _test_run_scp80(server, step, ctx):
     cmd_len = len(p.get('apdu') or '') // 2 or None
     ctx['last_scp80'] = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
                          'counter': counter, 'kicKey': kic_key, 'kidKey': kid_key,
-                         'tar': tar, 'cmd_len': cmd_len}
+                         'tar': tar, 'cmd_len': cmd_len,
+                         'rm': _tar_is_rm(preset, tar)}
     fmt = p.get('format') or 'compact'
     apdu_hex = p.get('apdu') or ''
     if p.get('sp'):
@@ -6139,7 +6326,7 @@ def _test_run_scp80(server, step, ctx):
     por = None
     if data:
         por = _decode_por(spi1, spi2, kic, kid, counter, kic_key, kid_key, data,
-                          cmd_len=cmd_len)
+                          cmd_len=cmd_len, rm=_tar_is_rm(preset, tar))
     if por:
         dec = por.get('decoded') or {}
         extra = ''
@@ -6273,6 +6460,8 @@ def _test_run_action(server, step, ctx):
                                      (' RESP=%dB' % (len(data) // 2)) if data else ''))
     elif kind == 'scp80':
         data, sw, sent, por, counter = _test_run_scp80(server, step, ctx)
+    elif kind == 'proactive':
+        return _test_run_proactive(server, step)
     else:
         raise testscript.ScriptError('unknown action kind %r' % kind)
     checks = _test_action_checks(step, sw, data, por, kind)
@@ -6375,21 +6564,37 @@ def _test_expect_por(ctx, raw):
     por_hex = '027100' + ud_hex
     return _decode_por(last['spi1'], last['spi2'], last['kic'], last['kid'],
                        last['counter'], last['kicKey'], last['kidKey'], por_hex,
-                       cmd_len=last.get('cmd_len'))
+                       cmd_len=last.get('cmd_len'), rm=last.get('rm'))
 
 
 def _test_run_expect(server, step, pending, ctx=None):
     scc = server.scc
     if not pending:
-        raise testscript.ScriptError(
-            'no proactive command pending - the previous step must end with SW 91XX '
-            '(or add a status action); the UICC announces pending commands in the '
-            'response to a command (TS 102 221 7.4.2.1)')
+        # Nothing to fetch: the step fails at its own on_fail level.  The
+        # tolerant "consume a pending command if there is one" form is an
+        # expectation with on_fail "warning" (or the proactive cleanup action,
+        # which tolerates an empty card by design).  The UICC announces
+        # pending commands in the response to a command (TS 102 221 7.4.2.1).
+        want = step['command'].get('name')
+        if not want and step['command'].get('type') is not None:
+            want = '0x%02X' % step['command']['type']
+        return {'status': step['on_fail'], 'checks': [_test_check_result(
+                    'Command', False, want or 'a pending command', '(none)',
+                    step['on_fail'],
+                    detail='no proactive command pending - the previous step '
+                           'did not end with SW 91XX (the card announces '
+                           'pending commands in the response to a command, '
+                           'TS 102 221 7.4.2.1); a status action with '
+                           'attempts > 1 polls until one appears')]}, None
     fetch_apdu = '%s120000%02x' % (scc.cat_cla, pending)
     fdata, fetch_sw = scc._tp.send_apdu(fetch_apdu)
     if not fdata:
         _test_log('FETCH=%s -> SW=%s (no data)' % (fetch_apdu, fetch_sw))
-        raise testscript.ScriptError('FETCH returned no data (SW %s)' % fetch_sw)
+        return {'status': step['on_fail'], 'checks': [_test_check_result(
+                    'Fetch', False, 'the announced command',
+                    'no data (SW %s)' % fetch_sw, step['on_fail'],
+                    detail='the card announced a command (SW 91XX) but FETCH '
+                           'returned no data')]}, None
     raw = bytes.fromhex(fdata)
     _test_log('FETCH=%s -> SW=%s %s' % (fetch_apdu, fetch_sw, raw.hex().upper()))
     cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
@@ -6533,23 +6738,50 @@ def _test_run_expect(server, step, pending, ctx=None):
     return result, pending_next
 
 
-def _test_drain_pending(scc, fetch_len):
-    """Fetch an announced command the script did not expect and answer it
-    with a cancel TR, so the card is not left re-announcing it (6.3)."""
+def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
+    """Fetch the commands the script did not expect and answer them, so the
+    card is not left re-announcing one (TS 102 223 6.3).
+
+    The answer defaults to 'ok' (0x00, command performed successfully): a
+    cancel (0x10) tells the card the user terminated the proactive session,
+    which makes assertive applications take an error path - a REFRESH
+    answered cancel can queue a further command.  Answering one command can
+    make the application emit another, so the drain keeps fetching while the
+    TERMINAL RESPONSE answers 91XX (bounded by `max_commands`).  A script that
+    wants to test the refusal path answers explicitly (an expectation's
+    `respond`, or the proactive action's `first`)."""
+    answered = []
     try:
-        fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len or 0x100))
-        if not fdata:
-            return {'note': 'nothing to drain (FETCH SW %s)' % sw}
-        raw = bytes.fromhex(fdata)
-        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
-        tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, {'result': 0x10})
-        rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
-        return {'sent': 'TR cancel ' + tr.hex().upper(), 'sw': rv[1],
-                'data': raw.hex().upper(),
-                'note': 'pending %s (0x%02X) answered with cancel'
-                        % (PROACTIVE_TYPE_NAMES.get(cmd_type, '?'), cmd_type)}
+        while len(answered) < max_commands:
+            fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla,
+                                                            fetch_len or 0x100))
+            if not fdata:
+                break
+            raw = bytes.fromhex(fdata)
+            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+            tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, {'result': result})
+            rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
+            name = PROACTIVE_TYPE_NAMES.get(cmd_type, '?')
+            answered.append({'name': name, 'type': cmd_type,
+                             'raw': raw.hex().upper(), 'tr': tr.hex().upper(),
+                             'sw': rv[1]})
+            sys.stderr.write('TEST-RUN drain: %s (0x%02X) TR=%s -> SW=%s\n'
+                             % (name, cmd_type, tr.hex().upper(), rv[1]))
+            if not (rv[1] or '').startswith('91'):
+                break
+            fetch_len = int(rv[1][2:], 16)
     except Exception as e:
         return {'note': 'drain failed: %s' % e}
+    if not answered:
+        return {'note': 'nothing to drain'}
+    result_name = {0x00: 'ok', 0x10: 'cancel', 0x11: 'back',
+                   0x12: 'timeout', 0x22: 'no response'}.get(result,
+                                                             '0x%02X' % result)
+    return {'sent': '; '.join('TR %s %s' % (result_name, a['tr']) for a in answered),
+            'sw': answered[-1]['sw'], 'data': answered[0]['raw'],
+            'note': '; '.join('pending %s (0x%02X) answered with %s'
+                              % (a['name'], a['type'], result_name)
+                              for a in answered)}
 
 
 def _test_run_execute(server, script, preset):
@@ -7903,6 +8135,12 @@ class PysimHandler(BaseHTTPRequestHandler):
             # no counter is advanced or persisted.
             counter_tracked = _counter_tracked(spi1)
             include_cpi = body.get('includeCpi', True)
+            # The response form follows the command's TAR (TS 102 226 4): only
+            # a remote-management TAR answers with the RM structures; a hand
+            # send may name any TAR (the pre-built `sp` path may name none -
+            # unknown, decode with the structural fallback).
+            rm = _tar_is_rm(_preset_by_id(self.server, body.get('preset_id')),
+                            body.get('tar') or ('000000' if apdu else ''))
             ram_format = None
             try:
                 if apdu:
@@ -7986,7 +8224,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                                                  body.get('kic', ''), body.get('kid', ''),
                                                  cntr, body.get('kicKey', ''),
                                                  body.get('kidKey', ''), failed_por_hex,
-                                                 cmd_len=len(body.get('apdu') or '') // 2 or None)
+                                                 cmd_len=len(body.get('apdu') or '') // 2 or None,
+                                                 rm=rm)
                         if failed_por:
                             resp['por'] = failed_por
                             low = _cntr_low_fields(failed_por.get('response_status'))
@@ -8024,7 +8263,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                         por = _decode_por(spi1, spi2, body.get('kic', ''),
                                           body.get('kid', ''), cntr, body.get('kicKey', ''),
                                           body.get('kidKey', ''), por_hex,
-                                          cmd_len=len(body.get('apdu') or '') // 2 or None)
+                                          cmd_len=len(body.get('apdu') or '') // 2 or None,
+                                          rm=rm)
                         # Check for SPI2=0x21 (PoR required) but got 9000 with no PoR → card refuses PoR
                         por_required = bool(spi2_val & 0x01)
                         no_por_received = not por_hex and not (submit_handler and submit_handler.submit_tpdu_hex)

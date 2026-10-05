@@ -1877,7 +1877,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.20.0';
+const SIMPLE_VERSION = '3.21.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6913,7 +6913,7 @@ function decodeResponse() {
 // through /api/test/status.  This UI edits the script and monitors the run;
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
 // the final SCP80 counter is written back to it.
-const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status'];
+const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status', 'proactive'];
 let _testScripts = null;
 let _testCurrentIdx = -1;
 let _testRunState = null;
@@ -7072,6 +7072,8 @@ function testScriptProblem(script) {
 				}
 			}
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
+			if (s.kind === 'proactive' && String(p.attempts === undefined ? '' : p.attempts).trim() !== ''
+					&& !(parseInt(p.attempts, 10) >= 1)) return at + t('attempts must be at least 1');
 		} else if (s.type === 'expect') {
 			if (!String(s.command || '').trim()) return at + t('command is required');
 		} else {
@@ -7147,6 +7149,15 @@ function testStepSummary(step) {
 	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
 	else if (step.kind === 'file-read') s = 'READ ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '');
 	else if (step.kind === 'status') s = 'STATUS' + ((p.attempts || 1) > 1 ? ' x' + p.attempts + ' (poll)' : '');
+	else if (step.kind === 'proactive') {
+		const parts = ['PROACTIVE x' + (p.attempts === undefined ? 3 : p.attempts)];
+		const rq = p.require || {};
+		if (rq.command) parts.push('require ' + rq.command + (rq.qualifier ? ' q=' + (rq.qualifier.value || rq.qualifier) : ''));
+		const rr = p.respond || {};
+		parts.push('TR ' + (rr.result === undefined ? 'ok' : rr.result));
+		if (p.first && p.first.result) parts.push('first ' + p.first.result);
+		s = parts.join(' ');
+	}
 	else s = String(step.kind || '?');
 	const c = step.check || {};
 	const ck = [];
@@ -7464,6 +7475,24 @@ function testStepRender() {
 		} else if (step.kind === 'status') {
 			html += testFormRow('Attempts (1 = single STATUS)', testFormInput('test-f-attempts', p.attempts === undefined ? 1 : p.attempts, '1..1000'));
 			html += testFormRow('Interval (ms, when polling)', testFormInput('test-f-interval', p.interval_ms === undefined ? 200 : p.interval_ms, '0..10000'));
+		} else if (step.kind === 'proactive') {
+			const pr = p.respond || {};
+			html += testFormRow('TERMINAL RESPONSE result (each command)',
+				testFormSelect('test-f-presult', pr.result === undefined ? 'ok' : String(pr.result), [
+					{v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')}, {v: 'back', l: t('back')},
+					{v: 'timeout', l: t('timeout')}, {v: 'no_response', l: t('no response')}]));
+			const pf = p.first || {};
+			html += testFormRow('First command only (optional)',
+				testFormSelect('test-f-pfirst', pf.result === undefined ? '' : String(pf.result), [
+					{v: '', l: t('same as above')}, {v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')},
+					{v: 'back', l: t('back')}, {v: 'timeout', l: t('timeout')},
+					{v: 'no_response', l: t('no response')}]));
+			html += testFormRow('Attempts (STATUS rounds)', testFormInput('test-f-pattempts', p.attempts === undefined ? 3 : p.attempts, '1..1000'));
+			html += testFormRow('Interval (ms, between rounds)', testFormInput('test-f-pinterval', p.interval_ms === undefined ? 200 : p.interval_ms, '0..10000'));
+			const rq = p.require || {};
+			html += testFormRow('Require a command (optional)', '<div class="flex gap-2">'
+				+ testFormInput('test-f-prequire', rq.command, 'REFRESH')
+				+ testFormInput('test-f-prequal', rq.qualifier && rq.qualifier.value, '00') + '</div>');
 		}
 		const c = step.check || {};
 		const sw = c.sw || {};
@@ -7720,6 +7749,20 @@ function testStepCollect() {
 			if (fmt && fmt !== 'compact') p.format = fmt;
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
+		else if (kind === 'proactive') {
+			p.respond = {result: val('test-f-presult') || 'ok'};
+			const first = val('test-f-pfirst');
+			if (first) p.first = {result: first};
+			p.attempts = num('test-f-pattempts', 3);
+			p.interval_ms = num('test-f-pinterval', 200);
+			const requireCmd = val('test-f-prequire');
+			if (requireCmd) {
+				const rq = {command: requireCmd.toUpperCase()};
+				const rqHex = hex('test-f-prequal');
+				if (rqHex) rq.qualifier = rqHex;
+				p.require = rq;
+			}
+		}
 		step.params = p;
 		const check = {};
 		const swVal = hex('test-f-sw');
@@ -7793,6 +7836,7 @@ function testStepFormError() {
 		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
+		if (step.kind === 'proactive' && !(p.attempts >= 1)) return t('attempts must be at least 1');
 	} else if (!step.command) {
 		return t('command is required');
 	}
@@ -21276,6 +21320,12 @@ const LANG_RU = {
 	'SPI2 override (hex, optional)': 'Переопределение SPI2 (hex, опционально)',
 	'Attempts (1 = single STATUS)': 'Попытки (1 = один STATUS)',
 	'Interval (ms, when polling)': 'Интервал (мс, при опросе)',
+	'Attempts (STATUS rounds)': 'Попытки (раунды STATUS)',
+	'Interval (ms, between rounds)': 'Интервал (мс, между раундами)',
+	'TERMINAL RESPONSE result (each command)': 'Результат TERMINAL RESPONSE (для каждой команды)',
+	'First command only (optional)': 'Только для первой команды (необязательно)',
+	'same as above': 'как выше',
+	'Require a command (optional)': 'Требовать команду (необязательно)',
 	'attempts must be at least 1': 'число попыток должно быть ≥ 1',
 	'Expected SW': 'Ожидаемое SW',
 	'default: 9000 (91?? when polling)': 'по умолчанию: 9000 (91?? при опросе)',
