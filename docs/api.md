@@ -48,15 +48,22 @@ a 3.x PWA).
 | `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/cap-compat` | POST | CAP compatibility test: LOAD only to the block completing the Import component (nothing committed) |
-| `/api/test/run` | POST | Start a test script (actions + proactive expectations; `script` inline or `script_id` from the store) |
-| `/api/test/status` | GET | Test script run state and per-step results |
-| `/api/test/stop` | POST | Request a running test script to stop |
+| `/api/test/run` | POST | Start a test script (actions + proactive expectations; `script` inline or `script_id` from the store) or a test suite (`suite_id`; ordered scripts, one card session) |
+| `/api/test/status` | GET | Test script/suite run state, per-step results and the suite report |
+| `/api/test/stop` | POST | Request a running test script/suite to stop |
 | `/api/test/clear` | POST | Clear the finished run report |
 | `/api/test/scripts` | GET | Test script store (server-side `test_scripts.json`): all scripts + the store path |
-| `/api/test/scripts` | POST | Create a test script (`{name, steps}` or `{script}`) |
-| `/api/test/scripts/update` | POST | Update a test script (`{id, script}`) |
-| `/api/test/scripts/delete` | POST | Delete a test script (`{id}`) |
-| `/api/test/scripts/import` | POST | Import scripts (`{scripts: [...], mode: merge\|replace}`; accepts the old localStorage export shape) |
+| `/api/test/scripts` | POST | Create a test script (`{name, steps, suite_id}` or `{script}`; the script joins the suite) |
+| `/api/test/scripts/update` | POST | Update a test script (`{id, script}`; a changed `suite_id` is a move) |
+| `/api/test/scripts/delete` | POST | Delete a test script (`{id}`; detaches it from its suite first) |
+| `/api/test/scripts/move` | POST | Move a script to another suite (`{id, suite_id}`) |
+| `/api/test/scripts/copy` | POST | Copy a script into another suite (`{id, suite_id, name?}`) |
+| `/api/test/scripts/import` | POST | Import scripts (`{scripts: [...], mode: merge\|replace, suite_id?}`; accepts the old localStorage export shape) |
+| `/api/test/suites` | GET | Test suite store (server-side `test_suites.json`): all suites + the store path |
+| `/api/test/suites` | POST | Create a suite (`{name, require_adm?, scripts?}` or `{suite}`) |
+| `/api/test/suites/update` | POST | Update a suite (`{id, suite}`; the member set changes through the script endpoints) |
+| `/api/test/suites/delete` | POST | Delete a suite (`{id}`; refused while it holds scripts) |
+| `/api/test/suites/import` | POST | Import a suite bundle (`{suites, scripts, mode}`; script references remapped) |
 | `/api/sp-verify` | POST | Verify secured packet against pySim reference |
 | `/api/menu` | GET | Current STK menu (title + items + active) |
 | `/api/menu-select` | POST | ENVELOPE(Menu Selection) with item_id |
@@ -786,17 +793,83 @@ same engine the runner uses, so a stored script can never fail at run start for
 a validation reason.
 
 ```json
-{"path": "/home/user/.pysim-simple-server/test_scripts.json", "count": 1, "version": 1,
- "scripts": [{"id": "…", "name": "applet RFM update", "steps": [...],
+{"path": "/home/user/.pysim-simple-server/test_scripts.json", "count": 1, "version": 2,
+ "scripts": [{"id": "…", "name": "applet RFM update", "suite_id": "…",
+              "require_adm": false, "steps": [...],
               "created": 1690000000.0, "updated": 1690000000.0}]}
 ```
 
-`POST /api/test/scripts` creates one (`{name, steps}` or `{script: {...}}`),
-`POST /api/test/scripts/update` replaces name/steps (`{id, script}`),
-`POST /api/test/scripts/delete` removes (`{id}`) and
-`POST /api/test/scripts/import` takes `{scripts: [...], mode: "merge"|"replace"}`
-(the old localStorage export shape; invalid entries are reported in `errors`
-instead of failing the whole import).
+**Schema v2 (v3.22.0): every script belongs to exactly one test suite**
+(`suite_id`; the suite is the root object) and may declare `require_adm`
+(the run verifies the ADM before starting).  A v1 entry loads with
+`suite_id: null` and the server attaches it to an auto-created
+"Imported scripts" suite on startup.
+
+`POST /api/test/scripts` creates one (`{name, steps, suite_id, require_adm?}`
+or `{script: {...}}`; a valid `suite_id` is required - the script joins the
+suite's member list) and `POST /api/test/scripts/update` replaces
+name/steps/require_adm (`{id, script}`).  A `suite_id` that differs from the
+current one is a **move** (both suites are updated in the request).
+`POST /api/test/scripts/delete` (`{id}`) detaches the script from its suite
+first - the suite's member list is the only reference, so no dangling id is
+left.  `POST /api/test/scripts/move` (`{id, suite_id}`) moves a script to
+another suite (the target appends it as a member, keeping the `on_fail`
+policy) and `POST /api/test/scripts/copy` (`{id, suite_id, name?}`) clones it
+into the target.  `POST /api/test/scripts/import` takes
+`{scripts: [...], mode: "merge"|"replace", suite_id?}` (the old localStorage
+export shape; invalid entries are reported in `errors` instead of failing the
+whole import; `suite_id` attaches the imported scripts to that suite).
+
+### `GET /api/test/suites` and the suite store
+
+Test suites live next to the scripts (`~/.pysim-simple-server/test_suites.json`,
+`--test-suites PATH`): a suite is the ordered list of its scripts - the
+optional `setup` first, the `member` scripts, the optional `teardown` last -
+plus the per-member `on_fail` policy and the suite-level `require_adm`.
+
+```json
+{"path": "/home/user/.pysim-simple-server/test_suites.json", "count": 1, "version": 1,
+ "suites": [{"id": "…", "name": "alfa regression", "require_adm": true,
+             "scripts": [{"script_id": "…", "role": "setup", "on_fail": "stop"},
+                         {"script_id": "…", "role": "member", "on_fail": "stop"},
+                         {"script_id": "…", "role": "teardown", "on_fail": "stop"}],
+             "created": 1690000000.0, "updated": 1690000000.0}]}
+```
+
+The store normalises the order (setup first, teardown last, at most one of
+each; a script appears once per suite) and validates `on_fail` as
+`stop` (default) or `continue` - "which failures cascade" is a visible
+per-suite decision.
+
+`POST /api/test/suites` creates one (`{name, require_adm?, scripts?}` or
+`{suite: {...}}`), `POST /api/test/suites/update` replaces
+name/require_adm/scripts (`{id, suite}`; the **member set** changes through
+the script endpoints, not here), `POST /api/test/suites/delete` (`{id}`)
+removes it - refused while the suite still holds scripts - and
+`POST /api/test/suites/import` takes
+`{suites: [...], scripts: [...], mode: "merge"|"replace"}`: the scripts are
+imported first (ids preserved; a collision gets a fresh uuid and the suites'
+references are remapped), then the suites; an unresolvable reference is
+reported in `errors` and the suite is skipped.
+
+### `POST /api/test/run` (single script or suite)
+
+`{script, script_id?, preset_id?, require_adm?}` runs one script (the PWA
+sends the edited copy; the server validates and runs it).  `{suite_id,
+preset_id?}` runs a suite: its scripts in order, one card session, no resume
+- the ADM prerequisite first (suite- or member-level `require_adm`: the
+matched preset's key is verified **once**; a failure refuses the start, is
+not retried automatically, and requires a manual verify), then setup,
+members (per-member `on_fail`), teardown.  **The teardown runs on every stop**
+as long as the card is in the reader; a card reset (session change) stops the
+suite, skips the remaining members and is flagged in the report.
+
+The suite run's snapshot adds `suite`: the member records (`status`, `steps`,
+`note`, `log` - the semantic run-log excerpt), the `summary` (ok/warning/
+error/skipped counts, `wall_ms`, `stopped`, `session_changed`, the SCP80
+`counters_before`/`counters_after` per keyset) and the run's `adm` state.
+The report is exported from the PWA as JSON or Markdown; the run state lives
+in the server until `POST /api/test/clear` (no history).
 
 ### `GET /api/test/status`
 

@@ -221,3 +221,67 @@ class StoreInfoTests(unittest.TestCase):
             self.assertEqual(info['path'], str(store.path))
             self.assertEqual(info['count'], 1)
             self.assertEqual(info['version'], test_scripts.SCHEMA_VERSION)
+
+
+class SuiteAttachmentTests(unittest.TestCase):
+    """v3.22.0: a script belongs to a suite (suite_id), declares require_adm,
+    and the import reports the ids a bundle import needs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = pathlib.Path(self.tmp.name) / 'test_scripts.json'
+        self.store = test_scripts.TestScriptStore(self.path)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_suite_id_and_require_adm_round_trip(self):
+        sid = 'a' * 32
+        s = self.store.add(dict(script('one'), suite_id=sid, require_adm=True))
+        self.assertEqual(s['suite_id'], sid)
+        self.assertTrue(s['require_adm'])
+        got = test_scripts.TestScriptStore(self.path).get(s['id'])
+        self.assertEqual(got['suite_id'], sid)
+        self.assertTrue(got['require_adm'])
+        with self.assertRaises(test_scripts.TestScriptError):
+            self.store.add(dict(script('two'), suite_id='short'))
+
+    def test_orphans_and_list_by_suite(self):
+        sid = 'a' * 32
+        s1 = self.store.add(dict(script('one'), suite_id=sid))
+        s2 = self.store.add(script('two'))
+        self.assertEqual([x['id'] for x in self.store.list_by_suite(sid)], [s1['id']])
+        self.assertEqual([x['id'] for x in self.store.orphans()], [s2['id']])
+        # a move is an update
+        moved = self.store.update(s2['id'], {'suite_id': sid})
+        self.assertEqual(moved['suite_id'], sid)
+        self.assertEqual(self.store.orphans(), [])
+        self.assertEqual(len(self.store.list_by_suite(sid)), 2)
+
+    def test_import_reports_the_id_map_and_attaches_to_a_suite(self):
+        sid = 'a' * 32
+        s = self.store.add(script('one'))
+        result = self.store.import_scripts([self.store.get(s['id'])])
+        self.assertEqual(result['added'], 1)
+        self.assertEqual(result['id_map'][s['id']], result['added_ids'][0])
+        self.assertNotEqual(result['added_ids'][0], s['id'])
+        # import into a named suite: every added script belongs to it
+        result = self.store.import_scripts(
+            [script('two'), script('three')], suite_id=sid)
+        self.assertEqual(result['added'], 2)
+        for sid_added in result['added_ids']:
+            self.assertEqual(self.store.get(sid_added)['suite_id'], sid)
+
+    def test_a_v1_store_loads_with_no_suite(self):
+        self.store.add(script('one'))
+        data = json.loads(self.path.read_text())
+        data['version'] = 1
+        for e in data['scripts']:
+            e.pop('suite_id', None)
+            e.pop('require_adm', None)
+        self.path.write_text(json.dumps(data))
+        again = test_scripts.TestScriptStore(self.path)
+        got = again.list()[0]
+        self.assertIsNone(got['suite_id'])
+        self.assertFalse(got['require_adm'])
+        self.assertEqual(len(again.orphans()), 1)

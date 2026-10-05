@@ -13,6 +13,7 @@ import json
 import pathlib
 import re
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -1158,6 +1159,7 @@ class TestScriptStoreHttpTests(unittest.TestCase):
     def setUp(self):
         import tempfile
         from pysim_simple_server import test_scripts
+        from pysim_simple_server import test_suites
         from pysim_simple_server import testscript
         from pysim_simple_server import server as srv
         self.srv = srv
@@ -1165,14 +1167,23 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.store = test_scripts.TestScriptStore(
             pathlib.Path(self.tmp.name) / 'test_scripts.json',
             validator=lambda raw: testscript.normalise_script(raw, srv._test_command_type))
+        self.suites = test_suites.TestSuiteStore(
+            pathlib.Path(self.tmp.name) / 'test_suites.json')
         self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
         self.server.log_requests = False
         self.server.app = None
         self.server.sl = None
         self.server.scc = object()
         self.server.test_scripts = self.store
+        self.server.test_suites = self.suites
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.port = self.server.server_address[1]
+
+    def _suite(self, **kw):
+        """A stored suite (the script store's scripts belong to one)."""
+        s = {'name': 'suite'}
+        s.update(kw)
+        return self.suites.add(s)
 
     def tearDown(self):
         self.server.shutdown()
@@ -1210,20 +1221,29 @@ class TestScriptStoreHttpTests(unittest.TestCase):
 
     def test_the_get_route_is_card_free_and_reports_the_store(self):
         self.assertIn('/api/test/scripts', _CARD_FREE_GET)
+        self.assertIn('/api/test/suites', _CARD_FREE_GET)
         with _CARD_LOCK:
             status, resp = self._get('/api/test/scripts')
         self.assertEqual(status, 200, resp)
         self.assertEqual(resp['scripts'], [])
         self.assertEqual(resp['path'], str(self.store.path))
+        status, resp = self._get('/api/test/suites')
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suites'], [])
+        self.assertEqual(resp['path'], str(self.suites.path))
 
     def test_create_update_delete_round_trip(self):
-        status, resp = self._post('/api/test/scripts', self._script())
+        suite = self._suite()
+        status, resp = self._post('/api/test/scripts',
+                                  self._script(suite_id=suite['id']))
         self.assertEqual(status, 200, resp)
         sid = resp['script']['id']
-        self.assertTrue(sid)
+        self.assertEqual(self.suites.get(suite['id'])['scripts'],
+                         [{'script_id': sid, 'role': 'member', 'on_fail': 'stop'}])
         status, resp = self._get('/api/test/scripts')
         self.assertEqual(len(resp['scripts']), 1)
         self.assertEqual(resp['scripts'][0]['id'], sid)
+        self.assertEqual(resp['scripts'][0]['suite_id'], suite['id'])
 
         status, resp = self._post('/api/test/scripts/update',
                                   {'id': sid, 'script': {'name': 'renamed'}})
@@ -1238,15 +1258,129 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         self.assertTrue(resp['removed'])
         self.assertEqual(self.store.list(), [])
+        # the suite's member list no longer references it (no dangling id)
+        self.assertEqual(self.suites.get(suite['id'])['scripts'], [])
+
+    def test_create_requires_a_suite(self):
+        status, resp = self._post('/api/test/scripts', self._script())
+        self.assertEqual(status, 400, resp)
+        self.assertIn('belongs to a suite', resp['error'])
+        status, resp = self._post('/api/test/scripts',
+                                  self._script(suite_id='deadbeefdeadbeefdeadbeefdeadbeef'))
+        self.assertEqual(status, 400, resp)
+        self.assertIn('suite_id of an existing suite', resp['error'])
+        self.assertEqual(self.store.list(), [])
 
     def test_create_validates_with_the_engine(self):
-        status, resp = self._post('/api/test/scripts', {'name': 'x', 'steps': []})
+        suite = self._suite()
+        sid = suite['id']
+        status, resp = self._post('/api/test/scripts',
+                                  {'name': 'x', 'suite_id': sid, 'steps': []})
         self.assertEqual(status, 400, resp)
         self.assertIn('at least one step', resp['error'])
-        status, resp = self._post('/api/test/scripts', {'name': 'x', 'steps': [
-            {'type': 'action', 'kind': 'nonsense', 'params': {}}]})
+        status, resp = self._post('/api/test/scripts',
+                                  {'name': 'x', 'suite_id': sid, 'steps': [
+                                      {'type': 'action', 'kind': 'nonsense', 'params': {}}]})
         self.assertEqual(status, 400, resp)
         self.assertIn('unknown action kind', resp['error'])
+
+    def test_suite_crud_and_the_delete_guard(self):
+        status, resp = self._get('/api/test/suites')
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suites'], [])
+        status, resp = self._post('/api/test/suites', {})
+        self.assertEqual(status, 200, resp)
+        sid = resp['suite']['id']
+        status, resp = self._post('/api/test/suites/update',
+                                  {'id': sid, 'suite': {'name': 'renamed',
+                                                        'require_adm': True}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suite']['name'], 'renamed')
+        self.assertTrue(resp['suite']['require_adm'])
+        # a non-empty suite refuses deletion
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=sid))
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/suites/delete', {'id': sid})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('still holds 1 script', resp['error'])
+        self._post('/api/test/scripts/delete', {'id': self.store.list()[0]['id']})
+        status, resp = self._post('/api/test/suites/delete', {'id': sid})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['removed'])
+
+    def test_suite_update_refuses_a_membership_change(self):
+        a = self._suite(name='a')
+        b = self._suite(name='b')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=a['id']))
+        sid = resp['script']['id']
+        # the suite's own list may be reordered/retagged, but the member set is
+        # owned by the script endpoints
+        status, resp = self._post('/api/test/suites/update', {
+            'id': a['id'], 'suite': {'scripts': [
+                {'script_id': sid, 'role': 'setup', 'on_fail': 'stop'}]}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['suite']['scripts'][0]['role'], 'setup')
+        other = self._suite()['id']
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=other))
+        sid2 = resp['script']['id']
+        status, resp = self._post('/api/test/suites/update', {
+            'id': a['id'], 'suite': {'scripts': [
+                {'script_id': sid, 'role': 'member', 'on_fail': 'stop'},
+                {'script_id': sid2, 'role': 'member', 'on_fail': 'stop'}]}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('member set changes through the script endpoints', resp['error'])
+
+    def test_move_and_copy_between_suites(self):
+        a = self._suite(name='a')
+        b = self._suite(name='b')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=a['id']))
+        sid = resp['script']['id']
+        # a move keeps the on_fail policy and updates both suites
+        self.suites.update(a['id'], {'scripts': [
+            {'script_id': sid, 'role': 'member', 'on_fail': 'continue'}]})
+        status, resp = self._post('/api/test/scripts/move',
+                                  {'id': sid, 'suite_id': b['id']})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['script']['suite_id'], b['id'])
+        self.assertEqual(self.suites.get(a['id'])['scripts'], [])
+        self.assertEqual(self.suites.get(b['id'])['scripts'],
+                         [{'script_id': sid, 'role': 'member', 'on_fail': 'continue'}])
+        # a copy lands in the target as a member with a fresh id
+        status, resp = self._post('/api/test/scripts/copy',
+                                  {'id': sid, 'suite_id': a['id'], 'name': 'cloned'})
+        self.assertEqual(status, 200, resp)
+        copy_id = resp['script']['id']
+        self.assertNotEqual(copy_id, sid)
+        self.assertEqual(resp['script']['name'], 'cloned')
+        self.assertEqual(self.suites.get(a['id'])['scripts'][0]['script_id'], copy_id)
+        self.assertEqual(len(self.store.list()), 2)
+
+    def test_bundle_import_remaps_script_references(self):
+        # an exported bundle: one suite + its script
+        s = self.store.add({'name': 'one', 'steps': [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}]})
+        bundle_suite = self.suites.add({'name': 'bundle', 'scripts': [
+            {'script_id': s['id'], 'role': 'setup', 'on_fail': 'stop'}]})
+        bundle = {'suites': [dict(bundle_suite)], 'scripts': [dict(self.store.get(s['id']))]}
+        # importing into the same store duplicates both (new ids), and the
+        # suite references the copies
+        status, resp = self._post('/api/test/suites/import', bundle)
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['scripts']['added'], 1)
+        self.assertEqual(resp['added'], 1)
+        new_scripts = [x for x in self.store.list() if x['id'] != s['id']]
+        self.assertEqual(len(new_scripts), 1)
+        new_suite = [x for x in self.suites.list() if x['id'] != bundle_suite['id']][0]
+        self.assertEqual(new_suite['scripts'][0]['script_id'], new_scripts[0]['id'])
+        self.assertEqual(new_suite['scripts'][0]['role'], 'setup')
+        self.assertEqual(new_scripts[0]['suite_id'], new_suite['id'])
+        # a reference that resolves to nothing is reported, not imported
+        status, resp = self._post('/api/test/suites/import', {
+            'suites': [{'name': 'bad', 'scripts': [
+                {'script_id': 'a' * 32, 'role': 'member', 'on_fail': 'stop'}]}]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 0)
+        self.assertIn('unknown script', ' '.join(resp.get('errors') or []))
 
     def test_import_accepts_the_old_localstorage_export(self):
         status, resp = self._post('/api/test/scripts/import', {'scripts': [
@@ -1260,24 +1394,112 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertEqual(self.store.list()[0]['name'], 'A')
         status, resp = self._post('/api/test/scripts/import', {'scripts': 'nope'})
         self.assertEqual(status, 400, resp)
+        # an import into a named suite attaches the imported scripts there
+        suite = self._suite(name='target')
+        status, resp = self._post('/api/test/scripts/import', {
+            'suite_id': suite['id'],
+            'scripts': [{'name': 'B', 'steps': [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}]}]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 1)
+        self.assertEqual(len(self.suites.get(suite['id'])['scripts']), 1)
 
     def test_the_run_rejects_an_unknown_script_id(self):
         status, resp = self._post('/api/test/run', {'script_id': 'nope'})
         self.assertEqual(status, 404, resp)
         self.assertIn('not found', resp['error'])
 
+    def test_suite_run_starts_and_reports_members(self):
+        suite = self._suite(name='regression')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 200, resp)
+        self.assertIsNotNone(resp['suite'])
+        self.assertEqual(resp['suite']['name'], 'regression')
+        self.assertEqual(len(resp['suite']['members']), 1)
+        self.assertEqual(resp['suite']['members'][0]['role'], 'member')
+        snap = resp
+        for _ in range(100):
+            status, snap = self._get('/api/test/status')
+            if not snap['running']:
+                break
+            time.sleep(0.05)
+        self.assertFalse(snap['running'], snap)
+        # the fake scc has no transport: the member fails, the report closes
+        self.assertEqual(len(snap['suite']['members']), 1)
+        self.assertIn(snap['suite']['members'][0]['status'],
+                      ('ok', 'warning', 'error'))
+        self.assertIsNotNone(snap['suite']['summary'])
+        self.assertIn('wall_ms', snap['suite']['summary'])
+        # the report carries the run-log buffer and the member's slice
+        self.assertIn('log', snap)
+        self.assertIn('steps', snap['suite']['members'][0])
+
+    def test_suite_run_refuses_missing_and_unknown(self):
+        status, resp = self._post('/api/test/run',
+                                  {'suite_id': 'deadbeefdeadbeefdeadbeefdeadbeef'})
+        self.assertEqual(status, 404, resp)
+        self.assertIn('unknown test suite', resp['error'])
+        suite = self._suite(name='empty')
+        status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('no scripts', resp['error'])
+        # a shape-valid but dangling reference (a hand edit) is refused
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        self.suites.update(suite['id'], {'scripts': [
+            {'script_id': 'f' * 32, 'role': 'member', 'on_fail': 'stop'}]})
+        status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('unknown test script', resp['error'])
+        # restore: run with the real member is fine
+        self.suites.update(suite['id'], {'scripts': [
+            {'script_id': sid, 'role': 'member', 'on_fail': 'stop'}]})
+
+    def test_suite_run_adm_gate_refuses_without_a_key(self):
+        self.server.app = object()      # the gate needs a card (app + scc)
+        suite = self._suite(name='gated', require_adm=True)
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        self.assertEqual(status, 200, resp)
+        status, resp = self._post('/api/test/run', {
+            'suite_id': suite['id'], 'preset': {'name': 'no-adm'}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('no ADM key', resp['error'])
+        # a failed verification is not retried automatically
+        with mock.patch.object(self.srv, '_verify_adm',
+                               return_value={'ok': False, 'sw': '63C2',
+                                             'attempts_left': 3}):
+            status, resp = self._post('/api/test/run', {
+                'suite_id': suite['id'], 'preset': {'name': 'with-adm', 'adm': 'AABBCCDD'}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('63C2', resp['error'])
+        self.assertIn('3 attempt(s) left', resp['error'])
+        with mock.patch.object(self.srv, '_verify_adm') as v:
+            status, resp = self._post('/api/test/run', {
+                'suite_id': suite['id'], 'preset': {'name': 'with-adm', 'adm': 'AABBCCDD'}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('verify it manually', resp['error'])
+        v.assert_not_called()
+
     def test_a_store_write_failure_answers_a_json_500(self):
+        suite = self._suite()
         with mock.patch.object(self.store, 'add',
                                side_effect=OSError('read-only file system')):
-            status, resp = self._post('/api/test/scripts', self._script())
+            status, resp = self._post('/api/test/scripts',
+                                      self._script(suite_id=suite['id']))
         self.assertEqual(status, 500, resp)
         self.assertIn('test script store write failed', resp['error'])
 
     def test_the_store_endpoints_answer_503_without_a_store(self):
         self.server.test_scripts = None
+        self.server.test_suites = None
         status, resp = self._get('/api/test/scripts')
         self.assertEqual(status, 503, resp)
         status, resp = self._post('/api/test/scripts', self._script())
+        self.assertEqual(status, 503, resp)
+        status, resp = self._get('/api/test/suites')
         self.assertEqual(status, 503, resp)
 
 

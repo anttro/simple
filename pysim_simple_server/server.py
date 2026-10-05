@@ -1,4 +1,5 @@
 import json
+import copy
 import random
 import sys
 import os
@@ -23,6 +24,7 @@ from pysim_simple_server import capmem
 from pysim_simple_server import testscript
 from pysim_simple_server import presets
 from pysim_simple_server import test_scripts
+from pysim_simple_server import test_suites
 from pysim_simple_server import events
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from cmd2.exceptions import CommandSetRegistrationError
@@ -34,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.21.0'
+VERSION = '3.22.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5813,12 +5815,17 @@ def _finish_pending_menu(server, scc):
 # (validation, checks, TERMINAL RESPONSE building) is in testscript.py.
 
 _TEST_RUNNING = False
+_TEST_LOG_MAX = 600            # buffered run-log lines (the report's excerpt)
+_TEST_MEMBER_LOG_MAX = 120     # lines kept per suite member
 _TEST_RUN = {
     'running': False, 'stop': False, 'name': None, 'status': None,
     'session': None, 'index': 0, 'total': 0, 'steps': [],
     'preset': None, 'script_id': None,
     'scp80_counter': None, 'scp80_counters': {},
     'started': None, 'finished': None, 'error': None,
+    # suite runs (v3.22.0): None for a single script; the members list and the
+    # report summary live here, plus the run-log buffer/adm state
+    'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
 }
 _TEST_LOCK = threading.Lock()
 _TEST_THREAD = None
@@ -5854,6 +5861,7 @@ _CARD_FREE_GET = frozenset([
     '/api/menu', '/api/events', '/api/terminal-profile',
     '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
     '/api/net-state', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
+    '/api/test/suites',
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
 ])
@@ -5924,6 +5932,105 @@ def _test_command_type(name):
 def _test_state_snapshot():
     with _TEST_LOCK:
         return json.loads(json.dumps(_TEST_RUN))
+
+
+def _test_suite_refs_error(script_store, suite):
+    """The cross-store rule: every member script must exist in the script
+    store (a suite holds references; the scripts are the single source of
+    truth).  Returns an error string, or '' when the references resolve."""
+    if not isinstance(suite, dict):
+        return ''
+    missing = []
+    for e in (suite.get('scripts') or []):
+        if not isinstance(e, dict):
+            continue
+        sid = str(e.get('script_id') or '').strip().lower()
+        if sid and script_store.get(sid) is None:
+            missing.append(sid)
+    if missing:
+        return 'unknown test script(s): %s' % ', '.join(sorted(set(missing))[:5])
+    return ''
+
+
+def _test_script_detach(suites, cur):
+    """Remove a script from its suite's member list (before a delete or a
+    move).  Best effort: the mutation endpoints report their own errors."""
+    suite = suites.get(cur.get('suite_id')) if cur.get('suite_id') else None
+    if suite is None:
+        return
+    entries = [e for e in suite['scripts'] if e['script_id'] != cur['id']]
+    if entries == suite['scripts']:
+        return
+    try:
+        suites.update(suite['id'], {'scripts': entries})
+    except (test_suites.TestSuiteError, OSError) as e:
+        sys.stderr.write('TESTSUITES: cannot detach %s: %s\n' % (cur['id'], e))
+
+
+def _test_script_move(store, suites, cur, target_id):
+    """Move a script to another suite: the source detaches, the target appends
+    it as a member (keeping the on_fail policy it had).  Both stores are
+    updated in the one request.  Returns ``(entry, error, status)``."""
+    target = suites.get(target_id)
+    if target is None:
+        return None, 'unknown target suite', 400
+    if target['id'] == (cur.get('suite_id') or ''):
+        return cur, None, 200
+    source = suites.get(cur.get('suite_id')) if cur.get('suite_id') else None
+    on_fail = 'stop'
+    if source is not None:
+        entry = next((e for e in source['scripts'] if e['script_id'] == cur['id']), None)
+        if entry is not None:
+            on_fail = entry['on_fail']
+        _test_script_detach(suites, cur)
+    try:
+        new = store.update(cur['id'], {'suite_id': target['id']})
+    except (test_scripts.TestScriptError, OSError) as e:
+        return None, 'cannot move the script: %s' % e, 500
+    if new is None:
+        return None, 'unknown test script id', 404
+    try:
+        entries = list(target['scripts']) + [
+            {'script_id': cur['id'], 'role': 'member', 'on_fail': on_fail}]
+        suites.update(target['id'], {'scripts': entries})
+    except (test_suites.TestSuiteError, OSError) as e:
+        return None, 'cannot attach to the target suite: %s' % e, 500
+    return new, None, 200
+
+
+def migrate_scripts_to_suites(script_store, suite_store):
+    """Attach pre-suite scripts (no ``suite_id``) to an auto-created
+    "Imported scripts" suite: since v3.22.0 a script belongs to exactly one
+    suite, and the one-time migration keeps a v3.21.0 store usable - the
+    operator renames or regroups them with move/copy.  Returns the number of
+    attached scripts."""
+    if script_store is None or suite_store is None:
+        return 0
+    orphans = script_store.orphans()
+    if not orphans:
+        return 0
+    suite = suite_store.find_by_name('Imported scripts')
+    if suite is None:
+        suite = suite_store.add({'name': 'Imported scripts'})
+    entries = list(suite['scripts'])
+    attached = 0
+    for s in orphans:
+        try:
+            script_store.update(s['id'], {'suite_id': suite['id']})
+        except (test_scripts.TestScriptError, OSError) as e:
+            sys.stderr.write('TESTSUITES: cannot attach %s to "%s": %s\n'
+                             % (s['id'], suite['name'], e))
+            continue
+        entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
+        attached += 1
+    if attached:
+        try:
+            suite_store.update(suite['id'], {'scripts': entries})
+        except (test_suites.TestSuiteError, OSError) as e:
+            sys.stderr.write('TESTSUITES: cannot fill "%s": %s\n' % (suite['name'], e))
+    sys.stderr.write('TESTSUITES: attached %d script(s) to "%s"\n'
+                     % (attached, suite['name']))
+    return attached
 
 
 def _test_request_blocked(path):
@@ -6098,10 +6205,22 @@ def _test_log(msg):
     """One semantic run-log line, prefixed with the current step number: the
     verification trail (the plaintext C-APDU, the built secured packet, the
     PoR R-APDU, the FETCH/TR of an expectation, the menu selection's ENVELOPE).
-    The raw transport view stays with `--apdu-trace`."""
+    The raw transport view stays with `--apdu-trace`.  Lines are buffered for
+    the run report (the suite report's per-member excerpt); the buffer is
+    bounded - the stderr stream stays complete."""
     step = _TEST_RUN.get('index')
     n = (step + 1) if isinstance(step, int) else 0
-    sys.stderr.write('TEST-RUN step %d: %s\n' % (n, msg))
+    prefix = _TEST_RUN.get('log_prefix') or ''
+    line = 'TEST-RUN %sstep %d: %s' % (prefix, n, msg)
+    sys.stderr.write(line + '\n')
+    try:
+        with _TEST_LOCK:
+            log = _TEST_RUN.setdefault('log', [])
+            log.append(line)
+            if len(log) > _TEST_LOG_MAX:
+                del log[:len(log) - _TEST_LOG_MAX]
+    except Exception:
+        pass
 
 
 def _test_run_status(scc, step):
@@ -6488,7 +6607,8 @@ def _test_run_script_from_body(server, body):
     entry = store.get(script_id) if store else None
     if entry is None:
         return None, None, 'test script %s not found' % script_id
-    return {'name': entry['name'], 'steps': entry['steps']}, entry['id'], None
+    return {'name': entry['name'], 'steps': entry['steps'],
+            'require_adm': bool(entry.get('require_adm'))}, entry['id'], None
 
 
 def _test_run_preset_from_body(server, body):
@@ -6784,8 +6904,12 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
                               for a in answered)}
 
 
-def _test_run_execute(server, script, preset):
-    global _TEST_RUNNING
+def _test_run_script(server, script, preset):
+    """One script's steps - the single-script run or one suite member.  The
+    live steps land in `_TEST_RUN['steps']` (the snapshot the PWA renders),
+    the semantic lines in `_TEST_RUN['log']` (the report's excerpt).  Returns
+    ``(ctx, stopped)``: the per-script context (preset, per-keyset counters)
+    and whether the stop request cut the script short."""
     scc = server.scc
     ctx = {'preset': dict(preset or {}),
            'counter': str((preset or {}).get('counter') or (preset or {}).get('cntr') or '').upper(),
@@ -6856,12 +6980,20 @@ def _test_run_execute(server, script, preset):
                  'label': _TEST_KIND_LABELS['cleanup'], 'status': 'error' if not stopped else 'warning',
                  'checks': [], 'started': time.time(), 'ms': 0, 'note': None,
                  'sent': None, 'sw': None, 'data': None}, **drained))
+    if ctx['uses_scp80']:
+        with _TEST_LOCK:
+            _TEST_RUN['scp80_counter'] = ctx['counter']
+            _TEST_RUN['scp80_counters'] = dict(ctx.get('counters') or {})
+    return ctx, stopped
+
+
+def _test_run_execute(server, script, preset):
+    """The single-script worker body: run the steps, finalise the run state."""
+    global _TEST_RUNNING
+    _ctx, stopped = _test_run_script(server, script, preset)
     with _TEST_LOCK:
         _TEST_RUN['running'] = False
         _TEST_RUN['finished'] = time.time()
-        if ctx['uses_scp80']:
-            _TEST_RUN['scp80_counter'] = ctx['counter']
-            _TEST_RUN['scp80_counters'] = dict(ctx.get('counters') or {})
         if _TEST_RUN['status'] is None:
             levels = [s.get('status') for s in _TEST_RUN['steps']]
             if stopped:
@@ -6894,19 +7026,102 @@ def _test_run_worker(server, script, preset):
             _reset_poll_timer()
 
 
-def _test_run_start(server, script, preset, script_id=None):
-    """Start a run: suspend background polling, answer a paused interactive
-    command, own the card via the worker thread."""
+# ---- test suites (v3.22.0) -------------------------------------------------
+
+def _test_member_prefix(index, member):
+    """The run-log prefix of a suite member: its position, role and name, so
+    the shared stderr stream (and the report's excerpt) stays readable."""
+    total = len((_TEST_RUN.get('suite') or {}).get('members') or []) or 1
+    tag = member.get('name') or member.get('script_id') or 'script'
+    role = member.get('role') or 'member'
+    return '[%d/%d %s %s] ' % (index + 1, total, role, tag)
+
+
+def _test_member_status(steps, stopped):
+    """A suite member's verdict from its step levels (an error stops that
+    script); a stop request marks the member stopped."""
+    if stopped:
+        return 'stopped'
+    levels = [s.get('status') for s in steps]
+    if 'error' in levels:
+        return 'error'
+    if 'warning' in levels:
+        return 'warning'
+    return 'ok'
+
+
+def _preset_counters_snapshot(preset):
+    """``{kvn: counter}`` of a preset's keysets - the suite report's SCP80
+    counter before/after columns (the store persists what the card consumed)."""
+    out = {}
+    for ks in _preset_keysets(preset or {}):
+        kvn = presets.keyset_kvn(ks)
+        if kvn:
+            out[str(kvn)] = str(ks.get('cntr') or '').upper()
+    return out
+
+
+def _adm_verified_session(server):
+    """True when the ADM was verified for the current card session: the ADM
+    badge's verify or a gated run set the latch; an equip/reset/eSIM switch
+    bumps the session and invalidates it."""
+    return getattr(server, 'adm_session', None) == getattr(server, 'card_session', 0)
+
+
+def _ensure_adm(server, preset, needed):
+    """The run's ADM prerequisite.  With `needed` the ADM must be verified for
+    the current card session: the verified latch passes, otherwise the
+    matched preset's ADM key is tried **once** - a failure is never retried
+    automatically (the session is stamped and the operator verifies manually;
+    the ADM badge's verify clears the stamp).  Returns ``(ok, info, error)``."""
+    session = getattr(server, 'card_session', 0)
+    info = {'required': bool(needed), 'verified': False}
+    if not needed:
+        return True, info, None
+    if _adm_verified_session(server):
+        info['verified'] = True
+        return True, info, None
+    if getattr(server, 'adm_failed_session', None) == session:
+        info['failed'] = True
+        return False, info, ('ADM is required and its verification failed '
+                             'earlier in this card session - verify it '
+                             'manually (the ADM badge) and retry')
+    key = re.sub(r'\s', '', str((preset or {}).get('adm') or '')).upper()
+    if not key:
+        return False, info, ('ADM is required but the matching card preset '
+                             'has no ADM key')
+    if server.scc is None or server.app is None:
+        return False, info, 'ADM is required but no card is equipped'
+    try:
+        with _CARD_LOCK:
+            result = _verify_adm(server.scc, server.app, key)
+    except Exception as e:
+        return False, info, 'ADM verification failed: %s' % e
+    if result.get('ok'):
+        server.adm_session = session
+        info['verified'] = True
+        info['checked'] = True
+        sys.stderr.write('TEST-RUN: ADM verified for this card session\n')
+        return True, info, None
+    server.adm_failed_session = session
+    info['result'] = result
+    if result.get('attempts_left') is not None:
+        info['attempts_left'] = result['attempts_left']
+    if result.get('blocked'):
+        info['blocked'] = True
+    extra = ''
+    if result.get('attempts_left') is not None:
+        extra = ' (%d attempt(s) left)' % result['attempts_left']
+    elif result.get('blocked'):
+        extra = ' (the ADM is blocked - the unblock key is needed)'
+    return False, info, ('ADM verification failed (SW %s)%s - verify it '
+                         'manually and retry' % (result.get('sw'), extra))
+
+
+def _test_run_spawn(server, target, args, thread_name):
+    """The shared run start: the run owns the card from here - suspend the
+    background poll, answer a paused interactive command, spawn the worker."""
     global _TEST_THREAD, _TEST_RUNNING, _POLL_TIMER
-    with _TEST_LOCK:
-        _TEST_RUN.update({
-            'running': True, 'stop': False, 'name': script['name'], 'status': None,
-            'session': getattr(server, 'card_session', 0), 'index': 0,
-            'total': len(script['steps']), 'steps': [], 'started': time.time(),
-            'finished': None, 'error': None, 'scp80_counter': None,
-            'scp80_counters': {}, 'script_id': script_id,
-            'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
-        })
     _TEST_RUNNING = True
     if _POLL_TIMER is not None:
         _POLL_TIMER.cancel()
@@ -6917,9 +7132,8 @@ def _test_run_start(server, script, preset, script_id=None):
         except Exception as e:
             sys.stderr.write('TEST-RUN: finishing pending menu failed: %s\n' % e)
     try:
-        _TEST_THREAD = threading.Thread(target=_test_run_worker,
-                                        args=(server, script, preset),
-                                        name='test-script', daemon=True)
+        _TEST_THREAD = threading.Thread(target=target, args=args,
+                                        name=thread_name, daemon=True)
         _TEST_THREAD.start()
     except Exception:
         # A run that never starts must not leave the card blocked (the 409
@@ -6932,6 +7146,237 @@ def _test_run_start(server, script, preset, script_id=None):
             _TEST_RUN['error'] = 'could not start the run worker'
             _TEST_RUN['finished'] = time.time()
         raise
+
+
+def _test_run_start(server, script, preset, script_id=None, adm_info=None):
+    """Start a single-script run."""
+    with _TEST_LOCK:
+        _TEST_RUN.update({
+            'running': True, 'stop': False, 'name': script['name'], 'status': None,
+            'session': getattr(server, 'card_session', 0), 'index': 0,
+            'total': len(script['steps']), 'steps': [], 'started': time.time(),
+            'finished': None, 'error': None, 'scp80_counter': None,
+            'scp80_counters': {}, 'script_id': script_id,
+            'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
+            'suite': None, 'log': [], 'log_prefix': '',
+            'adm': adm_info or {'required': False},
+        })
+    _test_run_spawn(server, _test_run_worker, (server, script, preset), 'test-script')
+
+
+def _test_suite_execute(server, suite, members, preset, preset_id):
+    """The suite worker body: setup -> members in order (per-member on_fail)
+    -> teardown, one card session, no resume.  The teardown runs on every
+    stop - its purpose is to leave the card ready for a new test - as long as
+    the card is in the reader; a card reset stops the suite and the remaining
+    members are skipped (the report flags it)."""
+    global _TEST_RUNNING
+    session_start = getattr(server, 'card_session', 0)
+    state = _TEST_RUN['suite']
+    stopped = False
+    session_changed = False
+    setup_i = next((i for i, (e, _s) in enumerate(members)
+                    if e['role'] == 'setup'), None)
+    teardown_i = next((i for i, (e, _s) in enumerate(members)
+                       if e['role'] == 'teardown'), None)
+    member_idx = [i for i, (e, _s) in enumerate(members) if e['role'] == 'member']
+
+    def run_member(i):
+        entry, script = members[i]
+        member = state['members'][i]
+        with _TEST_LOCK:
+            member['status'] = 'running'
+            member['started'] = time.time()
+            _TEST_RUN['steps'] = []
+            _TEST_RUN['index'] = 0
+            _TEST_RUN['total'] = len(script['steps'])
+            _TEST_RUN['log_prefix'] = _test_member_prefix(i, member)
+            log_from = len(_TEST_RUN['log'])
+        ctx, member_stopped = _test_run_script(server, script, preset)
+        with _TEST_LOCK:
+            steps = json.loads(json.dumps(_TEST_RUN['steps']))
+            log = list(_TEST_RUN['log'][log_from:])
+            member.update({
+                'status': _test_member_status(steps, member_stopped),
+                'steps': steps,
+                'log': log[-_TEST_MEMBER_LOG_MAX:],
+                'log_truncated': len(log) > _TEST_MEMBER_LOG_MAX,
+                'finished': time.time(),
+                'counters_after': dict(ctx.get('counters') or {}),
+            })
+            status = member['status']
+        return status, member_stopped
+
+    def skip_pending(reason):
+        with _TEST_LOCK:
+            for member in state['members']:
+                if member['status'] == 'pending':
+                    member['status'] = 'skipped'
+                    member['note'] = reason
+
+    abort = False
+    if setup_i is not None:
+        status, _s = run_member(setup_i)
+        if status not in ('ok', 'warning'):
+            abort = True
+            skip_pending('the setup script failed')
+    for i in member_idx:
+        if abort:
+            break
+        with _TEST_LOCK:
+            stop_req = bool(_TEST_RUN['stop'])
+        if stop_req:
+            stopped = True
+            skip_pending('stopped')
+            break
+        if getattr(server, 'card_session', 0) != session_start:
+            session_changed = True
+            skip_pending('card session changed (card removed or re-equipped)')
+            break
+        status, _s = run_member(i)
+        if status not in ('ok', 'warning') and members[i][0]['on_fail'] == 'stop':
+            abort = True
+    if abort:
+        skip_pending('a previous script failed (on_fail: stop)')
+    else:
+        skip_pending('stopped')
+    if teardown_i is not None:
+        if not getattr(server, 'card_present', False):
+            with _TEST_LOCK:
+                state['members'][teardown_i]['status'] = 'skipped'
+                state['members'][teardown_i]['note'] = 'no card in the reader'
+        else:
+            # The teardown runs on every stop - its purpose is to leave the
+            # card ready for a new test - so a pending stop request does not
+            # cut it short (the run is finishing anyway).
+            with _TEST_LOCK:
+                stop_saved = _TEST_RUN['stop']
+                _TEST_RUN['stop'] = False
+            try:
+                run_member(teardown_i)
+            finally:
+                with _TEST_LOCK:
+                    _TEST_RUN['stop'] = stop_saved
+    with _TEST_LOCK:
+        session_end = getattr(server, 'card_session', 0)
+        state['session_end'] = session_end
+        state['session_changed'] = bool(session_changed or session_end != session_start)
+        after = None
+        store = getattr(server, 'card_presets', None)
+        if preset_id and store is not None:
+            after = _preset_counters_snapshot(store.get(preset_id))
+        state['counters_after'] = after
+        statuses = [m['status'] for m in state['members']]
+        state['summary'] = {
+            'ok': statuses.count('ok'),
+            'warning': statuses.count('warning'),
+            'error': statuses.count('error'),
+            'skipped': statuses.count('skipped'),
+            'stopped': bool(stopped),
+            'session_changed': state['session_changed'],
+            'wall_ms': int((time.time() - (_TEST_RUN['started'] or time.time())) * 1000),
+            'counters_before': state.get('counters_before'),
+            'counters_after': after,
+            'setup': state['members'][setup_i]['status'] if setup_i is not None else None,
+            'teardown': state['members'][teardown_i]['status'] if teardown_i is not None else None,
+        }
+        if 'error' in statuses:
+            _TEST_RUN['status'] = 'error'
+        elif 'warning' in statuses:
+            _TEST_RUN['status'] = 'warning'
+        elif stopped:
+            _TEST_RUN['status'] = 'stopped'
+        else:
+            _TEST_RUN['status'] = 'ok'
+        _TEST_RUN['running'] = False
+        _TEST_RUN['finished'] = time.time()
+        _TEST_RUN['log_prefix'] = ''      # the report is done: no stale prefix
+    _TEST_RUNNING = False
+    if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
+        _reset_poll_timer()
+
+
+def _test_suite_worker(server, suite, members, preset, preset_id):
+    global _TEST_RUNNING
+    try:
+        _test_suite_execute(server, suite, members, preset, preset_id)
+    except Exception as e:
+        traceback.print_exc()
+        with _TEST_LOCK:
+            _TEST_RUN['error'] = str(e)
+            _TEST_RUN['running'] = False
+            _TEST_RUN['finished'] = time.time()
+            if not _TEST_RUN['status']:
+                _TEST_RUN['status'] = 'error'
+            state = _TEST_RUN.get('suite')
+            if state is not None and state.get('summary') is None:
+                # keep the report renderable: close the open members
+                statuses = []
+                for m in state['members']:
+                    if m['status'] == 'running':
+                        m['status'] = 'error'
+                        m['note'] = m.get('note') or ('the run failed: %s' % e)
+                    elif m['status'] == 'pending':
+                        m['status'] = 'skipped'
+                    statuses.append(m['status'])
+                state['session_end'] = getattr(server, 'card_session', 0)
+                state['summary'] = {
+                    'ok': statuses.count('ok'), 'warning': statuses.count('warning'),
+                    'error': statuses.count('error'), 'skipped': statuses.count('skipped'),
+                    'stopped': False,
+                    'session_changed': bool(state.get('session_changed')),
+                    'wall_ms': int((time.time() - (_TEST_RUN['started'] or time.time())) * 1000),
+                    'counters_before': state.get('counters_before'),
+                    'counters_after': None,
+                    'setup': None, 'teardown': None,
+                }
+    finally:
+        _TEST_RUNNING = False
+        if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
+            _reset_poll_timer()
+
+
+def _test_suite_state(suite, members, preset, preset_id, session):
+    """The `_TEST_RUN['suite']` report skeleton of a suite run: the member
+    records (status pending) and the run-level metadata (preset, session,
+    SCP80 counters before).  Shared by the starter and the tests."""
+    return {
+        'id': suite.get('id'),
+        'name': suite.get('name') or 'test suite',
+        'require_adm': bool(suite.get('require_adm')),
+        'session_start': session, 'session_end': None,
+        'session_changed': False, 'preset_id': preset_id,
+        'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
+        'counters_before': _preset_counters_snapshot(preset),
+        'counters_after': None, 'summary': None,
+        'members': [
+            {'script_id': e['script_id'], 'name': (s or {}).get('name'),
+             'role': e['role'], 'on_fail': e['on_fail'],
+             'status': 'pending', 'steps': [], 'log': [],
+             'log_truncated': False, 'note': None,
+             'started': None, 'finished': None, 'counters_after': {}}
+            for e, s in members],
+    }
+
+
+def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None):
+    """Start a suite run: `members` is the resolved, normalised
+    ``[(entry, script)]`` list in run order."""
+    with _TEST_LOCK:
+        session = getattr(server, 'card_session', 0)
+        _TEST_RUN.update({
+            'running': True, 'stop': False,
+            'name': suite.get('name') or 'test suite', 'status': None,
+            'session': session, 'index': 0, 'total': 0, 'steps': [],
+            'started': time.time(), 'finished': None, 'error': None,
+            'scp80_counter': None, 'scp80_counters': {},
+            'script_id': None,
+            'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
+            'suite': _test_suite_state(suite, members, preset, preset_id, session),
+            'log': [], 'log_prefix': '', 'adm': adm_info or {'required': False},
+        })
+    _test_run_spawn(server, _test_suite_worker,
+                    (server, suite, members, preset, preset_id), 'test-suite')
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -6987,6 +7432,102 @@ class PysimHandler(BaseHTTPRequestHandler):
         resp = {'error': 'test script store write failed: %s' % e}
         self._send_json(resp, 500)
         self._log_resp(resp)
+
+    def _test_suites_store_or_503(self):
+        """The test suite store, or None after answering 503."""
+        store = getattr(self.server, 'test_suites', None)
+        if store is None:
+            resp = {'error': 'test suite store not initialized'}
+            self._send_json(resp, 503)
+            self._log_resp(resp)
+            return None
+        return store
+
+    def _test_suites_store_error(self, e):
+        resp = {'error': 'test suite store write failed: %s' % e}
+        self._send_json(resp, 500)
+        self._log_resp(resp)
+
+    def _test_suite_run_request(self, suite_id, body):
+        """Start a suite run: resolve the members and the preset, run the ADM
+        prerequisite, then hand over to the suite runner (one card session,
+        no resume)."""
+        suites = self._test_suites_store_or_503()
+        if suites is None:
+            return
+        scripts_store = self._test_scripts_store_or_503()
+        if scripts_store is None:
+            return
+        suite = suites.get(suite_id)
+        if suite is None:
+            resp = {'error': 'unknown test suite id'}
+            self._send_json(resp, 404)
+            self._log_resp(resp)
+            return
+        if not suite['scripts']:
+            resp = {'error': 'the suite has no scripts'}
+            self._send_json(resp, 400)
+            self._log_resp(resp)
+            return
+        members = []
+        missing = []
+        for entry in suite['scripts']:
+            stored = scripts_store.get(entry['script_id'])
+            if stored is None:
+                missing.append(entry['script_id'])
+                continue
+            try:
+                # the store validated at save; a hand edit (or a tightened
+                # rule) is reported here, before anything is sent
+                script = testscript.normalise_script(stored, _test_command_type)
+            except testscript.ScriptError as e:
+                resp = {'error': 'script %r does not validate: %s'
+                                 % (stored.get('name') or stored['id'], e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            script['require_adm'] = bool(stored.get('require_adm'))
+            members.append((entry, script))
+        if missing:
+            resp = {'error': 'the suite references unknown test script(s): %s'
+                             % ', '.join(missing[:3])}
+            self._send_json(resp, 400)
+            self._log_resp(resp)
+            return
+        preset, preset_err = _test_run_preset_from_body(self.server, body)
+        if preset_err:
+            resp = {'error': preset_err}
+            self._send_json(resp, 400)
+            self._log_resp(resp)
+            return
+        steps = [step for _entry, script in members for step in script['steps']]
+        if any(s['type'] == 'action' and s['kind'] == 'scp80' for s in steps):
+            err = _test_preset_error({'steps': steps}, preset)
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+        needed_adm = bool(suite.get('require_adm')) or any(
+            bool(script.get('require_adm')) for _entry, script in members)
+        ok, adm_info, adm_err = _ensure_adm(self.server, preset, needed_adm)
+        if not ok:
+            resp = {'error': adm_err, 'adm': adm_info}
+            self._send_json(resp, 400)
+            self._log_resp(resp)
+            return
+        try:
+            _test_suite_start(self.server, suite, members, preset,
+                              str(body.get('preset_id') or '') or None,
+                              adm_info=adm_info)
+        except Exception as e:
+            resp = {'error': 'could not start the suite run: %s' % e}
+            self._send_json(resp, 500)
+            self._log_resp(resp)
+            return
+        resp = _test_state_snapshot()
+        self._send_json(resp)
+        self._log_resp({'suite': suite.get('name'), 'members': len(members)})
 
     def _keyset_guard(self, body, kic, kid):
         """The keyset-number checks shared by the RAM operations: the KIc/KID
@@ -7373,6 +7914,15 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp['scripts'] = store.list()
             self._send_json(resp)
             self._log_resp({'path': resp['path'], 'count': resp['count']})
+        elif self.path == '/api/test/suites':
+            self._log_req()
+            store = self._test_suites_store_or_503()
+            if store is None:
+                return
+            resp = store.info()
+            resp['suites'] = store.list()
+            self._send_json(resp)
+            self._log_resp({'path': resp['path'], 'count': resp['count']})
         elif self.path == '/api/presets':
             self._log_req()
             store = self._preset_store_or_503()
@@ -7484,6 +8034,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             try:
                 with _CARD_LOCK:
                     resp = _verify_adm(scc, app, adm)
+                if resp.get('ok'):
+                    # the run prerequisites (scripts/suites) read this latch:
+                    # the ADM is verified for the current card session
+                    self.server.adm_session = getattr(self.server, 'card_session', 0)
+                    self.server.adm_failed_session = None
                 sys.stderr.write('VERIFY ADM → SW: %s\n' % resp.get('sw'))
                 self._send_json(resp)
                 self._log_resp(resp)
@@ -8877,7 +9432,18 @@ class PysimHandler(BaseHTTPRequestHandler):
             store = self._test_scripts_store_or_503()
             if store is None:
                 return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
+                return
             script = body.get('script') if isinstance(body.get('script'), dict) else body
+            suite_id = str((script or {}).get('suite_id') or '').strip().lower()
+            suite = suites.get(suite_id) if suite_id else None
+            if suite is None:
+                resp = {'error': 'a test script belongs to a suite: pass the '
+                                 'suite_id of an existing suite'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             try:
                 entry = store.add(script)
             except test_scripts.TestScriptError as e:
@@ -8888,6 +9454,16 @@ class PysimHandler(BaseHTTPRequestHandler):
             except OSError as e:
                 self._test_scripts_store_error(e)
                 return
+            # The suite owns the member list (order, role, on_fail): attach.
+            try:
+                entries = list(suite['scripts']) + [
+                    {'script_id': entry['id'], 'role': 'member', 'on_fail': 'stop'}]
+                suites.update(suite['id'], {'scripts': entries})
+            except (test_suites.TestSuiteError, OSError) as e:
+                sys.stderr.write('TESTSUITES: cannot attach %s to %s: %s\n'
+                                 % (entry['id'], suite['id'], e))
+                self._test_suites_store_error(e)
+                return
             resp = {'ok': True, 'script': entry}
             self._send_json(resp)
             self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name']})
@@ -8897,9 +9473,35 @@ class PysimHandler(BaseHTTPRequestHandler):
             store = self._test_scripts_store_or_503()
             if store is None:
                 return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
+                return
             fields = body.get('script') if isinstance(body.get('script'), dict) else body
+            sid = body.get('id')
+            cur = store.get(sid)
+            if cur is None:
+                resp = {'error': 'unknown test script id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            new_suite = fields.get('suite_id') if isinstance(fields, dict) else None
+            if new_suite not in (None, '', cur.get('suite_id')):
+                # an ownership change is the move operation: it must update
+                # both suites in the same request
+                entry, err, status = _test_script_move(store, suites, cur, new_suite)
+                if entry is None:
+                    resp = {'error': err}
+                    self._send_json(resp, status)
+                    self._log_resp(resp)
+                    return
+                resp = {'ok': True, 'script': entry, 'moved': True}
+                self._send_json(resp)
+                self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name'],
+                                'moved': True})
+                return
+            fields = {k: v for k, v in (fields or {}).items() if k != 'suite_id'}
             try:
-                entry = store.update(body.get('id'), fields)
+                entry = store.update(sid, fields)
             except test_scripts.TestScriptError as e:
                 resp = {'error': str(e)}
                 self._send_json(resp, 400)
@@ -8922,6 +9524,14 @@ class PysimHandler(BaseHTTPRequestHandler):
             store = self._test_scripts_store_or_503()
             if store is None:
                 return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
+                return
+            cur = store.get(body.get('id'))
+            if cur is not None:
+                # Detach from the owning suite first: the suite's member list
+                # is the only reference, so a removal leaves no dangling id.
+                _test_script_detach(suites, cur)
             try:
                 removed = store.remove(body.get('id'))
             except OSError as e:
@@ -8930,11 +9540,260 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {'ok': True, 'removed': removed}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/test/scripts/move':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
+                return
+            cur = store.get(body.get('id'))
+            if cur is None:
+                resp = {'error': 'unknown test script id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            entry, err, status = _test_script_move(store, suites, cur,
+                                                        body.get('suite_id'))
+            if entry is None:
+                resp = {'error': err}
+                self._send_json(resp, status)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True, 'script': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name'],
+                            'suite_id': entry['suite_id']})
+        elif self.path == '/api/test/scripts/copy':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_scripts_store_or_503()
+            if store is None:
+                return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
+                return
+            cur = store.get(body.get('id'))
+            if cur is None:
+                resp = {'error': 'unknown test script id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            target = suites.get(body.get('suite_id'))
+            if target is None:
+                resp = {'error': 'unknown target suite'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            name = str(body.get('name') or '').strip() or (cur['name'] + ' (copy)')
+            try:
+                entry = store.add({'name': name, 'suite_id': target['id'],
+                                   'require_adm': cur.get('require_adm', False),
+                                   'steps': copy.deepcopy(cur['steps'])})
+            except test_scripts.TestScriptError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except OSError as e:
+                self._test_scripts_store_error(e)
+                return
+            try:
+                entries = list(target['scripts']) + [
+                    {'script_id': entry['id'], 'role': 'member', 'on_fail': 'stop'}]
+                suites.update(target['id'], {'scripts': entries})
+            except (test_suites.TestSuiteError, OSError) as e:
+                sys.stderr.write('TESTSUITES: cannot attach copy %s: %s\n'
+                                 % (entry['id'], e))
+                self._test_suites_store_error(e)
+                return
+            resp = {'ok': True, 'script': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name'],
+                            'copied_from': cur['id']})
+        elif self.path == '/api/test/suites':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_suites_store_or_503()
+            if store is None:
+                return
+            scripts = self._test_scripts_store_or_503()
+            if scripts is None:
+                return
+            suite = body.get('suite') if isinstance(body.get('suite'), dict) else body
+            err = _test_suite_refs_error(scripts, suite)
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                entry = store.add(suite)
+            except test_suites.TestSuiteError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except OSError as e:
+                self._test_suites_store_error(e)
+                return
+            resp = {'ok': True, 'suite': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name']})
+        elif self.path == '/api/test/suites/update':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_suites_store_or_503()
+            if store is None:
+                return
+            scripts = self._test_scripts_store_or_503()
+            if scripts is None:
+                return
+            fields = body.get('suite') if isinstance(body.get('suite'), dict) else body
+            cur = store.get(body.get('id'))
+            if cur is None:
+                resp = {'error': 'unknown test suite id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            if 'scripts' in (fields or {}):
+                old_ids = [e['script_id'] for e in cur['scripts']]
+                new = fields['scripts'] if isinstance(fields['scripts'], list) else []
+                new_ids = [str((e or {}).get('script_id') or '').lower()
+                           for e in new if isinstance(e, dict)]
+                if set(new_ids) != set(old_ids):
+                    resp = {'error': 'the member set changes through the script '
+                                     'endpoints (add/move/delete), not by '
+                                     'editing the suite'}
+                    self._send_json(resp, 400)
+                    self._log_resp(resp)
+                    return
+            err = _test_suite_refs_error(scripts, fields)
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            fields = {k: v for k, v in (fields or {}).items()}
+            try:
+                entry = store.update(body.get('id'), fields)
+            except test_suites.TestSuiteError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except OSError as e:
+                self._test_suites_store_error(e)
+                return
+            if entry is None:
+                resp = {'error': 'unknown test suite id'}
+                self._send_json(resp, 404)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True, 'suite': entry}
+            self._send_json(resp)
+            self._log_resp({'ok': True, 'id': entry['id'], 'name': entry['name']})
+        elif self.path == '/api/test/suites/delete':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_suites_store_or_503()
+            if store is None:
+                return
+            cur = store.get(body.get('id'))
+            if cur is not None and cur['scripts']:
+                resp = {'error': 'the suite still holds %d script(s): move or '
+                                 'delete them first' % len(cur['scripts'])}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            try:
+                removed = store.remove(body.get('id'))
+            except OSError as e:
+                self._test_suites_store_error(e)
+                return
+            resp = {'ok': True, 'removed': removed}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/test/suites/import':
+            body = self._read_body()
+            self._log_req(body)
+            store = self._test_suites_store_or_503()
+            if store is None:
+                return
+            scripts = self._test_scripts_store_or_503()
+            if scripts is None:
+                return
+            suites_in = body.get('suites')
+            if not isinstance(suites_in, list) or len(suites_in) > 500:
+                resp = {'error': 'suites must be a list of at most 500 entries'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            scripts_in = body.get('scripts')
+            if scripts_in is not None and (not isinstance(scripts_in, list)
+                                           or len(scripts_in) > 1000):
+                resp = {'error': 'scripts must be a list of at most 1000 entries'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
+            # Bundle import: scripts first (merge always - a replace would wipe
+            # every other suite's scripts), then the suites with references
+            # rewritten through the script id map.
+            script_result = {'added': 0, 'skipped': 0, 'errors': [], 'id_map': {}}
+            if scripts_in:
+                try:
+                    script_result = scripts.import_scripts(scripts_in, 'merge')
+                except OSError as e:
+                    self._test_scripts_store_error(e)
+                    return
+            id_map = script_result.get('id_map') or {}
+            mapped, ref_errors = [], []
+            for i, suite in enumerate(suites_in):
+                if not isinstance(suite, dict):
+                    continue
+                entry = copy.deepcopy(suite)
+                for e in entry.get('scripts') or []:
+                    if isinstance(e, dict):
+                        sid = str(e.get('script_id') or '').strip().lower()
+                        e['script_id'] = id_map.get(sid, sid)
+                missing = [e['script_id'] for e in (entry.get('scripts') or [])
+                           if isinstance(e, dict) and not scripts.get(e['script_id'])]
+                if missing:
+                    ref_errors.append('%s: unknown script(s) %s'
+                                      % (entry.get('name') or ('#' + str(i + 1)),
+                                         ', '.join(missing[:3])))
+                    continue
+                mapped.append(entry)
+            try:
+                resp = store.import_suites(mapped, mode)
+            except OSError as e:
+                self._test_suites_store_error(e)
+                return
+            # The imported scripts carry the *old* suite id: point them at the
+            # suite that now owns them.
+            for suite in store.list():
+                for e in suite['scripts']:
+                    cur = scripts.get(e['script_id'])
+                    if cur is not None and cur.get('suite_id') != suite['id']:
+                        scripts.update(e['script_id'], {'suite_id': suite['id']})
+            resp['scripts'] = {'added': script_result.get('added', 0),
+                               'skipped': script_result.get('skipped', 0)}
+            resp['skipped'] = resp.get('skipped', 0) + len(ref_errors)
+            resp['errors'] = (resp.get('errors', []) + ref_errors)[:10]
+            resp['ok'] = True
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/test/scripts/import':
             body = self._read_body()
             self._log_req(body)
             store = self._test_scripts_store_or_503()
             if store is None:
+                return
+            suites = self._test_suites_store_or_503()
+            if suites is None:
                 return
             items = body.get('scripts')
             if not isinstance(items, list) or len(items) > 1000:
@@ -8943,11 +9802,28 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp(resp)
                 return
             mode = body.get('mode') if body.get('mode') in ('merge', 'replace') else 'merge'
+            target = suites.get(body.get('suite_id')) if body.get('suite_id') else None
+            if body.get('suite_id') and target is None:
+                resp = {'error': 'unknown target suite'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             try:
-                resp = store.import_scripts(items, mode)
+                resp = store.import_scripts(items, mode,
+                                            suite_id=target['id'] if target else None)
             except OSError as e:
                 self._test_scripts_store_error(e)
                 return
+            if target is not None and resp.get('added_ids'):
+                try:
+                    entries = list(target['scripts']) + [
+                        {'script_id': sid, 'role': 'member', 'on_fail': 'stop'}
+                        for sid in resp['added_ids']]
+                    suites.update(target['id'], {'scripts': entries})
+                except (test_suites.TestSuiteError, OSError) as e:
+                    self._test_suites_store_error(e)
+                    return
+            resp.pop('added_ids', None)
             resp['ok'] = True
             self._send_json(resp)
             self._log_resp(resp)
@@ -8958,6 +9834,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                 resp = {'error': 'a test script is already running'}
                 self._send_json(resp, 409)
                 self._log_resp(resp)
+                return
+            suite_id = str(body.get('suite_id') or '').strip().lower()
+            if suite_id:
+                self._test_suite_run_request(suite_id, body)
                 return
             script_raw, script_id, script_err = _test_run_script_from_body(self.server, body)
             if script_err:
@@ -8986,8 +9866,19 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            # The ADM prerequisite: a script may declare that it needs the ADM
+            # PIN (protected files).  Verified for this session passes; a
+            # failure is never retried automatically.
+            needed_adm = bool(script_raw.get('require_adm'))
+            ok, adm_info, adm_err = _ensure_adm(self.server, preset, needed_adm)
+            if not ok:
+                resp = {'error': adm_err, 'adm': adm_info}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             try:
-                _test_run_start(self.server, script, preset, script_id or None)
+                _test_run_start(self.server, script, preset, script_id or None,
+                                adm_info=adm_info)
             except Exception as e:
                 resp = {'error': 'could not start the test run: %s' % e}
                 self._send_json(resp, 500)
@@ -9015,6 +9906,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'preset': None, 'scp80_counter': None,
                         'scp80_counters': {},
                         'started': None, 'finished': None, 'error': None,
+                        'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
                     })
             if busy:
                 resp = {'error': 'test script is running'}

@@ -1372,46 +1372,72 @@
 		</div>
 		<div id="phone-sub-test" class="hidden">
 				<div id="test-run-banner" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
-				<div class="flex flex-wrap items-end gap-2 mb-3">
-					<div>
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Test script">Test script</label>
-						<select id="test-script-sel" onchange="testSelectChanged()" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></select>
+				<div id="test-io-status" class="text-xs text-gray-500 dark:text-slate-400 hidden mb-2"></div>
+				<div id="test-view-suites">
+					<div class="flex flex-wrap items-end gap-2 mb-3">
+						<button onclick="testSuiteNew()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add suite">Add suite</button>
+						<button onclick="testImportOpen()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Import">Import</button>
+						<input type="file" id="test-import-file" accept=".json,application/json" class="hidden" onchange="testImportFile(this)">
+						<span class="text-xs text-gray-400" data-l10n="A suite runs its scripts in order: setup first, teardown last.">A suite runs its scripts in order: setup first, teardown last.</span>
 					</div>
-					<div>
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Template">Template</label>
-						<select id="test-template" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
+					<div id="test-suites" class="text-sm"></div>
+				</div>
+				<div id="test-view-suite" class="hidden">
+					<div class="flex flex-wrap items-end gap-2 mb-3">
+						<button onclick="testViewShow('suites')" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
+						<div class="flex-1 min-w-[12rem]">
+							<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Name">Name</label>
+							<input id="test-suite-name" oninput="testSuiteNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						</div>
+						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-suite-adm" type="checkbox" onchange="testSuiteAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
+						<button id="test-suite-run-btn" data-needs="card" onclick="testSuiteRunCurrent()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Run suite">Run suite</button>
+						<button onclick="testSuiteExportCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export">Export</button>
+						<button onclick="testSuiteDeleteCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-red-600 dark:text-red-400 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Delete">Delete</button>
+					</div>
+					<div class="flex flex-wrap items-end gap-2 mb-3">
+						<select id="test-suite-template" class="border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">
 							<option value="empty" data-l10n="Empty">Empty</option>
 							<option value="menu" data-l10n="STK menu browsing">STK menu browsing</option>
 							<option value="scp80" data-l10n="Applet via SCP80">Applet via SCP80</option>
 						</select>
+						<button onclick="testSuiteAddScript()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add script">Add script</button>
 					</div>
-					<button onclick="testNew()" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New">New</button>
-					<button onclick="testClone()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clone">Clone</button>
-					<button onclick="testDelete()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Delete">Delete</button>
-					<button onclick="testExport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export">Export</button>
-					<button onclick="testImportOpen()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Import">Import</button>
-					<input type="file" id="test-import-file" accept=".json,application/json" class="hidden" onchange="testImportFile(this)">
-					<span id="test-io-status" class="text-xs text-gray-500 dark:text-slate-400 hidden"></span>
+					<div id="test-suite-scripts" class="text-sm"></div>
 				</div>
-				<div class="flex flex-wrap items-end gap-2 mb-3">
-					<div class="flex-1 min-w-[16rem]">
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Name">Name</label>
-						<input id="test-name" oninput="testNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+				<div id="test-view-script" class="hidden">
+					<div class="flex flex-wrap items-end gap-2 mb-3">
+						<button onclick="testScriptBack()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Scripts">Scripts</span></button>
+						<div class="flex-1 min-w-[12rem]">
+							<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Name">Name</label>
+							<input id="test-name" oninput="testNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+						</div>
+						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-script-adm" type="checkbox" onchange="testScriptAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
+						<button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
+						<button id="test-stop-btn" onclick="testStop()" class="hidden px-4 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" data-l10n="Stop">Stop</button>
+						<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
 					</div>
-					<button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
-					<button id="test-stop-btn" onclick="testStop()" class="hidden px-4 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" data-l10n="Stop">Stop</button>
-					<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
+					<div id="test-steps" class="mb-2 text-sm"></div>
+					<div class="flex gap-2 mb-3">
+						<button onclick="testAddStep('action')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add action">Add action</button>
+						<button onclick="testAddStep('expect')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add expectation">Add expectation</button>
+					</div>
+					<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Run result">Run result</legend>
+						<div id="test-run-status" class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="No run yet.">No run yet.</div>
+						<div id="test-run-steps" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[45vh] overflow-auto"></div>
+					</fieldset>
 				</div>
-				<div id="test-steps" class="mb-2 text-sm"></div>
-				<div class="flex gap-2 mb-3">
-					<button onclick="testAddStep('action')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add action">Add action</button>
-					<button onclick="testAddStep('expect')" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add expectation">Add expectation</button>
+				<div id="test-view-report" class="hidden">
+					<div class="flex flex-wrap items-end gap-2 mb-3">
+						<button onclick="testViewShow('suites')" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
+						<span id="test-report-title" class="flex-1 text-sm font-medium"></span>
+						<button id="test-report-json" onclick="testReportExportJson()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export JSON">Export JSON</button>
+						<button id="test-report-md" onclick="testReportExportMarkdown()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export Markdown">Export Markdown</button>
+						<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
+					</div>
+					<div id="test-report-summary" class="text-xs mb-2 text-gray-600 dark:text-slate-300"></div>
+					<div id="test-report-members" class="text-sm"></div>
 				</div>
-				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
-					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Run report">Run report</legend>
-					<div id="test-run-status" class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="No run yet.">No run yet.</div>
-					<div id="test-run-steps" class="text-sm font-mono text-gray-600 dark:text-slate-400 max-h-[45vh] overflow-auto"></div>
-				</fieldset>
 			</div>
 		</div>
 
@@ -1877,7 +1903,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.21.0';
+const SIMPLE_VERSION = '3.22.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6914,18 +6940,23 @@ function decodeResponse() {
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
 // the final SCP80 counter is written back to it.
 const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status', 'proactive'];
-let _testScripts = null;
-let _testCurrentIdx = -1;
+let _testScripts = null;        // the script store cache (all suites)
+let _testSuites = null;         // the suite store cache
+let _testView = 'suites';       // suites | suite | script | report
+let _testSuiteIdx = -1;         // the suite being edited (index into _testSuites)
+let _testScriptId = null;       // the script being edited (store id)
+let _testScriptDraft = null;    // a new, not-yet-saved script
 let _testRunState = null;
+let _testRunScriptRef = null;   // the script object a single run belongs to
 let _testRunTimer = null;
-let _testSaveTimer = null;
-// One write chain per script object: saves of the same script run in order, so
-// two quick saves of an unsaved draft cannot both create it (the first assigns
-// the id before the second starts).
+let _testSaveTimer = null;      // script name debounce
+let _testSuiteSaveTimer = null; // suite name debounce
 let _testWriteChains = new WeakMap();
 let _testEditStep = null;
 let _testEditChecks = [];
 let _testLastPresetIdx = -1;
+let _testSuiteTarget = null;    // {i, mode} - the move/copy target picker
+
 
 function testTemplate(kind) {
 	if (kind === 'menu') {
@@ -6952,11 +6983,20 @@ function testTemplate(kind) {
 	return {name: t('New test script'), steps: []};
 }
 
-// Scripts live in the server-side store (~/.pysim-simple-server/test_scripts.json,
-// --test-scripts): the runner is server-side, so the store is the source of
-// truth and every browser manages the same set.  Export/import moves scripts
-// between benches (the old localStorage shape imports as-is).
-async function testScriptsFetch() {
+// Suites and scripts live in the server-side stores
+// (~/.pysim-simple-server/test_suites.json + test_scripts.json,
+// --test-suites/--test-scripts): a suite is the root object, every script
+// belongs to exactly one suite, and the runner executes a suite's scripts in
+// order - the optional setup first, the members, the optional teardown last.
+// Export/import moves a suite bundle (the suite plus its scripts).
+async function testStoresFetch() {
+	try {
+		const data = await pysimFetchOk('/api/test/suites');
+		_testSuites = Array.isArray(data.suites) ? data.suites : [];
+	} catch (e) {
+		_testSuites = _testSuites || [];
+		ioStatus('test-io-status', t('Could not load the test suites from the server') + ': ' + e.message);
+	}
 	try {
 		const data = await pysimFetchOk('/api/test/scripts');
 		_testScripts = Array.isArray(data.scripts) ? data.scripts : [];
@@ -6964,22 +7004,33 @@ async function testScriptsFetch() {
 		_testScripts = _testScripts || [];
 		ioStatus('test-io-status', t('Could not load the test scripts from the server') + ': ' + e.message);
 	}
-	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
-	if (_testCurrentIdx < 0 || _testCurrentIdx >= _testScripts.length) _testCurrentIdx = 0;
-	return _testScripts;
+	return {suites: _testSuites, scripts: _testScripts};
 }
 
-function testScriptsLoad() {
-	if (!_testScripts) _testScripts = [testTemplate('empty')];
-	if (_testCurrentIdx < 0 || _testCurrentIdx >= _testScripts.length) _testCurrentIdx = 0;
-	return _testScripts;
+async function testSuitesRefetch() {
+	try {
+		const data = await pysimFetch('/api/test/suites');
+		if (Array.isArray(data.suites)) _testSuites = data.suites;
+	} catch (e) { /* keep the cache */ }
 }
 
-// Write the current script through to the store: an unsaved draft is created
-// on the first valid save, later edits update it.  Discrete edits save
-// immediately, the name field (which fires per keystroke) is debounced.
+function testSuites() { return _testSuites || []; }
+function testScripts() { return _testScripts || []; }
+function testSuiteById(id) { return testSuites().find(s => s.id === id) || null; }
+function testScriptById(id) { return testScripts().find(s => s.id === id) || null; }
+function testCurrentSuite() { return testSuites()[_testSuiteIdx] || null; }
+function testCurrentScript() { return _testScriptDraft || testScriptById(_testScriptId); }
+function testSuiteEntry(i) {
+	const s = testCurrentSuite();
+	return s ? ((s.scripts || [])[i] || null) : null;
+}
+
+// The current script's write-through to the store: an unsaved draft is
+// created on the first valid save (the create names its suite), later edits
+// update it.  Discrete edits save immediately, the name field (which fires
+// per keystroke) is debounced.
 function testScriptsSave(immediate) {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	if (!cur) return;
 	if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
 	if (immediate) { testScriptsWritebackQueued(cur); return; }
@@ -7001,7 +7052,8 @@ async function testScriptsWriteback(script) {
 	if (script._deleted) return;   // queued before the delete: never resurrect
 	const problem = testScriptProblem(script);
 	if (problem) return;   // an incomplete draft stays local until it is valid
-	const payload = {name: script.name || '', steps: script.steps};
+	const payload = {name: script.name || '', steps: script.steps,
+		require_adm: !!script.require_adm, suite_id: script.suite_id};
 	try {
 		if (script.id) {
 			const resp = await pysimFetch('/api/test/scripts/update', {id: script.id, script: payload});
@@ -7011,6 +7063,11 @@ async function testScriptsWriteback(script) {
 			if (resp.error) throw new Error(resp.error);
 			if (resp.script && resp.script.id) {
 				script.id = resp.script.id;
+				_testScriptId = script.id;
+				_testScriptDraft = null;
+				const list = testScripts();
+				if (!list.some(s => s.id === script.id)) list.push(resp.script);
+				await testSuitesRefetch();   // the suite gained the member
 				if (script._deleted) {
 					// deleted while the create was in flight: undo it
 					try { await pysimFetch('/api/test/scripts/delete', {id: script.id}); } catch (e) {}
@@ -7022,10 +7079,6 @@ async function testScriptsWriteback(script) {
 	}
 }
 
-function testCurrent() {
-	const scripts = testScriptsLoad();
-	return scripts[_testCurrentIdx] || null;
-}
 
 // The menu-select target: an item id (1-255) or the item text - the id varies
 // with the applet's install parameters, so the text can be matched instead.
@@ -7170,24 +7223,379 @@ function testStepSummary(step) {
 	return s + (ck.length ? ' · ' + ck.join(', ') : '');
 }
 
+// ── views ──
+// One pill, four views: the suite list (default) -> the suite editor (the
+// script list) -> the script editor (the step list); a suite run opens the
+// report view.  A single script's run shows its result under the steps and is
+// not preserved (the report view belongs to suite runs).
+
+function testViewShow(view) {
+	_testView = view;
+	_testSuiteTarget = null;
+	testRender();
+}
+
 function testRender() {
-	const sel = document.getElementById('test-script-sel');
-	if (!sel) return;
-	const scripts = testScriptsLoad();
-	sel.innerHTML = scripts.map((s, i) =>
-		'<option value="' + i + '"' + (i === _testCurrentIdx ? ' selected' : '') + '>' +
-		esc(s.name || (t('Script') + ' ' + (i + 1))) + '</option>').join('');
-	const cur = testCurrent();
+	const views = {suites: 'test-view-suites', suite: 'test-view-suite',
+		script: 'test-view-script', report: 'test-view-report'};
+	Object.keys(views).forEach(v => {
+		const el = document.getElementById(views[v]);
+		if (el) el.classList.toggle('hidden', v !== _testView);
+	});
+	const running = testRunActive();
+	const banner = document.getElementById('test-run-banner');
+	if (banner) {
+		if (running) {
+			const snap = _testRunState || {};
+			const what = snap.suite ? t('Test suite running:') : t('Test script running:');
+			const at = snap.suite ? testSuiteProgress(snap) : ((snap.index + 1) + '/' + snap.total);
+			banner.textContent = '\u26a0 ' + what + ' ' + (snap.name || '') + ' (' + at + ')';
+			banner.classList.remove('hidden');
+		} else {
+			banner.classList.add('hidden');
+		}
+	}
+	const pill = document.querySelector('[data-phone-sub="test"]');
+	if (pill) pill.textContent = running ? t('Test script') + ' \u2022' : t('Test script');
+	if (_testView === 'suites') testRenderSuites();
+	else if (_testView === 'suite') { testRenderSuiteHeader(); testRenderSuiteScripts(); }
+	else if (_testView === 'script') { testRenderScriptHeader(); testRenderSteps(); testRenderScriptRun(); }
+	else if (_testView === 'report') testRenderReport();
+	pysimApplyAvailability();
+}
+
+function testSuiteProgress(snapshot) {
+	const members = (snapshot.suite && snapshot.suite.members) || [];
+	const done = members.filter(m => m.status && m.status !== 'pending' && m.status !== 'running').length;
+	return done + '/' + members.length;
+}
+
+// ── the suite list ──
+
+function testRenderSuites() {
+	const el = document.getElementById('test-suites');
+	if (!el) return;
+	const suites = testSuites();
+	if (!suites.length) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No test suites yet - add one.')) + '</span>';
+		return;
+	}
+	const btn = 'px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300';
+	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded divide-y divide-gray-100 dark:divide-slate-700">';
+	suites.forEach((s, i) => {
+		const n = (s.scripts || []).length;
+		html += '<div class="flex items-center gap-2 px-2 py-1.5">'
+			+ '<span class="flex-1 truncate">' + esc(s.name || t('Suite')) + '</span>'
+			+ '<span class="text-xs text-gray-400">' + n + ' ' + esc(t('scripts')) + '</span>'
+			+ (s.require_adm ? '<span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">ADM</span>' : '')
+			+ '<button data-needs="card" onclick="testSuiteRun(' + i + ')" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Run')) + '</button>'
+			+ '<button onclick="testSuiteOpen(' + i + ')" class="' + btn + '">' + esc(t('Edit')) + '</button>'
+			+ '<button onclick="testSuiteExport(' + i + ')" class="' + btn + '">' + esc(t('Export')) + '</button>'
+			+ '<button onclick="testSuiteDelete(' + i + ')" class="px-2 py-0.5 text-xs rounded border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400">' + esc(t('Delete')) + '</button>'
+			+ '</div>';
+	});
+	el.innerHTML = html + '</div>';
+}
+
+async function testSuiteNew() {
+	try {
+		const resp = await pysimFetch('/api/test/suites', {name: t('New test suite')});
+		if (resp.error) throw new Error(resp.error);
+		await testStoresFetch();
+		const i = testSuites().findIndex(s => s.id === resp.suite.id);
+		testSuiteOpen(i >= 0 ? i : 0);
+	} catch (e) {
+		ioStatus('test-io-status', t('Could not create the test suite') + ': ' + e.message);
+	}
+}
+
+function testSuiteOpen(i) {
+	_testSuiteIdx = i;
+	_testSuiteTarget = null;
+	testViewShow('suite');
+}
+
+async function testSuiteDelete(i) {
+	const s = testSuites()[i];
+	if (!s) return;
+	if (!confirm(t('Delete this test suite?'))) return;
+	try {
+		const resp = await pysimFetch('/api/test/suites/delete', {id: s.id});
+		if (resp.error) throw new Error(resp.error);
+		await testStoresFetch();
+		if (_testSuiteIdx === i) _testSuiteIdx = -1;
+		testViewShow('suites');
+	} catch (e) {
+		ioStatus('test-io-status', t('Could not delete the test suite') + ': ' + e.message);
+	}
+}
+
+function testSuiteDeleteCurrent() { testSuiteDelete(_testSuiteIdx); }
+
+function testSuiteExport(i) {
+	const s = testSuites()[i];
+	if (!s) return;
+	const ids = new Set((s.scripts || []).map(e => e.script_id));
+	const scripts = testScripts().filter(x => ids.has(x.id)).map(x => ({
+		id: x.id, name: x.name, suite_id: x.suite_id,
+		require_adm: !!x.require_adm, steps: x.steps}));
+	downloadJson((s.name || 'test-suite').replace(/[^\w.-]+/g, '_') + '.json',
+		{suites: [s], scripts: scripts});
+}
+
+function testSuiteExportCurrent() { testSuiteExport(_testSuiteIdx); }
+
+// ── the suite editor (the script list) ──
+
+function testRenderSuiteHeader() {
+	const s = testCurrentSuite();
+	const nameEl = document.getElementById('test-suite-name');
+	if (nameEl && s) nameEl.value = s.name || '';
+	const adm = document.getElementById('test-suite-adm');
+	if (adm && s) adm.checked = !!s.require_adm;
+}
+
+function testSuiteNameChanged() {
+	const s = testCurrentSuite();
+	const el = document.getElementById('test-suite-name');
+	if (!s || !el) return;
+	s.name = el.value;
+	testSuiteSave();
+}
+
+function testSuiteAdmChanged() {
+	const s = testCurrentSuite();
+	const el = document.getElementById('test-suite-adm');
+	if (!s || !el) return;
+	s.require_adm = !!el.checked;
+	testSuiteSave(true);
+}
+
+function testSuiteSave(immediate) {
+	const s = testCurrentSuite();
+	if (!s || !s.id) return;
+	if (_testSuiteSaveTimer) { clearTimeout(_testSuiteSaveTimer); _testSuiteSaveTimer = null; }
+	const write = async () => {
+		try {
+			const resp = await pysimFetch('/api/test/suites/update', {
+				id: s.id, suite: {name: s.name || '', require_adm: !!s.require_adm,
+					scripts: s.scripts || []}});
+			if (resp.error) throw new Error(resp.error);
+		} catch (e) {
+			ioStatus('test-io-status', t('Could not save the test suite') + ': ' + e.message);
+		}
+	};
+	if (immediate) { write(); return; }
+	_testSuiteSaveTimer = setTimeout(() => { _testSuiteSaveTimer = null; write(); }, 600);
+}
+
+function testRoleOptions(selected) {
+	return ['setup', 'member', 'teardown'].map(r =>
+		'<option value="' + r + '"' + (r === selected ? ' selected' : '') + '>' + esc(t(r)) + '</option>').join('');
+}
+
+function testFailOptions(selected) {
+	return ['stop', 'continue'].map(v =>
+		'<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(t(v)) + '</option>').join('');
+}
+
+function testRenderSuiteScripts() {
+	const el = document.getElementById('test-suite-scripts');
+	if (!el) return;
+	const s = testCurrentSuite();
+	if (!s) { el.innerHTML = ''; return; }
+	const entries = s.scripts || [];
+	if (!entries.length) {
+		el.innerHTML = '<span class="text-gray-400">' + esc(t('No scripts yet - add one.')) + '</span>';
+		return;
+	}
+	const btn = 'px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300';
+	const sel = 'text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800';
+	const roleBadge = role => {
+		if (role === 'setup') return '<span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">' + esc(t('setup')) + '</span>';
+		if (role === 'teardown') return '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">' + esc(t('teardown')) + '</span>';
+		return '';
+	};
+	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded divide-y divide-gray-100 dark:divide-slate-700">';
+	entries.forEach((e, i) => {
+		const script = testScriptById(e.script_id);
+		const name = script ? (script.name || script.id) : ('(' + t('unknown script') + ': ' + String(e.script_id || '').slice(0, 8) + ')');
+		html += '<div class="flex items-center gap-1.5 px-2 py-1.5">'
+			+ '<span class="w-5 text-right text-xs text-gray-400">' + (i + 1) + '</span>'
+			+ roleBadge(e.role)
+			+ '<span class="flex-1 truncate ' + (script ? '' : 'text-red-500') + '">' + esc(name) + '</span>'
+			+ '<select onchange="testSuiteRoleChanged(' + i + ', this.value)" class="' + sel + '">' + testRoleOptions(e.role) + '</select>'
+			+ '<select onchange="testSuiteFailChanged(' + i + ', this.value)" class="' + sel + '" title="' + esc(t('on failure')) + '">' + testFailOptions(e.on_fail) + '</select>'
+			+ '<button onclick="testSuiteMoveScript(' + i + ',-1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === 0 ? 'disabled' : '') + '>&uarr;</button>'
+			+ '<button onclick="testSuiteMoveScript(' + i + ',1)" class="px-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-30" ' + (i === entries.length - 1 ? 'disabled' : '') + '>&darr;</button>'
+			+ (script ? '<button data-needs="card" onclick="testOpenScript(\'' + e.script_id + '\', true)" class="px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' + esc(t('Run')) + '</button>' : '')
+			+ (script ? '<button onclick="testOpenScript(\'' + e.script_id + '\')" class="' + btn + '">' + esc(t('Edit')) + '</button>' : '')
+			+ '<button onclick="testSuitePickTarget(' + i + ',\'move\')" class="' + btn + '">' + esc(t('Move')) + '</button>'
+			+ '<button onclick="testSuitePickTarget(' + i + ',\'copy\')" class="' + btn + '">' + esc(t('Copy')) + '</button>'
+			+ '<button onclick="testSuiteDeleteScript(' + i + ')" class="px-2 py-0.5 text-xs rounded border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400">' + esc(t('Delete')) + '</button>'
+			+ '</div>';
+		if (_testSuiteTarget && _testSuiteTarget.i === i) {
+			html += '<div class="flex items-center gap-2 px-2 pb-1.5 pl-7 text-xs">'
+				+ '<span>' + esc(_testSuiteTarget.mode === 'move' ? t('Move to:') : t('Copy to:')) + '</span>'
+				+ '<select id="test-suite-target" class="' + sel + '">'
+				+ testSuites().map((x, j) => j === _testSuiteIdx ? '' :
+					'<option value="' + j + '">' + esc(x.name || t('Suite')) + '</option>').join('')
+				+ '</select>'
+				+ '<button onclick="testSuiteTargetGo(' + i + ')" class="px-2 py-0.5 rounded bg-blue-600 text-white">OK</button>'
+				+ '<button onclick="testSuiteTargetCancel()" class="' + btn + '">' + esc(t('Cancel')) + '</button>'
+				+ '</div>';
+		}
+	});
+	el.innerHTML = html + '</div>';
+}
+
+function testSuiteRoleChanged(i, role) {
+	const e = testSuiteEntry(i);
+	if (!e) return;
+	e.role = role;
+	testSuiteSave(true);
+	testRenderSuiteScripts();
+}
+
+function testSuiteFailChanged(i, value) {
+	const e = testSuiteEntry(i);
+	if (!e) return;
+	e.on_fail = value;
+	testSuiteSave(true);
+}
+
+function testSuiteMoveScript(i, delta) {
+	const s = testCurrentSuite();
+	if (!s) return;
+	const list = s.scripts || [];
+	const j = i + delta;
+	if (j < 0 || j >= list.length) return;
+	const tmp = list[i];
+	list[i] = list[j];
+	list[j] = tmp;
+	testSuiteSave(true);
+	testRenderSuiteScripts();
+}
+
+async function testSuiteDeleteScript(i) {
+	const s = testCurrentSuite();
+	const e = testSuiteEntry(i);
+	if (!s || !e) return;
+	if (!confirm(t('Delete this test script?'))) return;
+	const script = testScriptById(e.script_id);
+	// A pending debounced save must not resurrect the script: cancel it and
+	// mark the object (a queued writeback checks the flag when it runs).
+	if (script && script === testCurrentScript()) {
+		if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
+		script._deleted = true;
+	}
+	try {
+		const resp = await pysimFetch('/api/test/scripts/delete', {id: e.script_id});
+		if (resp.error) throw new Error(resp.error);
+		await testStoresFetch();
+		const idx = testSuites().findIndex(x => x.id === s.id);
+		_testSuiteIdx = idx >= 0 ? idx : 0;
+		testRender();
+	} catch (err) {
+		if (script) script._deleted = false;   // the server still has it
+		ioStatus('test-io-status', t('Could not delete the test script') + ': ' + err.message);
+	}
+}
+
+async function testSuiteAddScript() {
+	const s = testCurrentSuite();
+	if (!s) return;
+	const kind = (document.getElementById('test-suite-template') || {}).value || 'empty';
+	const tpl = testTemplate(kind);
+	const steps = (tpl.steps && tpl.steps.length) ? tpl.steps
+		: [{type: 'action', kind: 'status', params: {attempts: 1, interval_ms: 200}}];
+	try {
+		const resp = await pysimFetch('/api/test/scripts', {name: tpl.name || t('New test script'),
+			suite_id: s.id, steps: steps});
+		if (resp.error) throw new Error(resp.error);
+		await testStoresFetch();
+		const idx = testSuites().findIndex(x => x.id === s.id);
+		_testSuiteIdx = idx >= 0 ? idx : 0;
+		testOpenScript(resp.script.id);
+	} catch (e) {
+		ioStatus('test-io-status', t('Could not add the test script') + ': ' + e.message);
+	}
+}
+
+function testSuitePickTarget(i, mode) {
+	_testSuiteTarget = {i: i, mode: mode};
+	testRenderSuiteScripts();
+}
+
+function testSuiteTargetCancel() {
+	_testSuiteTarget = null;
+	testRenderSuiteScripts();
+}
+
+async function testSuiteTargetGo(i) {
+	const s = testCurrentSuite();
+	const e = testSuiteEntry(i);
+	const sel = document.getElementById('test-suite-target');
+	if (!s || !e || !sel) return;
+	const target = testSuites()[parseInt(sel.value, 10)];
+	if (!target) return;
+	const mode = _testSuiteTarget ? _testSuiteTarget.mode : 'move';
+	try {
+		const resp = await pysimFetch(mode === 'move' ? '/api/test/scripts/move'
+			: '/api/test/scripts/copy', {id: e.script_id, suite_id: target.id});
+		if (resp.error) throw new Error(resp.error);
+		await testStoresFetch();
+		const idx = testSuites().findIndex(x => x.id === s.id);
+		_testSuiteIdx = idx >= 0 ? idx : 0;
+		_testSuiteTarget = null;
+		testRender();
+		ioStatus('test-io-status', mode === 'move' ? t('Script moved.') : t('Script copied.'));
+	} catch (err) {
+		ioStatus('test-io-status', (mode === 'move' ? t('Could not move the test script')
+			: t('Could not copy the test script')) + ': ' + err.message);
+	}
+}
+
+// ── the script editor (the step list + the single-run result) ──
+
+function testOpenScript(id, run) {
+	_testScriptId = id;
+	_testScriptDraft = null;
+	_testSuiteTarget = null;
+	testViewShow('script');
+	if (run) testRunStart();
+}
+
+function testScriptBack() { testViewShow('suite'); }
+
+function testRenderScriptHeader() {
+	const cur = testCurrentScript();
 	const nameEl = document.getElementById('test-name');
-	if (nameEl && cur) nameEl.value = cur.name || '';
-	testRenderSteps();
-	testRenderRun(_testRunState);
+	if (nameEl) nameEl.value = cur ? (cur.name || '') : '';
+	const adm = document.getElementById('test-script-adm');
+	if (adm) adm.checked = !!(cur && cur.require_adm);
+}
+
+function testNameChanged() {
+	const cur = testCurrentScript();
+	const el = document.getElementById('test-name');
+	if (!cur || !el) return;
+	cur.name = el.value;
+	testScriptsSave();
+}
+
+function testScriptAdmChanged() {
+	const cur = testCurrentScript();
+	const el = document.getElementById('test-script-adm');
+	if (!cur || !el) return;
+	cur.require_adm = !!el.checked;
+	testScriptsSave(true);
 }
 
 function testRenderSteps() {
 	const el = document.getElementById('test-steps');
 	if (!el) return;
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	if (!cur || !cur.steps || !cur.steps.length) {
 		el.innerHTML = '<span class="text-gray-400">' + esc(t('No steps yet - add an action or an expectation.')) + '</span>';
 		return;
@@ -7210,78 +7618,20 @@ function testRenderSteps() {
 	el.innerHTML = html + '</div>';
 }
 
-function testSelectChanged() {
-	const sel = document.getElementById('test-script-sel');
-	_testCurrentIdx = parseInt(sel.value, 10) || 0;
-	testRender();
-}
-
-function testNameChanged() {
-	const cur = testCurrent();
-	const el = document.getElementById('test-name');
-	if (!cur || !el) return;
-	cur.name = el.value;
-	testScriptsSave();
-	const sel = document.getElementById('test-script-sel');
-	if (sel && sel.options[_testCurrentIdx]) sel.options[_testCurrentIdx].textContent = cur.name || (t('Script') + ' ' + (_testCurrentIdx + 1));
-}
-
-function testNew() {
-	const kind = (document.getElementById('test-template') || {}).value || 'empty';
-	_testScripts.push(testTemplate(kind));
-	_testCurrentIdx = _testScripts.length - 1;
-	testRender();
-}
-
-function testClone() {
-	const cur = testCurrent();
-	if (!cur) return;
-	const copy = JSON.parse(JSON.stringify(cur));
-	delete copy.id;
-	delete copy._deleted;
-	delete copy._eventFieldsError;
-	copy.name = (copy.name || t('Script')) + ' (2)';
-	_testScripts.push(copy);
-	_testCurrentIdx = _testScripts.length - 1;
-	testScriptsSave(true);
-	testRender();
-}
-
-async function testDelete() {
-	const cur = testCurrent();
-	if (!cur) return;
-	if (!confirm(t('Delete this test script?'))) return;
-	// cancel a pending debounced write and mark the script: a queued or
-	// in-flight save must not resurrect it
-	if (_testSaveTimer) { clearTimeout(_testSaveTimer); _testSaveTimer = null; }
-	cur._deleted = true;
-	if (cur.id) {
-		try {
-			const resp = await pysimFetch('/api/test/scripts/delete', {id: cur.id});
-			if (resp.error) throw new Error(resp.error);
-		} catch (e) {
-			cur._deleted = false;   // the server still has it: keep it deletable
-			ioStatus('test-io-status', t('Could not delete the test script') + ': ' + e.message);
-			return;
-		}
-	}
-	_testScripts.splice(_testCurrentIdx, 1);
-	if (!_testScripts.length) _testScripts.push(testTemplate('empty'));
-	_testCurrentIdx = Math.max(0, _testCurrentIdx - 1);
-	testRender();
-}
-
-function testExport() {
-	const cur = testCurrent();
-	if (!cur) return;
-	// the portable shape: no store metadata
-	downloadJson((cur.name || 'test-script').replace(/[^\w.-]+/g, '_') + '.json',
-		{name: cur.name || '', steps: cur.steps || []});
-}
+// ── import (a suite bundle, or the legacy script export) ──
 
 function testImportOpen() {
 	const el = document.getElementById('test-import-file');
 	if (el) el.click();
+}
+
+async function testImportedSuiteId() {
+	const suite = testSuites().find(s => s.name === 'Imported scripts');
+	if (suite) return suite.id;
+	const resp = await pysimFetch('/api/test/suites', {name: 'Imported scripts'});
+	if (resp.error) throw new Error(resp.error);
+	await testStoresFetch();
+	return resp.suite.id;
 }
 
 function testImportFile(input) {
@@ -7297,25 +7647,31 @@ function testImportFile(input) {
 			ioStatus('test-io-status', t('Import failed:') + ' ' + e.message);
 			return;
 		}
-		// a single script or an exported array (the old localStorage shape)
-		const list = Array.isArray(obj) ? obj : [obj];
-		if (!list.length) {
-			ioStatus('test-io-status', t('Import failed:') + ' ' + t('no scripts found'));
-			return;
-		}
-		for (const s of list) {
-			const problem = testScriptProblem(s);
-			if (problem) {
-				ioStatus('test-io-status', t('Import failed:') + ' ' + problem);
+		try {
+			if (obj && Array.isArray(obj.suites)) {
+				// a suite bundle: the suites plus their scripts (references
+				// remapped server-side when an id had to be regenerated)
+				const resp = await pysimFetch('/api/test/suites/import', {
+					suites: obj.suites,
+					scripts: Array.isArray(obj.scripts) ? obj.scripts : [],
+					mode: 'merge'});
+				if (resp.error) throw new Error(resp.error);
+				await testStoresFetch();
+				testRender();
+				ioStatus('test-io-status', t('Imported:') + ' ' + (resp.added || 0) +
+					(resp.skipped ? ' — ' + t('skipped') + ': ' + resp.skipped : ''));
 				return;
 			}
-			if (!s.name) s.name = file.name.replace(/\.json$/i, '');
-		}
-		try {
-			const resp = await pysimFetch('/api/test/scripts/import', {scripts: list});
+			// the legacy shape: one script or an array -> "Imported scripts"
+			const list = Array.isArray(obj) ? obj : [obj];
+			if (!list.length) {
+				ioStatus('test-io-status', t('Import failed:') + ' ' + t('no scripts found'));
+				return;
+			}
+			const suiteId = await testImportedSuiteId();
+			const resp = await pysimFetch('/api/test/scripts/import', {scripts: list, suite_id: suiteId});
 			if (resp.error) throw new Error(resp.error);
-			await testScriptsFetch();
-			_testCurrentIdx = Math.max(0, _testScripts.length - (resp.added || list.length));
+			await testStoresFetch();
 			testRender();
 			ioStatus('test-io-status', t('Imported:') + ' ' + (resp.added || list.length) +
 				(resp.skipped ? ' — ' + t('skipped') + ': ' + resp.skipped : ''));
@@ -7326,6 +7682,7 @@ function testImportFile(input) {
 	reader.readAsText(file);
 }
 
+
 function testAddStep(type) {
 	const step = type === 'expect'
 		? {type: 'expect', command: 'DISPLAY TEXT', checks: [{kind: 'text', mode: 'contains', value: ''}], respond: {result: 'ok'}}
@@ -7334,7 +7691,7 @@ function testAddStep(type) {
 }
 
 function testEditStep(index, presetStep) {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	if (!cur) return;
 	const step = presetStep ? JSON.parse(JSON.stringify(presetStep)) : JSON.parse(JSON.stringify(cur.steps[index]));
 	_testEditStep = step;
@@ -7359,7 +7716,7 @@ function testStepSave() {
 		el.classList.remove('hidden');
 		return;
 	}
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	const step = _testEditStep;
 	if (_testEditStepIndex >= 0) cur.steps[_testEditStepIndex] = step;
 	else cur.steps.push(step);
@@ -7371,7 +7728,7 @@ function testStepSave() {
 }
 
 function testMoveStep(i, delta) {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	const j = i + delta;
 	if (!cur || j < 0 || j >= cur.steps.length) return;
 	const tmp = cur.steps[i];
@@ -7382,7 +7739,7 @@ function testMoveStep(i, delta) {
 }
 
 function testDeleteStep(i) {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	if (!cur) return;
 	cur.steps.splice(i, 1);
 	testScriptsSave(true);
@@ -7545,7 +7902,7 @@ function testStepRender() {
 }
 
 function _testScriptSteps() {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	return cur && cur.steps ? cur.steps.length : 0;
 }
 
@@ -7856,43 +8213,158 @@ function testRunMessage(text, kind) {
 	el.className = 'text-xs mb-2 ' + (kind === 'error' ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400');
 }
 
+// The run dispatcher: the banner + the active view (the report for a suite
+// run, the result under the steps for a single script).
 function testRenderRun(snapshot) {
 	_testRunState = snapshot || null;
-	const running = testRunActive();
-	const banner = document.getElementById('test-run-banner');
-	if (banner) {
-		if (running) {
-			banner.textContent = '\u26a0 ' + t('Test script running:') + ' ' + (snapshot.name || '') + ' (' + (snapshot.index + 1) + '/' + snapshot.total + ')';
-			banner.classList.remove('hidden');
-		} else {
-			banner.classList.add('hidden');
-		}
-	}
-	const runBtn = document.getElementById('test-run-btn');
-	const stopBtn = document.getElementById('test-stop-btn');
-	if (runBtn) runBtn.classList.toggle('hidden', running);
-	if (stopBtn) stopBtn.classList.toggle('hidden', !running);
-	const pill = document.querySelector('[data-phone-sub="test"]');
-	if (pill) pill.textContent = running ? t('Test script') + ' \u2022' : t('Test script');
+	testRender();
+}
+
+// The single-script result, under the step list (the current style; not
+// preserved - the report view belongs to suite runs).
+function testRenderScriptRun() {
 	const statusEl = document.getElementById('test-run-status');
 	const stepsEl = document.getElementById('test-run-steps');
 	if (!statusEl || !stepsEl) return;
-	if (!snapshot || (!running && !snapshot.status && !(snapshot.steps || []).length)) {
+	const snap = _testRunState;
+	const cur = testCurrentScript();
+	const mine = snap && !snap.suite && (snap.script_id
+		? (cur && snap.script_id === cur.id)
+		: (_testRunScriptRef === cur && !!cur));
+	if (!snap || (!mine && !snap.running)) {
 		statusEl.textContent = t('No run yet.');
 		statusEl.className = 'text-xs text-gray-500 dark:text-slate-400 mb-2';
 		stepsEl.innerHTML = '';
 		return;
 	}
-	let head = esc(snapshot.name || '');
-	if (snapshot.status) head += ' · ' + testStatusBadge(snapshot.status);
-	else if (running) head += ' · ' + esc(t('running'));
-	if (snapshot.preset) head += ' · ' + esc(t('Preset')) + ': ' + esc(snapshot.preset);
-	if (snapshot.scp80_counter) head += ' · counter ' + esc(snapshot.scp80_counter);
-	if (snapshot.error) head += ' · ' + esc(snapshot.error);
+	let head = esc(snap.name || '');
+	if (snap.status) head += ' · ' + testStatusBadge(snap.status);
+	else if (snap.running) head += ' · ' + esc(t('running'));
+	if (snap.preset) head += ' · ' + esc(t('Preset')) + ': ' + esc(snap.preset);
+	if (snap.scp80_counter) head += ' · counter ' + esc(snap.scp80_counter);
+	if (snap.error) head += ' · ' + esc(snap.error);
 	statusEl.innerHTML = head;
 	statusEl.className = 'text-xs mb-2 text-gray-600 dark:text-slate-300';
-	stepsEl.innerHTML = (snapshot.steps || []).map(testRunStepHtml).join('');
+	stepsEl.innerHTML = (snap.steps || []).map(testRunStepHtml).join('');
 }
+
+// ── the suite report ──
+
+function testRenderReport() {
+	const titleEl = document.getElementById('test-report-title');
+	const sumEl = document.getElementById('test-report-summary');
+	const memEl = document.getElementById('test-report-members');
+	if (!titleEl || !sumEl || !memEl) return;
+	const snap = _testRunState;
+	const s = snap && snap.suite;
+	if (!s) {
+		titleEl.textContent = t('No suite run yet.');
+		sumEl.textContent = '';
+		memEl.innerHTML = '';
+		return;
+	}
+	titleEl.innerHTML = esc(s.name || t('Suite')) + ' · '
+		+ testStatusBadge(snap.status || (snap.running ? 'running' : ''));
+	const parts = [];
+	const su = s.summary;
+	if (su) {
+		parts.push(t('passed') + ': ' + su.ok, t('warnings') + ': ' + su.warning,
+			t('failed') + ': ' + su.error, t('skipped') + ': ' + su.skipped);
+		if (su.stopped) parts.push(t('stopped'));
+		if (su.wall_ms !== undefined && su.wall_ms !== null) parts.push((su.wall_ms / 1000).toFixed(1) + ' s');
+	}
+	if (snap.preset) parts.push(t('Preset') + ': ' + snap.preset);
+	if (s.counters_before && Object.keys(s.counters_before).length) {
+		const after = s.counters_after || {};
+		parts.push('SCP80: ' + Object.keys(s.counters_before).map(k =>
+			k + ' ' + (s.counters_before[k] || '-') + ' \u2192 ' + (after[k] || '-')).join(', '));
+	}
+	if (s.session_changed) parts.push('\u26a0 ' + t('card session changed mid-suite'));
+	if (snap.adm && snap.adm.required) parts.push('ADM: ' + (snap.adm.verified ? t('verified') : t('not verified')));
+	if (snap.error) parts.push(esc(snap.error));
+	sumEl.innerHTML = esc(parts.join(' · '));
+	memEl.innerHTML = (s.members || []).map(testReportMemberHtml).join('');
+}
+
+function testReportMemberHtml(m, i) {
+	let html = '<div class="border border-gray-200 dark:border-slate-700 rounded mb-2">'
+		+ '<div class="flex items-center gap-2 px-2 py-1.5 bg-gray-50 dark:bg-slate-800/50">'
+		+ '<span class="w-5 text-right text-xs text-gray-400">' + (i + 1) + '</span>'
+		+ '<span class="flex-1 truncate">' + esc(m.name || m.script_id || '') + '</span>';
+	if (m.role && m.role !== 'member') {
+		html += '<span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-slate-700">' + esc(t(m.role)) + '</span>';
+	}
+	if (m.on_fail === 'continue') html += '<span class="text-xs text-gray-400">on_fail: continue</span>';
+	html += testStatusBadge(m.status || 'pending') + '</div>';
+	if (m.note) html += '<div class="px-2 py-1 text-xs text-red-500">' + esc(m.note) + '</div>';
+	if ((m.steps || []).length) html += '<div class="px-2 py-1">' + m.steps.map(testRunStepHtml).join('') + '</div>';
+	if ((m.log || []).length) {
+		html += '<details class="px-2 pb-1"><summary class="text-xs text-gray-500 cursor-pointer">'
+			+ esc(t('Run log')) + (m.log_truncated ? ' (' + esc(t('truncated')) + ')' : '') + '</summary>'
+			+ '<pre class="text-xs whitespace-pre-wrap break-all text-gray-500 dark:text-slate-400 max-h-64 overflow-auto">'
+			+ esc(m.log.join('\n')) + '</pre></details>';
+	}
+	return html + '</div>';
+}
+
+function testDownloadText(name, text, mime) {
+	const blob = new Blob([text], {type: mime || 'text/plain'});
+	const a = document.createElement('a');
+	a.href = URL.createObjectURL(blob);
+	a.download = name;
+	a.click();
+	URL.revokeObjectURL(a.href);
+}
+
+function testReportExportJson() {
+	if (!_testRunState || !_testRunState.suite) {
+		ioStatus('test-io-status', t('No suite run yet.'));
+		return;
+	}
+	downloadJson('suite-report.json', _testRunState);
+}
+
+function testReportExportMarkdown() {
+	if (!_testRunState || !_testRunState.suite) {
+		ioStatus('test-io-status', t('No suite run yet.'));
+		return;
+	}
+	testDownloadText('suite-report.md', testReportMarkdown(_testRunState), 'text/markdown');
+}
+
+// The report as Markdown (the human-readable export; JSON is the machine one).
+function testReportMarkdown(snap) {
+	const s = (snap && snap.suite) || {};
+	const lines = ['# ' + t('Test suite report') + ': ' + (s.name || '')];
+	if (snap && snap.status) lines.push('', '- ' + t('status') + ': ' + snap.status);
+	if (snap && snap.preset) lines.push('- ' + t('Preset') + ': ' + snap.preset);
+	const su = s.summary || {};
+	lines.push('- ' + t('passed') + ': ' + (su.ok || 0) + ', ' + t('warnings') + ': ' + (su.warning || 0)
+		+ ', ' + t('failed') + ': ' + (su.error || 0) + ', ' + t('skipped') + ': ' + (su.skipped || 0));
+	if (su.wall_ms !== undefined && su.wall_ms !== null) {
+		lines.push('- ' + t('wall time') + ': ' + (su.wall_ms / 1000).toFixed(1) + ' s');
+	}
+	if (s.counters_before && Object.keys(s.counters_before).length) {
+		const after = s.counters_after || {};
+		lines.push('- SCP80: ' + Object.keys(s.counters_before).map(k =>
+			k + ' ' + (s.counters_before[k] || '-') + ' -> ' + (after[k] || '-')).join(', '));
+	}
+	if (s.session_changed) lines.push('- \u26a0 ' + t('card session changed mid-suite'));
+	(s.members || []).forEach((m, i) => {
+		lines.push('', '## ' + (i + 1) + '. ' + (m.name || '') + ' (' + (m.role || 'member')
+			+ ', on_fail: ' + (m.on_fail || 'stop') + ') - ' + (m.status || 'pending'));
+		if (m.note) lines.push('', '> ' + m.note);
+		(m.steps || []).forEach(st => {
+			lines.push('', '### ' + t('Step') + ' ' + (st.index + 1) + ': ' + (st.label || '')
+				+ ' - ' + (st.status || ''));
+			(st.checks || []).forEach(c => lines.push('- ' + (c.ok ? '\u2713' : '\u2717') + ' '
+				+ c.label + ': ' + t('expected') + ' ' + c.expected + ', ' + t('actual') + ' ' + c.actual));
+		});
+		if ((m.log || []).length) lines.push('', '```', m.log.join('\n'), '```');
+	});
+	return lines.join('\n');
+}
+
 
 function testStatusBadge(status) {
 	const cls = status === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
@@ -7924,10 +8396,12 @@ function testRunStepHtml(step) {
 	return html + '</div>';
 }
 
-function testRunPreset() {
+function testRunPreset(needScp80) {
 	const preset = cardsMatchedPreset();
-	if (!preset) return {error: t('No card preset matches the equipped card - SCP80 steps need one')};
-	if (!cardsScp80Complete(preset)) return {error: t('The matched card preset has incomplete SCP80 data (a complete keyset and the role TARs with their MSLs)')};
+	if (!preset) return {error: t('No card preset matches the equipped card') + (needScp80 ? ' - SCP80 steps need one' : '')};
+	if (needScp80 && !cardsScp80Complete(preset)) {
+		return {error: t('The matched card preset has incomplete SCP80 data (a complete keyset and the role TARs with their MSLs)')};
+	}
 	_testLastPresetIdx = cards.indexOf(preset);
 	// The run names the preset; the server resolves it from the store, so the
 	// run uses the stored keysets, TARs and counters (the flat preset fields
@@ -7935,29 +8409,68 @@ function testRunPreset() {
 	return {preset_id: preset.id};
 }
 
+
 async function testRunStart() {
-	const cur = testCurrent();
+	const cur = testCurrentScript();
 	const problem = testScriptProblem(cur);
 	if (problem) { testRunMessage(problem, 'error'); return; }
+	const usesScp80 = cur.steps.some(s => s.type === 'action' && s.kind === 'scp80');
 	let presetId = null;
-	if (cur.steps.some(s => s.type === 'action' && s.kind === 'scp80')) {
-		const found = testRunPreset();
+	if (usesScp80 || cur.require_adm) {
+		const found = testRunPreset(usesScp80);
 		if (found.error) { testRunMessage(found.error, 'error'); return; }
 		presetId = found.preset_id;
 	}
 	try {
-		const body = {script: cur};
+		const body = {script: {name: cur.name || '', steps: cur.steps,
+			require_adm: !!cur.require_adm}};
 		if (cur.id) body.script_id = cur.id;
 		if (presetId) body.preset_id = presetId;
+		_testRunScriptRef = cur;
 		const resp = await pysimFetch('/api/test/run', body);
 		if (resp.error) { testRunMessage(resp.error, 'error'); return; }
 		testRenderRun(resp);
 		testStartRunTimer();
-		pysimApplyAvailability();
 	} catch (e) {
 		testRunMessage(String(e.message || e), 'error');
 	}
 }
+
+// Run a suite: its scripts in order (setup first, teardown last), one card
+// session; the report view opens and updates live.
+async function testSuiteRun(i) {
+	const s = testSuites()[i];
+	if (!s) return;
+	if (!(s.scripts || []).length) {
+		ioStatus('test-io-status', t('The suite has no scripts'));
+		return;
+	}
+	const memberIds = new Set((s.scripts || []).map(e => e.script_id));
+	const members = testScripts().filter(x => memberIds.has(x.id));
+	const usesScp80 = members.some(x => (x.steps || []).some(st => st.type === 'action' && st.kind === 'scp80'));
+	const needsAdm = !!s.require_adm || members.some(x => x.require_adm);
+	let presetId = null;
+	if (usesScp80 || needsAdm) {
+		const found = testRunPreset(usesScp80);
+		if (found.error) { ioStatus('test-io-status', found.error); return; }
+		presetId = found.preset_id;
+	}
+	try {
+		const body = {suite_id: s.id};
+		if (presetId) body.preset_id = presetId;
+		const resp = await pysimFetch('/api/test/run', body);
+		if (resp.error) { ioStatus('test-io-status', resp.error); return; }
+		_testSuiteIdx = i;
+		_testView = 'report';
+		testRenderRun(resp);
+		testStartRunTimer();
+	} catch (e) {
+		ioStatus('test-io-status', String(e.message || e));
+	}
+}
+
+function testSuiteRunCurrent() { testSuiteRun(_testSuiteIdx); }
+
 
 async function testStop() {
 	try {
@@ -8043,15 +8556,26 @@ function testWriteBackCounter() {
 }
 
 async function testInit() {
-	await testScriptsFetch();
+	await testStoresFetch();
+	if (_testSuiteIdx >= testSuites().length) _testSuiteIdx = -1;
 	testRender();
 	try {
 		const st = await pysimFetch('/api/test/status');
-		testRenderRun(st);
+		if (st && st.suite && st.suite.members) {
+			// a suite run (or its finished report): open the report view
+			const idx = testSuites().findIndex(s => s.id === st.suite.id);
+			if (idx >= 0) _testSuiteIdx = idx;
+			_testRunState = st;
+			if (_testView !== 'script') _testView = 'report';
+			testRender();
+		} else {
+			testRenderRun(st);
+		}
 		if (st && st.running) testStartRunTimer();
-		else testWriteBackCounter();
+		else if (st && !st.suite) testWriteBackCounter();
 	} catch (e) { /* server optional */ }
 }
+
 
 // ===== pysim integration =====
 // Default to a local server on 127.0.0.1:8080. If this PWA is served by
@@ -21291,7 +21815,6 @@ const LANG_RU = {
 	'step must be an action or an expectation': 'шаг должен быть действием или ожиданием',
 	'No steps yet - add an action or an expectation.': 'Шагов пока нет — добавьте действие или ожидание.',
 	'No content checks.': 'Нет проверок содержимого.',
-	'Delete this test script?': 'Удалить этот тест-скрипт?',
 	'Import failed:': 'Импорт не удался:',
 	'Imported:': 'Импортировано:',
 	'Import': 'Импорт',
@@ -21374,12 +21897,56 @@ const LANG_RU = {
 	'event fields must be an object': 'поля события должны быть объектом',
 	'Event data (hex)': 'Данные события (hex)',
 	'Source override (hex, optional)': 'Переопределение источника (hex, опционально)',
-	'Could not load the test scripts from the server': 'Не удалось загрузить тест-скрипты с сервера',
 	'Could not save the test script': 'Не удалось сохранить тест-скрипт',
 	'Could not delete the test script': 'Не удалось удалить тест-скрипт',
 	'no scripts found': 'скрипты не найдены',
-	'skipped': 'пропущено',
 	'Test script running:': 'Выполняется тест-скрипт:',
+	'Test suite running:': 'Выполняется набор тестов:',
+	'Add suite': 'Добавить набор',
+	'Suites': 'Наборы',
+	'Run suite': 'Запустить набор',
+	'Add script': 'Добавить скрипт',
+	'Run result': 'Результат запуска',
+	'Export JSON': 'Экспорт JSON',
+	'Export Markdown': 'Экспорт Markdown',
+	'ADM required': 'Требуется ADM',
+	'A suite runs its scripts in order: setup first, teardown last.': 'Набор выполняет свои скрипты по порядку: сначала setup, затем teardown.',
+	'No test suites yet - add one.': 'Наборов тестов пока нет — добавьте.',
+	'No scripts yet - add one.': 'Скриптов пока нет — добавьте.',
+	'New test suite': 'Новый набор тестов',
+	'The suite has no scripts': 'В наборе нет скриптов',
+	'Delete this test suite?': 'Удалить этот набор тестов?',
+	'Delete this test script?': 'Удалить этот тест-скрипт?',
+	'Could not create the test suite': 'Не удалось создать набор тестов',
+	'Could not delete the test suite': 'Не удалось удалить набор тестов',
+	'Could not save the test suite': 'Не удалось сохранить набор тестов',
+	'Could not add the test script': 'Не удалось добавить тест-скрипт',
+	'Could not move the test script': 'Не удалось переместить тест-скрипт',
+	'Could not copy the test script': 'Не удалось скопировать тест-скрипт',
+	'Could not load the test suites from the server': 'Не удалось загрузить наборы тестов с сервера',
+	'Could not load the test scripts from the server': 'Не удалось загрузить тест-скрипты с сервера',
+	'Script moved.': 'Скрипт перемещён.',
+	'Script copied.': 'Скрипт скопирован.',
+	'Move to:': 'Переместить в:',
+	'Copy to:': 'Скопировать в:',
+	'on failure': 'при ошибке',
+	'unknown script': 'неизвестный скрипт',
+	'setup': 'setup',
+	'member': 'member',
+	'teardown': 'teardown',
+	'stop': 'остановить',
+	'continue': 'продолжить',
+	'warnings': 'предупреждения',
+	'skipped': 'пропущено',
+	'stopped': 'остановлено',
+	'wall time': 'время выполнения',
+	'card session changed mid-suite': 'сессия карты сменилась во время набора',
+	'verified': 'подтверждён',
+	'not verified': 'не подтверждён',
+	'Run log': 'Журнал запуска',
+	'truncated': 'обрезан',
+	'Test suite report': 'Отчёт набора тестов',
+	'status': 'статус',
 	'Test script running': 'Выполняется тест-скрипт',
 	'Preset': 'Пресет',
 	'Counter': 'Счётчик',

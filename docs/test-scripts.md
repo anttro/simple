@@ -12,12 +12,31 @@ localStorage export imports as-is), and any API client can create or run them
 (`POST /api/test/run` with an inline `script` or a stored `script_id` - see
 `docs/api.md`).  While a run is active the card belongs to the script.
 
+**Test suites** (v3.22.0) group the scripts: a suite is the root object (every
+script belongs to exactly one suite, `suite_id` in the script store) and the
+runner executes its scripts in order - the optional **setup** first, the
+**member** scripts, the optional **teardown** last - in **one card session,
+without resets and without resume**.  Per member `on_fail` decides whether a
+failure stops the suite (`stop`, default) or the next script runs
+(`continue`); the **teardown always runs** on a stop or a failure (its job is
+to leave the card ready for a new test) as long as the card is in the reader,
+and a card reset (session change) stops the suite and is flagged in the
+report.  A suite (or a single script) may require the **ADM** verified: the
+matched preset's key is tried **once** at the start - a failure refuses the
+run and needs a manual verify (the ADM badge) before the next attempt.  The
+suite run's report (the PWA's report view, exportable as JSON or Markdown)
+carries every member's step table, failing notes and run-log excerpt, plus the
+summary (pass/warn/fail/skipped, wall time, the SCP80 counters before/after
+per keyset and the card-session flag).  The suites live in
+`~/.pysim-simple-server/test_suites.json` (`--test-suites`).
+
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
 RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `envelope` action's `src` override since 3.18.1, the inline `por` object, the
 `alpha`/`sms` checks, `scp80.params.format` and the case-insensitive
-`menu-select` text match since 3.19.0.
+`menu-select` text match since 3.19.0, the `proactive` cleanup action and the
+ok-answering bounded cleanup since 3.21.0, the suites since 3.22.0.
 
 ## Writing a test for an applet
 

@@ -16,8 +16,9 @@ from . import fastinit
 from . import gsmtap
 from . import presets
 from . import test_scripts
+from . import test_suites
 from . import testscript
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter, _test_command_type
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _netstate_read, _netstate_install, _LineFilter, _test_command_type, migrate_scripts_to_suites
 
 
 _server_start = 0
@@ -70,6 +71,8 @@ def main():
                         help='Card preset store (default: ~/.pysim-simple-server/card_presets.json)')
     parser.add_argument('--test-scripts', default=None, metavar='PATH',
                         help='Test script store (default: ~/.pysim-simple-server/test_scripts.json)')
+    parser.add_argument('--test-suites', default=None, metavar='PATH',
+                        help='Test suite store (default: ~/.pysim-simple-server/test_suites.json)')
     parser.add_argument('--sms-oa', default='12345', metavar='DIGITS',
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
     parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
@@ -300,6 +303,13 @@ def main():
         validator=lambda raw: testscript.normalise_script(raw, _test_command_type))
     sys.stderr.write('TESTSCRIPTS: %s (%d scripts)\n'
                      % (server.test_scripts.path, len(server.test_scripts.list())))
+    # Test suites group the scripts (v3.22.0): a script belongs to exactly one
+    # suite, so a pre-suite store's scripts are attached to an auto-created
+    # "Imported scripts" suite once (idempotent - no orphans, nothing to do).
+    server.test_suites = test_suites.TestSuiteStore(opts.test_suites)
+    sys.stderr.write('TESTSUITES: %s (%d suites)\n'
+                     % (server.test_suites.path, len(server.test_suites.list())))
+    migrate_scripts_to_suites(server.test_scripts, server.test_suites)
     server.sim_menu = sim_menu
     server.event_list = event_list
     server.menu_active = False

@@ -40,6 +40,8 @@ eval(extractFunc(html, 'testStepSummary'));
 eval(extractFunc(html, 'testCommandOptions'));
 globalThis.t = s => s;
 globalThis.esc = s => String(s);
+globalThis.testScripts = () => _testScripts || [];
+globalThis.testSuites = () => _testSuites || [];
 eval(extractFunc(html, 'testFormRow'));
 eval(extractFunc(html, 'testFormInput'));
 eval(extractFunc(html, 'testFormSelect'));
@@ -53,11 +55,14 @@ eval(extractFunc(html, 'testScriptsWriteback', true));
 eval(extractFunc(html, 'testScriptsWritebackQueued'));
 eval(extractFunc(html, 'testScriptsSave'));
 eval(extractFunc(html, 'testRunStart', true));
-eval(extractFunc(html, 'testDelete', true));
+eval(extractFunc(html, 'testSuiteDeleteScript', true));
+eval(extractFunc(html, 'testSuitesRefetch', true));
 eval(extractFunc(html, 'testChecksCollect'));
 eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex = -1;'
-	+ ' var _testScripts = null; var _testCurrentIdx = -1; var _testRunState = null;'
-	+ ' var _testSaveTimer = null; var _testWriteChains = new WeakMap(); var _testLastPresetIdx = -1;');
+	+ ' var _testScripts = null; var _testSuites = []; var _testScriptId = null;'
+	+ ' var _testScriptDraft = null; var _testRunState = null; var _testSaveTimer = null;'
+	+ ' var _testWriteChains = new WeakMap(); var _testLastPresetIdx = -1;'
+	+ ' var _testRunScriptRef = null; var _testSuiteIdx = -1;');
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 function fakeForm(values) {
@@ -443,12 +448,14 @@ test('two quick saves of a draft create one script, then update it', async () =>
 	};
 	globalThis.ioStatus = () => {};
 	_testScripts = [{ name: 'one', steps: [{ type: 'action', kind: 'status', params: { attempts: 1 } }] }];
-	_testCurrentIdx = 0;
-	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	_testScriptId = null;
+	globalThis.testCurrentScript = () => _testScripts[0];
 	testScriptsSave(true);
 	testScriptsSave(true);
 	await new Promise(r => setTimeout(r, 40));
-	assert.deepStrictEqual(calls, ['/api/test/scripts', '/api/test/scripts/update']);
+	// the create is followed by a suites refetch (the suite gained the member)
+	assert.deepStrictEqual(calls, ['/api/test/scripts', '/api/test/suites',
+		'/api/test/scripts/update']);
 	assert.strictEqual(_testScripts[0].id, 'd'.repeat(32));
 });
 
@@ -458,15 +465,21 @@ test('deleting a script cancels a pending debounced save', async () => {
 	globalThis.ioStatus = () => {};
 	globalThis.confirm = () => true;
 	globalThis.testRender = () => {};
-	_testScripts = [{ name: 'draft', steps: [{ type: 'action', kind: 'status', params: { attempts: 1 } }] }];
-	_testCurrentIdx = 0;
-	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	globalThis.testStoresFetch = async () => {};
+	const script = {id: 'e'.repeat(32), name: 'edited',
+		steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]};
+	_testScripts = [script];
+	globalThis.testCurrentScript = () => script;
+	globalThis.testScriptById = () => script;
+	globalThis.testCurrentSuite = () => ({id: 'a'.repeat(32),
+		scripts: [{script_id: script.id, role: 'member', on_fail: 'stop'}]});
+	globalThis.testSuiteEntry = () => ({script_id: script.id});
+	globalThis.testSuites = () => [];
 	testScriptsSave();                       // schedules the 600 ms write
-	await testDelete();                      // a draft: local removal only
+	await testSuiteDeleteScript(0);          // the delete path
 	await new Promise(r => setTimeout(r, 700));
-	assert.deepStrictEqual(calls, []);       // the queued save never fired
-	assert.strictEqual(_testScripts.length, 1);
-	assert.strictEqual(_testScripts[0].name, 'New test script');
+	assert.deepStrictEqual(calls, ['/api/test/scripts/delete']);
+	assert.strictEqual(script._deleted, true);
 });
 
 test('the STATUS step leaves the SW check to the server default', () => {
@@ -606,12 +619,16 @@ test('the run sends the stored preset id, not the removed flat fields', () => {
 test('the run refuses without a matched or complete preset', () => {
 	globalThis.cards = [];
 	globalThis.cardsMatchedPreset = () => null;
-	assert.match(testRunPreset().error, /No card preset matches/);
+	assert.match(testRunPreset(true).error, /No card preset matches/);
 	const preset = { id: 'p2' };
 	globalThis.cards = [preset];
 	globalThis.cardsMatchedPreset = () => preset;
 	globalThis.cardsScp80Complete = () => false;
-	assert.match(testRunPreset().error, /incomplete SCP80/);
+	assert.match(testRunPreset(true).error, /incomplete SCP80/);
+	// an ADM-only run needs the preset but not the SCP80 completeness
+	assert.strictEqual(testRunPreset(false).preset_id, 'p2');
+	globalThis.cardsScp80Complete = () => true;
+	assert.strictEqual(testRunPreset(true).preset_id, 'p2');
 });
 
 test('the client-side problem check bounds the keyset number', () => {
@@ -681,10 +698,11 @@ test('a new script is created in the server store and gets its id', async () => 
 	assert.strictEqual(calls[0][0], '/api/test/scripts');
 	assert.strictEqual(calls[0][1].name, 'new');
 	assert.strictEqual(s.id, 'a'.repeat(32));      // the store id is adopted
+	assert.strictEqual(calls[1][0], '/api/test/suites');   // the member refetch
 	// every later write updates by id
 	await testScriptsWriteback(s);
-	assert.strictEqual(calls[1][0], '/api/test/scripts/update');
-	assert.strictEqual(calls[1][1].id, 'a'.repeat(32));
+	assert.strictEqual(calls[2][0], '/api/test/scripts/update');
+	assert.strictEqual(calls[2][1].id, 'a'.repeat(32));
 });
 
 test('an incomplete draft is not written to the store', async () => {
@@ -701,11 +719,11 @@ test('an immediate save writes the current script through', async () => {
 	globalThis.pysimFetch = async (path) => { calls.push(path); return {ok: true, script: {id: 'c'.repeat(32)}}; };
 	globalThis.ioStatus = () => {};
 	_testScripts = [{name: 'one', steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]}];
-	_testCurrentIdx = 0;
-	globalThis.testCurrent = () => _testScripts[_testCurrentIdx];
+	_testScriptId = null;
+	globalThis.testCurrentScript = () => _testScripts[0];
 	testScriptsSave(true);
 	await new Promise(r => setTimeout(r, 0));      // the writeback is async
-	assert.deepStrictEqual(calls, ['/api/test/scripts']);
+	assert.deepStrictEqual(calls, ['/api/test/scripts', '/api/test/suites']);
 	assert.strictEqual(_testScripts[0].id, 'c'.repeat(32));
 });
 
@@ -723,7 +741,7 @@ test('the run sends the stored script id with the edited script', async () => {
 		sent = {path, body};
 		return {running: true, name: 'saved', index: 0, total: 1, steps: [], status: null};
 	};
-	globalThis.testCurrent = () => ({id: 'b'.repeat(32), name: 'saved',
+	globalThis.testCurrentScript = () => ({id: 'b'.repeat(32), name: 'saved',
 		steps: [{type: 'action', kind: 'status', params: {attempts: 1}}]});
 	globalThis.testRunPreset = () => { throw new Error('no preset for a status-only script'); };
 	globalThis.testRunMessage = () => {};

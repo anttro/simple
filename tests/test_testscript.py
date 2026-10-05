@@ -404,6 +404,7 @@ class FakeServer:
         self.sms_oa = '12345'
         self.sms_sc = '12345678912'
         self.card_session = 1
+        self.card_present = True
         self.stk_pending = None
         self.menu_active = False
 
@@ -428,7 +429,8 @@ class RunnerTestCase(unittest.TestCase):
         S._TEST_RUN.update({'running': True, 'stop': stop, 'name': 'test',
                             'status': None, 'steps': [], 'index': 0,
                             'total': len(script['steps']), 'scp80_counter': None,
-                            'started': time.time(), 'finished': None, 'error': None})
+                            'started': time.time(), 'finished': None, 'error': None,
+                            'suite': None, 'log': [], 'log_prefix': '', 'adm': None})
         S._TEST_RUNNING = True
         try:
             S._test_run_execute(server, script, preset or {})
@@ -1022,7 +1024,8 @@ class TestRunnerActions(RunnerTestCase):
         self.assertIsNone(err)
         # script_id alone resolves from the store
         raw, sid, err = S._test_run_script_from_body(server, {'script_id': entry['id']})
-        self.assertEqual(raw, {'name': 'stored', 'steps': entry['steps']})
+        self.assertEqual(raw, {'name': 'stored', 'steps': entry['steps'],
+                               'require_adm': False})
         self.assertEqual(sid, entry['id'])
         self.assertIsNone(err)
         raw, sid, err = S._test_run_script_from_body(server, {'script_id': 'nope'})
@@ -1483,6 +1486,252 @@ class TestRunnerActions(RunnerTestCase):
         self.assertEqual(S._increment_counter_hex('000000FF'), '00000100')
         self.assertEqual(S._increment_counter_hex('FF'), '00')
         self.assertEqual(S._increment_counter_hex(''), '')
+
+
+OK_STEP = {'type': 'action', 'kind': 'apdu', 'params': {'apdu': '00A40000023F00'},
+           'check': {'sw': '9000'}}
+BAD_STEP = {'type': 'action', 'kind': 'apdu', 'params': {'apdu': '00B0000000'},
+            'check': {'sw': '9000'}}   # no queue -> 6D00
+
+
+class SuiteRunnerTestCase(RunnerTestCase):
+    """Suite runner tests (v3.22.0): setup -> members (per-member on_fail) ->
+    teardown, one card session, no resume."""
+
+    def members(self, specs):
+        """specs: [(role, ok, on_fail)] -> the resolved member list."""
+        out = []
+        for i, spec in enumerate(specs):
+            role, ok = spec[0], spec[1]
+            on_fail = spec[2] if len(spec) > 2 else 'stop'
+            step = dict(OK_STEP if ok else BAD_STEP)
+            out.append(({'script_id': '%032x' % (i + 1), 'role': role,
+                         'on_fail': on_fail},
+                        T.normalise_script({'name': 'script %d' % (i + 1),
+                                            'steps': [step]}, S._test_command_type)))
+        return out
+
+    def suite_run(self, server, members, suite=None, preset=None, preset_id=None):
+        suite = suite or {'name': 'suite'}
+        S._TEST_RUN.clear()
+        S._TEST_RUN.update({'running': True, 'stop': False, 'name': 'suite',
+                            'status': None, 'session': server.card_session,
+                            'index': 0, 'total': 0, 'steps': [],
+                            'started': time.time(), 'finished': None, 'error': None,
+                            'scp80_counter': None, 'scp80_counters': {},
+                            'script_id': None, 'preset': None,
+                            'suite': S._test_suite_state(suite, members,
+                                                         preset or {}, preset_id,
+                                                         server.card_session),
+                            'log': [], 'log_prefix': '', 'adm': None})
+        S._TEST_RUNNING = True
+        try:
+            S._test_suite_execute(server, suite, members, preset or {}, preset_id)
+        finally:
+            S._TEST_RUNNING = False
+        return S._TEST_RUN
+
+    def push_ok(self, scc, n):
+        for _ in range(n):
+            scc.push('00A4', '', '9000')
+
+
+class TestSuiteRunner(SuiteRunnerTestCase):
+    def test_setup_members_teardown_run_in_order(self):
+        scc = FakeScc()
+        self.push_ok(scc, 4)
+        members = self.members([('setup', True), ('member', True),
+                                ('member', True), ('teardown', True)])
+        run = self.suite_run(FakeServer(scc), members)
+        self.assertEqual(run['status'], 'ok')
+        state = run['suite']
+        self.assertEqual([m['role'] for m in state['members']],
+                         ['setup', 'member', 'member', 'teardown'])
+        self.assertEqual([m['status'] for m in state['members']],
+                         ['ok', 'ok', 'ok', 'ok'])
+        self.assertEqual(state['summary']['setup'], 'ok')
+        self.assertEqual(state['summary']['teardown'], 'ok')
+        self.assertEqual(state['summary']['ok'], 4)
+        self.assertEqual(state['summary']['error'], 0)
+        self.assertFalse(state['summary']['stopped'])
+        self.assertEqual(state['summary']['counters_before'], {})
+        # the member steps are copied into the report (the live view is reset
+        # between members)
+        self.assertEqual(len(state['members'][1]['steps']), 1)
+        self.assertEqual(state['members'][1]['steps'][0]['status'], 'ok')
+        # the run log carries the member prefix and is sliced per member
+        joined = '\n'.join(state['members'][1]['log'])
+        self.assertIn('[2/4 member script 2]', joined)
+
+    def test_on_fail_stop_skips_the_rest_and_still_runs_teardown(self):
+        scc = FakeScc()
+        self.push_ok(scc, 1)                       # setup ok
+        self.push_ok(scc, 1)                       # first member ok
+        # the failing member gets no queue entry -> 6D00 (error)
+        self.push_ok(scc, 1)                       # teardown ok
+        members = self.members([('setup', True), ('member', True),
+                                ('member', False, 'stop'), ('member', True),
+                                ('teardown', True)])
+        run = self.suite_run(FakeServer(scc), members)
+        self.assertEqual(run['status'], 'error')
+        statuses = [m['status'] for m in run['suite']['members']]
+        self.assertEqual(statuses, ['ok', 'ok', 'error', 'skipped', 'ok'])
+        self.assertEqual(run['suite']['members'][3]['note'],
+                         'a previous script failed (on_fail: stop)')
+        # no member ran after the error: the queue holds exactly the teardown's
+        self.assertEqual(sum(1 for a in scc.sent if a.startswith('00A4')), 3)
+
+    def test_on_fail_continue_runs_the_next_member(self):
+        scc = FakeScc()
+        self.push_ok(scc, 1)                       # member 1 ok
+        # member 2 fails (no queue entry)
+        self.push_ok(scc, 1)                       # member 3 ok
+        members = self.members([('member', True), ('member', False, 'continue'),
+                                ('member', True)])
+        run = self.suite_run(FakeServer(scc), members)
+        self.assertEqual(run['status'], 'error')   # the failure is reported
+        self.assertEqual([m['status'] for m in run['suite']['members']],
+                         ['ok', 'error', 'ok'])
+
+    def test_setup_failure_skips_members_but_runs_teardown(self):
+        scc = FakeScc()
+        # setup fails (no queue), members never run, teardown ok
+        self.push_ok(scc, 1)
+        members = self.members([('setup', False), ('member', True),
+                                ('teardown', True)])
+        run = self.suite_run(FakeServer(scc), members)
+        self.assertEqual([m['status'] for m in run['suite']['members']],
+                         ['error', 'skipped', 'ok'])
+        self.assertEqual(run['suite']['members'][1]['note'],
+                         'the setup script failed')
+
+    def test_stop_skips_the_members_and_runs_the_teardown(self):
+        scc = FakeScc()
+        self.push_ok(scc, 1)                       # setup ok (runs first)
+        self.push_ok(scc, 1)                       # teardown ok
+        members = self.members([('setup', True), ('member', True),
+                                ('teardown', True)])
+        server = FakeServer(scc)
+        real = S._test_run_script
+        calls = []
+
+        def wrapped(srv, script, preset):
+            ctx, stopped = real(srv, script, preset)
+            calls.append(script['name'])
+            if srv is server and len(calls) == 1:
+                S._TEST_RUN['stop'] = True         # the operator stops here
+            return ctx, stopped
+
+        with mock.patch.object(S, '_test_run_script', wrapped):
+            run = self.suite_run(server, members)
+        statuses = [m['status'] for m in run['suite']['members']]
+        self.assertEqual(statuses, ['ok', 'skipped', 'ok'])
+        self.assertTrue(run['suite']['summary']['stopped'])
+        self.assertEqual(run['status'], 'stopped')
+
+    def test_a_card_reset_stops_the_suite_and_flags_it(self):
+        scc = FakeScc()
+        self.push_ok(scc, 1)                       # member 1 ok
+        self.push_ok(scc, 1)                       # teardown ok (new session)
+        members = self.members([('member', True), ('member', True),
+                                ('teardown', True)])
+        server = FakeServer(scc)
+        real = S._test_run_script
+
+        def wrapped(srv, script, preset):
+            ctx, stopped = real(srv, script, preset)
+            if srv is server and len(scc.sent) <= 1:
+                srv.card_session += 1              # the card reset mid-suite
+            return ctx, stopped
+
+        with mock.patch.object(S, '_test_run_script', wrapped):
+            run = self.suite_run(server, members)
+        state = run['suite']
+        self.assertEqual([m['status'] for m in state['members']],
+                         ['ok', 'skipped', 'ok'])
+        self.assertEqual(state['members'][1]['note'],
+                         'card session changed (card removed or re-equipped)')
+        self.assertTrue(state['session_changed'])
+        self.assertEqual(state['session_start'], 1)
+        self.assertEqual(state['session_end'], 2)
+        self.assertTrue(state['summary']['session_changed'])
+
+    def test_teardown_is_skipped_when_the_card_is_gone(self):
+        scc = FakeScc()
+        self.push_ok(scc, 1)
+        members = self.members([('member', True), ('teardown', True)])
+        server = FakeServer(scc)
+        server.card_present = False
+        run = self.suite_run(server, members)
+        self.assertEqual([m['status'] for m in run['suite']['members']],
+                         ['ok', 'skipped'])
+        self.assertEqual(run['suite']['members'][1]['note'],
+                         'no card in the reader')
+
+
+class TestAdmGate(unittest.TestCase):
+    """The run prerequisite: a script/suite flagged `require_adm` runs only
+    with the ADM verified for the current card session - the preset's key is
+    tried once, never retried automatically."""
+
+    def setUp(self):
+        self.server = FakeServer(FakeScc())
+        self.server.app = object()
+
+    def test_not_needed_passes(self):
+        ok, info, err = S._ensure_adm(self.server, {}, False)
+        self.assertTrue(ok)
+        self.assertIsNone(err)
+        self.assertFalse(info['required'])
+
+    def test_verified_latch_passes(self):
+        self.server.adm_session = 1
+        ok, info, err = S._ensure_adm(self.server, {}, True)
+        self.assertTrue(ok)
+        self.assertTrue(info['verified'])
+
+    def test_verifies_once_with_the_preset_key(self):
+        with mock.patch.object(S, '_verify_adm', return_value={'ok': True,
+                                                               'sw': '9000'}) as v:
+            ok, info, err = S._ensure_adm(self.server, {'adm': 'AABBCCDD'}, True)
+        self.assertTrue(ok, err)
+        self.assertTrue(info['verified'])
+        self.assertTrue(info['checked'])
+        self.assertEqual(self.server.adm_session, self.server.card_session)
+        v.assert_called_once()
+        # the second gate in the same session does not verify again
+        with mock.patch.object(S, '_verify_adm', return_value={'ok': True}) as v2:
+            ok, _info, _err = S._ensure_adm(self.server, {'adm': 'AABBCCDD'}, True)
+        self.assertTrue(ok)
+        v2.assert_not_called()
+
+    def test_a_failure_is_not_retried_automatically(self):
+        with mock.patch.object(S, '_verify_adm', return_value={
+                'ok': False, 'sw': '63C2', 'attempts_left': 2}) as v:
+            ok, info, err = S._ensure_adm(self.server, {'adm': 'AABBCCDD'}, True)
+        self.assertFalse(ok)
+        self.assertIn('63C2', err)
+        self.assertIn('2 attempt(s) left', err)
+        self.assertEqual(info['attempts_left'], 2)
+        self.assertEqual(self.server.adm_failed_session, self.server.card_session)
+        # the next gate refuses without touching the card again
+        with mock.patch.object(S, '_verify_adm') as v2:
+            ok, _info, err = S._ensure_adm(self.server, {'adm': 'AABBCCDD'}, True)
+        self.assertFalse(ok)
+        self.assertIn('verify it manually', err)
+        v2.assert_not_called()
+
+    def test_no_key_in_the_preset_refuses(self):
+        ok, _info, err = S._ensure_adm(self.server, {}, True)
+        self.assertFalse(ok)
+        self.assertIn('no ADM key', err)
+
+    def test_a_new_session_clears_the_failure_stamp(self):
+        self.server.adm_failed_session = 1
+        self.server.card_session = 2
+        with mock.patch.object(S, '_verify_adm', return_value={'ok': True}):
+            ok, _info, _err = S._ensure_adm(self.server, {'adm': 'AABBCCDD'}, True)
+        self.assertTrue(ok)
 
 
 if __name__ == '__main__':

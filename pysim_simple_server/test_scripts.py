@@ -12,9 +12,19 @@ the editor, while the next save rewrites the file with it intact.
 A stored script is the script JSON (``name`` + ``steps``, the same shape the
 PWA exports) plus a stable uuid and timestamps::
 
-    {"version": 1, "scripts": [
-        {"id": "...", "name": "applet RFM update", "steps": [...],
+    {"version": 2, "scripts": [
+        {"id": "...", "name": "applet RFM update", "suite_id": "...",
+         "require_adm": false, "steps": [...],
          "created": 1690000000.0, "updated": 1690000000.0}]}
+
+Schema v2 (v3.22.0) adds ``suite_id``/``require_adm``: a script belongs to
+exactly one test suite (the suite is the root object; the PWA creates scripts
+only inside a suite) and can declare that it needs the ADM PIN verified.  A
+v1 entry loads with ``suite_id: None`` - the server attaches such orphans to
+an auto-created "Imported scripts" suite on startup - and the next save
+writes v2.  The cross-store rules (the suite exists, a move updates both
+stores, a referenced script cannot leave a dangling reference) live in the
+HTTP layer, which holds both stores.
 
 Validation runs on every mutation: the basic shape always, and - when the
 server passes its ``validator`` - the full ``testscript.normalise_script``
@@ -44,7 +54,9 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'test_scripts.json'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+_ID_RE = re.compile(r'[0-9a-f]{32}')
 
 
 def default_path():
@@ -171,7 +183,16 @@ class TestScriptStore:
             if not isinstance(step, dict) or step.get('type') not in ('action', 'expect'):
                 raise TestScriptError('step %d must be an action or an expectation'
                                       % (i + 1))
-        script = {'name': name.strip(), 'steps': copy.deepcopy(steps)}
+        suite_id = raw.get('suite_id')
+        if suite_id in (None, ''):
+            suite_id = None
+        else:
+            suite_id = str(suite_id).strip().lower()
+            if not _ID_RE.fullmatch(suite_id):
+                raise TestScriptError('suite_id must be a suite uuid')
+        script = {'name': name.strip(), 'suite_id': suite_id,
+                  'require_adm': bool(raw.get('require_adm')),
+                  'steps': copy.deepcopy(steps)}
         if validate and self._validator is not None:
             try:
                 self._validator(copy.deepcopy(script))
@@ -189,7 +210,7 @@ class TestScriptStore:
         script = self._check(entry, validate=validate)
         now = time.time()
         rid = str(entry.get('id') or '').strip().lower()
-        if not re.fullmatch(r'[0-9a-f]{32}', rid):
+        if not _ID_RE.fullmatch(rid):
             rid = uuid.uuid4().hex
         if keep_meta:
             created = entry.get('created')
@@ -198,7 +219,10 @@ class TestScriptStore:
             updated = updated if isinstance(updated, (int, float)) else created
         else:
             created = updated = now
-        return {'id': rid, 'name': script['name'], 'steps': script['steps'],
+        return {'id': rid, 'name': script['name'],
+                'suite_id': script['suite_id'],
+                'require_adm': script['require_adm'],
+                'steps': script['steps'],
                 'created': created, 'updated': updated}
 
     def _find(self, sid):
@@ -218,6 +242,20 @@ class TestScriptStore:
             s = self._find(sid)
             return copy.deepcopy(s) if s else None
 
+    def list_by_suite(self, suite_id):
+        """The scripts attached to one suite (the suite holds their order)."""
+        want = str(suite_id or '').strip().lower()
+        with self._lock:
+            return [copy.deepcopy(s) for s in self._scripts
+                    if (s.get('suite_id') or '') == want]
+
+    def orphans(self):
+        """Scripts without a suite (a v1 store, or a hand edit): the server
+        attaches them to the imported-scripts suite on startup."""
+        with self._lock:
+            return [copy.deepcopy(s) for s in self._scripts
+                    if not s.get('suite_id')]
+
     def add(self, script):
         with self._lock:
             s = self._normalise(script or {})
@@ -232,19 +270,25 @@ class TestScriptStore:
             return copy.deepcopy(s)
 
     def update(self, sid, fields):
-        """Partial or full update: name/steps replaced, id and created kept."""
+        """Partial or full update: name/steps/suite_id/require_adm replaced,
+        id and created kept.  The suite_id change is the *move* operation's
+        write (the HTTP layer updates the source and target suites around
+        it)."""
         with self._lock:
             cur = self._find(sid)
             if cur is None:
                 return None
-            merged = {'name': cur['name'], 'steps': copy.deepcopy(cur['steps'])}
+            merged = {'name': cur['name'], 'suite_id': cur.get('suite_id'),
+                      'require_adm': cur.get('require_adm', False),
+                      'steps': copy.deepcopy(cur['steps'])}
             if isinstance(fields, dict):
-                if 'name' in fields:
-                    merged['name'] = fields['name']
-                if 'steps' in fields:
-                    merged['steps'] = fields['steps']
+                for key in ('name', 'steps', 'suite_id', 'require_adm'):
+                    if key in fields:
+                        merged[key] = fields[key]
             script = self._check(merged)
             new = {'id': cur['id'], 'name': script['name'],
+                   'suite_id': script['suite_id'],
+                   'require_adm': script['require_adm'],
                    'steps': script['steps'], 'created': cur['created'],
                    'updated': time.time()}
             self._scripts[self._scripts.index(cur)] = new
@@ -262,12 +306,17 @@ class TestScriptStore:
                              % (s['name'] or '(unnamed)', s['id']))
             return True
 
-    def import_scripts(self, items, mode='merge'):
+    def import_scripts(self, items, mode='merge', suite_id=None):
         """Import exported (or old localStorage) scripts: entries are validated
         one by one; an already-used id gets a fresh one, invalid entries are
         reported instead of failing the whole import.  ``replace`` wipes the
-        store first."""
+        store first.  ``suite_id`` attaches every imported script to that suite
+        (the "import into this suite" flow).  Returns the ``id_map`` (input id
+        -> stored id, the bundle import's reference remap) and the stored ids
+        of the imported scripts (the target suite's member entries)."""
         added, skipped, errors = 0, 0, []
+        id_map = {}
+        added_ids = []
         with self._lock:
             if mode == 'replace':
                 self._scripts = []
@@ -276,20 +325,28 @@ class TestScriptStore:
                     skipped += 1
                     continue
                 try:
+                    entry = dict(entry)
+                    if suite_id:
+                        entry['suite_id'] = suite_id
                     s = self._normalise(entry)
+                    src_id = str(entry.get('id') or '').strip().lower()
                     if self._find(s['id']):
                         s['id'] = uuid.uuid4().hex
+                    if _ID_RE.fullmatch(src_id):
+                        id_map[src_id] = s['id']
                 except TestScriptError as e:
                     skipped += 1
                     errors.append('%s: %s' % (entry.get('name') or ('#' + str(i + 1)), e))
                     continue
                 self._scripts.append(s)
+                added_ids.append(s['id'])
                 added += 1
             if added or mode == 'replace':
                 self._save()
             sys.stderr.write('TESTSCRIPTS: import %s: %d added, %d skipped\n'
                              % (mode, added, skipped))
-        return {'added': added, 'skipped': skipped, 'errors': errors[:10]}
+        return {'added': added, 'skipped': skipped, 'errors': errors[:10],
+                'id_map': id_map, 'added_ids': added_ids}
 
     def info(self):
         with self._lock:
