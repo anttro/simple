@@ -93,8 +93,10 @@ actions table).
 A **scripted SELECT inside the secured packet** should ask for no response
 data (`P2='0C'`, e.g. `00A4000C02A153`): a card can refuse the `P2='00'`
 form (return the FCI) with `6A86` when it arrives inside a command script,
-and the script has nowhere to put an FCI anyway.  The RFM application starts
-in MF (TS 102 226 §7.2), so the selects walk from there.
+and the script has no use for an FCI anyway.  The selects walk from the
+current directory the RFM application starts in: MF for the UICC shared FS
+RFM application (TAR `B00000`, TS 102 226 §7.2), the ADF for an ADF RFM
+application (TAR `B00001`, §7.3).
 
 ### Worksheet 2 - incoming data → particular PoR, no other actions
 
