@@ -35,7 +35,8 @@ server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
 RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `envelope` action's `src` override since 3.18.1, the inline `por` object, the
 `alpha`/`sms` checks, `scp80.params.format` and the case-insensitive
-`menu-select` text match since 3.19.0, the `proactive-drain` action and the
+`menu-select` text match since 3.19.0, the `proactive-drain` action (the kind
+`proactive` until 3.22.1) and the
 ok-answering bounded cleanup since 3.21.0, the suites and the Simulator's
 event forms for all modelled events since 3.22.0.
 
@@ -268,7 +269,7 @@ consecutive runs continue correctly.
 | `apdu` | `apdu` hex | raw transport, no auto-handler |
 | `scp80` | `apdu` **xor** `sp` (optional `source`), `kvn`, `tar`, `spi1`, `spi2`, `format` | secured packet to the TAR; `format`: `compact` (default - the C-APDU verbatim), `expanded` (the `AA`-prefixed Command Scripting template) or `expanded-ae` (the `AE 80 … 00 00` form), TS 102 226 §5.2.1 |
 | `status` | `attempts` 1–1000, `interval_ms` 0–10000 | with `attempts > 1` the default SW check is `91??` (poll until a command) |
-| `proactive` | `respond`, `first`, `attempts` 1–1000 (default 3), `interval_ms` (default 200), `require` | drain the card's announced proactive commands and confirm it is idle (see below) |
+| `proactive-drain` | `respond`, `first`, `attempts` 1–1000 (default 3), `interval_ms` (default 200), `require` | drain the card's announced proactive commands and confirm it is idle (see below) |
 
 `path` is `/`-separated: `MF` (or `3F00`) or an ADF name/AID first, then FIDs
 or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
@@ -307,7 +308,9 @@ from the form's source field; an explicit `src` overrides it.  Both the
 | `data_connection` / `0x1D` | `status` 0–2, `type` 0–2, optional `cause`, `ti` (hex byte), `datetime: "now"` (host clock, 8.39), `mcc`/`mnc`/`lac`/`cell`, `tech`, `loc_status`, `apn`, `pdp_type` |
 
 `src` overrides the device-identities source (`82` terminal, `83` network);
-the default is the terminal, matching the Phone tab's forms.
+the editor writes the event's own source into the step (network for MT call /
+IMS registration, the form's choice otherwise) - a hand-written step without
+`src` is sent as the terminal (`82`).
 
 ### Proactive drain (`kind: "proactive-drain"`)
 
@@ -405,11 +408,10 @@ status word **inside the response payload** - not the envelope's, see
 *The three status words* in the authoring section - and `data` the R-APDU
 response data (exact/mask); both come from
 the decoded response (scripting `AB`/`AF`/compact forms).  An applet's **own
-TAR** answers with its application-defined bytes: when the data cannot be the
-compact remote response (its command count exceeds the command script that
-was sent), the whole secured data is reported as `data` and no `sw` is
-decoded - assert such a response with `data` (the action's `por` object
-follows the same rule).  A PoR split over
+TAR** answers with its application-defined bytes (the response form follows
+the command's TAR - see *The three status words*): its secured data is
+reported as `data` and no `sw` is decoded - assert such a response with
+`data` (the action's `por` object follows the same rule).  A PoR split over
 several SMS parts is accumulated across SEND SHORT MESSAGE expectations: put
 the `por` check on the step that completes the sequence (intermediate steps
 should use `raw` or no PoR check).
@@ -476,7 +478,8 @@ insert a `status` action (`attempts` > 1) before the expectation.
 
 An exact SW check is the assertion: `"check": {"sw": "9000"}` fails if the
 card answers `91XX` (a command was announced); the runner also errors on a
-pending command the next step does not expect.
+pending command the next step does not expect (and drains it with `ok`, see
+*Run cleanup*).
 
 ## Worked examples
 
@@ -589,7 +592,8 @@ PoR-in-submit (with the transport asserted by the expectation):
 When a run ends (an error, a stop request, or an unexpected pending command)
 with a command still announced, the runner fetches it and answers **`ok`
 (0x00)** and keeps draining while the TERMINAL RESPONSE answers `91XX`
-(bounded) - a cancel (`0x10`) is not sent automatically: it tells the card
+(bounded; each suite member ends the same way, before the next member starts)
+- a cancel (`0x10`) is not sent automatically: it tells the card
 the user aborted the proactive session, which can push assertive applications
 onto an error path and make them queue a further command.  The cleanup is
 reported like a normal step (`TR ok …`, `pending REFRESH (0x01) answered with
@@ -600,7 +604,7 @@ expectation's `respond`, or the `proactive-drain` action's `first`).
 
 - The runner executes one command at a time and never polls by itself; a
   proactive command that arrives only on a STATUS poll needs an explicit
-  `status` action.
+  `status` action (or `proactive-drain` to consume it).
 - A `por` check only decodes SEND SHORT MESSAGE commands; the inline transport
   is checked on the action (`por`/`data`).
 - An expanded-format command (`"format": "expanded"`/`"expanded-ae"`) has no
