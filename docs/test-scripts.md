@@ -35,7 +35,7 @@ server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
 RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `envelope` action's `src` override since 3.18.1, the inline `por` object, the
 `alpha`/`sms` checks, `scp80.params.format` and the case-insensitive
-`menu-select` text match since 3.19.0, the `proactive` cleanup action and the
+`menu-select` text match since 3.19.0, the `proactive-drain` action and the
 ok-answering bounded cleanup since 3.21.0, the suites and the Simulator's
 event forms for all modelled events since 3.22.0.
 
@@ -200,7 +200,7 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 - Other actions log their send/response pair too (`APDU TX=… -> SW=…`,
   `ENVELOPE(Event Download) … -> SW=…`, `READ BINARY <path>`,
   `READ RECORD <n> <path>`, `UPDATE BINARY <path>`, each with `-> SW=…`).
-- A `proactive` action logs its rounds (`STATUS i/N -> …`, `FETCH=…`,
+- A `proactive-drain` action logs its rounds (`STATUS i/N -> …`, `FETCH=…`,
   `CMD 0x…`, `TR=… -> SW=…`); the run cleanup logs
   `TEST-RUN drain: <CMD> (0xNN) TR=… -> SW=…`.
 - A failing step adds `TEST-RUN step N failed: …` with the reason.
@@ -228,7 +228,7 @@ override it with its own `on_fail`.  The level applies to **every** step
 failure, including an expectation that finds no pending command (v3.21.0) -
 the tolerant "consume a command if there is one" form is an expectation with
 `on_fail: "warning"`; to drain and confirm the card is idle, use the
-`proactive` action.
+`proactive-drain` action.
 
 ## Presets: where the keys, TARs and counters come from
 
@@ -309,7 +309,7 @@ from the form's source field; an explicit `src` overrides it.  Both the
 `src` overrides the device-identities source (`82` terminal, `83` network);
 the default is the terminal, matching the Phone tab's forms.
 
-### Proactive cleanup (`kind: "proactive"`)
+### Proactive drain (`kind: "proactive-drain"`)
 
 Consume whatever the card announces and leave it idle - at the start, in the
 middle or at the end of a script (a leftover command from a previous run must
@@ -322,7 +322,7 @@ so a still-pending card fails the step and hands the pending command to the
 next step.
 
 ```json
-{"type": "action", "kind": "proactive",
+{"type": "action", "kind": "proactive-drain",
  "params": {"respond": {"result": "ok"},
             "first": {"result": "cancel"},
             "attempts": 5, "interval_ms": 200,
@@ -351,7 +351,7 @@ next step.
 - `sw` - default `{"mode": "exact", "value": "9000"}` (a `status` action with
   `attempts > 1` defaults to the `91??` mask).
 - `data` - the response data (for SCP80: the inline PoR packet).  The
-  `proactive` action does not take a `data` check - assert the drained
+  `proactive-drain` action does not take a `data` check - assert the drained
   commands with `require` and the final status with `sw`.
 - `por` (SCP80 actions only) - `"any"` (default, no check), `"ok"`
   (`response_status == por_ok`), `"none"` (no PoR expected), or an **object**
@@ -447,7 +447,7 @@ UCS2 answer to a GET INPUT:
  "respond": {"result": "ok", "text": "Пароль", "dcs": "08"}}
 ```
 
-The `proactive` action's `respond`/`first` use the same shape (the command
+The `proactive-drain` action's `respond`/`first` use the same shape (the command
 type varies per drained command, so `text`/`item_id` apply where the command
 carries them).
 
@@ -577,7 +577,7 @@ PoR-in-submit (with the transport asserted by the expectation):
   the previous step; it fails at the step's `on_fail` level (the check row
   names it).  A `status` action with `attempts > 1` polls until a command
   appears when the card delivers on poll; `on_fail: "warning"` tolerates the
-  empty case, and the `proactive` action drains and confirms idle.
+  empty case, and the `proactive-drain` action drains and confirms idle.
 - `menu-select: no menu item matches …` - the error lists the cached menu; a
   miss on an explicit `case_sensitive: true` names the case-insensitive
   candidates.
@@ -594,7 +594,7 @@ the user aborted the proactive session, which can push assertive applications
 onto an error path and make them queue a further command.  The cleanup is
 reported like a normal step (`TR ok …`, `pending REFRESH (0x01) answered with
 ok`); a script that wants to test the refusal path answers explicitly (an
-expectation's `respond`, or the proactive action's `first`).
+expectation's `respond`, or the `proactive-drain` action's `first`).
 
 ## Known limitations
 

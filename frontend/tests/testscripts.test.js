@@ -130,9 +130,9 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'file-read', params: {} }] }), /file path/);
 	assert.match(testScriptProblem({ steps: [{ type: 'expect' }] }), /command is required/);
-	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'proactive',
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'proactive-drain',
 		params: { attempts: 0 } }] }), /attempts/);
-	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'proactive',
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'proactive-drain',
 		params: {} }] }), '');
 	// the selected SCP80 source decides which value is required
 	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'scp80',
@@ -143,11 +143,11 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 		params: { source: 'sp', sp: 'AA', apdu: '80E2' } }] }), '');
 });
 
-test('the proactive cleanup step collects its fields', () => {
-	_testEditStep = { type: 'action', kind: 'proactive', params: {} };
+test('the proactive-drain step collects its fields', () => {
+	_testEditStep = { type: 'action', kind: 'proactive-drain', params: {} };
 	_testEditChecks = [];
 	_testEditStepIndex = 0;
-	fakeForm({ 'test-step-kind': 'proactive', 'test-f-presult': 'ok', 'test-f-pfirst': 'cancel',
+	fakeForm({ 'test-step-kind': 'proactive-drain', 'test-f-presult': 'ok', 'test-f-pfirst': 'cancel',
 		'test-f-pattempts': '5', 'test-f-pinterval': '0', 'test-f-prequire': 'refresh',
 		'test-f-prequal': '00', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
 	testStepCollect();
@@ -158,7 +158,7 @@ test('the proactive cleanup step collects its fields', () => {
 	assert.strictEqual(p.interval_ms, 0);
 	assert.deepStrictEqual(p.require, { command: 'REFRESH', qualifier: '00' });
 	// an empty require field drops the assertion
-	fakeForm({ 'test-step-kind': 'proactive', 'test-f-presult': 'ok', 'test-f-pfirst': '',
+	fakeForm({ 'test-step-kind': 'proactive-drain', 'test-f-presult': 'ok', 'test-f-pfirst': '',
 		'test-f-pattempts': '3', 'test-f-pinterval': '200', 'test-f-prequire': '',
 		'test-f-prequal': '', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
 	testStepCollect();
@@ -186,14 +186,14 @@ test('testStepSummary renders actions', () => {
 		testStepSummary({ type: 'action', kind: 'status', params: { attempts: 5 } }),
 		'STATUS x5 (poll)');
 	assert.strictEqual(
-		testStepSummary({ type: 'action', kind: 'proactive',
+		testStepSummary({ type: 'action', kind: 'proactive-drain',
 			params: { attempts: 5, respond: { result: 'ok' },
 				require: { command: 'REFRESH', qualifier: '00' } } }),
-		'PROACTIVE x5 require REFRESH q=00 TR ok');
+		'DRAIN x5 require REFRESH q=00 TR ok');
 	assert.strictEqual(
-		testStepSummary({ type: 'action', kind: 'proactive',
+		testStepSummary({ type: 'action', kind: 'proactive-drain',
 			params: { attempts: 3, first: { result: 'cancel' } } }),
-		'PROACTIVE x3 TR ok first cancel');
+		'DRAIN x3 TR ok first cancel');
 	assert.strictEqual(
 		testStepSummary({ type: 'action', kind: 'file-read', params: { path: 'MF/2FE2' } }),
 		'READ MF/2FE2');

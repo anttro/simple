@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.0'
+VERSION = '3.22.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5853,7 +5853,7 @@ _TEST_KIND_LABELS = {
     'menu-select': 'ENVELOPE(Menu Selection)',
     'file-write': 'UPDATE FILE', 'file-read': 'READ FILE', 'apdu': 'APDU',
     'scp80': 'SCP80', 'status': 'STATUS', 'cleanup': 'CLEANUP',
-    'proactive': 'PROACTIVE',
+    'proactive-drain': 'DRAIN',
 }
 # Card-touching endpoints refused while a script owns the card.
 _TEST_BLOCKED_PATHS = frozenset([
@@ -6300,8 +6300,8 @@ def _test_run_status(scc, step):
     return data or '', sw, ('STATUS x%d' % used if used > 1 else 'STATUS')
 
 
-def _proactive_require_match(req, consumed):
-    """Whether one consumed command satisfies a proactive action's `require`
+def _drain_require_match(req, consumed):
+    """Whether one consumed command satisfies a proactive-drain action's `require`
     spec: the command type/name (ANY matches all) and an optional qualifier
     (exact/mask)."""
     if req.get('type') is not None and consumed.get('type_hex') != '%02X' % req['type']:
@@ -6312,7 +6312,7 @@ def _proactive_require_match(req, consumed):
     return True
 
 
-def _proactive_require_label(req):
+def _drain_require_label(req):
     """The `require` spec as the report's expected string."""
     if req.get('type') is not None:
         name = req.get('name') or '0x%02X' % req['type']
@@ -6322,8 +6322,8 @@ def _proactive_require_label(req):
     return name + ((' q=%s' % q['value']) if q else '')
 
 
-def _test_run_proactive(server, step):
-    """The proactive cleanup action: poll STATUS and consume every announced
+def _test_run_drain(server, step):
+    """The proactive drain action: poll STATUS and consume every announced
     command - the TERMINAL RESPONSE is `first` for the first one, `respond`
     for the rest - until the card answers 9000 (idle), a non-91XX SW appears
     or the attempt budget is spent.  The final SW is the step's SW check; an
@@ -6376,7 +6376,7 @@ def _test_run_proactive(server, step):
                                  step['on_fail'])]
     req = p.get('require')
     if req:
-        matched = any(_proactive_require_match(req, c) for c in consumed)
+        matched = any(_drain_require_match(req, c) for c in consumed)
         if consumed:
             actual = ', '.join(
                 '%s%s' % (c['type_name'],
@@ -6385,7 +6385,7 @@ def _test_run_proactive(server, step):
         else:
             actual = '(nothing was pending)'
         checks.append(_test_check_result('Require', matched,
-                                         _proactive_require_label(req), actual,
+                                         _drain_require_label(req), actual,
                                          step['on_fail']))
     status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok'
                                         for c in checks])
@@ -6646,8 +6646,8 @@ def _test_run_action(server, step, ctx):
                                      (' RESP=%dB' % (len(data) // 2)) if data else ''))
     elif kind == 'scp80':
         data, sw, sent, por, counter = _test_run_scp80(server, step, ctx)
-    elif kind == 'proactive':
-        return _test_run_proactive(server, step)
+    elif kind == 'proactive-drain':
+        return _test_run_drain(server, step)
     else:
         raise testscript.ScriptError('unknown action kind %r' % kind)
     checks = _test_action_checks(step, sw, data, por, kind)
@@ -6759,7 +6759,7 @@ def _test_run_expect(server, step, pending, ctx=None):
     if not pending:
         # Nothing to fetch: the step fails at its own on_fail level.  The
         # tolerant "consume a pending command if there is one" form is an
-        # expectation with on_fail "warning" (or the proactive cleanup action,
+        # expectation with on_fail "warning" (or the proactive-drain action,
         # which tolerates an empty card by design).  The UICC announces
         # pending commands in the response to a command (TS 102 221 7.4.2.1).
         want = step['command'].get('name')
@@ -6936,7 +6936,7 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
     make the application emit another, so the drain keeps fetching while the
     TERMINAL RESPONSE answers 91XX (bounded by `max_commands`).  A script that
     wants to test the refusal path answers explicitly (an expectation's
-    `respond`, or the proactive action's `first`)."""
+    `respond`, or the `proactive-drain` action's `first`)."""
     answered = []
     try:
         while len(answered) < max_commands:

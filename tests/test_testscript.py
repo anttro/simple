@@ -86,9 +86,9 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(check['sw'], {'mode': 'mask', 'value': '91??'})
         self.assertEqual(check['data'], {'mode': 'mask', 'value': 'AA??'})
 
-    def test_proactive_action_normalises(self):
+    def test_proactive_drain_action_normalises(self):
         script = T.normalise_script({'steps': [
-            {'type': 'action', 'kind': 'proactive',
+            {'type': 'action', 'kind': 'proactive-drain',
              'params': {'respond': {'result': 'ok'}, 'first': {'result': 'cancel'},
                         'attempts': 5, 'interval_ms': 0,
                         'require': {'command': 'REFRESH', 'qualifier': '00'}}},
@@ -103,7 +103,7 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(p['require']['qualifier'], {'mode': 'exact', 'value': '00'})
         # the defaults: ok / 3 attempts / 200 ms, no first, no require
         script = T.normalise_script({'steps': [
-            {'type': 'action', 'kind': 'proactive'}]}, _resolver)
+            {'type': 'action', 'kind': 'proactive-drain'}]}, _resolver)
         p = script['steps'][0]['params']
         self.assertEqual(p['respond'], {'result': 0x00})
         self.assertNotIn('first', p)
@@ -116,18 +116,18 @@ class TestValidation(unittest.TestCase):
                     {'require': {'command': 'NOT A COMMAND'}},
                     {'attempts': 0}):
             with self.assertRaises(T.ScriptError, msg=repr(bad)):
-                T.normalise_script({'steps': [{'type': 'action', 'kind': 'proactive',
+                T.normalise_script({'steps': [{'type': 'action', 'kind': 'proactive-drain',
                                                'params': bad}]}, _resolver)
 
-    def test_the_proactive_action_refuses_a_data_check(self):
-        # The proactive result's data is the drained-command list, not a
+    def test_the_proactive_drain_action_refuses_a_data_check(self):
+        # The proactive drain's data is the drained-command list, not a
         # single response: a `data` check would be silently ignored, so the
         # engine refuses it (assert what was drained with `require`).
         with self.assertRaises(T.ScriptError) as cm:
             T.normalise_script({'steps': [
-                {'type': 'action', 'kind': 'proactive',
+                {'type': 'action', 'kind': 'proactive-drain',
                  'check': {'data': 'AABB'}}]}, _resolver)
-        self.assertIn('check.data is not used by the proactive action',
+        self.assertIn('check.data is not used by the proactive drain action',
                       str(cm.exception))
 
     def test_integer_fields_accept_decimals_with_leading_zeros_and_hex(self):
@@ -644,8 +644,8 @@ class TestRunnerDialogue(RunnerTestCase):
         self.assertEqual(run['steps'], [])
 
 
-class TestRunnerProactive(RunnerTestCase):
-    """The proactive cleanup action (v3.21.0): consume whatever the card
+class TestRunnerProactiveDrain(RunnerTestCase):
+    """The proactive drain action (v3.21.0): consume whatever the card
     announces, answer it and confirm the card is idle."""
 
     def test_empty_drain_passes(self):
@@ -653,7 +653,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc = FakeScc()
         scc.push('80F2', '', '9000')
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive', 'params': {}},
+            {'type': 'action', 'kind': 'proactive-drain', 'params': {}},
         ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         entry = run['steps'][0]
@@ -670,7 +670,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc.push('8014', '', '9000')          # TR ok
         scc.push('80F2', '', '9000')          # confirming STATUS: idle
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive', 'params': {'attempts': 3, 'interval_ms': 0}},
+            {'type': 'action', 'kind': 'proactive-drain', 'params': {'attempts': 3, 'interval_ms': 0}},
         ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         entry = run['steps'][0]
@@ -687,7 +687,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc.push('8014', '', '9000')
         scc.push('80F2', '', '9000')
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive',
+            {'type': 'action', 'kind': 'proactive-drain',
              'params': {'attempts': 3, 'interval_ms': 0, 'require': {'command': 'DISPLAY TEXT'}}}, 
         ])
         self.assertEqual(run['status'], 'ok', run['steps'])
@@ -701,7 +701,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc.push('8014', '', '9000')
         scc.push('80F2', '', '9000')
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive',
+            {'type': 'action', 'kind': 'proactive-drain',
              'params': {'attempts': 3, 'interval_ms': 0,
                         'require': {'command': 'REFRESH', 'qualifier': '00'}}}, 
         ])
@@ -714,7 +714,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc = FakeScc()
         scc.push('80F2', '', '9000')
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive',
+            {'type': 'action', 'kind': 'proactive-drain',
              'params': {'require': {'command': 'REFRESH'}}},
         ])
         self.assertEqual(run['status'], 'error')
@@ -731,7 +731,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc.push('8014', '', '9000')          # TR ok
         scc.push('80F2', '', '9000')          # confirming STATUS
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive',
+            {'type': 'action', 'kind': 'proactive-drain',
              'params': {'attempts': 4, 'interval_ms': 0, 'respond': {'result': 'ok'},
                         'first': {'result': 'cancel'}}},
         ])
@@ -746,7 +746,7 @@ class TestRunnerProactive(RunnerTestCase):
         scc.push('8012', DISPLAY_TEXT_CMD, '9000')
         scc.push('8014', '', '9102')          # another command pending
         run = self.run_script(FakeServer(scc), [
-            {'type': 'action', 'kind': 'proactive', 'params': {'attempts': 1}},
+            {'type': 'action', 'kind': 'proactive-drain', 'params': {'attempts': 1}},
         ])
         # the bound stopped with 91XX: the SW check fails and the pending is
         # handed to the next step

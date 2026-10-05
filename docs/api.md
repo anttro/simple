@@ -737,8 +737,8 @@ around the C-APDU) - KIc/KID and the counter always
 come from the resolved preset, which must match the equipped card and be
 complete), `status`
 (`attempts`, `interval_ms` - when `attempts > 1` the default SW check is the
-mask `91??`, i.e. poll until the card announces a command) or `proactive`
-(the proactive cleanup: poll STATUS and consume every announced command -
+mask `91??`, i.e. poll until the card announces a command) or `proactive-drain`
+(the proactive drain: poll STATUS and consume every announced command -
 `respond`/`first` TERMINAL RESPONSE results, `attempts`/`interval_ms` bound,
 optional `require` `{command, qualifier?}` asserting at least one drained
 command; the final SW is the step's `check.sw`, so a still-pending card fails
@@ -786,7 +786,7 @@ TERMINAL RESPONSE answers `91XX` (bounded); a cancel is never sent
 automatically (it tells the card the user aborted the session and can push
 assertive applications onto an error path).  The cleanup is reported as a
 `cleanup` step; a script that wants the refusal path answers explicitly (an
-expectation's `respond`, or the `proactive` action's `first`).
+expectation's `respond`, or the `proactive-drain` action's `first`).
 
 ### `GET /api/test/scripts` and the script store
 

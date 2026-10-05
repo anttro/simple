@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 ACTION_KINDS = ('envelope', 'event', 'menu-select', 'file-write', 'file-read',
-                'apdu', 'scp80', 'status', 'proactive')
+                'apdu', 'scp80', 'status', 'proactive-drain')
 FAIL_LEVELS = ('error', 'warning')
 POR_CHECKS = ('none', 'ok', 'any')
 
@@ -357,28 +357,28 @@ def _normalise_params(kind, p, command_resolver=None):
         interval = p.get('interval_ms')
         interval = _int(200 if interval is None else interval, 'status interval_ms', 0, 10000)
         return {'attempts': attempts, 'interval_ms': interval}
-    if kind == 'proactive':
-        # The proactive cleanup: consume whatever the card announces (the
+    if kind == 'proactive-drain':
+        # The proactive drain: consume whatever the card announces (the
         # TERMINAL RESPONSE is `first` for the first command, `respond` for
         # the rest) and confirm the card is idle; `require` asserts what was
         # drained (at least one match - an empty drain fails it).
         out = {'respond': normalise_respond(p.get('respond') or {}),
                'attempts': _int(3 if p.get('attempts') is None else p.get('attempts'),
-                                'proactive attempts', 1, 1000),
+                                'proactive-drain attempts', 1, 1000),
                'interval_ms': _int(200 if p.get('interval_ms') is None
                                    else p.get('interval_ms'),
-                                   'proactive interval_ms', 0, 10000)}
+                                   'proactive-drain interval_ms', 0, 10000)}
         if p.get('first') is not None:
             out['first'] = normalise_respond(p['first'])
         req = p.get('require')
         if req is not None:
             if not isinstance(req, dict):
-                raise ScriptError('proactive require must be an object')
-            ctype, cname = _resolve_command(req.get('command'), 'proactive require',
+                raise ScriptError('proactive-drain require must be an object')
+            ctype, cname = _resolve_command(req.get('command'), 'proactive-drain require',
                                             command_resolver)
-            qualifier = _check_spec(req.get('qualifier'), 'proactive require.qualifier')
+            qualifier = _check_spec(req.get('qualifier'), 'proactive-drain require.qualifier')
             if qualifier and '?' not in qualifier['value'] and len(qualifier['value']) != 2:
-                raise ScriptError('proactive require.qualifier must be one byte')
+                raise ScriptError('proactive-drain require.qualifier must be one byte')
             out['require'] = {'type': ctype, 'name': cname, 'qualifier': qualifier}
         return out
     raise ScriptError('unknown action kind %r' % kind)
@@ -398,11 +398,11 @@ def _normalise_check(check, kind, params):
         else:
             sw = {'mode': 'exact', 'value': '9000'}
     data = _check_spec(check.get('data'), 'check.data')
-    if kind == 'proactive' and data is not None:
-        # The proactive cleanup's result data is the drained command list, not
+    if kind == 'proactive-drain' and data is not None:
+        # The proactive drain's result data is the drained command list, not
         # a single response: a `data` check would be silently ignored, so it
         # is refused here (assert the drained commands with `require`).
-        raise ScriptError('check.data is not used by the proactive action - '
+        raise ScriptError('check.data is not used by the proactive drain action - '
                           'assert what was drained with require, or the final '
                           'status word with check.sw')
     por = check.get('por')

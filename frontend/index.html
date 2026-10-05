@@ -1903,7 +1903,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.22.0';
+const SIMPLE_VERSION = '3.22.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== Tab switching =====
@@ -6941,7 +6941,7 @@ function decodeResponse() {
 // through /api/test/status.  This UI edits the script and monitors the run;
 // SCP80 steps use the card preset matched by the equipped card's ICCID, and
 // the final SCP80 counter is written back to it.
-const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status', 'proactive'];
+const TEST_ACTION_KINDS = ['envelope', 'event', 'menu-select', 'file-write', 'file-read', 'apdu', 'scp80', 'status', 'proactive-drain'];
 let _testScripts = null;        // the script store cache (all suites)
 let _testSuites = null;         // the suite store cache
 let _testView = 'suites';       // suites | suite | script | report
@@ -7128,7 +7128,7 @@ function testScriptProblem(script) {
 				if (data && !/^[0-9A-Fa-f]+$/.test(data)) return at + t('event data must be hex');
 			}
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
-			if (s.kind === 'proactive' && String(p.attempts === undefined ? '' : p.attempts).trim() !== ''
+			if (s.kind === 'proactive-drain' && String(p.attempts === undefined ? '' : p.attempts).trim() !== ''
 					&& !(parseInt(p.attempts, 10) >= 1)) return at + t('attempts must be at least 1');
 		} else if (s.type === 'expect') {
 			if (!String(s.command || '').trim()) return at + t('command is required');
@@ -7207,8 +7207,8 @@ function testStepSummary(step) {
 	else if (step.kind === 'file-write') s = 'UPDATE ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '') + ' = ' + (p.data || '');
 	else if (step.kind === 'file-read') s = 'READ ' + (p.path || '?') + (p.mode && p.mode !== 'auto' ? ' (' + p.mode + (p.record ? ' ' + p.record : '') + ')' : '');
 	else if (step.kind === 'status') s = 'STATUS' + ((p.attempts || 1) > 1 ? ' x' + p.attempts + ' (poll)' : '');
-	else if (step.kind === 'proactive') {
-		const parts = ['PROACTIVE x' + (p.attempts === undefined ? 3 : p.attempts)];
+	else if (step.kind === 'proactive-drain') {
+		const parts = ['DRAIN x' + (p.attempts === undefined ? 3 : p.attempts)];
 		const rq = p.require || {};
 		if (rq.command) parts.push('require ' + rq.command + (rq.qualifier ? ' q=' + (rq.qualifier.value || rq.qualifier) : ''));
 		const rr = p.respond || {};
@@ -7882,7 +7882,7 @@ function testStepRender() {
 		} else if (step.kind === 'status') {
 			html += testFormRow('Attempts (1 = single STATUS)', testFormInput('test-f-attempts', p.attempts === undefined ? 1 : p.attempts, '1..1000'));
 			html += testFormRow('Interval (ms, when polling)', testFormInput('test-f-interval', p.interval_ms === undefined ? 200 : p.interval_ms, '0..10000'));
-		} else if (step.kind === 'proactive') {
+		} else if (step.kind === 'proactive-drain') {
 			const pr = p.respond || {};
 			html += testFormRow('TERMINAL RESPONSE result (each command)',
 				testFormSelect('test-f-presult', pr.result === undefined ? 'ok' : String(pr.result), [
@@ -8217,7 +8217,7 @@ function testStepCollect() {
 			if (fmt && fmt !== 'compact') p.format = fmt;
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
-		else if (kind === 'proactive') {
+		else if (kind === 'proactive-drain') {
 			p.respond = {result: val('test-f-presult') || 'ok'};
 			const first = val('test-f-pfirst');
 			if (first) p.first = {result: first};
@@ -8314,7 +8314,7 @@ function testStepFormError() {
 		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
-		if (step.kind === 'proactive' && !(p.attempts >= 1)) return t('attempts must be at least 1');
+		if (step.kind === 'proactive-drain' && !(p.attempts >= 1)) return t('attempts must be at least 1');
 	} else if (!step.command) {
 		return t('command is required');
 	}
