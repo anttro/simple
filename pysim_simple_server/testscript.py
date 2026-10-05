@@ -243,23 +243,34 @@ def _normalise_params(kind, p, command_resolver=None):
             out['src'] = src
         return out
     if kind == 'event':
-        # The semantic event download: the builder owns the field set and the
-        # byte layout (events.py mirrors the PWA's forms for the supported
-        # events; every other event uses the raw `envelope` action).
+        # The semantic event download: the same forms the Simulator uses
+        # (EVENT_FORMS).  The four events events.py models are built from
+        # `fields` (validated here, so a script fails before the run starts);
+        # every other event carries the form-built `data` hex the PWA
+        # produces - the single-envelope budget is checked here too.
         code = events.resolve_event(p.get('event'))
         if code is None:
-            raise ScriptError('event: a supported event name or a hex byte is '
-                              'required (supported: %s)'
-                              % ', '.join('%s/0x%02X' % (events.event_name(c), c)
-                                          for c in sorted(events.BUILDERS)))
+            raise ScriptError('event: a hex byte or a known event name is required')
         raw = p.get('fields')
         if raw is not None and not isinstance(raw, dict):
             raise ScriptError('event: fields must be an object')
-        try:
-            fields = events.normalise(code, raw or {})
-        except events.EventError as e:
-            raise ScriptError('event 0x%02X: %s' % (code, e))
-        out = {'event': code, 'fields': fields}
+        out = {'event': code}
+        if code in events.BUILDERS:
+            try:
+                out['fields'] = events.normalise(code, raw or {})
+            except events.EventError as e:
+                raise ScriptError('event 0x%02X: %s' % (code, e))
+        else:
+            data = re.sub(r'\s', '', str(p.get('data') or '')).upper()
+            if not re.fullmatch(r'(?:[0-9A-F]{2})+', data):
+                raise ScriptError('event 0x%02X: no server-side builder for this '
+                                  'event - pass the form-built `data` hex (or '
+                                  'use the raw envelope action)' % code)
+            if len(data) // 2 > events.EVENT_DATA_MAX:
+                raise ScriptError('event 0x%02X: the event data does not fit one '
+                                  'ENVELOPE (max %d bytes; chained delivery is '
+                                  'not implemented)' % (code, events.EVENT_DATA_MAX))
+            out['data'] = data
         src = str(p.get('src') or '').strip().upper()
         if src:
             if not re.fullmatch(r'[0-9A-F]{2}', src):

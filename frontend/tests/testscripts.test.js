@@ -29,7 +29,19 @@ function extractFunc(src, name, asyncFn) {
 }
 
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
-eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
+eval(extractBlock('const EVENT_NAMES = {', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
+eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
+// the builders' pure helpers (eventFormFieldsHtml/Values are the shared form)
+eval(extractFunc(html, 'bytesToHex'));
+eval(extractFunc(html, 'eventAddressTlv'));
+eval(extractFunc(html, 'encPlmn'));
+eval(extractFunc(html, 'eventFormFieldsHtml'));
+eval(extractFunc(html, 'eventFormValues'));
+eval(extractFunc(html, 'eventFormPatternError'));
+eval(extractFunc(html, 'eventFormSrc'));
+eval(html.match(/const EVENT_INNER_MAX = \d+;/)[0].replace('const ', 'var '));
+eval(extractFunc(html, 'eventEnvelopeSize'));
+eval(extractFunc(html, 'eventFitsOneEnvelope'));
 eval(extractBlock('const TEST_ACTION_KINDS = [', 'let _testScripts').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'testTemplate'));
 eval(extractFunc(html, 'testMenuSelectProblem'));
@@ -107,8 +119,14 @@ test('testScriptProblem accepts good scripts and names bad ones', () => {
 		params: {} }] }), /event is required/);
 	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
 		params: { event: '03', fields: [] } }] }), /object/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: { event: '00' } }] }), /event data is required/);
+	assert.match(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: { event: '00', data: 'ZZ' } }] }), /hex/);
 	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
 		params: { event: '03', fields: { status: 0 } } }] }), '');
+	assert.strictEqual(testScriptProblem({ steps: [{ type: 'action', kind: 'event',
+		params: { event: '00', data: '1C0101', src: '83' } }] }), '');
 	assert.match(testScriptProblem({
 		steps: [{ type: 'action', kind: 'file-read', params: {} }] }), /file path/);
 	assert.match(testScriptProblem({ steps: [{ type: 'expect' }] }), /command is required/);
@@ -412,29 +430,63 @@ test('the envelope step collects the source override', () => {
 	assert.deepStrictEqual(_testEditStep.params, { event: 3, data: '9B0100', src: '83' });
 });
 
-test('the event step collects the type and the JSON fields', () => {
+test('the event step collects the form values, the built data and the source', () => {
 	_testEditStep = { type: 'action', kind: 'event', params: {} };
 	_testEditChecks = [];
 	_testEditStepIndex = 0;
-	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '12',
-		'test-f-evfields': '{"reg_type":"9","cause":"2"}',
+	// a server-built event: the fields travel for the server's own build
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
+		'test-f-ev-status': '0', 'test-f-ev-mcc': '250', 'test-f-ev-mnc': '01',
 		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
 	testStepCollect();
-	assert.deepStrictEqual(_testEditStep.params,
-		{ event: '12', fields: { reg_type: '9', cause: '2' } });
-	assert.strictEqual(_testEditStep._eventFieldsError, undefined);
-	// invalid JSON marks the form and the save refuses with a clear message
-	_testEditStep = { type: 'action', kind: 'event', params: {} };
-	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
-		'test-f-evfields': '{oops', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
-	assert.match(testStepFormError(), /JSON object/);
-	// fixing the JSON saves again - the error flag is not sticky
-	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '03',
-		'test-f-evfields': '{"status":0}', 'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	assert.strictEqual(_testEditStep.params.event, '03');
+	assert.strictEqual(_testEditStep.params.fields.status, '0');
+	assert.strictEqual(_testEditStep.params.fields.mcc, '250');
+	assert.match(_testEditStep.params.data, /^[0-9A-F]+$/);
 	assert.strictEqual(testStepFormError(), '');
-	// the summary names the event
+	// an event without a server builder (MT call): the built hex + its source
+	_testEditStep = { type: 'action', kind: 'event', params: {} };
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '00', 'test-f-ev-ti': '01',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.event, '00');
+	assert.strictEqual(_testEditStep.params.data, '1C0101');
+	assert.strictEqual(_testEditStep.params.src, '83');
+	assert.strictEqual(testStepFormError(), '');
+	// a srcField event takes the source from the form (call disconnected)
+	_testEditStep = { type: 'action', kind: 'event', params: {} };
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '02', 'test-f-ev-src': '83',
+		'test-f-ev-ti': '00', 'test-f-ev-cause_mode': 'rlt',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	testStepCollect();
+	assert.strictEqual(_testEditStep.params.src, '83');
+	assert.strictEqual(_testEditStep.params.data, '1C01009A00');
+	// a bad field pattern refuses the save; an empty build does too
+	fakeForm({ 'test-step-kind': 'event', 'test-f-evtype': '00', 'test-f-ev-ti': 'ZZZ',
+		'test-f-sw': '', 'test-f-cdata': '', 'test-f-fail': 'error' });
+	assert.match(testStepFormError(), /Invalid/);
+	// the summary names the event and its source
 	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
 		params: { event: '03', fields: {} } }), 'EVENT Location status');
+	assert.strictEqual(testStepSummary({ type: 'action', kind: 'event',
+		params: { event: '00', data: '1C0101', src: '83' } }),
+		'EVENT MT call src=83');
+});
+
+test('the shared event-form helpers render, prefill and collect', () => {
+	const cfg = EVENT_FORMS[0x00];
+	const htmlOut = eventFormFieldsHtml(cfg, cfg.fields, {ti: 'AB', ton: 1}, 'x-', false);
+	assert.match(htmlOut, /id="x-ti"/);
+	assert.match(htmlOut, /value="AB"/);
+	assert.match(htmlOut, /id="x-ton"/);
+	assert.match(htmlOut, /value="1" selected/);
+	// a srcField event reports its source; a fixed-source event its own
+	assert.strictEqual(eventFormSrc(EVENT_FORMS[0x00], {}), '83');
+	assert.strictEqual(eventFormSrc(EVENT_FORMS[0x02], {src: '82'}), '82');
+	assert.strictEqual(eventFormSrc(EVENT_FORMS[0x03], {}), '');
+	// the pattern check names the first offending field
+	assert.strictEqual(eventFormPatternError(cfg, {ti: 'AB'}), '');
+	assert.strictEqual(eventFormPatternError(cfg, {ti: 'ZZZ'}), 'Transaction identifier');
 });
 
 test('two quick saves of a draft create one script, then update it', async () => {
@@ -508,7 +560,7 @@ test('the step form renders the chosen source and no pre-filled SW', () => {
 	assert.match(body, /id="test-f-sw" value=""/);
 });
 
-test('the event step form renders the event select and the JSON fields', () => {
+test('the event step form renders the event select and the Simulator fields', () => {
 	const els = {
 		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
 		'test-step-title': {}, 'test-step-body': {},
@@ -516,15 +568,23 @@ test('the event step form renders the event select and the JSON fields', () => {
 	};
 	globalThis.document = { getElementById: id => els[id] || null };
 	_testEditStep = { type: 'action', kind: 'event',
-		params: { event: '12', fields: { reg_type: '9' } } };
+		params: { event: '12', fields: { reg_type: '9', mcc: '250' } } };
 	_testEditChecks = [];
 	_testEditStepIndex = 0;
 	testStepRender();
 	const body = els['test-step-body'].innerHTML;
 	assert.match(body, /id="test-f-evtype"/);
 	assert.match(body, /<option value="12" selected>/);
-	assert.match(body, /id="test-f-evfields"/);
-	assert.ok(body.includes('{"reg_type":"9"}'), body);
+	// the event's own form (EVENT_FORMS) with the stored values prefilled and
+	// the built hex preview, not a JSON textarea
+	assert.match(body, /id="test-f-ev-reg_type"/);
+	assert.match(body, /id="test-f-ev-mcc"/);
+	assert.match(body, /value="250"/);
+	assert.match(body, /id="test-f-evdata"/);
+	assert.doesNotMatch(body, /test-f-evfields/);
+	// every modelled event is selectable (the four server-built ones included)
+	assert.match(body, /<option value="00"/);
+	assert.match(body, /<option value="1F"/);
 });
 
 test('hex fields strip mask wildcards, check values keep them', () => {

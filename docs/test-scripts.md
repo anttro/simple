@@ -259,7 +259,7 @@ consecutive runs continue correctly.
 | kind | params | notes |
 |---|---|---|
 | `envelope` | `event` 0–255, `data` hex (optional), optional `src` | ENVELOPE(Event Download) with raw data; `src` overrides the device-identities source (`82` terminal / `83` network) |
-| `event` | `event` (name or hex), `fields` (object), optional `src` | semantic ENVELOPE(Event Download) for 0x03/0x0B/0x12/0x1D (see below) |
+| `event` | `event` (name or hex), `fields` (object) or `data` (form-built hex), optional `src` | semantic ENVELOPE(Event Download): the four server-built events from `fields`, every other event from the editor's `data` (see below) |
 | `menu-select` | `item_id` 1–255 **or** `text` + `mode` `exact`/`contains` (+ `case_sensitive: true` for an exact-case match — the default is case-insensitive; the step editor's **Match case** choice writes it), not both | ENVELOPE(Menu Selection); the text is resolved against the card's cached menu - refreshed whenever the card sends SET UP MENU, so it follows the applet's install parameters |
 | `file-write` | `path`, `data`, `mode` `auto`/`binary`/`record`, `record` 1–255 | UPDATE BINARY/RECORD |
 | `file-read` | `path`, `mode`, `record` | READ BINARY/RECORD; verify with `check.data` |
@@ -278,10 +278,17 @@ a remote entity through OTA/RFM, TS 102 223 §7.5.9): assert the change with
 
 ### Semantic events (`kind: "event"`)
 
-The server builds the event objects for the events a test needs most; an
-event without a builder goes through the raw `envelope` action, whose data hex
-the Phone tab's event form shows (**Event data (hex)**, copyable).  Both
-actions take the same optional `src` device-identities override.
+The step editor renders the **same form the Phone tab's send dialog uses**
+(`EVENT_FORMS`), for every modelled event - no release gating (a script may
+target another card).  The four events the server builds (`0x03`/`0x0B`/`0x12`/
+`0x1D`) travel as `fields`: the server validates them at script load and builds
+the objects at run time (so the data-connection host clock is fresh).  Every
+other event carries the form's built hex as `data` (the editor shows it live
+under the form, with the one-ENVELOPE check; the engine validates it and the
+single-envelope budget at load).  The `src` device-identities source comes from
+the event itself (e.g. MT call and IMS registration are network-sourced) or
+from the form's source field; an explicit `src` overrides it.  Both the
+`event` and the raw `envelope` action take the same optional `src`.
 
 ```json
 {"type": "action", "kind": "event",

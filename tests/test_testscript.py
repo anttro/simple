@@ -15,6 +15,7 @@ if str(PY_SIM) not in sys.path:
     sys.path.insert(0, str(PY_SIM))
 
 import pysim_simple_server.server as S
+import pysim_simple_server.events as events
 import pysim_simple_server.testscript as T
 
 
@@ -217,6 +218,27 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(T.ScriptError):
             T.normalise_script({'steps': [{'type': 'action', 'kind': 'envelope',
                 'params': {'event': 3, 'src': 'zz'}}]}, _resolver)
+
+    def test_event_action_accepts_the_form_built_data(self):
+        # The events events.py does not model carry the PWA form's built hex;
+        # a modelled event builds from `fields` (a stray data hex is ignored).
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': '0x00', 'data': '1c0100', 'src': '83'}}]}, _resolver)
+        self.assertEqual(script['steps'][0]['params'],
+                         {'event': 0x00, 'data': '1C0100', 'src': '83'})
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'event',
+             'params': {'event': '0x03', 'fields': {'status': 1}, 'data': 'AA'}}]}, _resolver)
+        self.assertNotIn('data', script['steps'][0]['params'])
+        self.assertEqual(script['steps'][0]['params']['fields'], {'status': 1})
+        # missing, malformed and oversized data are refused before the run
+        for bad in ({'event': '0x00'},
+                    {'event': '0x00', 'data': 'ABC'},
+                    {'event': '0x00', 'data': 'AA' * (events.EVENT_DATA_MAX + 1)}):
+            with self.assertRaises(T.ScriptError):
+                T.normalise_script({'steps': [{'type': 'action', 'kind': 'event',
+                                               'params': bad}]}, _resolver)
 
     def test_scp80_keyset_number_and_new_content_checks(self):
         # kvn (1..15) selects the preset's keyset; `por`/`files` are expect
@@ -850,8 +872,7 @@ class TestRunnerActions(RunnerTestCase):
         # the runner logs one step-annotated ENVELOPE line, not the generic
         # sender pair as well (its line carries the name, src and SW)
         log = buf.getvalue()
-        self.assertIn('TEST-RUN step 1: ENVELOPE(Event Download) type=0x03 '
-                      '(location_status) data=9B0100930752F01000FF0001 src=82 -> SW=9000',
+        self.assertIn('TEST-RUN step 1: ENVELOPE(Event Download) type=0x03 '                      '(location_status) data=9B0100930752F01000FF0001 src=82 -> SW=9000',
                       log)
         self.assertNotIn('ENVELOPE(Event Download): type=', log)
         self.assertNotIn('ENVELOPE SW:', log)
@@ -877,6 +898,22 @@ class TestRunnerActions(RunnerTestCase):
         ])
         self.assertEqual(run['status'], 'ok', run['steps'])
         self.assertIn('99010082028381', scc3.sent[0].upper())
+
+    def test_event_action_sends_the_form_built_data(self):
+        # The events events.py does not model (e.g. MT call) run with the
+        # PWA form's built hex and its source (network).
+        scc = FakeScc()
+        scc.push('80C2', '', '9000')
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'event',
+                 'params': {'event': '0x00', 'data': '1C0100', 'src': '83'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('99010082028381' + '1C0100', scc.sent[0].upper())
+        self.assertIn('type=0x00 (0x00) data=1C0100 src=83 -> SW=9000',
+                      buf.getvalue())
 
     def test_scp80_uses_the_preset_and_advances_the_counter(self):
         scc = FakeScc()

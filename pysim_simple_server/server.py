@@ -4885,7 +4885,7 @@ def _verify_adm(scc, app, adm_hex):
 # Chained (multi-envelope) delivery is not implemented - the slice/S-NSSAI
 # data must fit one envelope (see the help).
 _EVENT_INNER_MAX = 252
-_EVENT_DATA_MAX = _EVENT_INNER_MAX - 8
+_EVENT_DATA_MAX = events.EVENT_DATA_MAX   # = 252 - 8; events.py owns the value
 
 
 def _send_event_download(scc, event_type, event_data=None, drain=True, src=None,
@@ -6544,8 +6544,13 @@ def _test_run_action(server, step, ctx):
                   % (sent, p.get('src') or '82', p['data'] or '(none)', sw or '(none)',
                      (' RESP=%s' % data) if data else ''))
     elif kind == 'event':
-        # The semantic event download: the builder owns the byte layout.
-        data_hex = events.build(p['event'], p.get('fields') or {})
+        # The semantic event download: the server builds the events it models
+        # (run time, so the data-connection host clock is fresh); every other
+        # event carries the PWA form's built hex (validated at load).
+        if p.get('data') is not None:
+            data_hex = p['data']
+        else:
+            data_hex = events.build(p['event'], p.get('fields') or {})
         data, sw = _send_event_download(scc, p['event'], bytes.fromhex(data_hex),
                                         drain=False, src=p.get('src'), log=False)
         sent = 'ENVELOPE(Event Download) type=0x%02X (%s) data=%s' % (

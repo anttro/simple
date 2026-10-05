@@ -720,8 +720,10 @@ callers.
 
 **Action steps** (`type: "action"`): `kind` is `envelope` (`event`, `data`,
 optional `src` - the device-identities source override),
-`event` (`event` name or hex + `fields`, optional `src` - the semantic event
-download for 0x03/0x0B/0x12/0x1D), `menu-select` (`item_id` 1-255, or `text` +
+`event` (`event` name or hex + `fields` for the four server-built events
+0x03/0x0B/0x12/0x1D, or the PWA form's built `data` hex for any other event -
+validated as hex and against the one-ENVELOPE budget at load; optional `src`,
+the device-identities override), `menu-select` (`item_id` 1-255, or `text` +
 `mode` `exact`/`contains` (case-insensitive by default; `case_sensitive: true`
 forces an exact-case match) - the text is resolved against the card's cached
 SET UP MENU, which is refreshed whenever the card sends the menu), `file-write`

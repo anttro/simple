@@ -7123,6 +7123,9 @@ function testScriptProblem(script) {
 						|| p.fields === null || Array.isArray(p.fields))) {
 					return at + t('event fields must be an object');
 				}
+				const data = String(p.data || '').replace(/\s/g, '');
+				if (!p.fields && !data) return at + t('event data is required');
+				if (data && !/^[0-9A-Fa-f]+$/.test(data)) return at + t('event data must be hex');
 			}
 			if ((s.kind === 'file-write' || s.kind === 'file-read') && !String(p.path || '').trim()) return at + t('file path is empty');
 			if (s.kind === 'proactive' && String(p.attempts === undefined ? '' : p.attempts).trim() !== ''
@@ -7196,6 +7199,7 @@ function testStepSummary(step) {
 	else if (step.kind === 'event') {
 		const code = parseInt(p.event, 16);
 		s = 'EVENT ' + (EVENT_NAMES[code] || ('0x' + String(p.event || '?')));
+		if (p.src) s += ' src=' + p.src;
 	}
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
 	else if (step.kind === 'scp80') s = 'SCP80 ' + ((p.source || (p.sp ? 'sp' : 'apdu')) === 'sp' ? (p.sp || '(secured packet)') : (p.apdu || '?')) + (p.tar ? ' TAR=' + p.tar : '') + (p.spi1 ? ' SPI1=' + p.spi1 : '') + (p.spi2 ? ' SPI2=' + p.spi2 : '') + (p.format && p.format !== 'compact' ? ' fmt=' + p.format : '');
@@ -7794,18 +7798,42 @@ function testStepRender() {
 			html += testFormRow('Event data (hex, optional)', testFormInput('test-f-data', p.data, '9B0100'));
 			html += testFormRow('Source override (hex, optional)', testFormInput('test-f-eventsrc', p.src, '82 terminal / 83 network'));
 		} else if (step.kind === 'event') {
-			// The semantic event download: the four events the server builds
-			// (others go through the raw envelope action with the hex the
-			// Phone form shows).
-			html += testFormRow('Event', testFormSelect('test-f-evtype', p.event || '03',
-				[0x03, 0x0B, 0x12, 0x1D].map(c => ({
-					v: c.toString(16).toUpperCase().padStart(2, '0'),
-					l: EVENT_NAMES[c]}))));
-			html += testFormRow('Event fields (JSON)', '<textarea id="test-f-evfields" rows="3" ' +
-				'placeholder=\'{"status": 0}\' class="w-full font-mono border border-gray-300 ' +
-				'dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">' +
-				esc(p.fields && Object.keys(p.fields).length ? JSON.stringify(p.fields) : '') +
-				'</textarea>');
+			// The semantic event download: the same forms the Simulator uses
+			// (EVENT_FORMS), for every modelled event - the server builds the
+			// four it models from `fields`, the editor's built hex (`data`)
+			// covers the rest.  No release gating: a script may target another
+			// card (the Phone tab's form gates against the equipped one).
+			// Object.keys(EVENT_FORMS) yields the numeric keys as decimal
+			// strings (the table is written with 0x… literals); the select's
+			// option values are the hex byte forms.
+			const codes = Object.keys(EVENT_FORMS).map(k => parseInt(k, 10))
+				.sort((a, b) => a - b);
+			const rawEvent = p.event === undefined ? '03' : p.event;
+			let cur = (typeof rawEvent === 'number') ? rawEvent : parseInt(String(rawEvent), 16);
+			if (!(Number.isInteger(cur) && cur >= 0 && cur <= 0xFF)) cur = 3;
+			const opts = codes.map(c => ({
+				v: c.toString(16).toUpperCase().padStart(2, '0'),
+				l: EVENT_NAMES[c] || ('0x' + c.toString(16).toUpperCase())}));
+			if (codes.indexOf(cur) < 0) {
+				opts.push({v: cur.toString(16).toUpperCase().padStart(2, '0'),
+					l: t('unknown') + ' 0x' + cur.toString(16).toUpperCase()});
+			}
+			html += testFormRow('Event', testFormSelect('test-f-evtype',
+				cur.toString(16).toUpperCase().padStart(2, '0'), opts,
+				'testEventTypeChanged()'));
+			const cfg = EVENT_FORMS[cur];
+			if (cfg) {
+				html += '<div id="test-f-ev-form" oninput="testEventPreview()" ' +
+					'onchange="testEventGroups();testEventPreview()">' +
+					eventFormFieldsHtml(cfg, cfg.fields, p.fields || {}, 'test-f-ev-', false) +
+					'</div>';
+				html += testFormRow('Event data (hex)', '<textarea id="test-f-evdata" rows="2" readonly placeholder="\u2014" ' +
+					'class="w-full font-mono border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea>' +
+					'<p id="test-f-evwarn" class="hidden text-xs text-amber-600 dark:text-amber-400 mt-1"></p>');
+			} else {
+				html += '<p class="text-xs text-amber-600 dark:text-amber-400">' +
+					esc(t('No form for this event - use the raw Envelope action.')) + '</p>';
+			}
 		} else if (step.kind === 'menu-select') {
 			html += testFormRow('Item id (1-255)', testFormInput('test-f-item', p.item_id === undefined ? '' : p.item_id, '1..255'));
 			html += testFormRow('\u2026 or item text',
@@ -7910,6 +7938,10 @@ function testStepRender() {
 			{v: 'error', l: t('Error (stop the script)')}, {v: 'warning', l: t('Warning (continue)')}]));
 	}
 	body.innerHTML = html;
+	if (isAction && step.kind === 'event' && document.getElementById('test-f-ev-form')) {
+		testEventGroups();
+		testEventPreview();
+	}
 	if (!isAction) testRenderChecks();
 }
 
@@ -7936,6 +7968,62 @@ function testStepKindChanged() {
 	testStepCollect();
 	if (_testEditStep.type === 'expect') _testEditChecks = (_testEditStep.checks || []).slice();
 	testStepRender();
+}
+
+// The step editor's event form (the Simulator's EVENT_FORMS): the select
+// rebuilds the form (the previous event's values do not apply), the generic
+// group updater hides the fields a group excludes, and the preview shows the
+// exact event-data hex the step will send.
+function testEventTypeChanged() {
+	testStepCollect();
+	if (!_testEditStep || _testEditStep.type !== 'action') return;
+	const code = parseInt((document.getElementById('test-f-evtype') || {}).value || '03', 16);
+	_testEditStep.params = {event: code.toString(16).toUpperCase().padStart(2, '0')};
+	testStepRender();
+}
+
+function testEventGroups() {
+	const box = document.getElementById('test-f-ev-form');
+	if (!box) return;
+	const code = parseInt((document.getElementById('test-f-evtype') || {}).value || '03', 16);
+	const cfg = EVENT_FORMS[code];
+	const groups = {};
+	((cfg && cfg.fields) || []).forEach(f =>
+		String(f.g || '').split(',').filter(Boolean).forEach(x => { groups[x] = true; }));
+	let g = '';
+	((cfg && cfg.fields) || []).forEach(f => {
+		if (g || f.type !== 'select') return;
+		const sel = document.getElementById('test-f-ev-' + f.id);
+		if (!sel) return;
+		const opt = sel.options[sel.selectedIndex];
+		const og = opt && opt.getAttribute ? opt.getAttribute('data-gr') : '';
+		if (og) { g = og; return; }
+		if (sel.value && groups[sel.value]) g = sel.value;
+	});
+	eventFieldGroupsUpdate(box, g);
+}
+
+function testEventPreview() {
+	const el = document.getElementById('test-f-evdata');
+	if (!el) return;
+	const code = parseInt((document.getElementById('test-f-evtype') || {}).value || '03', 16);
+	const cfg = EVENT_FORMS[code];
+	let hex = '';
+	if (cfg) {
+		try { hex = cfg.build(eventFormValues(cfg, null, 'test-f-ev-')) || ''; } catch (e) { hex = ''; }
+	}
+	el.value = hex;
+	const warn = document.getElementById('test-f-evwarn');
+	if (warn) {
+		if (hex && !eventFitsOneEnvelope(hex)) {
+			warn.textContent = t('The event data does not fit one ENVELOPE') + ' (' +
+				eventEnvelopeSize(hex) + ' > ' + EVENT_INNER_MAX + ' B). ' +
+				t('Multi-envelope (chained) delivery is not implemented - reduce the slice lists.');
+			warn.classList.remove('hidden');
+		} else {
+			warn.classList.add('hidden');
+		}
+	}
 }
 
 function testRenderChecks() {
@@ -8077,19 +8165,20 @@ function testStepCollect() {
 			}
 		}
 		else if (kind === 'event') {
-			p.event = val('test-f-evtype') || '03';
-			const raw = val('test-f-evfields');
-			p.fields = {};
-			// the flag reflects THIS collect, so fixing the JSON saves again
-			delete step._eventFieldsError;
-			if (raw) {
-				try {
-					const obj = JSON.parse(raw);
-					if (obj && typeof obj === 'object' && !Array.isArray(obj)) p.fields = obj;
-					else step._eventFieldsError = true;
-				} catch (e) {
-					step._eventFieldsError = true;
-				}
+			const evCode = parseInt(val('test-f-evtype') || '03', 16);
+			p.event = (Number.isInteger(evCode) && evCode >= 0 && evCode <= 0xFF ? evCode : 3)
+				.toString(16).toUpperCase().padStart(2, '0');
+			const cfg = EVENT_FORMS[parseInt(p.event, 16)];
+			if (cfg) {
+				// The form values (the server builds the four events it models
+				// from them) and the built hex the other events run with.
+				const values = eventFormValues(cfg, null, 'test-f-ev-');
+				p.fields = values;
+				let hex = '';
+				try { hex = cfg.build(values) || ''; } catch (e) { hex = ''; }
+				p.data = hex;
+				const src = eventFormSrc(cfg, values);
+				if (src) p.src = src;
 			}
 		}
 		else if (kind === 'file-write' || kind === 'file-read') {
@@ -8200,8 +8289,16 @@ function testStepFormError() {
 			const problem = testMenuSelectProblem(p);
 			if (problem) return problem;
 		}
-		if (step.kind === 'event' && step._eventFieldsError) {
-			return t('Event fields must be a JSON object');
+		if (step.kind === 'event') {
+			const code = parseInt(String((step.params || {}).event || ''), 16);
+			const cfg = EVENT_FORMS[code];
+			if (!cfg) return t('No form for this event - use the raw Envelope action.');
+			const bad = eventFormPatternError(cfg, (step.params || {}).fields || {});
+			if (bad) return t('Invalid') + ': ' + t(bad);
+			if (!String((step.params || {}).data || '')) return t('Event data is empty');
+			if (!eventFitsOneEnvelope((step.params || {}).data)) {
+				return t('The event data does not fit one ENVELOPE');
+			}
 		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
@@ -15792,19 +15889,91 @@ function eventFitsOneEnvelope(eventDataHex) {
 	return eventEnvelopeSize(eventDataHex) <= EVENT_INNER_MAX;
 }
 
-// The visible event-form values (reads the DOM; a hidden or missing field is
-// left out).  Shared by the send action and the hex preview.
-function pysimEventValues() {
-	const cfg = EVENT_FORMS[_eventFormType];
+// The event form's fields as HTML (pure): shared by the Phone tab's send form
+// and the test-script step editor.  `prefix` keeps the ids unique per form
+// ('ev-f-' / 'test-f-ev-'), `values` prefills them (the step editor reopens a
+// stored action) and `fields` limits the list (the Phone tab hides the fields
+// introduced after the card's CAT release - the step editor shows all).
+// `withOnchange` keeps the table's per-field onchange handlers (the Phone
+// tab's updaters read its own ids; the step editor uses the generic group
+// updater instead).
+function eventFormFieldsHtml(cfg, fields, values, prefix, withOnchange) {
+	const vals = values || {};
+	let html = '';
+	(fields || []).forEach(f => {
+		const v = vals[f.id] === undefined || vals[f.id] === null ? '' : String(vals[f.id]);
+		html += '<div class="event-field" data-groups="' + (f.g || '') + '" data-id="' + f.id + '">';
+		html += '<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' + t(f.label) + '</label>';
+		if (f.type === 'select') {
+			html += '<select id="' + prefix + f.id + '"'
+				+ (withOnchange && f.onchange ? ' onchange="' + f.onchange + '"' : '')
+				+ ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">';
+			f.opts.forEach(o => html += '<option value="' + esc(o.v) + '"'
+				+ (o.g ? ' data-gr="' + esc(o.g) + '"' : '')
+				+ (v !== '' && String(o.v) === v ? ' selected' : '') + '>' + esc(o.l) + '</option>');
+			html += '</select>';
+		} else {
+			const attrs = [];
+			if (f.pattern) attrs.push('pattern="' + f.pattern + '"');
+			if (f.placeholder) attrs.push('placeholder="' + f.placeholder + '"');
+			if (f.min !== undefined) attrs.push('min="' + f.min + '" max="' + f.max + '"');
+			if (v !== '') attrs.push('value="' + esc(v) + '"');
+			html += '<input id="' + prefix + f.id + '" type="' + f.type + '" ' + attrs.join(' ') + ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">';
+		}
+		html += '</div>';
+	});
+	return html;
+}
+
+// The visible values of an event form (reads the DOM; a hidden or missing
+// field is left out).  `prefix` matches eventFormFieldsHtml; `fields`
+// defaults to the config's list.
+function eventFormValues(cfg, fields, prefix) {
 	const values = {};
-	((cfg && cfg.fields) || []).forEach(f => {
-		const el = document.getElementById('ev-f-' + f.id);
+	(fields || (cfg && cfg.fields) || []).forEach(f => {
+		const el = document.getElementById(prefix + f.id);
 		if (!el) return;
 		const wrap = el.closest ? el.closest('.event-field') : null;
 		if (wrap && wrap.style.display === 'none') return;
 		values[f.id] = String(el.value === undefined ? '' : el.value).trim();
 	});
 	return values;
+}
+
+// The first field whose value violates its pattern, or '' (pure).
+function eventFormPatternError(cfg, values) {
+	let bad = '';
+	((cfg && cfg.fields) || []).forEach(f => {
+		const v = values[f.id];
+		if (bad || v === undefined || !f.pattern || !v) return;
+		if (!new RegExp('^' + f.pattern + '$').test(v)) bad = f.label;
+	});
+	return bad;
+}
+
+// The device-identities source of an event form (pure): the event's fixed
+// value, overridden by its srcField (the call events differ near/far end).
+function eventFormSrc(cfg, values) {
+	let src = (cfg && cfg.src) || '';
+	if (cfg && cfg.srcField && values && values[cfg.srcField]) src = values[cfg.srcField];
+	return src || '';
+}
+
+// Toggle an event form's grouped fields: a field without data-groups is
+// always shown, otherwise one of its groups must equal `g`.
+function eventFieldGroupsUpdate(container, g) {
+	if (!container) return;
+	container.querySelectorAll('.event-field').forEach(div => {
+		const groups = div.getAttribute('data-groups') || '';
+		div.style.display = (groups === '' || groups.indexOf(g) >= 0) ? '' : 'none';
+	});
+}
+
+// The visible event-form values (reads the DOM; a hidden or missing field is
+// left out).  Shared by the send action and the hex preview.
+function pysimEventValues() {
+	const cfg = EVENT_FORMS[_eventFormType];
+	return eventFormValues(cfg, null, 'ev-f-');
 }
 
 // Build the current form's event data and show it - the exact bytes the send
@@ -15853,24 +16022,7 @@ function pysimEventSendForm(eventType) {
 		// parameters introduced after it are hidden - the note names the source.
 		const eff = catEffectiveReleaseInfo(cards, _pysimCardIccid);
 		const avail = eventFieldsForRelease(cfg, eff.rel);
-		let html = '';
-		avail.fields.forEach(f => {
-			const rg = f.g ? f.g.split(',') : null;
-			html += '<div class="event-field" data-groups="' + (f.g||'') + '" data-id="' + f.id + '">';
-			html += '<label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' + t(f.label) + '</label>';
-			if (f.type === 'select') {
-				html += '<select id="ev-f-' + f.id + '"' + (f.onchange ? ' onchange="' + f.onchange + '"' : '') + ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">';
-				f.opts.forEach(o => html += '<option value="' + o.v + '"' + (o.g ? ' data-gr="' + o.g + '"' : '') + '>' + esc(o.l) + '</option>');
-				html += '</select>';
-			} else {
-				const attrs = [];
-				if (f.pattern) attrs.push('pattern="' + f.pattern + '"');
-				if (f.placeholder) attrs.push('placeholder="' + f.placeholder + '"');
-				if (f.min !== undefined) attrs.push('min="' + f.min + '" max="' + f.max + '"');
-				html += '<input id="ev-f-' + f.id + '" type="' + f.type + '" ' + attrs.join(' ') + ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono">';
-			}
-			html += '</div>';
-		});
+		let html = eventFormFieldsHtml(cfg, avail.fields, {}, 'ev-f-', true);
 		if (avail.hidden.length) {
 			const src = eff.preset ? t('preset:') + ' ' + eff.preset.name : t('default release');
 			html += '<p class="text-xs text-amber-600 dark:text-amber-400 mt-2" title="' +
@@ -15932,20 +16084,15 @@ async function pysimEventSend() {
 
 	if (cfg && cfg.build) {
 		const values = pysimEventValues();
-		let valid = true;
-		cfg.fields.forEach(f => {
-			const v = values[f.id];
-			if (v === undefined) return;      // hidden or not rendered
-			if (f.pattern && v && !new RegExp('^' + f.pattern + '$').test(v)) {
-				err.textContent = t('Invalid') + ': ' + t(f.label);
-				err.classList.remove('hidden');
-				valid = false;
-			}
-		});
-		if (!valid) return;
+		const bad = eventFormPatternError(cfg, values);
+		if (bad) {
+			err.textContent = t('Invalid') + ': ' + t(bad);
+			err.classList.remove('hidden');
+			return;
+		}
 		try {
 			eventData = cfg.build(values);
-			if (cfg.srcField && values[cfg.srcField]) eventSrc = values[cfg.srcField];
+			eventSrc = eventFormSrc(cfg, values) || eventSrc;
 		} catch (e) {
 			err.textContent = 'Error: ' + e.message;
 			err.classList.remove('hidden');
@@ -21916,6 +22063,8 @@ const LANG_RU = {
 	'keyset number must be 1..15': 'номер keyset должен быть 1..15',
 	'Event fields (JSON)': 'Поля события (JSON)',
 	'Event fields must be a JSON object': 'Поля события должны быть объектом JSON',
+	'No form for this event - use the raw Envelope action.': 'Для этого события нет формы — используйте действие Envelope с сырыми данными.',
+	'Event data is empty': 'Данные события пусты',
 	'event is required': 'нужен тип события',
 	'event fields must be an object': 'поля события должны быть объектом',
 	'Event data (hex)': 'Данные события (hex)',

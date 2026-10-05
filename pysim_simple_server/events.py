@@ -30,6 +30,12 @@ EVENT_ACCESS_TECH = 0x0B
 EVENT_NETWORK_REJECTION = 0x12
 EVENT_DATA_CONNECTION = 0x1D
 
+# The single-ENVELOPE budget of the event data (TS 102 223: the inner data is
+# capped at 252 bytes, 8 of them the event-list + device-identities header;
+# chained delivery is not implemented).  server.py's _EVENT_DATA_MAX and the
+# PWA's EVENT_INNER_MAX mirror this value.
+EVENT_DATA_MAX = 244
+
 # The event code from a script's `event` value (a hex byte, or one of these
 # names - the PWA's display names and short keywords).
 EVENT_NAMES = {
