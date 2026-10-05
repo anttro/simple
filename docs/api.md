@@ -343,7 +343,8 @@ Every accepted packet consumes a counter, which is persisted into the keyset
 like any other operation, so the probe is refused when the SPI1 has no counter
 check or the named preset does not define the keyset number.  A missing
 `cntr` is seeded from that keyset (v3.20.0; an explicit value wins but never
-lowers the stored counter).
+lowers the stored counter).  The delivered SMS carries the OTA CPI IE by
+default (`includeCpi`, as in `/api/send-ota`).
 
 ```json
 {"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
@@ -478,6 +479,17 @@ segments are sent in order.  A packet that would need more than 5 segments
 is refused (the card's concatenation buffer is the limit).  With `sp` a
 pre-built packet is delivered the same way.
 
+**SMS framing — `includeCpi`.**  By default (`true`) the delivered SMS TPDUs
+carry the OTA **CPI information element** (IEI `70`, null IED — TS 31.115
+§4.2/§4.3), the marker of a command packet; it shrinks the SMS user data — a
+single SM takes up to **137** packet octets instead of 140, and the first
+concatenated segment **132** instead of 134.  The RAM/ISD operations send
+with `includeCpi: true` — a concatenated command carries the CPI IE in its
+first SM (TS 31.115 §4.3), and those are the packets that span several SMs.
+With `false` no CPI IE is added (a single SM then carries no UDH at all and
+the full 140-octet budget is available) — for a send whose receiver does not
+expect the marker.
+
 **SPI1 and the TAR's MSL.**  With a `preset_id` the packet's SPI1 is derived
 from the MSL of its `tar` (TS 102 226 §8.2.1.3.2.4) unless the request passes
 `spi1` — an explicit value wins (a hand send may deliberately ask for more
@@ -557,7 +569,8 @@ answer, the response carries `por_missing: true`.
   "kicKey": "D6FCC023...",
   "kidKey": "1B07E7E0...",
   "preset_id": "7ee0367f3a444b28988fea5fbc50de9f",
-  "ram_format": "auto"
+  "ram_format": "auto",
+  "includeCpi": true
 }
 ```
 
@@ -823,6 +836,7 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 | `make_selectable` | no | If true (default), final INSTALL uses P1=`0C` (install + make selectable) |
 | `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
 | `ram_format` | no | RAM command format: `auto` (default — the read-only probe decides, recorded as `FORMAT CHECK (...)` steps), `compact` or `expanded` to pin it |
+| `includeCpi` | no | As in `/api/send-ota`: `true` (default) marks the delivered SMS with the OTA CPI IE; `false` drops it (the full 140-octet single-SM budget then applies) |
 
 **Response (success):**
 ```json
@@ -910,6 +924,7 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 | `privileges` | no | Hex privileges value (1 or 3 bytes), default `00` |
 | `install_params` / `stk_params` | no | As in `/api/ram-install` (the PWA composes `C9`+`EF`+raw and appends the STK part) |
 | `ram_format` | no | As in `/api/ram-install`: `auto` (default — a read-only probe step decides), `compact` or `expanded` |
+| `includeCpi` | no | As in `/api/ram-install`: `true` (default) marks the delivered SMS with the OTA CPI IE |
 
 **Response:** `{"success": bool, "steps": [...], "final_cntr": "...", "ram_format": "...", "error": "...", "failed_step": N}` — the same step records as `/api/ram-install`.  A missing `cntr` is seeded from the preset's keyset (v3.20.0; an explicit value wins but never lowers the stored counter).
 
@@ -917,7 +932,7 @@ Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) 
 
 Run the **CAP compatibility test**: the format check, `INSTALL [for load]` and the LOAD blocks only up to the block that completes the **Import** component (the point where the JCRE verifies the import list, JC VM spec 4.5.2), then stop — no last-block flag and no `INSTALL [for install]`, so nothing is committed and nothing has to be deleted afterwards.  The verdict (`imports_ok`) covers the **LOAD/import gate only**; the link gate is what a real install checks at `INSTALL [for install]`.
 
-**Request body:** as `/api/ram-install` (`cap_hex`, the SCP80 fields, optional `load_block_size` and `ram_format`) — a missing `cntr` is seeded from the preset's keyset (v3.20.0) — plus:
+**Request body:** as `/api/ram-install` (`cap_hex`, the SCP80 fields, optional `load_block_size`, `ram_format` and `includeCpi`) — a missing `cntr` is seeded from the preset's keyset (v3.20.0) — plus:
 
 | Field | Req | Description |
 |---|---|---|
