@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.1'
+VERSION = '3.22.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -6322,6 +6322,26 @@ def _drain_require_label(req):
     return name + ((' q=%s' % q['value']) if q else '')
 
 
+def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respond):
+    """The runner's TERMINAL RESPONSE: the scripted answer plus the terminal's
+    own command-specific object(s) - the same objects the terminal's answers
+    carry (`_build_tr`), unless the script supplied `raw` TLVs, which win.
+    A successful PROVIDE LOCAL INFORMATION answer takes the TR Config PLI
+    dictionary entry for its qualifier (or the host clock for the date/time
+    qualifier, TS 102 223 6.4.15); a POLL INTERVAL answer echoes the current
+    interval (6.8.4).  Without this a scripted expectation silently stalled an
+    applet that waited for its data (v3.22.2 review)."""
+    respond = respond or {}
+    answer = None
+    if not respond.get('raw') and respond.get('result', 0) == 0x00:
+        if cmd_type == 0x26 and cmd_qual is not None:
+            answer = _pli_data_hex(cmd_qual)
+        elif cmd_type == 0x03:
+            answer = '840201%02X' % _POLL_INTERVAL
+    return testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond,
+                               answer_tlvs=answer or None)
+
+
 def _test_run_drain(server, step):
     """The proactive drain action: poll STATUS and consume every announced
     command - the TERMINAL RESPONSE is `first` for the first one, `respond`
@@ -6358,7 +6378,8 @@ def _test_run_drain(server, step):
             if menu:
                 server.sim_menu = menu
         respond = p['first'] if (not consumed and p.get('first')) else p['respond']
-        tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond)
+        tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
+                                     cmd_qual, respond)
         tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
         _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_rv[1]))
         consumed.append({'type_hex': '%02X' % cmd_type, 'type_name': name,
@@ -6909,7 +6930,8 @@ def _test_run_expect(server, step, pending, ctx=None):
             checks.append(_test_check_result(
                 'Files', sorted(paths) == sorted(want), ', '.join(want),
                 ', '.join(paths) or '(none)', c['on_fail']))
-    tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, step['respond'])
+    tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual,
+                                 step['respond'])
     tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
     tr_sw = tr_rv[1]
     _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_sw))
@@ -6948,7 +6970,8 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
                 break
             raw = bytes.fromhex(fdata)
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
-            tr = testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, {'result': result})
+            tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
+                                         cmd_qual, {'result': result})
             rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
             name = PROACTIVE_TYPE_NAMES.get(cmd_type, '?')
             answered.append({'name': name, 'type': cmd_type,

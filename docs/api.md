@@ -772,7 +772,10 @@ REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
 order-insensitively); `respond` is the TERMINAL RESPONSE in the TS 102 223
 6.8.0 object order (`result` name or value; `text`+`dcs` for GET INKEY/GET
 INPUT, `dcs` `00` packed / `04` 8-bit / `08` UCS2; `item_id`; extra `raw`
-TLVs appended after the standard objects).
+TLVs appended after the standard objects).  The terminal's own objects ride
+along unless `raw` overrides them: a successful PROVIDE LOCAL INFORMATION
+answer carries the TR Config PLI dictionary entry (or the host clock for the
+date/time qualifier) and a POLL INTERVAL answer the current-interval echo.
 
 The response is the initial state (`running: true`), the final counter
 (`scp80_counter`) and the step list; poll `/api/test/status`.  The **server

@@ -56,6 +56,17 @@ class TestValidation(unittest.TestCase):
         ]}, _resolver)
         self.assertEqual(script['steps'][0]['check']['sw'], {'mode': 'exact', 'value': '9000'})
 
+    def test_scp80_defaults_to_an_exact_9000_sw(self):
+        # The default must not drift to a mask: a GP INSTALL/LOAD/DELETE
+        # envelope answers 91XX and the script gives those steps the 9???
+        # mask explicitly (the docs recipe); applet scripts keep asserting
+        # exact 9000.
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80', 'params': {'apdu': '80E2900000'}},
+        ]}, _resolver)
+        self.assertEqual(script['steps'][0]['check']['sw'],
+                         {'mode': 'exact', 'value': '9000'})
+
     def test_rejects_bad_scripts(self):
         bad = [
             'not a dict',
@@ -405,6 +416,26 @@ class TestBuildTr(unittest.TestCase):
         tr = T.build_tr(2, 0x21, 0x82, 0x81, {'result': 0x00})
         self.assertEqual(tr.hex().upper(), '81030221008202828183020000')
 
+    def test_the_terminal_answer_objects_follow_the_result(self):
+        # The runner passes the terminal's own objects (the PLI data, the
+        # POLL INTERVAL echo) - they sit right after the Result, before the
+        # text/item/raw objects (TS 102 223 6.8.0).
+        tr = T.build_tr(1, 0x26, 0x82, 0x81, {'result': 0x00},
+                        answer_tlvs='2607AABBCCDDEEFF')
+        self.assertEqual(tr.hex().upper(),
+                         '810301260082028281830200002607AABBCCDDEEFF')
+        # with a text object the answer object keeps its place
+        tr = T.build_tr(1, 0x23, 0x82, 0x81,
+                        {'result': 0x00, 'text': 'hi', 'dcs': 0x04},
+                        answer_tlvs='8402011E')
+        self.assertEqual(tr.hex().upper(),
+                         '810301230082028281830200008402011E8D03046869')
+        # and the script's raw TLVs stay last
+        tr = T.build_tr(1, 0x26, 0x82, 0x81,
+                        {'result': 0x00, 'raw': '9B0100'}, answer_tlvs='2607AA')
+        self.assertEqual(tr.hex().upper(),
+                         '810301260082028281830200002607AA9B0100')
+
 
 # ─── runner with a fake card ─────────────────────────────────────────────
 
@@ -753,6 +784,98 @@ class TestRunnerProactiveDrain(RunnerTestCase):
         self.assertEqual(run['status'], 'error')
         self.assertEqual(run['steps'][0]['sw'], '9102')
         self.assertFalse(run['steps'][0]['checks'][0]['ok'])
+
+
+class TestRunnerTerminalAnswers(RunnerTestCase):
+    """The runner's TERMINAL RESPONSE inherits the terminal's own objects
+    (v3.22.2 review): the PLI dictionary / host clock and the POLL INTERVAL
+    echo - unless the script's `raw` overrides them."""
+
+    PLI_01 = 'D009810301260182028281'      # PROVIDE LOCAL INFORMATION, qual 01
+    PLI_03 = 'D009810301260382028281'      # qual 03: date/time
+    POLL = 'D009810301030082028281'        # POLL INTERVAL
+
+    def _tr(self, scc):
+        return [a for a in scc.sent if a.startswith('8014')][-1]
+
+    def _pending(self, scc, cmd):
+        scc.push('80F2', '', '9109')          # STATUS: the command is pending
+        scc.push('8012', cmd, '9000')
+        scc.push('8014', '', '9000')
+
+    def test_a_pli_expectation_carries_the_dictionary_entry(self):
+        scc = FakeScc()
+        self._pending(scc, self.PLI_01)
+        with mock.patch.dict(S._PLI_DATA, {1: '140853937640650700F4'}):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+                {'type': 'expect', 'command': 'PROVIDE LOCAL INFORMATION',
+                 'respond': {'result': 'ok'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('140853937640650700F4', self._tr(scc))
+
+    def test_a_pli_raw_overrides_the_dictionary(self):
+        scc = FakeScc()
+        self._pending(scc, self.PLI_01)
+        with mock.patch.dict(S._PLI_DATA, {1: '140853937640650700F4'}):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+                {'type': 'expect', 'command': 'PROVIDE LOCAL INFORMATION',
+                 'respond': {'result': 'ok', 'raw': '2607AABBCCDDEEFF'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        tr = self._tr(scc)
+        self.assertIn('2607AABBCCDDEEFF', tr)
+        self.assertNotIn('140853937640650700F4', tr)
+
+    def test_a_pli_date_time_answer_uses_the_host_clock(self):
+        scc = FakeScc()
+        self._pending(scc, self.PLI_03)
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'PROVIDE LOCAL INFORMATION',
+             'respond': {'result': 'ok'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertRegex(self._tr(scc), r'2607[0-9A-F]{14}')
+
+    def test_a_refused_pli_gets_no_data_object(self):
+        scc = FakeScc()
+        self._pending(scc, self.PLI_01)
+        with mock.patch.dict(S._PLI_DATA, {1: '140853937640650700F4'}):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+                {'type': 'expect', 'command': 'PROVIDE LOCAL INFORMATION',
+                 'respond': {'result': 'refused'}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertNotIn('140853937640650700F4', self._tr(scc))
+
+    def test_a_poll_interval_expectation_echoes_the_duration(self):
+        scc = FakeScc()
+        self._pending(scc, self.POLL)
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'POLL INTERVAL',
+             'respond': {'result': 'ok'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertRegex(self._tr(scc), r'840201[0-9A-F]{2}')
+
+    def test_a_drained_pli_carries_the_dictionary_entry(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9109')          # STATUS: PLI pending
+        scc.push('8012', self.PLI_01, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80F2', '', '9000')          # confirming STATUS: idle
+        with mock.patch.dict(S._PLI_DATA, {1: '140853937640650700F4'}):
+            run = self.run_script(FakeServer(scc), [
+                {'type': 'action', 'kind': 'proactive-drain',
+                 'params': {'attempts': 3, 'interval_ms': 0}},
+            ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertIn('140853937640650700F4', self._tr(scc))
 
 
 class TestRunnerActions(RunnerTestCase):

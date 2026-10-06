@@ -352,7 +352,10 @@ next step.
 ```
 
 - `sw` - default `{"mode": "exact", "value": "9000"}` (a `status` action with
-  `attempts > 1` defaults to the `91??` mask).
+  `attempts > 1` defaults to the `91??` mask).  A GP INSTALL/LOAD/DELETE
+  envelope answers `91XX` - the card announces a proactive command - so give
+  those steps the `9???` mask and a `proactive-drain` after them (see
+  *Driving a RAM install from a script*).
 - `data` - the response data (for SCP80: the inline PoR packet).  The
   `proactive-drain` action does not take a `data` check - assert the drained
   commands with `require` and the final status with `sw`.
@@ -444,6 +447,13 @@ identities, **Result**, Duration, Text string, Item identifier, …):
   (Length `00`).
 - `item_id` - the Item identifier for a successful SELECT ITEM answer.
 - `raw` - extra COMPREHENSION-TLVs appended after the standard objects.
+
+The terminal's own command-specific objects ride with the scripted result
+unless `raw` overrides them: a successful PROVIDE LOCAL INFORMATION answer
+takes the TR Config **PLI dictionary** entry for its qualifier (the current
+date and time for the date/time qualifier `03`), and a POLL INTERVAL answer
+echoes the current interval (TS 102 223 §6.8.4) - the same objects the
+terminal's own answers carry.
 
 UCS2 answer to a GET INPUT:
 
@@ -543,6 +553,51 @@ the `files` check asserts the exact set of changed files the applet reports.
 For this mode the terminal must **not** reset the card
 (TS 102 223 §6.4.7), so the run continues - the following `file-read`
 verifies the updated content.
+
+### Driving a RAM install from a script
+
+The RAM APDU list (`POST /api/scp81/gen-install`, or the PWA's *Install from
+.cap*) is a sequence of GP commands - INSTALL [for load], the LOAD blocks,
+INSTALL [for install], plus a DELETE first when the package is already
+loaded.  Drive it from a test script as one `scp80` step per APDU, addressed
+to the preset's **ISD TAR** (`000000`; the preset supplies the keys, the
+counter and the SPI1 from that TAR's MSL):
+
+```json
+{"name": "install applet",
+ "steps": [
+  {"type": "action", "kind": "scp80",
+   "params": {"apdu": "<INSTALL [for load] C-APDU>", "tar": "000000"},
+   "check": {"sw": {"mode": "mask", "value": "9???"}, "por": "any"},
+   "label": "INSTALL [for load]"},
+  {"type": "action", "kind": "scp80",
+   "params": {"apdu": "<LOAD 1 C-APDU>", "tar": "000000"},
+   "check": {"sw": {"mode": "mask", "value": "9???"}, "por": "any"},
+   "label": "LOAD 1"},
+  {"type": "action", "kind": "scp80",
+   "params": {"apdu": "<INSTALL [for install] C-APDU>", "tar": "000000"},
+   "check": {"sw": {"mode": "mask", "value": "9???"}, "por": "any"},
+   "label": "INSTALL [for install]"},
+  {"type": "action", "kind": "proactive-drain", "params": {}}
+ ]}
+```
+
+A successful GP step answers **`91XX`**, not `9000`: the card has a pending
+proactive command (the re-announced SET UP MENU).  `XX` is that command's TLV
+length - `915d` for the 93-byte SET UP MENU, `910b` for an 11-byte PROVIDE
+LOCAL INFORMATION, `91b1` for a 177-byte SEND SHORT MESSAGE - so it can never
+be pinned exactly.  The default exact-`9000` check therefore fails a step
+whose side effect succeeded; give every INSTALL/LOAD/DELETE step the `9???`
+mask.  `por` stays `any` by default - assert the remote command's own status
+word with `{"por": {"status": "por_ok", "sw": "…"}}` when you want the
+stronger check.
+
+The runner refuses to start an action while a command is pending: after
+**any** step that answered `91XX` the next step must be an `expect` or a
+`proactive-drain`.  The card re-announces the menu after the delete and after
+the install, so a drain after those two groups is enough; a drain after any
+`91XX` step is always safe.  The drain fetches the SET UP MENU, so the cached
+menu (text-based `menu-select`) is current afterwards.
 
 ### Incoming data → particular PoR, no other actions
 
