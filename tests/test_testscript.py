@@ -744,6 +744,29 @@ class TestRunnerProactiveDrain(RunnerTestCase):
         self.assertEqual(entry['drained'][0]['qualifier'], '00')
         self.assertTrue(any('83020000' in a for a in scc.sent))
 
+    def test_a_drain_consumes_a_command_left_pending(self):
+        # v3.22.4: the drain is exempt from the runner's pending guard - a
+        # step that ended 91XX is consumed by the next drain (its STATUS poll
+        # re-announces the unfetched command), no "unexpected pending" error.
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')          # the status step: pending
+        scc.push('80F2', '', '9102')          # the drain's first STATUS
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        scc.push('80F2', '', '9000')          # the drain's confirming STATUS
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'action', 'kind': 'proactive-drain',
+             'params': {'attempts': 3, 'interval_ms': 0}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(len(run['steps']), 2)
+        entry = run['steps'][1]
+        self.assertEqual(entry['status'], 'ok')
+        self.assertEqual(len(entry['drained']), 1)
+        self.assertEqual(entry['drained'][0]['type_name'], 'DISPLAY TEXT')
+        self.assertEqual(entry['sent'], 'STATUS x2; TR x1')
+
     def test_require_matches_a_drained_command(self):
         scc = FakeScc()
         scc.push('80F2', '', '9102')

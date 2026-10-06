@@ -743,7 +743,9 @@ mask `91??`, i.e. poll until the card announces a command) or `proactive-drain`
 optional `require` `{command, qualifier?}` asserting at least one drained
 command; the final SW is the step's `check.sw`, so a still-pending card fails
 and hands the command to the next step - an empty drain passes unless
-`require` was given).
+`require` was given).  It is exempt from the runner's
+unexpected-pending-command guard, so it also consumes a command a previous
+step left pending (`91XX`).
 
 `check` is `{"sw": ..., "data": ...}` (exact or `{"mode": "mask", "value":
 "91??"}`, `?` = per-nibble wildcard) plus `"por"` for SCP80 -

@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.3'
+VERSION = '3.22.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -7089,11 +7089,17 @@ def _test_run_script(server, script, preset, shared=None):
         entry = _test_entry(step, index)
         with _TEST_LOCK:
             _TEST_RUN['steps'].append(entry)
-        if pending is not None and step['type'] != 'expect':
+        # A proactive-drain step is the tool that consumes a pending command
+        # (it polls STATUS - the card re-announces the unfetched command -
+        # then fetches and answers it), so the guard does not apply to it
+        # (v3.22.4 review).
+        drain_next = (step['type'] == 'action'
+                      and step.get('kind') == 'proactive-drain')
+        if pending is not None and step['type'] != 'expect' and not drain_next:
             _test_entry_update(entry, {
                 'status': 'error',
                 'note': 'unexpected proactive command pending (SW 91XX) - '
-                        'add an expect step or a status action'})
+                        'add an expect step or a proactive-drain'})
             with _CARD_LOCK:
                 drained = _test_drain_pending(scc, pending)
             fields = {k: v for k, v in drained.items() if k != 'note'}

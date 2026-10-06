@@ -319,7 +319,12 @@ IMS registration, the form's choice otherwise) - a hand-written step without
 
 Consume whatever the card announces and leave it idle - at the start, in the
 middle or at the end of a script (a leftover command from a previous run must
-not derail the next step).  Each round polls STATUS; a `91XX` answer fetches
+not derail the next step).  The drain is also the tool for a command **the
+previous step left pending** (`91XX`): the runner's *unexpected proactive
+command pending* guard does not apply to it - its STATUS poll re-announces
+the unfetched command - so a `scp80`/`menu-select` step that answers `91XX`
+can be followed directly by a drain.  Each round polls STATUS; a `91XX`
+answer fetches
 the command and answers it (the first command with `first`, the rest with
 `respond` - both `{"result": …}` like an expectation's response).  The loop
 ends when STATUS answers `9000` (idle), a non-`91XX` SW appears or `attempts`
