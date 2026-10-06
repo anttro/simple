@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.6'
+VERSION = '3.22.7'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -7124,16 +7124,25 @@ def _test_run_script(server, script, preset, shared=None):
                 # Error terminates the script; Warning and OK continue.
                 break
         except Exception as e:
-            _test_entry_update(entry, {
-                'status': 'error', 'note': str(e),
-                'ms': int((time.time() - entry['started']) * 1000)})
-            sys.stderr.write('TEST-RUN step %d failed: %s\n' % (index + 1, e))
+            # A raised card/transport error is a step failure like any other:
+            # it honours the step's on_fail (v3.22.7).  An absent optional
+            # file (6A82), a refused SELECT or a preset/keyset error then
+            # warns and the run continues, with the error as a failed check;
+            # the default (error) still stops the run.
+            level = step.get('on_fail') or 'error'
+            check = _test_check_result('Error', False, 'the step to run',
+                                       str(e), level, detail=str(e))
+            _test_finish_entry(entry, {'status': level, 'checks': [check],
+                                       'note': str(e)})
+            sys.stderr.write('TEST-RUN step %d failed (%s): %s\n'
+                             % (index + 1, level, e))
             if pending is not None:
                 with _CARD_LOCK:
                     drained = _test_drain_pending(scc, pending)
                 _test_entry_update(entry, {k: v for k, v in drained.items() if k != 'note'})
                 pending = None
-            break
+            if level == 'error':
+                break
     if pending is not None:
         with _CARD_LOCK:
             drained = _test_drain_pending(scc, pending)

@@ -753,7 +753,9 @@ step left pending (`91XX`).
 the decoded PoR of this exchange (inline or SEND SHORT MESSAGE; at least one
 field).  `on_fail` is `error` (terminates the script) or `warning` (continues)
 and applies to every step failure - including an expectation that finds no
-pending command (v3.21.0; `warning` is the tolerant consume-if-pending form).
+pending command (v3.21.0; `warning` is the tolerant consume-if-pending form)
+and a card/transport error raised during the step (v3.22.7 - the error is
+reported as a failed `Error` check at the step's level).
 
 **Expectation steps** (`type: "expect"`) require a command pending from the
 previous step (`91XX`); they never poll - a `9000` response means no command

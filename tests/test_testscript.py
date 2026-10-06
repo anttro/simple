@@ -1690,6 +1690,50 @@ class TestRunnerActions(RunnerTestCase):
         self.assertEqual(lchan.written, 'AA55')
         self.assertEqual(run['steps'][1]['data'], 'AA55')
 
+    def test_a_raised_card_error_honours_on_fail(self):
+        # v3.22.7: a card error raised during a step (an absent optional
+        # file's 6A82, a refused SELECT) is a step failure like any other -
+        # on_fail "warning" warns and the run continues.
+        lchan = object()          # _select_path (patched) raises before its use
+        server = FakeServer(FakeScc())
+        server.app = type('App', (), {'rs': type('Rs', (), {'lchan': [lchan]})()})()
+        server.scc.push('80F2', '', '9000')
+        with mock.patch.object(S, '_select_path', side_effect=RuntimeError(
+                '6a82: Wrong parameters - File not found')):
+            run = self.run_script(server, [
+                {'type': 'action', 'kind': 'file-read',
+                 'params': {'path': 'MF/A153/49AC'}, 'on_fail': 'warning'},
+                {'type': 'action', 'kind': 'status', 'params': {}},
+            ])
+        self.assertEqual(run['status'], 'warning', run['steps'])
+        self.assertEqual(len(run['steps']), 2)
+        entry = run['steps'][0]
+        self.assertEqual(entry['status'], 'warning')
+        self.assertIn('6a82', entry['note'])
+        check = entry['checks'][0]
+        self.assertEqual(check['label'], 'Error')
+        self.assertFalse(check['ok'])
+        self.assertEqual(check['level'], 'warning')
+        self.assertIn('6a82', check['actual'])
+        # the following step ran
+        self.assertEqual(run['steps'][1]['status'], 'ok')
+
+    def test_a_raised_card_error_still_stops_by_default(self):
+        lchan = object()          # _select_path (patched) raises before its use
+        server = FakeServer(FakeScc())
+        server.app = type('App', (), {'rs': type('Rs', (), {'lchan': [lchan]})()})()
+        with mock.patch.object(S, '_select_path', side_effect=RuntimeError(
+                '6a82: Wrong parameters - File not found')):
+            run = self.run_script(server, [
+                {'type': 'action', 'kind': 'file-read',
+                 'params': {'path': 'MF/A153/49AC'}},
+                {'type': 'action', 'kind': 'status', 'params': {}},
+            ])
+        self.assertEqual(run['status'], 'error', run['steps'])
+        self.assertEqual(len(run['steps']), 1)
+        self.assertEqual(run['steps'][0]['status'], 'error')
+        self.assertIn('6a82', run['steps'][0]['note'])
+
     def test_run_guard_blocks_card_endpoints_only(self):
         S._TEST_RUNNING = True
         try:

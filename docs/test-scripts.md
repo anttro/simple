@@ -229,8 +229,11 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 Every step may carry `on_fail`: `"error"` (default - stops the run) or
 `"warning"` (continues, the report shows ⚠).  Each entry of `checks` may
 override it with its own `on_fail`.  The level applies to **every** step
-failure, including an expectation that finds no pending command (v3.21.0) -
-the tolerant "consume a command if there is one" form is an expectation with
+failure, including an expectation that finds no pending command (v3.21.0)
+and a **card error raised during the step** (v3.22.7 - an absent optional
+file's `6A82`, a refused SELECT: with `on_fail: "warning"` the step warns,
+the report shows the error as a failed check, and the run continues) - the
+tolerant "consume a command if there is one" form is an expectation with
 `on_fail: "warning"`; to drain and confirm the card is idle, use the
 `proactive-drain` action.
 
@@ -649,6 +652,10 @@ PoR-in-submit (with the transport asserted by the expectation):
   names it).  A `status` action with `attempts > 1` polls until a command
   appears when the card delivers on poll; `on_fail: "warning"` tolerates the
   empty case, and the `proactive-drain` action drains and confirms idle.
+- `6A82: … File not found` (or another raised card error) - the step's
+  `on_fail` decides: the default stops the run, `on_fail: "warning"` warns
+  and continues - the pattern for an **optional** file (`49AC` is documented
+  optional: its absence means no menu password).
 - `menu-select: no menu item matches …` - the error lists the cached menu; a
   miss on an explicit `case_sensitive: true` names the case-insensitive
   candidates.
