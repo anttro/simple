@@ -44,12 +44,42 @@ test('navStateKey canonicalises the view state', () => {
 	}
 });
 
+test('navCurrent builds the state from the view variables', () => {
+	// the module view variables + the one helper it calls, stubbed
+	eval(`var _activeTab = 'c-apdu', _scp80Sub = 'sp', _capduSub = 'sim', _parserSub = 'parse',
+		_phoneSub = 'phone', _scp81Sub = 'listener', _pysimSub = 'files', _cardsView = 'list',
+		_cardsEditId = null, _testView = 'suites', _testScriptId = null, _navSuite = null,
+		profilerView = 'list', profilerListTab = 'profiles', profilerEditId = null,
+		snapshotViewId = null;
+		function testCurrentSuite() { return _navSuite; }`);
+	eval(extractFunc(html, 'navCurrent'));
+	_activeTab = 'scp80'; _scp80Sub = 'ram';
+	assert.deepStrictEqual(navCurrent(), { tab: 'scp80', sub: 'ram' });
+	_activeTab = 'c-apdu'; _capduSub = 'parser'; _parserSub = 'response';
+	assert.deepStrictEqual(navCurrent(), { tab: 'c-apdu', sub: 'parser', parser: 'response' });
+	_activeTab = 'phone'; _phoneSub = 'test'; _testView = 'script';
+	_navSuite = { id: 'S' }; _testScriptId = 'C';
+	assert.deepStrictEqual(navCurrent(),
+		{ tab: 'phone', sub: 'test', view: 'script', suite: 'S', script: 'C' });
+	_activeTab = 'pysim'; _pysimSub = 'apdu';
+	assert.deepStrictEqual(navCurrent(), { tab: 'pysim', sub: 'apdu' });
+	_activeTab = 'cards'; _cardsView = 'edit'; _cardsEditId = 'P';
+	assert.deepStrictEqual(navCurrent(), { tab: 'cards', view: 'edit', preset: 'P' });
+	// a new-preset editor carries no id
+	_cardsEditId = null;
+	assert.deepStrictEqual(navCurrent(), { tab: 'cards', view: 'edit' });
+	_activeTab = 'profiler'; profilerView = 'snapshot'; snapshotViewId = 'N';
+	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'snapshot', item: 'N' });
+	profilerView = 'list'; profilerListTab = 'custom';
+	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'list', listtab: 'custom' });
+});
+
 test('the view switches record history, the back buttons replace it', () => {
 	// every user-facing switch records its view
 	for (const fn of ['switchTab', 'scp80SwitchSubtab', 'cApduSwitchSubtab',
 		'parserSwitchSubtab', 'phoneSwitchSubtab', 'scp81SwitchSubtab',
-		'cardsShowList', 'cardsShowEditor', 'testViewShow', 'profilerSetView',
-		'profilerListSwitch']) {
+		'pysimSwitchSubtab', 'cardsShowList', 'cardsShowEditor', 'testViewShow',
+		'profilerSetView', 'profilerListSwitch']) {
 		assert.match(extractFunc(html, fn), /navRecord\(\)/, fn + ' must record');
 	}
 	// the view variables the state is built from
@@ -58,8 +88,15 @@ test('the view switches record history, the back buttons replace it', () => {
 	assert.match(extractFunc(html, 'cApduSwitchSubtab'), /_capduSub = name/);
 	assert.match(extractFunc(html, 'phoneSwitchSubtab'), /_phoneSub = name/);
 	assert.match(extractFunc(html, 'scp81SwitchSubtab'), /_scp81Sub = name/);
+	assert.match(extractFunc(html, 'pysimSwitchSubtab'), /_pysimSub = name/);
 	assert.match(extractFunc(html, 'cardsShowList'), /_cardsView = 'list'/);
 	assert.match(extractFunc(html, 'cardsShowEditor'), /_cardsView = 'edit'/);
+	assert.match(extractFunc(html, 'cardsEdit'), /_cardsEditId = c\.id/);
+	assert.match(extractFunc(html, 'cardsNew'), /_cardsEditId = null/);
+	// the nested parser switch must not record two entries (the target sub is
+	// set before the recursion)
+	const capdu = extractFunc(html, 'cApduSwitchSubtab');
+	assert.match(capdu, /_parserSub = name;\s*cApduSwitchSubtab\('parser'\)/);
 	// the in-app Cancel/Back (and the profiler save) replace their entry
 	for (const fn of ['cardsCancelEdit', 'profilerBackToList', 'testScriptBack',
 		'profilerSaveProfile']) {
@@ -70,8 +107,15 @@ test('the view switches record history, the back buttons replace it', () => {
 	assert.match(html, /history\.pushState\(/);
 	assert.match(html, /history\.replaceState\(/);
 	assert.match(html, /navSeed\(\);/);
-	assert.match(extractFunc(html, 'navApply'), /_navApplying = true/);
-	assert.match(extractFunc(html, 'navApply'), /switchTab\(/);
+	const apply = extractFunc(html, 'navApply');
+	assert.match(apply, /_navApplying = true/);
+	assert.match(apply, /switchTab\(/);
+	assert.match(apply, /pysimSwitchSubtab\(/);
+	assert.match(apply, /navApplyTest\(/);
+	assert.match(apply, /navApplyCards\(/);
+	assert.match(apply, /navApplyProfiler\(/);
+	// a throwing replay falls back instead of escaping the popstate handler
+	assert.match(apply, /catch \(e\)/);
 	for (const fn of ['navApplyTest', 'navApplyCards', 'navApplyProfiler', 'testBackToSuites']) {
 		assert.match(html, new RegExp('function ' + fn + '\\('), fn + ' must exist');
 	}

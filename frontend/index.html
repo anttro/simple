@@ -1903,7 +1903,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.22.5';
+const SIMPLE_VERSION = '3.22.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -1917,7 +1917,9 @@ let _scp80Sub = 'sp';
 let _capduSub = 'sim';
 let _phoneSub = 'phone';
 let _scp81Sub = 'listener';
+let _pysimSub = 'files';
 let _cardsView = 'list';
+let _cardsEditId = null;       // the preset being edited (id; null = a new one)
 let _navState = null;          // the state of the current history entry
 let _navApplying = false;      // replaying: the switch functions must not record
 let _navOk = true;             // false when pushState is unavailable (file://)
@@ -1948,10 +1950,10 @@ function navCurrent() {
 			if (_testView === 'script' && _testScriptId) st.script = _testScriptId;
 		}
 	} else if (_activeTab === 'scp81') st.sub = _scp81Sub;
+	else if (_activeTab === 'pysim') st.sub = _pysimSub;
 	else if (_activeTab === 'cards') {
 		st.view = _cardsView;
-		const p = (_cardsEditIdx !== null && cards[_cardsEditIdx]) ? cards[_cardsEditIdx] : null;
-		if (_cardsView === 'edit' && p) st.preset = p.id || '';
+		if (_cardsView === 'edit' && _cardsEditId) st.preset = _cardsEditId;
 	} else if (_activeTab === 'profiler') {
 		st.view = profilerView;
 		if (profilerView === 'list') st.listtab = profilerListTab;
@@ -2007,11 +2009,18 @@ function navApply(st) {
 			if ((st.sub || 'phone') === 'test') navApplyTest(st);
 		} else if (st.tab === 'scp81') {
 			scp81SwitchSubtab(st.sub || 'listener');
+		} else if (st.tab === 'pysim') {
+			pysimSwitchSubtab(st.sub || 'files');
 		} else if (st.tab === 'cards') {
 			navApplyCards(st);
 		} else if (st.tab === 'profiler') {
 			navApplyProfiler(st);
 		}
+	} catch (e) {
+		// a replay must never leave the app half-switched: fall back to the
+		// default tab (the console carries the original failure)
+		if (typeof console !== 'undefined') console.warn('navApply failed:', e);
+		try { switchTab('c-apdu'); } catch (e2) { /* the default view failed too */ }
 	} finally {
 		_navApplying = false;
 	}
@@ -2128,6 +2137,9 @@ function cApduSwitchSubtab(name) {
 	// Nested names select the Parser pill first, so callers can keep
 	// addressing the panels directly (e.g. after a successful send).
 	if (name === 'parse' || name === 'response') {
+		// Set the target sub first: the recursion's own parserSwitchSubtab
+		// then renders it, so the two records collapse into one entry.
+		_parserSub = name;
 		cApduSwitchSubtab('parser');
 		parserSwitchSubtab(name);
 		return;
@@ -13595,6 +13607,7 @@ function cardsSetFormMode() {
 // "Add preset" in the list view: reset the form and open the editor.
 function cardsNew() {
 	_cardsEditIdx = null;
+	_cardsEditId = null;
 	cardsClearForm();
 	cardsSetFormMode();
 	cardsShowEditor();
@@ -13697,6 +13710,7 @@ function cardsEdit(i) {
 	const c = cards[i];
 	if (!c) return;
 	_cardsEditIdx = i;
+	_cardsEditId = c.id || null;
 	const set = (id, value) => {
 		const el = document.getElementById('cards-' + id);
 		if (el) el.value = value == null ? '' : value;
@@ -13718,6 +13732,7 @@ function cardsEdit(i) {
 function cardsCancelEdit() {
 	navReplace();
 	_cardsEditIdx = null;
+	_cardsEditId = null;
 	cardsSetFormMode();
 	cardsClearForm();
 	cardsShowList();
@@ -13741,6 +13756,7 @@ async function cardsRemove(i) {
 	_ramCardIdx = ramCardIdxAfterRemove(_ramCardIdx, i);
 	if (_cardsEditIdx === i) _cardsEditIdx = null;
 	else if (_cardsEditIdx !== null && _cardsEditIdx > i) _cardsEditIdx--;
+	if (_cardsEditId === c.id) _cardsEditId = null;
 	await cardsFetch();
 }
 
@@ -14193,6 +14209,7 @@ let pysimCmdHistIdx = -1;
 let _pysimAutoConnectAttempted = false;
 
 function pysimSwitchSubtab(name) {
+	_pysimSub = name;
 	document.querySelectorAll('.pysim-subtab').forEach(btn => {
 		const isActive = btn.dataset.pysimSub === name;
 		btn.classList.toggle('bg-blue-600', isActive);
@@ -14208,6 +14225,7 @@ function pysimSwitchSubtab(name) {
 	pysimHelpAnchor = {cmd:'pysim-cmdline', apdu:'raw-apdu', files:'file-manager'}[name] || 'card-reader';
 	setHelpAnchor(pysimHelpAnchor);
 	if (name === 'files') pysimFsFitTree();
+	navRecord();
 }
 
 function pysimCmdKeydown(e) {
