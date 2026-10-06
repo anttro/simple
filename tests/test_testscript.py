@@ -179,6 +179,27 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(tr.hex().upper(),
                          '8103042300' + '82028182' + '83020000' + '8D00')
 
+    def test_a_text_the_dcs_cannot_code_is_refused_at_load(self):
+        # v3.22.8: the load-time check uses the same coding the TERMINAL
+        # RESPONSE builder does - a non-GSM character with dcs 00/04 must
+        # fail the script at load, not mid-run after the command was fetched.
+        with self.assertRaises(T.ScriptError) as cm:
+            T.normalise_respond({'result': 'ok', 'text': 'Пароль'})
+        self.assertIn('dcs 00', str(cm.exception))
+        self.assertIn('dcs 08', str(cm.exception))
+        with self.assertRaises(T.ScriptError):
+            T.normalise_respond({'result': 'ok', 'text': 'Пароль', 'dcs': '04'})
+        # UCS2 accepts it; ASCII and the empty answer pass as before
+        self.assertEqual(T.normalise_respond({'text': 'Пароль', 'dcs': '08'})['dcs'], 0x08)
+        self.assertEqual(T.normalise_respond({'text': 'hello'})['text'], 'hello')
+        self.assertEqual(T.normalise_respond({'text': ''})['text'], '')
+        # a whole script is refused with the same message at run start
+        with self.assertRaises(T.ScriptError) as cm:
+            T.normalise_script({'steps': [
+                {'type': 'expect', 'command': 'GET INPUT',
+                 'respond': {'result': 'ok', 'text': 'Пароль'}}]}, _resolver)
+        self.assertIn('cannot be coded', str(cm.exception))
+
     def test_menu_select_params_accept_id_or_text(self):
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'menu-select', 'params': {'item_id': 3}},

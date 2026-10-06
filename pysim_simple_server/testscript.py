@@ -568,6 +568,16 @@ def normalise_respond(respond, cmd_type=None):
         out['text'] = str(respond['text'])
         dcs = respond.get('dcs')
         out['dcs'] = _int(dcs, 'respond dcs', 0, 255) if dcs is not None else 0x00
+        # The same coding the TERMINAL RESPONSE builder uses: a text the
+        # selected dcs cannot code (a non-GSM character with 00/04) must fail
+        # the script at load, not mid-run after the command was fetched
+        # (v3.22.8 review).
+        try:
+            _encode_text(out['text'], out['dcs'])
+        except Exception:
+            raise ScriptError(
+                'respond: the text cannot be coded with dcs %02X - use dcs 08 '
+                '(UCS2) for non-GSM characters' % out['dcs'])
     extra = respond.get('raw')
     if extra not in (None, ''):
         out['raw'] = _data_hex(extra, 'respond raw')

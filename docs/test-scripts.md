@@ -207,7 +207,8 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
 - A `proactive-drain` action logs its rounds (`STATUS i/N -> …`, `FETCH=…`,
   `CMD 0x…`, `TR=… -> SW=…`); the run cleanup logs
   `TEST-RUN drain: <CMD> (0xNN) TR=… -> SW=…`.
-- A failing step adds `TEST-RUN step N failed: …` with the reason.
+- A failing step adds `TEST-RUN step N failed (<level>): …` with the reason
+  (`<level>` is `error` or `warning` - a tolerant step's line names its level).
 - The shared secured-packet sender logs each segment's answer
   (`OTA SEND: ENVELOPE i/N -> <SW>`).
 - `--apdu-trace` adds the raw transport view
@@ -457,7 +458,10 @@ identities, **Result**, Duration, Text string, Item identifier, …):
   uses the spec's recommended codings: `"00"` GSM default alphabet 7 bits
   **packed**, `"04"` GSM default alphabet 8 bits (one octet per character),
   `"08"` **UCS2** (UTF-16-BE).  An empty `text` sends the null text string
-  (Length `00`).
+  (Length `00`).  A text the selected `dcs` cannot code (a non-GSM character
+  with `00`/`04`) is **refused at load** - the error names the coding and
+  points at `dcs: "08"` (the run must not fail after the command was
+  fetched).
 - `item_id` - the Item identifier for a successful SELECT ITEM answer.
 - `raw` - extra COMPREHENSION-TLVs appended after the standard objects.
 
