@@ -563,6 +563,39 @@ class TestRunnerDialogue(RunnerTestCase):
         self.assertIn('no proactive command pending',
                       run['steps'][0]['checks'][0]['detail'])
 
+    def test_a_command_mismatch_honours_on_fail(self):
+        # v3.22.3: a different command pending is a check failure at the
+        # step's on_fail level, like every other expectation check - so
+        # on_fail "warning" expresses "the applet either asks X or does Y"
+        # (the mismatched command is still fetched and answered).
+        scc = FakeScc()
+        scc.push('80F2', '', '9102')          # STATUS: DISPLAY TEXT pending
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        run = self.run_script(FakeServer(scc), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'respond': {'result': 'ok'}, 'on_fail': 'warning'},
+        ])
+        self.assertEqual(run['status'], 'warning', run['steps'])
+        check = run['steps'][1]['checks'][0]
+        self.assertEqual(check['label'], 'Command')
+        self.assertFalse(check['ok'])
+        self.assertEqual(check['level'], 'warning')
+        self.assertIn('DISPLAY TEXT', check['actual'])
+        self.assertTrue(run['steps'][1]['sent'].startswith('TR '))
+        # the default (error) still stops the run
+        scc2 = FakeScc()
+        scc2.push('80F2', '', '9102')
+        scc2.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc2.push('8014', '', '9000')
+        run2 = self.run_script(FakeServer(scc2), [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'SEND SHORT MESSAGE',
+             'respond': {'result': 'ok'}},
+        ])
+        self.assertEqual(run2['status'], 'error')
+
     def test_text_mismatch_fails_the_expectation(self):
         scc = FakeScc()
         scc.push('80C2', '', '9105')

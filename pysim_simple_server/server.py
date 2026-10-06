@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.2'
+VERSION = '3.22.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5987,30 +5987,52 @@ def _test_script_detach(suites, cur):
 
 
 def _test_script_move(store, suites, cur, target_id):
-    """Move a script to another suite: the source detaches, the target appends
-    it as a member (keeping the on_fail policy it had).  Both stores are
-    updated in the one request.  Returns ``(entry, error, status)``."""
+    """Move a script to another suite: the target appends it as a member
+    (keeping the on_fail policy it had) and **every** suite that lists it
+    detaches.  The script's own ``suite_id`` names the owner when that suite
+    lists it, otherwise the first lister does.  A duplicate listing or a
+    stale suite_id (a hand edit, an interrupted move) is repaired by the
+    move instead of answering 500 and leaving two owners (v3.22.3 review).
+    Both stores are updated in the one request; returns
+    ``(entry, error, status)``."""
     target = suites.get(target_id)
     if target is None:
         return None, 'unknown target suite', 400
-    if target['id'] == (cur.get('suite_id') or ''):
+    listings = [s for s in suites.list()
+                if any(e['script_id'] == cur['id'] for e in s['scripts'])]
+    if target['id'] == (cur.get('suite_id') or '') and [s['id'] for s in listings] == [target['id']]:
+        # the exact no-op: the script already belongs to the target and only
+        # the target lists it
         return cur, None, 200
-    source = suites.get(cur.get('suite_id')) if cur.get('suite_id') else None
+    owner = next((s for s in listings if s['id'] == (cur.get('suite_id') or '')), None)
+    if owner is None and listings:
+        owner = listings[0]
     on_fail = 'stop'
-    if source is not None:
-        entry = next((e for e in source['scripts'] if e['script_id'] == cur['id']), None)
+    if owner is not None:
+        entry = next((e for e in owner['scripts'] if e['script_id'] == cur['id']), None)
         if entry is not None:
             on_fail = entry['on_fail']
-        _test_script_detach(suites, cur)
+    # The script first: its validation refuses before any listing changes, so
+    # a failed move never leaves the script unlisted.
     try:
         new = store.update(cur['id'], {'suite_id': target['id']})
     except (test_scripts.TestScriptError, OSError) as e:
         return None, 'cannot move the script: %s' % e, 500
     if new is None:
         return None, 'unknown test script id', 404
+    for s in listings:
+        entries = [e for e in s['scripts'] if e['script_id'] != cur['id']]
+        if entries == s['scripts']:
+            continue
+        try:
+            suites.update(s['id'], {'scripts': entries})
+        except (test_suites.TestSuiteError, OSError) as e:
+            sys.stderr.write('TESTSUITES: cannot detach %s from "%s": %s\n'
+                             % (cur['id'], s['name'], e))
     try:
-        entries = list(target['scripts']) + [
-            {'script_id': cur['id'], 'role': 'member', 'on_fail': on_fail}]
+        fresh = suites.get(target['id']) or target
+        entries = [e for e in fresh['scripts'] if e['script_id'] != cur['id']]
+        entries.append({'script_id': cur['id'], 'role': 'member', 'on_fail': on_fail})
         suites.update(target['id'], {'scripts': entries})
     except (test_suites.TestSuiteError, OSError) as e:
         return None, 'cannot attach to the target suite: %s' % e, 500
@@ -6021,6 +6043,10 @@ def reconcile_scripts_to_suites(script_store, suite_store):
     """Make the ownership invariant hold again: every script belongs to
     exactly one suite and that suite lists it.
 
+    - a script **listed by several suites** (a hand edit or an interrupted
+      move) stays with its explicit owner - the suite its ``suite_id`` names
+      when that suite lists it, else the first lister - and the other
+      listings are pruned;
     - a script no suite lists (a v3.21.0 store, a suites import with
       ``mode: "replace"``, a hand edit or an interrupted move) is attached to
       the auto-created "Imported scripts" suite;
@@ -6032,6 +6058,31 @@ def reconcile_scripts_to_suites(script_store, suite_store):
     if script_store is None or suite_store is None:
         return 0
     suites = suite_store.list()
+    listings = {}
+    for s in suites:
+        for e in s['scripts']:
+            listings.setdefault(e['script_id'], []).append(s['id'])
+    by_id = {s['id']: s for s in script_store.list()}
+    pruned = 0
+    for sid, owners in listings.items():
+        if len(owners) < 2:
+            continue
+        explicit = (by_id.get(sid) or {}).get('suite_id') or None
+        keep = explicit if explicit in owners else owners[0]
+        for s in suites:
+            if s['id'] == keep or s['id'] not in owners:
+                continue
+            entries = [e for e in s['scripts'] if e['script_id'] != sid]
+            try:
+                suite_store.update(s['id'], {'scripts': entries})
+                s['scripts'] = entries
+                pruned += 1
+                sys.stderr.write('TESTSUITES: pruned %s from "%s" (owner "%s")\n'
+                                 % (sid, s['name'], keep))
+            except (test_suites.TestSuiteError, OSError) as e:
+                sys.stderr.write('TESTSUITES: cannot prune %s from "%s": %s\n'
+                                 % (sid, s['name'], e))
+    # The owner map after the pruning (the member list is authoritative).
     owner = {}
     for s in suites:
         for e in s['scripts']:
@@ -6053,40 +6104,43 @@ def reconcile_scripts_to_suites(script_store, suite_store):
                                  % (script['id'], e))
             continue
         orphans.append(script)
-    if not orphans and not adopted:
+    if not orphans and not adopted and not pruned:
         return 0
-    suite = suite_store.find_by_name('Imported scripts')
-    if suite is None:
-        suite = suite_store.add({'name': 'Imported scripts'})
-    entries = list(suite['scripts'])
-    known = {e['script_id'] for e in entries}
     attached = 0
-    for s in orphans:
-        try:
-            script_store.update(s['id'], {'suite_id': suite['id']})
-        except (test_scripts.TestScriptError, OSError) as e:
-            # The member list is authoritative: list the script anyway.  The
-            # store keeps a script that no longer validates (a tightened rule
-            # must not destroy it) and its suite_id write is refused by the
-            # same validator - without the listing the script would be
-            # invisible in the PWA and could never be fixed in the editor.
-            sys.stderr.write('TESTSUITES: cannot set the suite id of %s '
-                             '(listed in "%s" so the editor can fix it): %s\n'
-                             % (s['id'], suite['name'], e))
-        if s['id'] not in known:
-            entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
-            known.add(s['id'])
-        attached += 1
-    if attached:
-        try:
-            suite_store.update(suite['id'], {'scripts': entries})
-        except (test_suites.TestSuiteError, OSError) as e:
-            sys.stderr.write('TESTSUITES: cannot fill "%s": %s\n' % (suite['name'], e))
-    if attached or adopted:
-        sys.stderr.write('TESTSUITES: reconciled %d script(s) (attached to "%s": %d, '
-                         'adopted by their suite: %d)\n'
-                         % (attached + adopted, suite['name'], attached, adopted))
-    return attached + adopted
+    if orphans:
+        suite = suite_store.find_by_name('Imported scripts')
+        if suite is None:
+            suite = suite_store.add({'name': 'Imported scripts'})
+        entries = list(suite['scripts'])
+        known = {e['script_id'] for e in entries}
+        for s in orphans:
+            try:
+                script_store.update(s['id'], {'suite_id': suite['id']})
+            except (test_scripts.TestScriptError, OSError) as e:
+                # The member list is authoritative: list the script anyway.
+                # The store keeps a script that no longer validates (a
+                # tightened rule must not destroy it) and its suite_id write
+                # is refused by the same validator - without the listing the
+                # script would be invisible in the PWA and could never be
+                # fixed in the editor.
+                sys.stderr.write('TESTSUITES: cannot set the suite id of %s '
+                                 '(listed in "%s" so the editor can fix it): %s\n'
+                                 % (s['id'], suite['name'], e))
+            if s['id'] not in known:
+                entries.append({'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'})
+                known.add(s['id'])
+            attached += 1
+        if attached:
+            try:
+                suite_store.update(suite['id'], {'scripts': entries})
+            except (test_suites.TestSuiteError, OSError) as e:
+                sys.stderr.write('TESTSUITES: cannot fill "%s": %s\n' % (suite['name'], e))
+    if attached or adopted or pruned:
+        sys.stderr.write('TESTSUITES: reconciled %d script(s) (attached to '
+                         '"Imported scripts": %d, adopted by their suite: %d, '
+                         'pruned duplicate listings: %d)\n'
+                         % (attached + adopted + pruned, attached, adopted, pruned))
+    return attached + adopted + pruned
 
 
 def migrate_scripts_to_suites(script_store, suite_store):
@@ -6849,9 +6903,12 @@ def _test_run_expect(server, step, pending, ctx=None):
         checks.append(_test_check_result('Command', True, step['command'].get('name') or type_name,
                                          '%s (0x%02X)' % (type_name, cmd_type), 'ok'))
     else:
+        # A different command pending is a check failure like any other: it
+        # honours the step's on_fail, so on_fail "warning" expresses "the
+        # applet either asks X or Y" (the command is still fetched/answered).
         checks.append(_test_check_result(
             'Command', False, step['command'].get('name') or '0x%02X' % want_type,
-            '%s (0x%02X)' % (type_name, cmd_type), 'error'))
+            '%s (0x%02X)' % (type_name, cmd_type), step['on_fail']))
     if step.get('qualifier'):
         actual_q = '%02X' % cmd_qual if cmd_qual is not None else None
         checks.append(_test_check_result('Qualifier',

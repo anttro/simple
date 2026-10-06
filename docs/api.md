@@ -864,10 +864,17 @@ collision gets a fresh uuid and the suites' references are remapped; then the
 suites are imported (`replace` wipes the suite store first); an unresolvable
 reference is reported in `errors` and the suite is skipped.  After the import the
 ownership invariant is reconciled: a script the imported suites list adopts
-its listing suite, and a script no suite lists any more — the `replace` mode
-wipes the suites that owned them — is **adopted into "Imported scripts"**
-instead of becoming invisible (the same reconciliation runs at startup for a
-v3.21.0 store).
+its listing suite, a script listed by several suites keeps its explicit owner
+and the other listings are pruned, and a script no suite lists any more — the
+`replace` mode wipes the suites that owned them — is **adopted into "Imported
+scripts"** instead of becoming invisible (the same reconciliation runs at
+startup for a v3.21.0 store).
+
+The import always **merges**: an id already in the store gets a fresh uuid
+(scripts) / a fresh suite id, so importing a bundle **into the store it came
+from duplicates the suite and its scripts** — the round-trip is not
+idempotent.  Restore a bundle into a fresh store, or wipe the target first
+(`mode: "replace"` for the suites).
 
 ### `POST /api/test/run` (single script or suite)
 

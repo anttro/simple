@@ -28,7 +28,10 @@ suite run's report (the PWA's report view, exportable as JSON or Markdown)
 carries every member's step table, failing notes and run-log excerpt, plus the
 summary (pass/warn/fail/skipped, wall time, the SCP80 counters before/after
 per keyset and the card-session flag).  The suites live in
-`~/.pysim-simple-server/test_suites.json` (`--test-suites`).
+`~/.pysim-simple-server/test_suites.json` (`--test-suites`).  A bundle
+import always merges: importing a suite export **into the store it came
+from duplicates the suite and its scripts** (an id already present gets a
+fresh uuid) - restore into a fresh store, or wipe the target first.
 
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
@@ -385,9 +388,11 @@ runner never polls by itself.  `command` is a name (as shown in the proactive
 log) or a hex type; `ANY`/`*` skips the type check.  `qualifier` is the
 command-details byte 3 (one byte, exact/mask).
 
-When nothing is pending the step fails at its own `on_fail` level (the
-default stops the run; `on_fail: "warning"` warns and continues - the
-tolerant consume-if-pending form, v3.21.0).  "Add a `status` action" applies
+When nothing is pending - or **a different command** is pending - the step
+fails at its own `on_fail` level (the default stops the run;
+`on_fail: "warning"` warns and continues: the tolerant consume-if-pending
+form, and the way to express "the applet either asks X or does Y" - the
+mismatched command is still fetched and answered with the step's `respond`).  "Add a `status` action" applies
 when the card delivers on poll: `status` with `attempts > 1` polls until a
 command appears; it cannot make one appear when the card has none.
 

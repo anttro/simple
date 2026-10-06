@@ -222,6 +222,50 @@ class MigrationTests(unittest.TestCase):
             # idempotent: nothing left to attach
             self.assertEqual(srv.migrate_scripts_to_suites(scripts, suites), 0)
 
+    def test_a_duplicate_listing_is_pruned_to_the_explicit_owner(self):
+        # v3.22.3: the reconciliation keeps a script in the suite its
+        # suite_id names and prunes the other listings (a hand edit or an
+        # interrupted move must not leave two owners).
+        from pysim_simple_server import server as srv
+        from pysim_simple_server import test_scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = test_scripts.TestScriptStore(pathlib.Path(tmp) / 's.json')
+            suites = test_suites.TestSuiteStore(pathlib.Path(tmp) / 'u.json')
+            step = {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}
+            a = suites.add({'name': 'A'})
+            b = suites.add({'name': 'B'})
+            s = scripts.add({'name': 'x', 'suite_id': b['id'], 'steps': [step]})
+            for su in (a, b):
+                suites.update(su['id'], {'scripts': [
+                    {'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'}]})
+            self.assertEqual(srv.reconcile_scripts_to_suites(scripts, suites), 1)
+            self.assertEqual(suites.get(a['id'])['scripts'], [])
+            self.assertEqual([e['script_id'] for e in suites.get(b['id'])['scripts']],
+                             [s['id']])
+            self.assertEqual(scripts.get(s['id'])['suite_id'], b['id'])
+            # idempotent
+            self.assertEqual(srv.reconcile_scripts_to_suites(scripts, suites), 0)
+
+    def test_a_duplicate_listing_with_a_stale_owner_keeps_the_first_lister(self):
+        from pysim_simple_server import server as srv
+        from pysim_simple_server import test_scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = test_scripts.TestScriptStore(pathlib.Path(tmp) / 's.json')
+            suites = test_suites.TestSuiteStore(pathlib.Path(tmp) / 'u.json')
+            step = {'type': 'action', 'kind': 'status', 'params': {'attempts': 1}}
+            a = suites.add({'name': 'A'})
+            b = suites.add({'name': 'B'})
+            s = scripts.add({'name': 'x', 'suite_id': 'f' * 32, 'steps': [step]})
+            for su in (a, b):
+                suites.update(su['id'], {'scripts': [
+                    {'script_id': s['id'], 'role': 'member', 'on_fail': 'stop'}]})
+            # the prune of B plus the adoption of the first lister A
+            self.assertEqual(srv.reconcile_scripts_to_suites(scripts, suites), 2)
+            self.assertEqual([e['script_id'] for e in suites.get(a['id'])['scripts']],
+                             [s['id']])
+            self.assertEqual(suites.get(b['id'])['scripts'], [])
+            self.assertEqual(scripts.get(s['id'])['suite_id'], a['id'])
+
     def test_an_invalid_script_is_still_listed_by_the_reconciliation(self):
         # The script store keeps an entry that no longer validates (a
         # tightened rule must not destroy it).  Its suite_id write is refused

@@ -1360,6 +1360,63 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('member set changes', resp['error'])
 
+    def test_move_repairs_a_duplicate_listing(self):
+        # v3.22.3: the move detaches the script from EVERY suite that lists
+        # it and re-attaches to the target - an inconsistent state (a partial
+        # move, a stale suite_id) must not answer 500 or leave two owners.
+        a = self._suite(name='a')
+        b = self._suite(name='b')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=a['id']))
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        # b lists it too: the state a partial move leaves behind
+        self.suites.update(b['id'], {'scripts': [
+            {'script_id': sid, 'role': 'member', 'on_fail': 'continue'}]})
+        status, resp = self._post('/api/test/scripts/update', {
+            'id': sid, 'script': {'name': 'demo', 'suite_id': b['id']}})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp.get('moved'))
+        self.assertEqual(self.suites.get(a['id'])['scripts'], [])
+        self.assertEqual([e['script_id'] for e in self.suites.get(b['id'])['scripts']],
+                         [sid])
+        self.assertEqual(self.store.get(sid)['suite_id'], b['id'])
+        # the on_fail comes from the explicit owner (the suite_id named a)
+        self.assertEqual(self.suites.get(b['id'])['scripts'][0]['on_fail'], 'stop')
+
+    def test_move_from_a_stale_owner_repairs_the_listing(self):
+        a = self._suite(name='a')
+        b = self._suite(name='b')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=a['id']))
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        # the suite_id points at a missing suite while a still lists it
+        self.store.update(sid, {'suite_id': 'f' * 32})
+        status, resp = self._post('/api/test/scripts/update', {
+            'id': sid, 'script': {'name': 'demo', 'suite_id': b['id']}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(self.suites.get(a['id'])['scripts'], [])
+        self.assertEqual([e['script_id'] for e in self.suites.get(b['id'])['scripts']],
+                         [sid])
+        self.assertEqual(self.store.get(sid)['suite_id'], b['id'])
+
+    def test_move_to_the_same_suite_prunes_a_duplicate(self):
+        a = self._suite(name='a')
+        b = self._suite(name='b')
+        status, resp = self._post('/api/test/scripts', self._script(suite_id=b['id']))
+        self.assertEqual(status, 200, resp)
+        sid = resp['script']['id']
+        # a also lists it; the explicit suite_id names b, whose on_fail stays
+        self.suites.update(a['id'], {'scripts': [
+            {'script_id': sid, 'role': 'member', 'on_fail': 'stop'}]})
+        self.suites.update(b['id'], {'scripts': [
+            {'script_id': sid, 'role': 'member', 'on_fail': 'continue'}]})
+        status, resp = self._post('/api/test/scripts/move', {'id': sid, 'suite_id': b['id']})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(self.suites.get(a['id'])['scripts'], [])
+        self.assertEqual([e['script_id'] for e in self.suites.get(b['id'])['scripts']],
+                         [sid])
+        self.assertEqual(self.suites.get(b['id'])['scripts'][0]['on_fail'], 'continue')
+
     def test_move_and_copy_between_suites(self):
         a = self._suite(name='a')
         b = self._suite(name='b')
