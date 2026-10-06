@@ -55,7 +55,9 @@ code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_
 	+ 'var _cardsKeysetCount = 0;\nvar _cardsTarCount = 0;\n'
 	+ 'globalThis.spPresetWarningRender = function() {};\n'
 	+ 'globalThis.spMslWarningRender = function() {};\n'
-	+ 'globalThis.pysimApplyAvailability = function() {};\n' + code;
+	+ 'globalThis.pysimApplyAvailability = function() {};\n'
+	+ 'globalThis.navRecord = function() {};\n'
+	+ 'globalThis.navReplace = function() {};\n' + code;
 eval(code);
 globalThis.t = s => s;
 

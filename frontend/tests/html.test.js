@@ -9,6 +9,31 @@ const helpPages = ['help.html', 'help-ru.html'].map(f => ({
     name: f, text: fs.readFileSync(path.join(__dirname, '..', f), 'utf8'),
 }));
 
+// The Russian dictionary must cover every user-visible key: the t('...')
+// literals in the script and every data-l10n / data-l10n-title attribute.
+// A missing key silently falls back to English - that is how the suite
+// views' Run/Move/Copy buttons stayed English until v3.22.5.
+test('every t() key and data-l10n attribute has a Russian entry', () => {
+    const dictMatch = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/);
+    assert.ok(dictMatch, 'LANG_RU not found');
+    const norm = k => k
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/\\'/g, "'")
+        .replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
+    const keys = new Set();
+    for (const m of dictMatch[1].matchAll(/^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"):/gm)) {
+        keys.add(norm(m[1] !== undefined ? m[1] : m[2]));
+    }
+    const missing = [];
+    for (const m of html.matchAll(/\bt\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) {
+        if (!keys.has(norm(m[1]))) missing.push('t(): ' + m[1]);
+    }
+    for (const m of html.matchAll(/data-l10n(?:-title)?="([^"]+)"/g)) {
+        if (!keys.has(norm(m[1]))) missing.push('data-l10n: ' + m[1]);
+    }
+    assert.deepStrictEqual(missing, [], 'missing Russian entries: ' + missing.join(' | '));
+});
+
 // Tags that never take an end tag.
 const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img',
     'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);

@@ -1384,7 +1384,7 @@
 				</div>
 				<div id="test-view-suite" class="hidden">
 					<div class="flex flex-wrap items-end gap-2 mb-3">
-						<button onclick="testViewShow('suites')" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
+						<button onclick="testBackToSuites()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
 						<div class="flex-1 min-w-[12rem]">
 							<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Name">Name</label>
 							<input id="test-suite-name" oninput="testSuiteNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
@@ -1429,7 +1429,7 @@
 				</div>
 				<div id="test-view-report" class="hidden">
 					<div class="flex flex-wrap items-end gap-2 mb-3">
-						<button onclick="testViewShow('suites')" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
+						<button onclick="testBackToSuites()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600">&larr; <span data-l10n="Suites">Suites</span></button>
 						<span id="test-report-title" class="flex-1 text-sm font-medium text-gray-700 dark:text-slate-200"></span>
 						<button id="test-report-json" onclick="testReportExportJson()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export JSON">Export JSON</button>
 						<button id="test-report-md" onclick="testReportExportMarkdown()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export Markdown">Export Markdown</button>
@@ -1903,11 +1903,163 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.22.4';
+const SIMPLE_VERSION = '3.22.5';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
+
+// ===== view history (the browser Back/Forward buttons) =====
+// Every view switch records a small state object, so the browser Back button
+// walks the app's own view stack: the tabs, every pill set, the Cards
+// list/editor, the test-suite views and the Profiler views.  Session-only -
+// the URL never changes (pushState can throw on file://, and the feature then
+// degrades to no history).
+let _activeTab = 'c-apdu';
+let _scp80Sub = 'sp';
+let _capduSub = 'sim';
+let _phoneSub = 'phone';
+let _scp81Sub = 'listener';
+let _cardsView = 'list';
+let _navState = null;          // the state of the current history entry
+let _navApplying = false;      // replaying: the switch functions must not record
+let _navOk = true;             // false when pushState is unavailable (file://)
+let _navReplaceNext = false;   // the next record replaces (in-app Cancel/Back)
+
+const NAV_FIELDS = ['tab', 'sub', 'parser', 'view', 'listtab',
+	'preset', 'suite', 'script', 'item'];
+
+// The canonical key of a state (the equality check; pure).
+function navStateKey(st) {
+	st = st || {};
+	return JSON.stringify(NAV_FIELDS.map(k => String(st[k] == null ? '' : st[k])));
+}
+
+// The state of the view currently shown (reads the module view variables).
+function navCurrent() {
+	const st = {tab: _activeTab};
+	if (_activeTab === 'scp80') st.sub = _scp80Sub;
+	else if (_activeTab === 'c-apdu') {
+		st.sub = _capduSub;
+		if (_capduSub === 'parser') st.parser = _parserSub;
+	} else if (_activeTab === 'phone') {
+		st.sub = _phoneSub;
+		if (_phoneSub === 'test') {
+			st.view = _testView;
+			const suite = testCurrentSuite();
+			if (suite) st.suite = suite.id;
+			if (_testView === 'script' && _testScriptId) st.script = _testScriptId;
+		}
+	} else if (_activeTab === 'scp81') st.sub = _scp81Sub;
+	else if (_activeTab === 'cards') {
+		st.view = _cardsView;
+		const p = (_cardsEditIdx !== null && cards[_cardsEditIdx]) ? cards[_cardsEditIdx] : null;
+		if (_cardsView === 'edit' && p) st.preset = p.id || '';
+	} else if (_activeTab === 'profiler') {
+		st.view = profilerView;
+		if (profilerView === 'list') st.listtab = profilerListTab;
+		else if (profilerView === 'editor' && profilerEditId) st.item = profilerEditId;
+		else if (profilerView === 'snapshot' && snapshotViewId) st.item = snapshotViewId;
+	}
+	return st;
+}
+
+// Record the current view as a history entry (a no-op when replaying or when
+// the state did not change).  The in-app Cancel/Back buttons call navReplace()
+// first, so their entry is replaced instead of stacked.
+function navRecord() {
+	const replace = _navReplaceNext;
+	_navReplaceNext = false;
+	if (_navApplying || !_navOk) return;
+	const st = navCurrent();
+	if (!replace && _navState && navStateKey(st) === navStateKey(_navState)) {
+		_navState = st;
+		return;
+	}
+	_navState = st;
+	try {
+		if (replace) history.replaceState(st, '');
+		else history.pushState(st, '');
+	} catch (e) {
+		_navOk = false;
+	}
+}
+
+function navReplace() { _navReplaceNext = true; }
+
+// Seed the entry the app was loaded with: the first Back then returns to the
+// initial view instead of leaving the page.
+function navSeed() {
+	_navState = navCurrent();
+	try { history.replaceState(_navState, ''); } catch (e) { _navOk = false; }
+}
+
+// Replay a history entry (popstate).
+function navApply(st) {
+	st = st || {};
+	_navApplying = true;
+	try {
+		switchTab(st.tab || 'c-apdu');
+		if (st.tab === 'scp80') {
+			scp80SwitchSubtab(st.sub || 'sp');
+		} else if (st.tab === 'c-apdu') {
+			cApduSwitchSubtab(st.sub || 'sim');
+			if ((st.sub || 'sim') === 'parser') parserSwitchSubtab(st.parser || 'parse');
+		} else if (st.tab === 'phone') {
+			phoneSwitchSubtab(st.sub || 'phone');
+			if ((st.sub || 'phone') === 'test') navApplyTest(st);
+		} else if (st.tab === 'scp81') {
+			scp81SwitchSubtab(st.sub || 'listener');
+		} else if (st.tab === 'cards') {
+			navApplyCards(st);
+		} else if (st.tab === 'profiler') {
+			navApplyProfiler(st);
+		}
+	} finally {
+		_navApplying = false;
+	}
+	_navState = navCurrent();
+}
+
+function navApplyTest(st) {
+	const suites = testSuites();
+	let idx = suites.findIndex(s => s.id === st.suite);
+	if (idx < 0) idx = suites.length ? 0 : -1;
+	_testSuiteIdx = idx;
+	_testScriptId = (st.script && testScriptById(st.script)) ? st.script : null;
+	let view = st.view || 'suites';
+	if (view === 'script' && !_testScriptId) view = 'suite';
+	if (view === 'suite' && idx < 0) view = 'suites';
+	testViewShow(view);
+}
+
+function navApplyCards(st) {
+	if ((st.view || 'list') === 'edit') {
+		const idx = st.preset ? cards.findIndex(c => c.id === st.preset) : -1;
+		if (idx >= 0) { cardsEdit(idx); return; }
+		if (!st.preset) { cardsNew(); return; }
+	}
+	cardsShowList();
+}
+
+function navApplyProfiler(st) {
+	const view = st.view || 'list';
+	if (view === 'editor' && st.item) {
+		const idx = profiles.findIndex(p => p.id === st.item);
+		if (idx >= 0) { profilerEdit(idx); return; }
+	} else if (view === 'snapshot' && st.item) {
+		const idx = snapshots.findIndex(s => s.id === st.item);
+		if (idx >= 0) { snapshotOpen(idx); return; }
+	}
+	profilerSetView(view === 'editor' || view === 'snapshot' ? 'list' : view);
+	profilerListSwitch(st.listtab || profilerListTab);
+}
+
+// The test-suite views' in-app back buttons.
+function testBackToSuites() { navReplace(); testViewShow('suites'); }
+
+window.addEventListener('popstate', e => navApply(e.state));
 
 // ===== Tab switching =====
 function switchTab(name) {
+	_activeTab = name;
 	if (_scp81Timer && name !== 'scp81') { clearInterval(_scp81Timer); _scp81Timer = null; }
 	if (_bipTimer && name !== 'phone') { clearInterval(_bipTimer); _bipTimer = null; }
 	document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -1926,10 +2078,12 @@ function switchTab(name) {
 	else if (name === 'profiler') { profilerSetView('list'); setHelpAnchor('profiler'); }
 	else if (name === 'phone') phoneSwitchSubtab('phone');
 	else if (name === 'scp81') scp81Enter();
+	navRecord();
 }
 
 let scp80HelpAnchor = 'secured-packet';
 function scp80SwitchSubtab(name) {
+	_scp80Sub = name;
 	document.querySelectorAll('.scp80-subtab').forEach(btn => {
 		const isActive = btn.dataset.scp80Sub === name;
 		btn.classList.toggle('bg-blue-600', isActive);
@@ -1946,6 +2100,7 @@ function scp80SwitchSubtab(name) {
 	if (name === 'tar') { tarRender(); tarProbeRender(); }
 	scp80HelpAnchor = { sp: 'secured-packet', ram: 'ram', tar: 'tar-probe' }[name] || 'secured-packet';
 	setHelpAnchor(scp80HelpAnchor);
+	navRecord();
 }
 
 // Top-level Remote APDU subtabs; the C-APDU and R-APDU parsers are nested
@@ -1966,6 +2121,7 @@ function parserSwitchSubtab(name) {
 	document.getElementById('c-apdu-sub-parse').classList.toggle('hidden', _parserSub !== 'parse');
 	document.getElementById('c-apdu-sub-response').classList.toggle('hidden', _parserSub !== 'response');
 	setHelpAnchor(PARSER_HELP_ANCHORS[_parserSub]);
+	navRecord();
 }
 
 function cApduSwitchSubtab(name) {
@@ -1976,6 +2132,7 @@ function cApduSwitchSubtab(name) {
 		parserSwitchSubtab(name);
 		return;
 	}
+	_capduSub = name;
 	document.querySelectorAll('.c-apdu-subtab').forEach(btn => {
 		const active = btn.dataset.sub === name;
 		btn.classList.toggle('bg-blue-600', active);
@@ -1991,9 +2148,11 @@ function cApduSwitchSubtab(name) {
 	});
 	setHelpAnchor({sim:'sim-rfm', usim:'usim-rfm', ber:'ber-tlv', ram:'ram-gp', httpota:'push-commands'}[name] || 'c-apdu');
 	if (name === 'parser') parserSwitchSubtab(_parserSub);
+	navRecord();
 }
 
 function phoneSwitchSubtab(name) {
+	_phoneSub = name;
 	document.querySelectorAll('.phone-subtab').forEach(btn => {
 		const active = btn.dataset.phoneSub === name;
 		btn.classList.toggle('bg-blue-600', active);
@@ -2023,6 +2182,7 @@ function phoneSwitchSubtab(name) {
 		tpRefresh();
 	}
 	setHelpAnchor({ phone: 'stk-menu', tr: 'pli-dict', bip: 'bip', esim: 'esim', test: 'test-script' }[name] || 'stk-menu');
+	navRecord();
 }
 
 // ===== eSIM / LPA (local ES10a/b/c operations) =====
@@ -7239,6 +7399,7 @@ function testViewShow(view) {
 	_testView = view;
 	_testSuiteTarget = null;
 	testRender();
+	navRecord();
 }
 
 function testRender() {
@@ -7593,7 +7754,7 @@ function testOpenScript(id, run) {
 	if (run) testRunStart();
 }
 
-function testScriptBack() { testViewShow('suite'); }
+function testScriptBack() { navReplace(); testViewShow('suite'); }
 
 function testRenderScriptHeader() {
 	const cur = testCurrentScript();
@@ -13402,18 +13563,22 @@ function cardsFormValues() {
 
 // Show the preset list (the Cards tab's default view).
 function cardsShowList() {
+	_cardsView = 'list';
 	const list = document.getElementById('cards-list-view');
 	const editor = document.getElementById('cards-editor-view');
 	if (list) list.classList.remove('hidden');
 	if (editor) editor.classList.add('hidden');
+	navRecord();
 }
 
 // Show the preset editor.
 function cardsShowEditor() {
+	_cardsView = 'edit';
 	const list = document.getElementById('cards-list-view');
 	const editor = document.getElementById('cards-editor-view');
 	if (list) list.classList.add('hidden');
 	if (editor) editor.classList.remove('hidden');
+	navRecord();
 }
 
 function cardsSetFormMode() {
@@ -13551,6 +13716,7 @@ function cardsEdit(i) {
 }
 
 function cardsCancelEdit() {
+	navReplace();
 	_cardsEditIdx = null;
 	cardsSetFormMode();
 	cardsClearForm();
@@ -16626,6 +16792,7 @@ function scp81ModeChanged() {
 }
 
 function scp81SwitchSubtab(name) {
+	_scp81Sub = name;
 	document.querySelectorAll('.scp81-subtab').forEach(btn => {
 		const active = btn.dataset.scp81Sub === name;
 		btn.classList.toggle('bg-blue-600', active);
@@ -16640,6 +16807,7 @@ function scp81SwitchSubtab(name) {
 	if (name === 'scripts') { scriptsRender(); scriptsRebuildSelect(); }
 	else { scp81ModeChanged(); scp81StatusRefresh(); }
 	setHelpAnchor(name === 'scripts' ? 'scp81-scripts' : 'scp81-listener');
+	navRecord();
 }
 
 function scp81Msg(text, cls) {
@@ -18395,6 +18563,7 @@ function profilerListSwitch(name) {
 	document.getElementById('profiler-list-custom').classList.toggle('hidden', name !== 'custom');
 	if (name === 'custom') pysimCustomRender();
 	setHelpAnchor({ profiles: 'profiler', snapshots: 'card-snapshots', custom: 'custom-files' }[name] || 'profiler');
+	navRecord();
 }
 
 function profilerSetView(view) {
@@ -18408,6 +18577,7 @@ function profilerSetView(view) {
 		profilerRenderSnapshotList();
 		profilerListSwitch(profilerListTab);
 	}
+	navRecord();
 }
 
 function profilerRenderSnapshotList() {
@@ -18934,6 +19104,7 @@ function profilerEdit(i) {
 }
 
 function profilerBackToList() {
+	navReplace();
 	profilerDraft = null;
 	profilerEditId = null;
 	snapshotViewId = null;
@@ -19309,6 +19480,7 @@ function profilerSaveProfile() {
 	const idx = profiles.findIndex(p => p.id === profilerEditId);
 	if (idx >= 0) profiles[idx] = profilerDraft;
 	profilerSave();
+	navReplace();
 	profilerSetView('list');
 }
 
@@ -22607,6 +22779,28 @@ const LANG_RU = {
 	'child file(s)?': 'дочерних файлов?',
 	'Dropped invalid legacy entries:': 'Отброшено некорректных старых записей:',
 	'No custom files defined.': 'Пользовательские файлы не заданы.',
+	// The t() keys the i18n completeness test found missing (v3.22.5).
+	'Run': 'Запустить',
+	'Suite': 'Набор',
+	'scripts': 'скриптов',
+	'Move': 'Переместить',
+	'Copy': 'Копировать',
+	'No suite run yet.': 'Набор ещё не запускался.',
+	'Warning': 'Предупреждение',
+	'Text': 'Текст',
+	'id': 'id',
+	'text': 'текст',
+	'ok': 'ок',
+	'cancel': 'отмена',
+	'back': 'назад',
+	'timeout': 'тайм-аут',
+	'no response': 'нет ответа',
+	'PoR = por_ok': 'PoR = por_ok',
+	'event data is required': 'нужны данные события',
+	'event data must be hex': 'данные события должны быть в hex',
+	'No card preset matches the equipped card': 'Ни один пресет не соответствует подключённой карте',
+	'Analysis failed': 'Анализ не удался',
+	'C6 = non-volatile code space (the load file); C7 = volatile (RAM); C8 = non-volatile data.  Values are bytes; the hex is the install parameter coding.': 'C6 — код в энергонезависимой памяти (load-файл); C7 — волатильная (RAM); C8 — энергонезависимые данные.  Значения — байты; hex — кодирование в параметрах установки.',
 };
 let currentLang = 'en';
 
@@ -22755,6 +22949,7 @@ if (!window.matchMedia('(display-mode: standalone)').matches) {
 	});
 	window.addEventListener('appinstalled', () => { installBtn.style.display = 'none'; });
 }
+navSeed();
 if ('serviceWorker' in navigator) {
 	navigator.serviceWorker.register('sw.js');
 }

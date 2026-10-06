@@ -32,7 +32,8 @@ const code = extractFunc(html, 'phoneSwitchSubtab') + '\n' +
 	'globalThis.esimFetchAll = () => { globalThis._esim = (globalThis._esim || 0) + 1; };\n' +
 	'globalThis.testInit = () => { globalThis._test = (globalThis._test || 0) + 1; };\n' +
 	'globalThis.bipEnter = () => { globalThis._bip = (globalThis._bip || 0) + 1; };\n' +
-	'globalThis.netStateFetch = () => { globalThis._netstate = (globalThis._netstate || 0) + 1; };\n';
+	'globalThis.netStateFetch = () => { globalThis._netstate = (globalThis._netstate || 0) + 1; };\n' +
+	'globalThis.navRecord = function() {};\n';
 eval(code);
 
 function makeClassList() {

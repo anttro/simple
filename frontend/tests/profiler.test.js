@@ -34,6 +34,8 @@ code += extractFunc(html, 'profilerCheck', true) + '\n';
 code += extractFunc(html, 'profilerCheckSnapshot', true) + '\n';
 code += extractFunc(html, 'profilerScanSnapshot', true) + '\n';
 code += "var _scanTarget = 'profile';\nvar profilerResults = null;\nvar profilerResultsHeader = null;\nvar profilerMismatchOnly = false;\n";
+// the view-history hooks (the router lives in the page; this pure test stubs it)
+code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
 eval(code);
 
