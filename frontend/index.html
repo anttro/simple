@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.3';
+const SIMPLE_VERSION = '3.23.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16157,8 +16157,8 @@ function eventFormFieldsHtml(cfg, fields, values, prefix, withOnchange) {
 			html += '<select id="' + prefix + f.id + '"'
 				+ (withOnchange && f.onchange ? ' onchange="' + f.onchange + '"' : '')
 				+ ' class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800">';
-			f.opts.forEach(o => html += '<option value="' + esc(o.v) + '"'
-				+ (o.g ? ' data-gr="' + esc(o.g) + '"' : '')
+			f.opts.forEach(o => html += '<option value="' + esc(String(o.v)) + '"'
+				+ (o.g ? ' data-gr="' + esc(String(o.g)) + '"' : '')
 				+ (v !== '' && String(o.v) === v ? ' selected' : '') + '>' + esc(o.l) + '</option>');
 			html += '</select>';
 		} else {

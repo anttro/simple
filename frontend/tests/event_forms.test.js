@@ -38,6 +38,8 @@ eval(extractBlock('const EVENT_INNER_MAX = ', 'function pysimEventSendForm').rep
 eval(extractFunc(html, 'eventFieldsForRelease'));
 eval(extractFunc(html, 'encPlmn'));
 eval(extractFunc(html, 'bytesToHex'));
+eval(extractFunc(html, 'esc'));
+eval(extractFunc(html, 'eventFormFieldsHtml'));
 
 test('CMD_NAMES decodes timer management and the BIP commands', () => {
 	assert.strictEqual(CMD_NAMES['01'], 'REFRESH');
@@ -343,4 +345,33 @@ test('the shared event vectors match the PWA builders', () => {
 		assert.strictEqual(eventDateTimeTlv(d).toUpperCase(), '2607' + v.hex,
 			'scts ' + JSON.stringify(v));
 	}
+});
+
+test('every event form renders - numeric option values are stringified (v3.23.4)', () => {
+	// esc() is string-only and most EVENT_FORMS option values are numbers
+	// (e.g. {v:0,l:'Normal service'} and the ACCESSTECH list): rendering the
+	// form with esc(o.v) crashed with 'str.replace is not a function' for the
+	// Phone tab and the test-script step editor alike (v3.22.0 regression).
+	globalThis.t = s => s;
+	const bad = [];
+	for (const [ev, cfg] of Object.entries(EVENT_FORMS)) {
+		if (!cfg) continue;   // the unimplemented events carry a null form
+		for (const withOnchange of [true, false]) {
+			try {
+				eventFormFieldsHtml(cfg, cfg.fields, {}, 'x-', withOnchange);
+			} catch (e) {
+				bad.push(ev + (withOnchange ? '/phone' : '/step') + ': ' + e.message);
+			}
+		}
+	}
+	assert.deepStrictEqual(bad, [], 'every event form must render');
+	// a numeric option value lands as its string form and prefills selected
+	const cfg = EVENT_FORMS[0x00];
+	const sel = cfg.fields.find(f => f.type === 'select' && f.opts.some(o => typeof o.v === 'number'));
+	assert.ok(sel, 'a numeric-option select must exist');
+	const num = sel.opts.find(o => typeof o.v === 'number');
+	const out = eventFormFieldsHtml(cfg, cfg.fields, {[sel.id]: num.v}, 'x-', true);
+	assert.ok(out.includes('value="' + String(num.v) + '"'), out);
+	assert.ok(out.includes('value="' + String(num.v) + '" selected'), out);
+	delete globalThis.t;
 });
