@@ -928,6 +928,26 @@ test('ramCntrLowHtml states the facts without a fabricated counter', () => {
 	assert.match(html, /id="sp-cntr-low"/);
 });
 
+test('ramShowCntrLow targets the originating view box', () => {
+	// the notice must land in the pill the failed operation ran in: the
+	// Secured packet notice used to be written into the hidden RAM container,
+	// so the buttons were unreachable from the plain send (v3.23.3)
+	globalThis.t = s => s;
+	const els = fakeRamDocument(['ram-cntr-low', 'sp-cntr-low']);
+	ramShowCntrLow(2, 'sp');
+	assert.ok(els['sp-cntr-low'].innerHTML.includes("ramSyncCounter(2, 'sp')"),
+		els['sp-cntr-low'].innerHTML);
+	assert.ok(!els['sp-cntr-low'].classList.contains('hidden'));
+	assert.strictEqual(els['ram-cntr-low'].innerHTML, '');
+	assert.ok(els['ram-cntr-low'].classList.contains('hidden'));
+	ramShowCntrLow(1, 'ram');
+	assert.ok(els['ram-cntr-low'].innerHTML.includes("ramSyncCounter(1, 'ram')"),
+		els['ram-cntr-low'].innerHTML);
+	assert.ok(!els['ram-cntr-low'].classList.contains('hidden'));
+	assert.ok(els['sp-cntr-low'].classList.contains('hidden'));
+	delete globalThis.t;
+});
+
 test('the explorer shows versions on app and ISD rows too', () => {
 	globalThis.t = s => s;
 	const out = ramRenderExploreHtml(null,
