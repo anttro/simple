@@ -1609,6 +1609,92 @@ class TestScriptStoreHttpTests(unittest.TestCase):
         self.assertIn('verify it manually', resp['error'])
         v.assert_not_called()
 
+    def test_suite_start_reset_runs_before_the_adm_gate(self):
+        # v3.23.0: a suite may start with a card reset (the full re-init); the
+        # reset runs before the preset/ADM checks, so the ADM is verified
+        # against the post-reset card session
+        self.server.app = object()
+        suite = self._suite(name='reset me', start_reset=True, require_adm=True)
+        self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        calls = []
+
+        def fake_reinit(server, label='RESET'):
+            calls.append(('reset', label))
+            server.card_session = getattr(server, 'card_session', 0) + 1
+            server.iccid = '8901000000000000001'
+            return True
+
+        def fake_adm(server, preset, needed):
+            calls.append(('adm', getattr(server, 'card_session', 0)))
+            return True, {'required': bool(needed), 'verified': True}, None
+
+        with mock.patch.object(self.srv, '_card_reset_reinit',
+                               side_effect=fake_reinit), \
+                mock.patch.object(self.srv, '_ensure_adm', side_effect=fake_adm):
+            status, resp = self._post('/api/test/run', {
+                'suite_id': suite['id'],
+                'preset': {'name': 'p', 'iccid': '8901000000000000001',
+                           'adm': 'AABBCCDD'}})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual([c[0] for c in calls], ['reset', 'adm'])
+        self.assertEqual(calls[0][1], 'SUITE-RESET')
+        # the gate saw the post-reset session (the reset bumped it)
+        self.assertGreater(calls[1][1], 0)
+        self.assertEqual(resp['suite']['start_reset'], True)
+        self.assertEqual(resp['suite']['reset']['iccid'], '8901000000000000001')
+        self.assertIsNotNone(resp['suite']['reset']['ms'])
+        # let the member finish before the server shuts down
+        for _ in range(100):
+            status, snap = self._get('/api/test/status')
+            if not snap['running']:
+                break
+            time.sleep(0.05)
+        self.assertFalse(snap['running'], snap)
+
+    def test_suite_start_reset_refuses_a_mismatched_iccid(self):
+        self.server.app = object()
+        suite = self._suite(name='reset me', start_reset=True)
+        self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+
+        def fake_reinit(server, label='RESET'):
+            server.iccid = '8901000000000000099'
+            return True
+
+        with mock.patch.object(self.srv, '_card_reset_reinit',
+                               side_effect=fake_reinit):
+            status, resp = self._post('/api/test/run', {
+                'suite_id': suite['id'],
+                'preset': {'name': 'p', 'iccid': '8901000000000000001'}})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('ICCID', resp['error'])
+        self.assertIn('8901000000000000099', resp['error'])
+
+    def test_suite_start_reset_failure_refuses_the_start(self):
+        self.server.app = object()
+        suite = self._suite(name='reset me', start_reset=True)
+        self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        with mock.patch.object(self.srv, '_card_reset_reinit', return_value=False):
+            status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 500, resp)
+        self.assertIn('re-initialization failed', resp['error'])
+
+    def test_a_suite_without_start_reset_does_not_reset(self):
+        self.server.app = object()
+        suite = self._suite(name='plain')
+        self._post('/api/test/scripts', self._script(suite_id=suite['id']))
+        with mock.patch.object(self.srv, '_card_reset_reinit') as r:
+            status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 200, resp)
+        r.assert_not_called()
+        self.assertFalse(resp['suite']['start_reset'])
+        self.assertIsNone(resp['suite']['reset'])
+        for _ in range(100):
+            status, snap = self._get('/api/test/status')
+            if not snap['running']:
+                break
+            time.sleep(0.05)
+        self.assertFalse(snap['running'], snap)
+
     def test_a_store_write_failure_answers_a_json_500(self):
         suite = self._suite()
         with mock.patch.object(self.store, 'add',

@@ -48,6 +48,20 @@ class StoreCrudTests(unittest.TestCase):
         self.assertFalse(self.store.remove(s['id']))
         self.assertIsNone(self.store.get('nope'))
 
+    def test_start_reset_round_trips(self):
+        # v3.23.0: a suite may start with a card reset (the full re-init); the
+        # flag defaults false and survives add/update/reload
+        s = self.store.add(suite(name='reset me', start_reset=True))
+        self.assertTrue(s['start_reset'])
+        # a partial update keeps it; a reload keeps it
+        updated = self.store.update(s['id'], {'name': 'renamed'})
+        self.assertTrue(updated['start_reset'])
+        reloaded = make_store(self.tmp.name)
+        self.assertTrue(reloaded.get(s['id'])['start_reset'])
+        # an explicit false clears it
+        self.assertFalse(self.store.update(s['id'], {'start_reset': False})['start_reset'])
+        self.assertFalse(self.store.add(suite())['start_reset'])
+
     def test_callers_never_mutate_the_store(self):
         s = self.store.add(suite(scripts=[
             {'script_id': SID_A, 'role': 'member', 'on_fail': 'stop'}]))

@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.22.8'
+VERSION = '3.23.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4445,14 +4445,15 @@ def _apply_equipped_card(server):
     _tlog('equip: terminal profile done')
 
 
-def _esim_reinit(server):
-    """Full card re-initialization after a profile switch.
+def _card_reset_reinit(server, label='RESET'):
+    """Physical card reset + the full equip re-initialization: power down/up,
+    `equip`, the shared post-equip refresh (ICCID, network state, TERMINAL
+    PROFILE, polling) and the shell command-set registration probe.
 
-    A profile switch is logically an equip: the active application (and the
-    ICCID) changes, so every cached card view is flushed and re-read.  The
-    card is physically reset first (after REFRESH it restarts on the newly
-    active profile), then the standard equip path runs.
-    """
+    Shared by the eSIM profile switch (the card restarts on the newly active
+    profile) and a test suite's `start_reset` (the scripts run against a
+    freshly initialized card).  The caller must hold `_CARD_LOCK`; returns
+    True on success."""
     app = server.app
     if not _ensure_transport(server):
         return False
@@ -4462,7 +4463,7 @@ def _esim_reinit(server):
             if server.scc:
                 server.scc.reset_card()
         except Exception as e:
-            sys.stderr.write('ESIM: card reset failed: %s\n' % e)
+            sys.stderr.write('%s: card reset failed: %s\n' % (label, e))
         old_stdout, old_stderr = app.stdout, sys.stderr
         app.stdout = StringIO()
         sys.stderr = app.stdout
@@ -4472,7 +4473,7 @@ def _esim_reinit(server):
             app.stdout = old_stdout
             sys.stderr = old_stderr
         if server.app.card is None:
-            sys.stderr.write('ESIM: card gone during re-initialization\n')
+            sys.stderr.write('%s: card gone during re-initialization\n' % label)
             return False
         _apply_equipped_card(server)
         # The equip must leave the shell's command-set registration consistent
@@ -4483,18 +4484,31 @@ def _esim_reinit(server):
         try:
             server.app.rs.lchan[0].select('MF', server.app)
         except CommandSetRegistrationError as e:
-            sys.stderr.write('ESIM: shell command registration broken after '
-                             're-initialization: %s\n' % e)
+            sys.stderr.write('%s: shell command registration broken after '
+                             're-initialization: %s\n' % (label, e))
             return False
         except Exception as e:
-            sys.stderr.write('ESIM: post-equip MF select failed: %s\n' % e)
-        sys.stderr.write('ESIM: re-initialized after profile switch\n')
+            sys.stderr.write('%s: post-equip MF select failed: %s\n' % (label, e))
         return True
     except Exception as e:
-        sys.stderr.write('ESIM: re-initialization failed: %s\n' % e)
+        sys.stderr.write('%s: re-initialization failed: %s\n' % (label, e))
         return False
     finally:
         server.equipping = False
+
+
+def _esim_reinit(server):
+    """Full card re-initialization after a profile switch.
+
+    A profile switch is logically an equip: the active application (and the
+    ICCID) changes, so every cached card view is flushed and re-read.  The
+    card is physically reset first (after REFRESH it restarts on the newly
+    active profile), then the standard equip path runs.
+    """
+    if not _card_reset_reinit(server, 'ESIM'):
+        return False
+    sys.stderr.write('ESIM: re-initialized after profile switch\n')
+    return True
 
 
 def _esim_refresh_chain(server, sw91):
@@ -7516,14 +7530,17 @@ def _test_suite_worker(server, suite, members, preset, preset_id):
             _reset_poll_timer()
 
 
-def _test_suite_state(suite, members, preset, preset_id, session):
+def _test_suite_state(suite, members, preset, preset_id, session, reset_info=None):
     """The `_TEST_RUN['suite']` report skeleton of a suite run: the member
     records (status pending) and the run-level metadata (preset, session,
-    SCP80 counters before).  Shared by the starter and the tests."""
+    SCP80 counters before, the start reset).  Shared by the starter and the
+    tests."""
     return {
         'id': suite.get('id'),
         'name': suite.get('name') or 'test suite',
         'require_adm': bool(suite.get('require_adm')),
+        'start_reset': bool(suite.get('start_reset')),
+        'reset': reset_info or None,
         'session_start': session, 'session_end': None,
         'session_changed': False, 'preset_id': preset_id,
         'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
@@ -7539,9 +7556,11 @@ def _test_suite_state(suite, members, preset, preset_id, session):
     }
 
 
-def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None):
+def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None,
+                      reset_info=None):
     """Start a suite run: `members` is the resolved, normalised
-    ``[(entry, script)]`` list in run order."""
+    ``[(entry, script)]`` list in run order.  `reset_info` records the
+    start-of-suite card reset the caller already performed."""
     with _TEST_LOCK:
         session = getattr(server, 'card_session', 0)
         _TEST_RUN.update({
@@ -7552,7 +7571,8 @@ def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None):
             'scp80_counter': None, 'scp80_counters': {},
             'script_id': None,
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
-            'suite': _test_suite_state(suite, members, preset, preset_id, session),
+            'suite': _test_suite_state(suite, members, preset, preset_id, session,
+                                       reset_info=reset_info),
             'log': [], 'log_prefix': '', 'adm': adm_info or {'required': False},
         })
     _test_run_spawn(server, _test_suite_worker,
@@ -7680,6 +7700,45 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp, 400)
             self._log_resp(resp)
             return
+        reset_info = None
+        if suite.get('start_reset'):
+            # A suite may start with a card reset: the physical reset + the
+            # full equip re-initialization, so its scripts run against a
+            # freshly initialized card.  This runs before the scp80 checks and
+            # the ADM gate: the card session changes, so the ADM latch is
+            # re-verified against the post-reset card, and the ICCID must
+            # still match the run's preset (a reset can switch the active
+            # profile on an eUICC).
+            if self.server.app is None or self.server.scc is None:
+                resp = {'error': 'start_reset: no card is equipped'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            t0 = time.time()
+            with _CARD_LOCK:
+                ok = _card_reset_reinit(self.server, 'SUITE-RESET')
+            ms = int((time.time() - t0) * 1000)
+            if not ok:
+                resp = {'error': 'start_reset: the card re-initialization failed '
+                                 '- see the server log (the suite was not started)'}
+                self._send_json(resp, 500)
+                self._log_resp(resp)
+                return
+            reset_info = {'ok': True, 'iccid': getattr(self.server, 'iccid', None),
+                          'ms': ms}
+            sys.stderr.write('SUITE-RESET: re-initialized in %dms, ICCID %s\n'
+                             % (ms, reset_info['iccid'] or '(unreadable)'))
+            want = presets.normalize_iccid((preset or {}).get('iccid'))
+            got = presets.normalize_iccid(self.server.iccid)
+            if want and got and want != got:
+                resp = {'error': 'start_reset: the card reports ICCID %s after '
+                                 'the reset, but the run preset is for %s - '
+                                 're-select the preset and retry'
+                                 % (self.server.iccid, (preset or {}).get('iccid')),
+                        'reset': reset_info}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
         steps = [step for _entry, script in members for step in script['steps']]
         if any(s['type'] == 'action' and s['kind'] == 'scp80' for s in steps):
             err = _test_preset_error({'steps': steps}, preset)
@@ -7699,7 +7758,7 @@ class PysimHandler(BaseHTTPRequestHandler):
         try:
             _test_suite_start(self.server, suite, members, preset,
                               str(body.get('preset_id') or '') or None,
-                              adm_info=adm_info)
+                              adm_info=adm_info, reset_info=reset_info)
         except Exception as e:
             resp = {'error': 'could not start the suite run: %s' % e}
             self._send_json(resp, 500)
@@ -7707,7 +7766,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             return
         resp = _test_state_snapshot()
         self._send_json(resp)
-        self._log_resp({'suite': suite.get('name'), 'members': len(members)})
+        self._log_resp({'suite': suite.get('name'), 'members': len(members),
+                        'start_reset': bool(reset_info)})
 
     def _keyset_guard(self, body, kic, kid):
         """The keyset-number checks shared by the RAM operations: the KIc/KID

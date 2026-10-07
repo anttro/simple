@@ -33,6 +33,19 @@ import always merges: importing a suite export **into the store it came
 from duplicates the suite and its scripts** (an id already present gets a
 fresh uuid) - restore into a fresh store, or wipe the target first.
 
+A suite may **start with a card reset** (`start_reset`, the suite editor's
+*Start with card reset*, v3.23.0): before anything runs, the server
+physically resets the card and performs the full re-initialization (ICCID,
+network state, TERMINAL PROFILE, the equip drain), so the scripts run against
+a freshly initialized card.  The run's preset must still match the card's
+ICCID after the reset (a mismatch refuses the start - re-select the preset
+and retry), and a `require_adm` suite verifies the ADM again for the new card
+session.  The initialization **consumes the card's initial proactive
+commands** (the menu, the event list, a PLI), so a script cannot catch the
+"first command after reset" event - those commands stay in the proactive log
+as evidence.  A reset *during* the run is still fatal: the suite stops and
+the remaining members are skipped (flagged in the report).
+
 **Format**: server ≥ 3.15.0 (`kvn`, `por` and `files` checks), scripts stored
 server-side since 3.16.0, `menu-select` by text and the spec-order TERMINAL
 RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
@@ -41,7 +54,8 @@ RESPONSE codings since 3.17.0, the semantic `event` action since 3.18.0, the
 `menu-select` text match since 3.19.0, the `proactive-drain` action (the kind
 `proactive` until 3.22.1) and the
 ok-answering bounded cleanup since 3.21.0, the suites and the Simulator's
-event forms for all modelled events since 3.22.0.
+event forms for all modelled events since 3.22.0, a suite's `start_reset`
+since 3.23.0.
 
 ## Writing a test for an applet
 

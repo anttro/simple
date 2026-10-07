@@ -43,6 +43,7 @@ function snapshot() {
 		started: 1, finished: 2,
 		suite: {
 			id: 'a'.repeat(32), name: 'regression', require_adm: true,
+			start_reset: true, reset: {ok: true, iccid: '8901000000000000001', ms: 1234},
 			session_start: 1, session_end: 1, session_changed: false,
 			counters_before: {'2': '0000000010'}, counters_after: {'2': '0000000012'},
 			members: [
@@ -76,6 +77,7 @@ test('testReportMarkdown renders the members, steps, notes and logs', () => {
 	assert.match(md, /# Test suite report: regression/);
 	assert.match(md, /- status: error/);
 	assert.match(md, /- Preset: SE test1/);
+	assert.match(md, /- started with a card reset \(ICCID 8901000000000000001\) \u00b7 1\.2 s/);
 	assert.match(md, /passed: 1, warnings: 0, failed: 1, skipped: 1/);
 	assert.match(md, /wall time: 12\.3 s/);
 	assert.match(md, /SCP80: 2 0000000010 -> 0000000012/);
@@ -133,6 +135,8 @@ test('the Test script pill hosts the four suite views and their wiring', () => {
 	}
 	assert.ok(/id="test-suite-name"[^>]*oninput="testSuiteNameChanged\(\)"/.test(html));
 	assert.ok(/id="test-suite-adm"[^>]*onchange="testSuiteAdmChanged\(\)"/.test(html));
+	assert.ok(/id="test-suite-reset"[^>]*onchange="testSuiteResetChanged\(\)"/.test(html));
+	assert.ok(/data-l10n-title="Reset and fully re-initialize the card/.test(html));
 	assert.ok(/id="test-script-adm"[^>]*onchange="testScriptAdmChanged\(\)"/.test(html));
 	assert.ok(/id="test-suite-run-btn"[^>]*data-needs="card"/.test(html));
 	assert.ok(/id="test-run-btn"[^>]*data-needs="card"/.test(html));
@@ -156,7 +160,8 @@ test('a single script run sends its require_adm flag and keeps its id', () => {
 
 test('the suite save adopts the stored suite (the server normalises the order)', async () => {
 	const calls = [];
-	const suite = {id: 'a'.repeat(32), name: 'edited', require_adm: false, scripts: []};
+	const suite = {id: 'a'.repeat(32), name: 'edited', require_adm: false,
+		start_reset: true, scripts: []};
 	_testSuites = [suite];
 	_testSuiteIdx = 0;
 	globalThis.testCurrentSuite = () => suite;
@@ -171,6 +176,7 @@ test('the suite save adopts the stored suite (the server normalises the order)',
 	await new Promise(r => setTimeout(r, 10));
 	assert.strictEqual(calls[0][0], '/api/test/suites/update');
 	assert.strictEqual(calls[0][1].suite.scripts.length, 0);
+	assert.strictEqual(calls[0][1].suite.start_reset, true);
 	assert.strictEqual(_testSuites[0].name, 'stored');
 });
 

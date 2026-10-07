@@ -60,7 +60,7 @@ a 3.x PWA).
 | `/api/test/scripts/copy` | POST | Copy a script into another suite (`{id, suite_id, name?}`) |
 | `/api/test/scripts/import` | POST | Import scripts (`{scripts: [...], mode: merge\|replace, suite_id?}`; accepts the old localStorage export shape) |
 | `/api/test/suites` | GET | Test suite store (server-side `test_suites.json`): all suites + the store path |
-| `/api/test/suites` | POST | Create a suite (`{name, require_adm?, scripts?}` or `{suite}`) |
+| `/api/test/suites` | POST | Create a suite (`{name, require_adm?, start_reset?, scripts?}` or `{suite}`) |
 | `/api/test/suites/update` | POST | Update a suite (`{id, suite}`; the member set changes through the script endpoints) |
 | `/api/test/suites/delete` | POST | Delete a suite (`{id}`; refused while it holds scripts) |
 | `/api/test/suites/import` | POST | Import a suite bundle (`{suites, scripts, mode}`; script references remapped) |
@@ -839,25 +839,31 @@ leave dangling references; delete those scripts first, or import with
 Test suites live next to the scripts (`~/.pysim-simple-server/test_suites.json`,
 `--test-suites PATH`): a suite is the ordered list of its scripts - the
 optional `setup` first, the `member` scripts, the optional `teardown` last -
-plus the per-member `on_fail` policy and the suite-level `require_adm`.
+plus the per-member `on_fail` policy, the suite-level `require_adm` and the
+optional **`start_reset`** (reset + fully re-initialize the card before the
+run - see `/api/test/run`).
 
 ```json
-{"path": "/home/user/.pysim-simple-server/test_suites.json", "count": 1, "version": 1,
+{"path": "/home/user/.pysim-simple-server/test_suites.json", "count": 1, "version": 2,
  "suites": [{"id": "…", "name": "alfa regression", "require_adm": true,
+             "start_reset": false,
              "scripts": [{"script_id": "…", "role": "setup", "on_fail": "stop"},
                          {"script_id": "…", "role": "member", "on_fail": "stop"},
                          {"script_id": "…", "role": "teardown", "on_fail": "stop"}],
              "created": 1690000000.0, "updated": 1690000000.0}]}
 ```
 
+**Schema v2 (v3.23.0)** adds `start_reset` (default `false`); a v1 file loads
+with it `false`.
+
 The store normalises the order (setup first, teardown last, at most one of
 each; a script appears once per suite) and validates `on_fail` as
 `stop` (default) or `continue` - "which failures cascade" is a visible
 per-suite decision.
 
-`POST /api/test/suites` creates one (`{name, require_adm?, scripts?}` or
-`{suite: {...}}`), `POST /api/test/suites/update` replaces
-name/require_adm/scripts (`{id, suite}`; the **member set** changes through
+`POST /api/test/suites` creates one (`{name, require_adm?, start_reset?,
+scripts?}` or `{suite: {...}}`), `POST /api/test/suites/update` replaces
+name/require_adm/start_reset/scripts (`{id, suite}`; the **member set** changes through
 the script endpoints, not here), `POST /api/test/suites/delete` (`{id}`)
 removes it - refused while the suite still holds scripts - and
 `POST /api/test/suites/import` takes
@@ -884,18 +890,26 @@ idempotent.  Restore a bundle into a fresh store, or wipe the target first
 
 `{script, script_id?, preset_id?, require_adm?}` runs one script (the PWA
 sends the edited copy; the server validates and runs it).  `{suite_id,
-preset_id?}` runs a suite: its scripts in order, one card session, no resume
-- the ADM prerequisite first (suite- or member-level `require_adm`: the
+preset_id?}` runs a suite: its scripts in order, one card session, no resume.
+With `start_reset` the card is **physically reset and fully re-initialized**
+first (ICCID, network state, TERMINAL PROFILE, the equip drain); the run's
+preset must still match the card's ICCID afterwards (a mismatch refuses the
+start) and a required ADM is verified against the **new** card session.  Then
+the ADM prerequisite (suite- or member-level `require_adm`: the
 matched preset's key is verified **once**; a failure refuses the start, is
-not retried automatically, and requires a manual verify), then setup,
-members (per-member `on_fail`), teardown.  **The teardown runs on every stop**
-as long as the card is in the reader; a card reset (session change) stops the
-suite, skips the remaining members and is flagged in the report.
+not retried automatically, and requires a manual verify), setup,
+members (per-member `on_fail`), teardown.  The initialization consumes the
+card's initial proactive commands (they stay in the proactive log), so a
+script cannot catch the first command after the reset.  **The teardown runs
+on every stop** as long as the card is in the reader; a card reset (session
+change) stops the suite, skips the remaining members and is flagged in the
+report.
 
 The suite run's snapshot adds `suite`: the member records (`status`, `steps`,
 `note`, `log` - the semantic run-log excerpt), the `summary` (ok/warning/
 error/skipped counts, `wall_ms`, `stopped`, `session_changed`, the SCP80
-`counters_before`/`counters_after` per keyset) and the run's `adm` state.
+`counters_before`/`counters_after` per keyset), the `start_reset` flag and
+the `reset` result (ICCID + ms) and the run's `adm` state.
 The report is exported from the PWA as JSON or Markdown; the run state lives
 in the server until `POST /api/test/clear` (no history).
 

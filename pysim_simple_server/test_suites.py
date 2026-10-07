@@ -13,8 +13,9 @@ mis-ordered edit.
 
 A stored suite::
 
-    {"version": 1, "suites": [
+    {"version": 2, "suites": [
         {"id": "...", "name": "alfa regression", "require_adm": true,
+         "start_reset": false,
          "scripts": [{"script_id": "...", "role": "setup", "on_fail": "stop"},
                      {"script_id": "...", "role": "member", "on_fail": "stop"},
                      {"script_id": "...", "role": "member", "on_fail": "continue"},
@@ -51,7 +52,7 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'test_suites.json'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 ROLES = ('setup', 'member', 'teardown')
 ON_FAIL_LEVELS = ('stop', 'continue')
@@ -204,6 +205,7 @@ class TestSuiteStore:
         # their relative order in between).
         ordered = setups + [e for e in entries if e['role'] == 'member'] + teardowns
         return {'name': name.strip(), 'require_adm': bool(raw.get('require_adm')),
+                'start_reset': bool(raw.get('start_reset')),
                 'scripts': ordered}
 
     def _normalise(self, entry, keep_meta=False):
@@ -226,6 +228,7 @@ class TestSuiteStore:
             created = updated = now
         return {'id': rid, 'name': suite['name'],
                 'require_adm': suite['require_adm'],
+                'start_reset': suite['start_reset'],
                 'scripts': suite['scripts'],
                 'created': created, 'updated': updated}
 
@@ -268,22 +271,24 @@ class TestSuiteStore:
             return copy.deepcopy(s)
 
     def update(self, sid, fields):
-        """Partial or full update: name/require_adm/scripts replaced, id and
-        created kept.  The order/role rules are re-applied (setup first,
-        teardown last)."""
+        """Partial or full update: name/require_adm/start_reset/scripts
+        replaced, id and created kept.  The order/role rules are re-applied
+        (setup first, teardown last)."""
         with self._lock:
             cur = self._find(sid)
             if cur is None:
                 return None
             merged = {'name': cur['name'], 'require_adm': cur['require_adm'],
+                      'start_reset': cur['start_reset'],
                       'scripts': copy.deepcopy(cur['scripts'])}
             if isinstance(fields, dict):
-                for key in ('name', 'require_adm', 'scripts'):
+                for key in ('name', 'require_adm', 'start_reset', 'scripts'):
                     if key in fields:
                         merged[key] = fields[key]
             suite = self._check(merged)
             new = {'id': cur['id'], 'name': suite['name'],
                    'require_adm': suite['require_adm'],
+                   'start_reset': suite['start_reset'],
                    'scripts': suite['scripts'],
                    'created': cur['created'], 'updated': time.time()}
             self._suites[self._suites.index(cur)] = new
