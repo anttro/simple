@@ -90,6 +90,11 @@ test('trResultFormValue maps the stored alias/hex/manual values', () => {
 	assert.deepStrictEqual(trResultFormValue(''), { value: '', manual: '' });
 	assert.deepStrictEqual(trResultFormValue(undefined), { value: '', manual: '' });
 	assert.deepStrictEqual(trResultFormValue('bogus'), { value: 'ok', manual: '' });
+	// a numeric stored value is the value, not hex (the engine reads ints)
+	assert.deepStrictEqual(trResultFormValue(7), { value: 'modified', manual: '' });
+	assert.deepStrictEqual(trResultFormValue(16), { value: 'cancel', manual: '' });
+	assert.deepStrictEqual(trResultFormValue(10), { value: 'manual', manual: '0A' });
+	assert.deepStrictEqual(trResultFormValue(0), { value: 'ok', manual: '' });
 });
 
 test('trResultValid accepts the aliases and hex bytes only', () => {
@@ -103,10 +108,13 @@ test('the step editor offers the full list for all three result fields', () => {
 	assert.ok(form.includes("trResultRowHtml('test-f-presult'"), 'the drain result');
 	assert.ok(form.includes("trResultRowHtml('test-f-pfirst'"), 'the drain first');
 	assert.ok(form.includes("{empty: 'same as above'}"), 'the first keeps its empty option');
+	// the suggestion list is rendered by the first result row of each form
+	// (the drain's respond and the expectation), never twice in one form
+	assert.strictEqual((form.match(/\{list: true\}/g) || []).length, 2, form);
 });
 
 test('trResultRowHtml renders the manual entry and the additional info', () => {
-	const out = trResultRowHtml('test-f-result', '07', '04');
+	const out = trResultRowHtml('test-f-result', '07', '04', { list: true });
 	assert.ok(out.includes('07 - modified'), out);
 	assert.ok(out.includes('value="04"'), out);
 	assert.ok(out.includes('id="tr-addinfo-list"'), out);
@@ -119,4 +127,11 @@ test('trResultRowHtml renders the manual entry and the additional info', () => {
 	// a server-normalised (integer) additional info shows as hex
 	const intAdd = trResultRowHtml('test-f-result', '07', 10);
 	assert.ok(intAdd.includes('value="0A"'), intAdd);
+	// the suggestion list is rendered once per form: only the row with the
+	// flag carries it (a form may have several result rows)
+	assert.ok(!manual.includes('id="tr-addinfo-list"'), manual);
+	assert.ok(!intAdd.includes('id="tr-addinfo-list"'), intAdd);
+	const twoRows = trResultRowHtml('test-f-presult', 'ok', '', { list: true })
+		+ trResultRowHtml('test-f-pfirst', '', '', { empty: 'same as above' });
+	assert.strictEqual((twoRows.match(/id="tr-addinfo-list"/g) || []).length, 1, twoRows);
 });

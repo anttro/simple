@@ -8045,6 +8045,11 @@ function trResultOptions() {
 // A stored result -> the select's value and the manual hex ('' unless the
 // value is not in the list).  Accepts the aliases, the hex and the 0x form.
 function trResultFormValue(stored) {
+	// a numeric stored value (an API-authored script: the engine reads ints as
+	// the value, not as hex) -> its hex form
+	if (typeof stored === 'number') {
+		return trResultFormValue(stored.toString(16).toUpperCase().padStart(2, '0'));
+	}
 	const raw = String(stored === undefined || stored === null ? '' : stored).trim();
 	if (raw === '') return {value: '', manual: ''};
 	if (TR_RESULT_ALIASES[raw.toLowerCase()]) return {value: raw.toLowerCase(), manual: ''};
@@ -8094,9 +8099,13 @@ function trResultRowHtml(selId, stored, addInfo, opts) {
 	html += '<div class="mt-1 flex gap-2 items-center"><label class="text-xs text-gray-500 dark:text-slate-400 shrink-0">'
 		+ esc(t('Additional information (optional hex byte)')) + '</label>'
 		+ '<div class="w-24">' + testFormInput(selId + '-addinfo', add, '00', 'list="tr-addinfo-list" maxlength="2"') + '</div></div>';
-	html += '<datalist id="tr-addinfo-list">'
-		+ TR_RESULT_ADD_INFO.map(a => '<option value="' + esc(a.v) + '">' + esc(a.name) + '</option>').join('')
-		+ '</datalist>';
+	// the suggestion list once per form (opts.list) - a form may carry several
+	// result rows (the drain's respond + first) and duplicate ids are invalid
+	if (opts && opts.list) {
+		html += '<datalist id="tr-addinfo-list">'
+			+ TR_RESULT_ADD_INFO.map(a => '<option value="' + esc(a.v) + '">' + esc(a.name) + '</option>').join('')
+			+ '</datalist>';
+	}
 	return html;
 }
 
@@ -8213,7 +8222,8 @@ function testStepRender() {
 		} else if (step.kind === 'proactive-drain') {
 			const pr = p.respond || {};
 			html += testFormRow('TERMINAL RESPONSE result (each command)',
-				trResultRowHtml('test-f-presult', pr.result === undefined ? 'ok' : pr.result, pr.additional_info));
+				trResultRowHtml('test-f-presult', pr.result === undefined ? 'ok' : pr.result, pr.additional_info,
+					{list: true}));
 			const pf = p.first || {};
 			html += testFormRow('First command only (optional)',
 				trResultRowHtml('test-f-pfirst', pf.result === undefined ? '' : pf.result, pf.additional_info,
@@ -8261,7 +8271,8 @@ function testStepRender() {
 			+ '<div id="test-checks"></div></div>';
 		const r = step.respond || {};
 		html += testFormRow('TERMINAL RESPONSE result',
-			trResultRowHtml('test-f-result', r.result === undefined ? 'ok' : r.result, r.additional_info));
+			trResultRowHtml('test-f-result', r.result === undefined ? 'ok' : r.result, r.additional_info,
+				{list: true}));
 		html += testFormRow('Item identifier (SELECT ITEM / SET UP MENU)', testFormInput('test-f-ritem', r.item_id, '1..255'));
 		html += testFormRow('Text (GET INKEY / GET INPUT)', '<div class="flex gap-2">'
 			+ testFormInput('test-f-rtext', r.text, 'text')
