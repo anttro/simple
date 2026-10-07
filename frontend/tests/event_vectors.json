@@ -18,6 +18,20 @@
     {"event": "1D", "fields": {"status": "2", "type": "1", "ti": "", "mcc": "250", "loc_status": "2"}, "hex": "9D0102AA01011C0100130752F010000000019B0102"},
     {"event": "1D", "fields": {"status": "0", "type": "2", "ti": "AA", "mcc": "262", "mnc": "01", "lac": "0001", "cell": "0002", "tech": "7", "loc_status": "1", "apn": "web.operator.example", "pdp_type": "4"}, "hex": "9D0100AA01021C01AA130762F21000010002BF01079B0101C7147765622E6F70657261746F722E6578616D706C650B0104"}
   ],
+  "aliases": {
+    "location status": "03",
+    "location_status": "03",
+    "location-status": "03",
+    "access technology change": "0B",
+    "access_tech": "0B",
+    "access-technology-change": "0B",
+    "network rejection": "12",
+    "network_rejection": "12",
+    "network-rejection": "12",
+    "data connection status change": "1D",
+    "data_connection": "1D",
+    "data-connection-status-change": "1D"
+  },
   "scts": [
     {"year": 2026, "month": 9, "day": 30, "hour": 21, "min": 55, "sec": 0, "tz_east_min": 180, "hex": "62900312550021"},
     {"year": 2026, "month": 1, "day": 5, "hour": 8, "min": 7, "sec": 9, "tz_east_min": -150, "hex": "62105080709009"}

@@ -31,6 +31,8 @@ function extractFunc(src, name) {
 // Rewrite top-level const -> var so the maps leak out of sloppy-mode eval.
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'cmdQualifierShort'));
+eval(extractBlock('const EVENT_ALIASES = {', 'function eventCode').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'eventCode'));
 eval(extractBlock('const EVENT_NAMES = {', 'const REJECTION_CAUSES = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const REJECTION_CAUSES = [', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
@@ -324,12 +326,38 @@ test('the event form previews the bytes the send would deliver', () => {
 	assert.strictEqual(els['event-send-preview'].value, '');
 });
 
+test('a name-keyword event points at the right form', () => {
+	// the server's name keywords (used by the applet test scripts) resolve to
+	// their code, so the editor shows the right event and prefills its fields
+	// instead of falling back to event 03
+	const cfg = EVENT_FORMS[eventCode('access_tech')];
+	assert.ok(cfg, 'the access-tech form');
+	assert.deepStrictEqual(cfg.fields.map(f => f.id), ['tech']);
+	assert.strictEqual(cfg.build({ tech: 8 }), 'BF0108');
+	const dc = EVENT_FORMS[eventCode('data_connection')];
+	assert.ok(dc, 'the data-connection form');
+	assert.ok(dc.fields.some(f => f.id === 'status') && dc.fields.some(f => f.id === 'type'));
+});
+
 test('the shared event vectors match the PWA builders', () => {
 	// the same fixture is asserted against the Python builders by
 	// tests/test_events.py - a change on either side fails the other suite
 	// until the fixture and both implementations agree
 	const vectors = JSON.parse(fs.readFileSync(path.join(__dirname, 'event_vectors.json'), 'utf8'));
 	assert.ok(vectors.events.length && vectors.scts.length, 'the fixture must not be empty');
+	// the event name aliases (the server's keywords) resolve to the codes
+	assert.ok(vectors.aliases, 'the fixture must carry the aliases');
+	const wantAliases = {};
+	for (const [name, hex] of Object.entries(vectors.aliases)) {
+		wantAliases[name] = parseInt(hex, 16);
+		assert.strictEqual(eventCode(name), parseInt(hex, 16), name);
+	}
+	assert.deepStrictEqual(EVENT_ALIASES, wantAliases);
+	assert.deepStrictEqual(eventCode(0x0B), 0x0B);
+	assert.deepStrictEqual(eventCode('0B'), 0x0B);
+	assert.deepStrictEqual(eventCode('0x1d'), 0x1D);
+	assert.ok(Number.isNaN(eventCode('nonsense')));
+	assert.ok(Number.isNaN(eventCode('')));
 	for (const v of vectors.events) {
 		const build = EVENT_FORMS[parseInt(v.event, 16)].build;
 		assert.strictEqual(build(v.fields).toUpperCase(), v.hex,

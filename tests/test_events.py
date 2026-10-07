@@ -41,6 +41,16 @@ class EventVectorTests(unittest.TestCase):
             self.assertEqual(events.scts_bytes(stamp, v['tz_east_min']).hex().upper(),
                              v['hex'])
 
+    def test_the_shared_event_name_aliases(self):
+        # the script's `event` value may be one of these name keywords; the
+        # PWA mirrors the map (frontend/tests/event_forms.test.js)
+        want = {name: int(hexv, 16) for name, hexv in VECTORS['aliases'].items()}
+        self.assertEqual(events.EVENT_NAMES, want)
+        for name, code in want.items():
+            self.assertEqual(events.resolve_event(name), code, name)
+            self.assertEqual(events.resolve_event(hex(code)[2:].upper().zfill(2)), code)
+        self.assertIsNone(events.resolve_event('nonsense'))
+
     def test_the_host_clock_date_time_object(self):
         # the data-connection builder embeds the 8.39 object 26 07 ...
         out = events.build(0x1D, {'status': '0', 'type': '0', 'ti': '00',

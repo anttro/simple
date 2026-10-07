@@ -321,6 +321,10 @@ from the form's source field; an explicit `src` overrides it.  Both the
                        "lac": "00FF", "cell": "0001"}}}
 ```
 
+The `event` value may be the code (a hex byte or a number) or one of the name
+keywords above; the editor resolves either form to the event - showing the
+right form and fields - and saves the hex byte form.
+
 | `event` | fields |
 |---|---|
 | `location_status` / `0x03` | `status` 0 normal / 1 limited / 2 no service; for normal service `mcc`, `mnc`, `lac`, `cell` |

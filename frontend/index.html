@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.5';
+const SIMPLE_VERSION = '3.23.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -7372,9 +7372,11 @@ function testStepSummary(step) {
 			: 'item=' + p.item_id);
 	}
 	else if (step.kind === 'event') {
-		// a legacy numeric event is the code itself; the editor stores hex
-		const code = (typeof p.event === 'number') ? p.event : parseInt(p.event, 16);
-		s = 'EVENT ' + (EVENT_NAMES[code] || ('0x' + String(p.event || '?')));
+		// the value may be a number, the editor's hex byte or a name keyword
+		const code = eventCode(p.event);
+		s = 'EVENT ' + (EVENT_NAMES[code] || (Number.isInteger(code)
+			? '0x' + code.toString(16).toUpperCase().padStart(2, '0')
+			: String(p.event || '?')));
 		if (p.src) s += ' src=' + p.src;
 	}
 	else if (step.kind === 'apdu') s = 'APDU ' + (p.apdu || '?');
@@ -8156,7 +8158,7 @@ function testStepRender() {
 			const codes = Object.keys(EVENT_FORMS).map(k => parseInt(k, 10))
 				.sort((a, b) => a - b);
 			const rawEvent = p.event === undefined ? '03' : p.event;
-			let cur = (typeof rawEvent === 'number') ? rawEvent : parseInt(String(rawEvent), 16);
+			let cur = eventCode(rawEvent);
 			if (!(Number.isInteger(cur) && cur >= 0 && cur <= 0xFF)) cur = 3;
 			const opts = codes.map(c => ({
 				v: c.toString(16).toUpperCase().padStart(2, '0'),
@@ -8640,9 +8642,7 @@ function testStepFormError() {
 			if (problem) return problem;
 		}
 		if (step.kind === 'event') {
-			const rawEvent = (step.params || {}).event;
-			const code = (typeof rawEvent === 'number') ? rawEvent
-				: parseInt(String(rawEvent || ''), 16);
+			const code = eventCode((step.params || {}).event);
 			const cfg = EVENT_FORMS[code];
 			if (!cfg) return t('No form for this event - use the raw Envelope action.');
 			const bad = eventFormPatternError(cfg, (step.params || {}).fields || {});
@@ -15222,6 +15222,28 @@ function pysimFsResetEdit() {
 // points at 3GPP for carry their TS 31.111 7.5 event name; "Reserved for
 // 3GPP" is a spec cross-reference, not a usage restriction, so it never
 // appears in the user-facing names.
+
+// The test-script `event` value may be the editor's hex byte, a number or one
+// of the server's name keywords (pysim_simple_server/events.py's
+// EVENT_NAMES); this map mirrors it, drift-guarded through
+// frontend/tests/event_vectors.json ("aliases").
+const EVENT_ALIASES = {
+	'location status': 0x03, location_status: 0x03, 'location-status': 0x03,
+	'access technology change': 0x0B, access_tech: 0x0B, 'access-technology-change': 0x0B,
+	'network rejection': 0x12, network_rejection: 0x12, 'network-rejection': 0x12,
+	'data connection status change': 0x1D, data_connection: 0x1D, 'data-connection-status-change': 0x1D,
+};
+
+// The event code of a script's `event` value (a number, a hex byte or a name
+// keyword), or NaN when it is none of them.
+function eventCode(value) {
+	if (typeof value === 'number') return value;
+	const s = String(value === undefined || value === null ? '' : value).trim();
+	if (/^(0x)?[0-9a-fA-F]{1,2}$/.test(s)) return parseInt(s.replace(/^0x/i, ''), 16);
+	const alias = EVENT_ALIASES[s.toLowerCase()];
+	return alias === undefined ? NaN : alias;
+}
+
 const EVENT_NAMES = {
 	0x00: 'MT call', 0x01: 'Call connected', 0x02: 'Call disconnected',
 	0x03: 'Location status', 0x04: 'User activity', 0x05: 'Idle screen available',

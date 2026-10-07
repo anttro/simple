@@ -31,6 +31,9 @@ function extractFunc(src, name, asyncFn) {
 eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_NAMES = {', 'const EVENT_FORMS = {').replace(/^const /gm, 'var '));
 eval(extractBlock('const EVENT_FORMS = {', 'const PLI_QUALIFIERS = [').replace(/^const /gm, 'var '));
+// the event name aliases (the server's EVENT_NAMES keywords) + the resolver
+eval(extractBlock('const EVENT_ALIASES = {', 'function eventCode').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'eventCode'));
 // the builders' pure helpers (eventFormFieldsHtml/Values are the shared form)
 eval(extractFunc(html, 'bytesToHex'));
 eval(extractFunc(html, 'eventAddressTlv'));
@@ -195,6 +198,24 @@ test('testStepSummary renders actions', () => {
 	assert.strictEqual(
 		testStepSummary({ type: 'action', kind: 'status', params: { attempts: 5 } }),
 		'STATUS x5 (poll)');
+	// the event action's value may be a name keyword (the server's alias
+	// form), the editor's hex byte or a number - all show the event name
+	for (const ev of ['access_tech', '0B', '0b', 11, 0x0B]) {
+		assert.strictEqual(
+			testStepSummary({ type: 'action', kind: 'event', params: { event: ev } }),
+			'EVENT Access technology change (single access technology)', String(ev));
+	}
+	assert.strictEqual(
+		testStepSummary({ type: 'action', kind: 'event', params: { event: 'data_connection' },
+			check: { sw: { mode: 'mask', value: '91??' } } }),
+		'EVENT Data connection status change · SW ~91??');
+	// a value that is neither a code nor a known name is shown as-is
+	assert.strictEqual(
+		testStepSummary({ type: 'action', kind: 'event', params: { event: 'nonsense' } }),
+		'EVENT nonsense');
+	assert.strictEqual(
+		testStepSummary({ type: 'action', kind: 'event', params: { event: '1F' } }),
+		'EVENT Slices status change');
 	assert.strictEqual(
 		testStepSummary({ type: 'action', kind: 'proactive-drain',
 			params: { attempts: 5, respond: { result: 'ok' },
