@@ -529,7 +529,7 @@
 		<li><strong>06</strong> Access Technology &middot; <strong>08</strong> IMEISV &middot; <strong>09</strong> Search Mode</li>
 		<li><strong>0A</strong> Battery &middot; <strong>0E</strong> Multiple Access Technologies</li>
 	</ul>
-	<p class="text-sm mb-3">Values persist server-side until restart. When the card issues PLI, the server injects the dictionary values into the TERMINAL RESPONSE - also into a test-script expectation's answer.</p>
+	<p class="text-sm mb-3">Values persist server-side until restart.  Sensible defaults are pre-settled for the qualifiers the ETSI specs define (location as the test network 001/01, the test IMEI 490154203237518 and its IMEISV, language &lsquo;en&rsquo;, E-UTRAN access technology, automatic search mode, a full battery): a value you set overrides its default, and <strong>clearing the field restores it</strong>; the date/time qualifier is answered from the host clock while empty, and the 3GPP/3GPP2-specific qualifiers (NMR, ESN, MEID, CSG/HNB, WLAN, slices, CAG, &hellip;) stay empty - the ETSI specs define no contents for them.  When the card issues PLI, the server injects the values into the TERMINAL RESPONSE - also into a test-script expectation's answer.</p>
 
 	<h3 id="network-simulation" class="text-lg font-medium mb-2">8.7 Network simulation</h3>
 	<p class="text-sm mb-2">Replays the write patterns a real phone performs when the network condition changes (trace study in <code class="font-mono text-sm">projects/UICC_NAA.md</code>): EPS attach, service loss / limited service, roaming denial, 2G fallback, SMS delivery, cell-broadcast reconfiguration and AUTHENTICATE. One button per scenario; the card must be equipped.</p>

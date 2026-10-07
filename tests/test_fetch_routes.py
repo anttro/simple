@@ -115,6 +115,57 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class PliDictHttpTests(unittest.TestCase):
+    """The PLI dictionary's defaults, overrides and clearing (v3.23.1)."""
+
+    def setUp(self):
+        self.server = _build_http_server('127.0.0.1', 0, PysimHandler)
+        self.server.log_requests = False
+        self.server.app = None
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _req(self, method, path, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path), data=data,
+            headers={'Content-Type': 'application/json'}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, json.loads(res.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b'{}')
+
+    def test_defaults_overrides_and_clearing(self):
+        import pysim_simple_server.server as srv
+        try:
+            status, resp = self._req('GET', '/api/pli-dict')
+            self.assertEqual(status, 200, resp)
+            self.assertEqual(resp['00'], '930500F1100000')
+            self.assertEqual(resp['0A'], '630104')
+            self.assertEqual(resp['03'], '')      # the host clock answers it
+            self.assertEqual(resp['02'], '')      # no default
+            status, resp = self._req('POST', '/api/pli-dict',
+                                     {'01': '94080000000000000000'})
+            self.assertEqual(status, 200, resp)
+            self.assertEqual(resp['01'], '94080000000000000000')
+            self.assertEqual(srv._PLI_DATA.get(0x01), '94080000000000000000')
+            # clearing the field restores the default
+            status, resp = self._req('POST', '/api/pli-dict', {'01': ''})
+            self.assertEqual(status, 200, resp)
+            self.assertEqual(resp['01'], srv.PLI_DEFAULTS[0x01])
+            self.assertNotIn(0x01, srv._PLI_DATA)
+            # a bad value is ignored
+            status, resp = self._req('POST', '/api/pli-dict', {'01': 'ZZ'})
+            self.assertEqual(resp['01'], srv.PLI_DEFAULTS[0x01])
+        finally:
+            srv._PLI_DATA.pop(0x01, None)
+
+
 class CardFreeGetTests(unittest.TestCase):
     """Cached GETs must answer while the card lock is held.
 

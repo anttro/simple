@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.23.0'
+VERSION = '3.23.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2565,7 +2565,40 @@ PLI_QUALIFIER_NAMES = {
     0x1A: 'Supported Radio Access Technologies',
 }
 
-_PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}
+# Sensible PLI answers for an unconfigured dictionary - the qualifiers whose
+# objects the pinned ETSI specs define (TS 102 223 8.x, tags per TS 101 220
+# V18.3.0 Table 7.23).  They are the *base layer*: a value set through
+# /api/pli-dict overrides its default, and clearing the field restores it
+# (v3.23.1).  Qualifier 03 stays empty - the date/time is answered from the
+# host clock (see _pli_data_hex).  The 3GPP/3GPP2-specific qualifiers (02
+# NMR, 07 ESN, 0B MEID, 0C WSID, 0D Broadcast Network info, 0F/10 multi-RAT,
+# 11-17 CSG/HNB/WLAN/slices/CAG, 1A Supported RATs) stay empty: the ETSI
+# specs define no contents for them ("reserved for 3GPP/3GPP2") and a
+# fabricated object would mislead the application more than no answer.
+PLI_DEFAULTS = {
+    # Location Information (8.19): PLMN 001/01 (the test network, TS 23.003)
+    # + LAC 0000
+    0x00: '9305' + '00F110' + '0000',
+    # IMEI (8.20): the classic test IMEI 490154203237518, nibble-swapped
+    # BCD with the odd 15th digit padded by F (TS 124 008 Mobile Identity)
+    0x01: '9408' + '94104502237315F8',
+    # Language (8.45): 'en' in the SMS default alphabet (bit 8 clear)
+    0x04: 'AD02' + '656E',
+    # Timing Advance (3GPP; tag 2E/AE): ME status 00 + TA 00
+    0x05: 'AE02' + '0000',
+    # Access technology (8.61): E-UTRAN
+    0x06: 'BF01' + '08',
+    # IMEISV (8.74, tag 62/E2): the test IMEI + SVN 08
+    0x08: 'E208' + '9410450223731580',
+    # Network search mode (8.75, tag 65/E5): automatic
+    0x09: 'E501' + '01',
+    # Battery state (8.76, tag 63/E3): full
+    0x0A: '6301' + '04',
+    # Access technologies (8.61): UTRAN + E-UTRAN
+    0x0E: 'BF02' + '0308',
+}
+
+_PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}   # the operator overrides
 
 _BIP = httpota.BipTerminal()
 # Active BIP session, shared by the SCP81 listener and the Simulator's
@@ -4139,12 +4172,17 @@ def _pli_data_hex(cmd_qual, dt=None):
     """Data object(s) for a PROVIDE LOCAL INFORMATION TERMINAL RESPONSE, as
     hex - or '' when there is nothing to send.
 
-    The TR Config dictionary entry (if any) wins.  Otherwise the date/time
-    qualifier is answered with the current date and time from the host clock
-    (TS 102 223 6.4.15: "The terminal shall return the current date and time
-    as set by the user"), coded as the Date-Time and Time zone object (8.39).
-    `dt` is a test seam, the clock is read live otherwise."""
+    The TR Config dictionary override (if any) wins, then the built-in
+    default (PLI_DEFAULTS) - clearing a field restores its default.  Without
+    either, the date/time qualifier is answered with the current date and
+    time from the host clock (TS 102 223 6.4.15: "The terminal shall return
+    the current date and time as set by the user"), coded as the Date-Time
+    and Time zone object (8.39).  `dt` is a test seam, the clock is read live
+    otherwise."""
     val = str(_PLI_DATA.get(cmd_qual, '') or '').strip()
+    if val:
+        return val
+    val = PLI_DEFAULTS.get(cmd_qual, '')
     if val:
         return val
     if cmd_qual == 0x03:
@@ -8097,7 +8135,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(qualifiers)
             self._log_resp(qualifiers)
         elif self.path == '/api/pli-dict':
-            resp = {('%02X' % q): v for q, v in _PLI_DATA.items()}
+            # the effective values: the override or the built-in default
+            # (the date/time qualifier stays empty - the host clock answers it)
+            resp = {('%02X' % q): (_PLI_DATA.get(q) or PLI_DEFAULTS.get(q, ''))
+                    for q in PLI_QUALIFIER_NAMES}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/poll-status':
@@ -8855,11 +8896,16 @@ class PysimHandler(BaseHTTPRequestHandler):
                         try:
                             code = int(k, 16)
                             if code in _PLI_DATA:
-                                bytes.fromhex('') if not v else bytes.fromhex(v)
-                                _PLI_DATA[code] = v
+                                if v:
+                                    bytes.fromhex(v)      # valid hex only
+                                    _PLI_DATA[code] = v
+                                else:
+                                    # clearing the field restores the default
+                                    _PLI_DATA.pop(code, None)
                         except (ValueError, KeyError):
                             pass
-            resp = {('%02X' % q): v for q, v in _PLI_DATA.items()}
+            resp = {('%02X' % q): (_PLI_DATA.get(q) or PLI_DEFAULTS.get(q, ''))
+                    for q in PLI_QUALIFIER_NAMES}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/poll-toggle':

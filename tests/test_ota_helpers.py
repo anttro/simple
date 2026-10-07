@@ -632,8 +632,16 @@ class TestProactiveDecode(unittest.TestCase):
 
     def setUp(self):
         import pysim_simple_server.server as srv
+        # the class-wide location override must not leak into other tests
+        # (the PLI dictionary is module state; v3.23.1)
+        self._pli_saved = dict(srv._PLI_DATA)
         srv._PROACTIVE_SESSION_START = 1234.0
         srv._PLI_DATA[0x00] = '93055210011000'
+
+    def tearDown(self):
+        import pysim_simple_server.server as srv
+        srv._PLI_DATA.clear()
+        srv._PLI_DATA.update(self._pli_saved)
 
     @staticmethod
     def _cmd_raw(cmd_type, qualifier, extras=b''):
@@ -895,16 +903,55 @@ class TestProactiveDecode(unittest.TestCase):
         self.assertEqual(tr.hex(), '810301260082028281030100130752f01000ff0001')
 
     def test_build_tr_pli_empty_other_qualifier_sends_no_data(self):
+        # a qualifier with neither an override nor a built-in default (02
+        # NMR) sends no data object (v3.23.1: the common ones have defaults)
         import pysim_simple_server.server as srv
-        saved = srv._PLI_DATA.get(0x0a)
-        srv._PLI_DATA[0x0a] = '  '
+        saved = srv._PLI_DATA.get(0x02)
+        srv._PLI_DATA[0x02] = '  '
         try:
-            tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x0a)
-            data = srv._pli_data_hex(0x0a)
+            tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x02)
+            data = srv._pli_data_hex(0x02)
         finally:
-            srv._PLI_DATA[0x0a] = saved
+            srv._PLI_DATA[0x02] = saved
         self.assertEqual(tr.hex(), '810301260082028281030100')
         self.assertEqual(data, '')
+
+    def test_pli_defaults_cover_the_common_qualifiers(self):
+        # v3.23.1: the dictionary's base layer - the objects the pinned specs
+        # define (TS 102 223 8.x, tags per TS 101 220 V18.3.0 Table 7.23)
+        import pysim_simple_server.server as srv
+        d = srv.PLI_DEFAULTS
+        self.assertEqual(d[0x00], '930500F1100000')        # 001/01 + LAC 0000
+        self.assertEqual(d[0x01], '940894104502237315F8')  # IMEI, F pad
+        self.assertEqual(d[0x04], 'AD02656E')              # 'en'
+        self.assertEqual(d[0x05], 'AE020000')              # Timing Advance
+        self.assertEqual(d[0x06], 'BF0108')                # E-UTRAN
+        self.assertEqual(d[0x08], 'E2089410450223731580')  # IMEISV
+        self.assertEqual(d[0x09], 'E50101')                # automatic
+        self.assertEqual(d[0x0A], '630104')                # battery full
+        self.assertEqual(d[0x0E], 'BF020308')              # UTRAN + E-UTRAN
+        # the date/time stays dynamic; the 3GPP/3GPP2 qualifiers stay empty
+        self.assertNotIn(0x03, d)
+        for q in (0x02, 0x07, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x12,
+                  0x13, 0x14, 0x15, 0x16, 0x17, 0x1A):
+            self.assertNotIn(q, d)
+        # every default is a well-formed TLV (a short-form length that
+        # matches the value)
+        for q, v in d.items():
+            self.assertEqual(len(v) % 2, 0, q)
+            self.assertEqual(int(v[2:4], 16) * 2, len(v) - 4, q)
+        # the resolution order: override wins, clearing restores the default,
+        # the clock answers 03 while empty
+        saved = dict(srv._PLI_DATA)
+        try:
+            srv._PLI_DATA[0x01] = '94080000000000000000'
+            self.assertEqual(srv._pli_data_hex(0x01), '94080000000000000000')
+            srv._PLI_DATA.pop(0x01, None)
+            self.assertEqual(srv._pli_data_hex(0x01), d[0x01])
+            self.assertRegex(srv._pli_data_hex(0x03), r'^2607[0-9A-F]{14}$')
+        finally:
+            srv._PLI_DATA.clear()
+            srv._PLI_DATA.update(saved)
 
     def test_decode_cmd_empty_raw(self):
         self.assertEqual(_decode_cmd(0x26, b'', None), [])

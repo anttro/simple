@@ -1904,7 +1904,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.0';
+const SIMPLE_VERSION = '3.23.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -17753,8 +17753,10 @@ function encImeiPli(digits) {
 	const d = digits.replace(/\D/g, '').slice(0, 15);
 	if (d.length < 15) return '';
 	let h = '';
-	for (let i = 0; i < 15; i += 2)
+	for (let i = 0; i < 14; i += 2)
 		h += (parseInt(d[i+1])<<4 | parseInt(d[i])).toString(16).padStart(2, '0');
+	// the odd 15th digit takes the low nibble, F pads the high one
+	h += (0xF0 | parseInt(d[14])).toString(16).padStart(2, '0');
 	return h;
 }
 
@@ -17851,12 +17853,12 @@ const PLI_CODECS = {
 			{id:'lang',label:'Language',type:'text',pattern:'[a-zA-Z]{2,3}',placeholder:'en'},
 		],
 	},
-	'05': { tlv: 'C602',
+	'05': { tlv: 'AE02',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 4) return null;
 			return { status: parseInt(v[0]+v[1],16).toString(), ta: parseInt(v[2]+v[3],16).toString() };
 		},
-		encode(v) { return 'C602' + (parseInt(v.status)||0).toString(16).padStart(2,'0') + (parseInt(v.ta)||0).toString(16).padStart(2,'0'); },
+		encode(v) { return 'AE02' + (parseInt(v.status)||0).toString(16).padStart(2,'0') + (parseInt(v.ta)||0).toString(16).padStart(2,'0'); },
 		fields: [
 			{id:'status',label:'ME Status',type:'number',min:'0',max:'255',placeholder:'0'},
 			{id:'ta',label:'Timing Advance',type:'number',min:'0',max:'255',placeholder:'0'},
@@ -17870,7 +17872,7 @@ const PLI_CODECS = {
 		encode(v) { return 'BF01' + (parseInt(v.tech)||0).toString(16).padStart(2,'0'); },
 		fields: [{id:'tech',label:'Access Technology',type:'select',opts:ACCESSTECH}],
 	},
-	'08': { tlv: '9408',
+	'08': { tlv: 'E208',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 16) return null;
 			return { imeisv: decImei(v) + v.slice(14,16).toUpperCase() };
@@ -17881,28 +17883,33 @@ const PLI_CODECS = {
 			let h = '';
 			for (let i = 0; i < 16; i += 2)
 				h += (parseInt(raw[i+1])<<4 | parseInt(raw[i])).toString(16).padStart(2,'0');
-			return '9408' + h;
+			return 'E208' + h;
 		},
 		fields: [{id:'imeisv',label:'IMEISV',type:'text',pattern:'\\d{16}',placeholder:'16 digits'}],
 	},
-	'09': { tlv: 'AD01',
+	'09': { tlv: 'E501',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 2) return null;
 			return { mode: parseInt(v[0]+v[1],16).toString() };
 		},
 		encode(v) {
-			return 'AD01' + (parseInt(v.mode)||0).toString(16).padStart(2,'0');
+			return 'E501' + (parseInt(v.mode)||0).toString(16).padStart(2,'0');
 		},
 		fields: [{id:'mode',label:'Search Mode',type:'select',
-			opts:[{v:0,l:'Automatic'},{v:1,l:'Manual'}]}],
+			opts:[{v:0,l:'Manual'},{v:1,l:'Automatic'}]}],
 	},
 	'0A': { tlv: '6301',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 2) return null;
 			return { charge: parseInt(v[0]+v[1],16).toString() };
 		},
-		encode(v) { return '6301' + (parseInt(v.charge)||50).toString(16).padStart(2,'0'); },
-		fields: [{id:'charge',label:'Charge state (%)',type:'number',min:'0',max:'100',placeholder:'50'}],
+		encode(v) {
+			const n = (v.charge === undefined || v.charge === '') ? 4 : parseInt(v.charge, 10);
+			return '6301' + (n & 0xFF).toString(16).padStart(2,'0').toUpperCase();
+		},
+		fields: [{id:'charge',label:'Battery state',type:'select',
+			opts:[{v:0,l:'Very low'},{v:1,l:'Low'},{v:2,l:'Average'},{v:3,l:'Good'},
+				{v:4,l:'Full'},{v:0xFE,l:'Not battery powered'},{v:0xFF,l:'Unknown / charging'}]}],
 	},
 	'0E': { tlv: 'BF',
 		decode(hex) {
@@ -17937,7 +17944,8 @@ async function pysimPliRender() {
 				+ '<span class="flex-1 min-w-0 text-[13px] leading-snug">' + esc(q.name) + '</span>'
 				+ '</div>'
 				+ '<div class="flex items-center gap-1 mt-0.5 ml-8">'
-				+ '<input type="text" id="pli-v-' + q.code + '" value="' + esc(val) + '" placeholder="hex"'
+				+ '<input type="text" id="pli-v-' + q.code + '" value="' + esc(val) + '"'
+				+ ' placeholder="' + (q.code === '03' ? '(host clock)' : 'hex') + '"'
 				+ ' class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-xs rounded px-1.5 py-1 dark:bg-slate-800 font-mono">';
 			if (hasCodec) {
 				html += '<span onclick="pysimPliDecodeRow(\'' + q.code + '\')" id="pli-tog-' + q.code + '"'
@@ -18041,6 +18049,7 @@ async function pysimPliSave() {
 	});
 	try {
 		await pysimFetch('/api/pli-dict', data);
+		pysimPliRender();      // a cleared field shows its default again
 		btn.textContent = t('Saved');
 		btn.classList.add('bg-emerald-700');
 		setTimeout(() => { btn.textContent = t('Save'); btn.classList.remove('bg-emerald-700'); btn.disabled = false; }, 1500);

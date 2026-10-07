@@ -1477,17 +1477,24 @@ Lists the PROVIDE LOCAL INFORMATION qualifier codes with their names.
 
 ### `GET /api/pli-dict`
 
-Returns the current PLI data dictionary as a qualifier-code map.
+Returns the effective PLI data dictionary as a qualifier-code map: the
+operator's override, else the built-in default (the qualifiers whose objects
+the pinned ETSI specs define - location as the test network 001/01, the test
+IMEI/IMEISV, language, access technology, search mode, battery; v3.23.1).
+The date/time qualifier stays empty - the host clock answers it while no
+override is set.
 
 ```json
-{"00": "0291...", "0A": "64"}
+{"00": "930500F1100000", "0A": "630104", "03": ""}
 ```
 
 ### `POST /api/pli-dict`
 
-Updates dictionary entries. Body is a map of qualifier code to hex value; keys
-must be known qualifiers and values valid hex, otherwise they are ignored.
-Returns the updated dictionary.
+Updates dictionary entries. Body is a map of qualifier code to hex value;
+keys must be known qualifiers and values valid hex, otherwise they are
+ignored.  A non-empty value becomes an override; an **empty value clears the
+override**, so the built-in default (if any) applies again.  Returns the
+updated effective dictionary.
 
 ### `POST /api/scp81/bip`
 

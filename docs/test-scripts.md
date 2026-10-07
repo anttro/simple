@@ -481,8 +481,9 @@ identities, **Result**, Duration, Text string, Item identifier, …):
 
 The terminal's own command-specific objects ride with the scripted result
 unless `raw` overrides them: a successful PROVIDE LOCAL INFORMATION answer
-takes the TR Config **PLI dictionary** entry for its qualifier (the current
-date and time for the date/time qualifier `03`), and a POLL INTERVAL answer
+takes the TR Config **PLI dictionary** value for its qualifier - the entry
+or its pre-settled default (v3.23.1; the current date and time for the
+date/time qualifier `03`), and a POLL INTERVAL answer
 echoes the current interval (TS 102 223 §6.8.4) - the same objects the
 terminal's own answers carry.
 
