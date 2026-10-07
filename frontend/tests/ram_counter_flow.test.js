@@ -32,6 +32,7 @@ for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr
 	'spPresetIdx', 'spPresetCounterValue', 'spCntrPlaceholder', 'spCntrAhead',
 	'ramHideProgress', 'ramDeleteFromExplorer',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
+	'ramCntrLowBox', 'ramCntrLowClear',
 	'escHtml', 'esc',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',

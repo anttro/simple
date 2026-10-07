@@ -28,6 +28,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'_parseRawElfEntry', '_parseRawAppEntry', 'ramParseElfStatus', 'ramParseAppStatus', 'ramParseModuleAids', 'parseTLV', '_parseE3Entry', '_parseMenuEntries',
 	'ramExpandedReport', 'ramExpandedMore', 'ramPageFormats', 'ramAppsMissingDetails', 'ramExpandedTags', 'ramExpandedGroups', 'ramExpandedElfForm', 'ramElfVersionHint', 'cardEtsiRelease', 'ramChainGetResponse', 'ramDeriveElfVersions', 'ramElfAppletCandidate', 'ramElfAppMatch',
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
+	'ramCntrLowBox', 'ramCntrLowClear',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
@@ -913,6 +914,18 @@ test('ramCntrLowHtml states the facts without a fabricated counter', () => {
 	assert.ok(noPreset.includes('onclick="ramGoToPreset(-1)"'), noPreset);
 	assert.ok(noPreset.includes('onclick="ramSyncCounter(-1, \'ram\')"'), noPreset);
 	assert.ok(spView.includes('onclick="ramSyncCounter(1, \'sp\')"'), spView);
+	// v3.23.3: the probe button is amber, the preset jump green
+	const syncBtn = out.match(/<button[^>]*ramSyncCounter[^>]*>/)[0];
+	assert.ok(syncBtn.includes('border-amber-300'), syncBtn);
+	assert.ok(!syncBtn.includes('border-red-300'), syncBtn);
+	const goBtn = out.match(/<button[^>]*ramGoToPreset[^>]*>/)[0];
+	assert.ok(goBtn.includes('border-emerald-300'), goBtn);
+	// the notice targets the originating view's box; the probe renders the
+	// inline throbber (the RAM inline-progress spinner, no modal)
+	assert.match(extractFunc(html, 'ramShowCntrLow'), /ramCntrLowBox\(v\)/);
+	assert.match(extractFunc(html, 'ramSyncCounter'), /animate-spin/);
+	assert.match(extractFunc(html, 'ramSyncCounter'), /ramCntrLowBox\(/);
+	assert.match(html, /id="sp-cntr-low"/);
 });
 
 test('the explorer shows versions on app and ISD rows too', () => {
@@ -963,7 +976,8 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	const explore = extractFunc(html, 'ramExplore');
 	assert.ok(explore.includes('spCntrLow(res)'), 'the Explore must check every send');
 	assert.ok(explore.includes('if (cntrLow) break;'), 'the loops must stop');
-	assert.ok(explore.includes('ramShowCntrLow()'), 'the verdict must be shown');
+	assert.ok(explore.includes("ramShowCntrLow(undefined, 'ram')"),
+		'the verdict must be shown in the RAM view');
 	// the delete flow and the plain send check it too
 	assert.ok(extractFunc(html, 'ramDeleteFromExplorer').includes('spCntrLow(res)'),
 		'the delete flow must stop');

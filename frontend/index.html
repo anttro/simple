@@ -684,6 +684,7 @@
 		<textarea id="sp-result" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea>
 		<div id="sp-size-info" class="text-xs mt-1 text-gray-500 dark:text-slate-400"></div>
 		<div id="sp-send-result" class="mt-2 text-xs font-mono hidden"></div>
+		<div id="sp-cntr-low" class="mt-2 hidden"></div>
 		<div id="sp-verify-result" class="mt-2 text-xs font-mono hidden"></div>
 
 		</div>
@@ -1904,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.2';
+const SIMPLE_VERSION = '3.23.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -9639,6 +9640,9 @@ async function pysimSendOta() {
 	sendResultEl.classList.add('text-gray-500');
 	sendResultEl.textContent = t('Sending OTA...');
 	porStatusEl.classList.add('hidden');
+	// a new attempt invalidates the previous low-counter verdict (the notice
+	// stays in the pill until then; v3.23.3)
+	ramCntrLowClear();
 	try {
 		const data = await pysimFetch('/api/send-ota', { sp, ...spParams() });
 		// low counter: not recoverable by retrying (v3.6.58)
@@ -9646,7 +9650,7 @@ async function pysimSendOta() {
 			sendResultEl.textContent = t('Low counter') + ' — ' + t('the card rejected the packet');
 			sendResultEl.classList.remove('text-gray-500', 'text-green-600');
 			sendResultEl.classList.add('text-red-600');
-			ramShowCntrLow();
+			ramShowCntrLow(undefined, 'sp');
 			return;
 		}
 		if (data.success) {
@@ -9898,8 +9902,7 @@ function ramClearResults() {
 	document.getElementById('ram-explorer').innerHTML = '';
 	document.getElementById('ram-steps').classList.add('hidden');
 	document.getElementById('ram-steps').textContent = '';
-	const cntrLowEl = document.getElementById('ram-cntr-low');
-	if (cntrLowEl) { cntrLowEl.innerHTML = ''; cntrLowEl.classList.add('hidden'); }
+	ramCntrLowClear();
 }
 
 // Read a File as a hex string via FileReader (client-side, no upload)
@@ -11576,7 +11579,7 @@ async function ramExplore(sp) {
 		// the run was stopped: state the verdict, do not retry
 		resultEl.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
-		ramShowCntrLow();
+		ramShowCntrLow(undefined, 'ram');
 	} else if (errors.length) {
 		resultEl.textContent = t('Partial') + ' — ' + errors.join('; ');
 		resultEl.classList.remove('hidden', 'text-green-600'); resultEl.classList.add('text-red-600');
@@ -11685,7 +11688,7 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 		const el = document.getElementById('ram-result');
 		el.textContent = t('Low counter') + ' — ' + t('the operation was stopped');
 		el.classList.remove('hidden', 'text-green-600'); el.classList.add('text-red-600');
-		ramShowCntrLow();
+		ramShowCntrLow(undefined, 'ram');
 		return;
 	}
 	// The card consumes the counter as soon as it accepts the packet, even
@@ -12119,7 +12122,7 @@ async function ramCompatTest(sp) {
 	if (spCntrLow(data)) {
 		const v = ramCntrLowView();
 		modal += ramCntrLowHtml(ramCntrLowPresetIdx(v), v);
-		ramShowCntrLow(undefined, v);
+		ramShowCntrLow(undefined, 'ram');
 	}
 	ramOpModalFinish(verdict, !!data.imports_ok, modal, true);
 }
@@ -12510,23 +12513,44 @@ function ramCntrLowHtml(presetIdx, view) {
 	const idx = Number.isInteger(presetIdx) && presetIdx >= 0 ? presetIdx : -1;
 	const v = view === 'sp' ? 'sp' : 'ram';
 	const text = t('Low counter') + ' \u2014 ' + t('the card rejected the packet');
-	const btnCls = 'px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 ' +
-		'hover:bg-red-100 dark:hover:bg-red-900/40 whitespace-nowrap';
+	// the probe is amber (a corrective action), the preset jump green (the
+	// manual fix) - v3.23.3, they used to share the red warning style
+	const base = 'px-2 py-1 text-xs rounded border whitespace-nowrap ';
+	const syncCls = base + 'border-amber-300 dark:border-amber-700 text-amber-700 ' +
+		'dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40';
+	const goCls = base + 'border-emerald-300 dark:border-emerald-700 text-emerald-700 ' +
+		'dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40';
 	return '<div class="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">' +
 		'<span>' + text + '</span>' +
-		'<button type="button" onclick="ramSyncCounter(' + idx + ', \'' + v + '\')" class="' + btnCls + '">' +
+		'<button type="button" onclick="ramSyncCounter(' + idx + ', \'' + v + '\')" class="' + syncCls + '">' +
 		esc(t('Sync counter')) + '</button>' +
-		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="' + btnCls + '">' +
+		'<button type="button" onclick="ramGoToPreset(' + idx + ')" class="' + goCls + '">' +
 		esc(t('Go to preset')) + '</button></div>';
 }
 
-// Show the low-counter notice in the RAM result area (and, when the operation
-// modal is still open, in its detail block).
+// The low-counter notice box of a view: the RAM and Secured packet pills
+// each carry one, so the notice (and the counter probe's progress) is visible
+// in the view the failed operation ran in (v3.23.3).
+function ramCntrLowBox(view) {
+	return document.getElementById(view === 'sp' ? 'sp-cntr-low' : 'ram-cntr-low');
+}
+
+function ramCntrLowClear() {
+	['ram-cntr-low', 'sp-cntr-low'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) { el.innerHTML = ''; el.classList.add('hidden'); }
+	});
+}
+
+// Show the low-counter notice in the originating view's box (the other one is
+// cleared: only the latest verdict stays on screen) and, when the operation
+// modal is still open, in its detail block.
 function ramShowCntrLow(presetIdx, view) {
 	const v = view === undefined ? ramCntrLowView() : view;
 	const idx = presetIdx === undefined ? ramCntrLowPresetIdx(v) : presetIdx;
 	const html = ramCntrLowHtml(idx, v);
-	const el = document.getElementById('ram-cntr-low');
+	ramCntrLowClear();
+	const el = ramCntrLowBox(v);
 	if (el && el.classList) {
 		el.innerHTML = html;
 		el.classList.remove('hidden');
@@ -12545,7 +12569,7 @@ function ramShowCntrLow(presetIdx, view) {
 async function ramSyncCounter(presetIdx, view) {
 	const i = Number(presetIdx);
 	const preset = (Number.isInteger(i) && i >= 0 && cards[i]) ? cards[i] : null;
-	const box = document.getElementById('ram-cntr-low');
+	const box = ramCntrLowBox(view === 'sp' ? 'sp' : 'ram');
 	if (!preset) { alert(t('No card preset selected')); return; }
 	// The keyset the failed operation used: the originating view's selector
 	// first, the other view's as the fallback (both hold the keyset number as
@@ -12572,8 +12596,9 @@ async function ramSyncCounter(presetIdx, view) {
 	else if (val('sp-spi2-hex')) body.spi2 = val('sp-spi2-hex');
 	const cntr = val('sp-cntr').replace(/[^0-9a-fA-F]/g, '');
 	if (cntr) body.cntr = cntr;
-	if (box) box.innerHTML = '<div class="text-sm text-gray-500 dark:text-slate-400">' +
-		esc(t('Syncing counter...')) + '</div>';
+	if (box) box.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">' +
+		'<div class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>' +
+		'<span>' + esc(t('Syncing counter...')) + '</span></div>';
 	try {
 		const data = await pysimFetch('/api/counter-probe', body);
 		if (data.success || data.counter_saved) {
@@ -12677,7 +12702,7 @@ function ramShowInstallResult(data, okText, capMem) {
 	if (spCntrLow(data)) {
 		const v = ramCntrLowView();
 		modal += ramCntrLowHtml(ramCntrLowPresetIdx(v), v);
-		ramShowCntrLow(undefined, v);
+		ramShowCntrLow(undefined, 'ram');
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
 }

@@ -1307,6 +1307,11 @@ video {
   border-top-width: 1px;
 }
 
+.border-amber-300 {
+  --tw-border-opacity: 1;
+  border-color: rgb(252 211 77 / var(--tw-border-opacity, 1));
+}
+
 .border-amber-400 {
   --tw-border-opacity: 1;
   border-color: rgb(251 191 36 / var(--tw-border-opacity, 1));
@@ -1325,6 +1330,11 @@ video {
 .border-blue-500 {
   --tw-border-opacity: 1;
   border-color: rgb(59 130 246 / var(--tw-border-opacity, 1));
+}
+
+.border-emerald-300 {
+  --tw-border-opacity: 1;
+  border-color: rgb(110 231 183 / var(--tw-border-opacity, 1));
 }
 
 .border-gray-100 {
@@ -1887,6 +1897,11 @@ video {
   color: #f1f5f9;
 }
 
+.hover\:bg-amber-100:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 243 199 / var(--tw-bg-opacity, 1));
+}
+
 .hover\:bg-amber-700:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(180 83 9 / var(--tw-bg-opacity, 1));
@@ -1895,6 +1910,11 @@ video {
 .hover\:bg-blue-700:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(29 78 216 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-emerald-100:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(209 250 229 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-emerald-200:hover {
@@ -2017,14 +2037,19 @@ video {
   border-color: rgb(217 119 6 / var(--tw-border-opacity, 1));
 }
 
+.dark\:border-amber-700:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(180 83 9 / var(--tw-border-opacity, 1));
+}
+
 .dark\:border-blue-800:is(.dark *) {
   --tw-border-opacity: 1;
   border-color: rgb(30 64 175 / var(--tw-border-opacity, 1));
 }
 
-.dark\:border-red-700:is(.dark *) {
+.dark\:border-emerald-700:is(.dark *) {
   --tw-border-opacity: 1;
-  border-color: rgb(185 28 28 / var(--tw-border-opacity, 1));
+  border-color: rgb(4 120 87 / var(--tw-border-opacity, 1));
 }
 
 .dark\:border-red-800:is(.dark *) {
@@ -2223,6 +2248,14 @@ video {
 .dark\:invert:is(.dark *) {
   --tw-invert: invert(100%);
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
+}
+
+.dark\:hover\:bg-amber-900\/40:hover:is(.dark *) {
+  background-color: rgb(120 53 15 / 0.4);
+}
+
+.dark\:hover\:bg-emerald-900\/40:hover:is(.dark *) {
+  background-color: rgb(6 78 59 / 0.4);
 }
 
 .dark\:hover\:bg-red-900\/40:hover:is(.dark *) {
