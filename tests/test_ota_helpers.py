@@ -1066,6 +1066,46 @@ class TestProactiveDecode(unittest.TestCase):
         _record_tr(entry, bytes.fromhex('810303260082028181'))
         self.assertNotIn('tr_result', entry)
 
+    def test_the_session_marker_keeps_the_proactive_history(self):
+        # v3.23.7: a TERMINAL PROFILE re-send keeps the log and appends a
+        # boundary marker; only the elapsed timer restarts
+        import time as _time
+        import pysim_simple_server.server as srv
+        srv._PROACTIVE_LOG.clear()
+        srv._init_proactive_session()
+        srv._log_proactive(0x21, b'\x00')
+        before = len(srv._PROACTIVE_LOG)
+        t0 = srv._PROACTIVE_SESSION_START
+        _time.sleep(0.01)
+        srv._mark_proactive_session('terminal-profile')
+        self.assertEqual(len(srv._PROACTIVE_LOG), before + 1)
+        marker = srv._PROACTIVE_LOG[-1]
+        self.assertEqual(marker['marker'], 'terminal-profile')
+        self.assertEqual(marker['elapsed'], 0.0)
+        self.assertGreater(srv._PROACTIVE_SESSION_START, t0)
+        # the new session's entries restart their elapsed values
+        srv._log_proactive(0x21, b'\x00')
+        self.assertLess(srv._PROACTIVE_LOG[-1]['elapsed'], 1.0)
+        srv._reset_proactive_log()
+
+    def test_the_log_reset_still_clears(self):
+        # equip / disconnect keep the full reset (a card change)
+        import pysim_simple_server.server as srv
+        srv._PROACTIVE_LOG.clear()
+        srv._init_proactive_session()
+        srv._log_proactive(0x21, b'\x00')
+        srv._reset_proactive_log()
+        self.assertEqual(srv._PROACTIVE_LOG, [])
+
+    def test_the_terminal_profile_resend_marks_the_session(self):
+        # the Send button / Rescue share _resend_terminal_profile: it must
+        # mark (not clear) - a source pin, since calling it needs a card
+        import inspect
+        import pysim_simple_server.server as srv
+        src = inspect.getsource(srv._resend_terminal_profile)
+        self.assertIn("_mark_proactive_session('terminal-profile')", src)
+        self.assertNotIn('_reset_proactive_log()', src)
+
 
 class TestEventDownload(unittest.TestCase):
     """ENVELOPE (EVENT DOWNLOAD) assembly, TS 102 223 7.5.11."""

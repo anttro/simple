@@ -226,3 +226,14 @@ test('SELECT by FID SIM (CLA A0): no Le anywhere', () => {
 	const apdu = setup('sim', { cmd: 'select', selMethod: 'fid', fid: '6FC5' });
 	assert.strictEqual(apdu, 'A0A40000026FC5');
 });
+
+test('the proactive log renders a session boundary marker', () => {
+	// v3.23.7: a TERMINAL PROFILE re-send keeps the log history and appends a
+	// marker entry - the renderer draws it as a boundary line, not a command
+	// row (and the marker branch must run before the normal row builder)
+	const src = extractFunc(html, 'pysimProactiveLogRender');
+	assert.ok(src.includes('if (e.marker)'), src.slice(0, 300));
+	assert.ok(src.includes("t('TERMINAL PROFILE re-sent \\u2014 new CAT session')"), src);
+	assert.ok(src.indexOf('if (e.marker)') < src.indexOf('CMD_NAMES[e.type_hex]'),
+		'the marker branch must run before the normal row');
+});

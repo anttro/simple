@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.23.6'
+VERSION = '3.23.7'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4880,6 +4880,22 @@ def _reset_proactive_log():
     _PROACTIVE_SESSION_START = time.time()
 
 
+def _mark_proactive_session(reason='terminal-profile'):
+    """A new CAT session without losing the history: restart the elapsed
+    timer and append a boundary marker entry.  Used by the TERMINAL PROFILE
+    re-send (/api/terminal-profile and /api/rescue) - a card change still
+    clears the log (_reset_proactive_log)."""
+    global _PROACTIVE_SESSION_START, _PROACTIVE_ENTRY_ID
+    _PROACTIVE_SESSION_START = time.time()
+    _PROACTIVE_ENTRY_ID += 1
+    _PROACTIVE_LOG.append({
+        'id': _PROACTIVE_ENTRY_ID,
+        'marker': reason,
+        'elapsed': 0.0,
+        'bytes': 0,
+    })
+
+
 def _send_status(scc):
     """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0x00.
     P2=0C mirrors phone behavior - no FCP of the selected DF returned
@@ -5657,12 +5673,14 @@ def _validate_tp_hex(hex_str):
 def _resend_terminal_profile(server, scc):
     """Re-send the current TERMINAL PROFILE and reset the STK session state.
     Shared by /api/rescue and the runtime profile update; the value lives in
-    server.terminal_profile (CLI default, overridable at runtime)."""
+    server.terminal_profile (CLI default, overridable at runtime).  The
+    proactive log history is kept - a boundary marker entry records the new
+    session (v3.23.7)."""
     server.stk_pending = None
     server.menu_active = False
     _cancel_menu_timeout()
     server.event_list = None
-    _reset_proactive_log()
+    _mark_proactive_session('terminal-profile')
     sm, el = _send_terminal_profile(scc, server.terminal_profile)
     server.sim_menu = sm
     server.event_list = el
