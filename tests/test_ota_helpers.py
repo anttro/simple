@@ -1044,13 +1044,21 @@ class TestProactiveDecode(unittest.TestCase):
         entry = {'type_hex': '26', 'qualifier': '00'}
         _record_tr(entry, bytes.fromhex('8103032600820281839305521001100083022001'))
         self.assertEqual(entry['tr_result'], '2001')
-        self.assertEqual(entry['tr_result_name'], 'ME currently unable to process command')
+        self.assertEqual(entry['tr_result_name'], 'Terminal currently unable to process command')
+        # the general result's additional information (8.12.2 for 0x20)
+        self.assertEqual(entry['tr_result_info_name'], 'Screen is busy')
         self.assertEqual(entry['tr_hex'], '93055210011000')
 
     def test_record_tr_unknown_result(self):
+        # 0x07 is defined (v3.23.5 corrected the table: 'Command performed
+        # with modification'); a reserved value (0x40) carries no name
         entry = {'type_hex': '26', 'qualifier': '00'}
         _record_tr(entry, bytes.fromhex('810303260082028181030107'))
         self.assertEqual(entry['tr_result'], '07')
+        self.assertEqual(entry['tr_result_name'], 'Command performed with modification')
+        entry = {'type_hex': '26', 'qualifier': '00'}
+        _record_tr(entry, bytes.fromhex('810303260082028181030140'))
+        self.assertEqual(entry['tr_result'], '40')
         self.assertNotIn('tr_result_name', entry)
 
     def test_record_tr_no_result_tlv(self):
@@ -1257,7 +1265,9 @@ class TestExpandedRemoteResponse(unittest.TestCase):
         # Result TLV: 03 01 6A (error_code 0x6A)
         _record_tr(entry, bytes.fromhex('81030326008202818303016A'))
         self.assertEqual(entry['tr_result'], '6a')
-        self.assertEqual(entry['tr_result_name'], 'Command performed with limited understanding')
+        # 0x6A is not a defined general result (TS 102 223 8.12.0) - the old
+        # 'Command performed with limited understanding' fallback was invented
+        self.assertNotIn('tr_result_name', entry)
     
     def test_expanded_response_with_chaining(self):
         entry = {'type_hex': '26', 'qualifier': '00'}

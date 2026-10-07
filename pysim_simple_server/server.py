@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.23.4'
+VERSION = '3.23.5'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -4209,52 +4209,22 @@ def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None):
     return base
 
 
-_RESULT_NAMES_BASIC = {
-    0x00: 'Command performed successfully',
-    0x01: 'Command performed with partial comprehension',
-    0x02: 'Command performed, with missing information',
-    0x03: 'REFUSED BY THE ME',
-    0x04: 'Command not understood by the ME',
-    0x05: 'Command not permitted by the user',
-    0x06: 'Command performed with modification',
-    0x20: 'Proactive SIM session terminated by the user',
-    0x21: 'Backward move in the proactive SIM session requested by the user',
-    0x22: 'No response from user',
-    0x23: 'Help information required by the user',
-    0x24: 'Action in contradiction with the current timer state',
-    0x25: 'Interaction with call control by NAA, temporary problem',
-    0x26: 'Launch browser generic error',
-}
+def _tr_result_name(b):
+    """The general result's name (TS 102 223 v18.3.0 8.12.0).  The result byte
+    has the same coding in the basic (03) and general (83) forms; only the
+    general form carries additional information, which is named separately
+    (8.12.2 for the terminal problem)."""
+    return testscript.TR_RESULTS.get('%02X' % (b & 0xFF))
 
-_RESULT_NAMES_GENERAL = {
-    0x10: 'Command performed with additional information',
-    0x20: 'ME currently unable to process command',
-    0x21: 'Network currently unable to process command',
-    0x22: 'User did not accept the proactive command',
-    0x23: 'User cleared down call before connection or network release',
-    0x24: 'Action in contradiction with the current enforcement state',
-    0x25: 'Action in contradiction with the current timer state',
-    0x26: 'ME currently unable to process command',
-    0x27: 'User did not accept the proactive command',
-    0x28: 'User cleared down call before connection or network release',
-    0x29: 'Action in contradiction with the current enforcement state',
-    0x2A: 'Action in contradiction with the current timer state',
-    0x30: 'Command performed but partial understanding',
-    0x31: 'Command performed, with missing information',
-    0x32: 'REFUSED BY THE ME',
-    0x33: 'Command not understood by the ME',
-    0x34: 'Command not permitted by the user',
-    0x35: 'Command performed with modification',
-}
 
-def _tr_result_name(b, is_general):
-    table = _RESULT_NAMES_GENERAL if is_general else _RESULT_NAMES_BASIC
-    if b in table:
-        return table[b]
-    if 0x40 <= b <= 0x4F or 0x70 <= b <= 0x7F:
-        return 'Command performed with modification'
-    if 0x60 <= b <= 0x6F:
-        return 'Command performed with limited understanding'
+def _tr_result_add_info_name(result, info):
+    """The general result's additional information name: 8.12.2 defines it for
+    the terminal problem (result 20); for the network problem (21) the coding
+    is NAA-specific and only '00' is defined; elsewhere it is not defined."""
+    if result == 0x20:
+        return testscript.TR_RESULT_ADD_INFO.get('%02X' % (info & 0xFF))
+    if result == 0x21 and (info & 0xFF) == 0x00:
+        return testscript.TR_RESULT_ADD_INFO.get('00')
     return None
 
 
@@ -4286,9 +4256,13 @@ def _record_tr(entry, tr_tlv, tr_sw=None):
         if result is not None:
             tag, val = result
             entry['tr_result'] = val.hex()
-            name = _tr_result_name(val[0], tag == 0x83)
+            name = _tr_result_name(val[0])
             if name:
                 entry['tr_result_name'] = name
+            if len(val) > 1:
+                info_name = _tr_result_add_info_name(val[0], val[1])
+                if info_name:
+                    entry['tr_result_info_name'] = info_name
         entry['tr_decoded'] = _decode_tr(entry.get('type_hex'), entry.get('qualifier'), entry['tr_hex'])
     except Exception:
         entry['tr_decoded'] = []
@@ -7095,9 +7069,12 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
         return {'note': 'drain failed: %s' % e}
     if not answered:
         return {'note': 'nothing to drain'}
-    result_name = {0x00: 'ok', 0x10: 'cancel', 0x11: 'back',
-                   0x12: 'timeout', 0x22: 'no response'}.get(result,
-                                                             '0x%02X' % result)
+    # the drain's sent-TR summary: the short alias where one exists, else the
+    # spec name (TS 102 223 8.12.0) - 0x22 is "user did not accept" (the old
+    # label "no response" belongs to 0x12)
+    _DRAIN_ALIAS = {0x00: 'ok', 0x10: 'cancel', 0x11: 'back', 0x12: 'timeout',
+                    0x22: 'refused'}
+    result_name = _DRAIN_ALIAS.get(result) or _tr_result_name(result) or ('0x%02X' % result)
     return {'sent': '; '.join('TR %s %s' % (result_name, a['tr']) for a in answered),
             'sw': answered[-1]['sw'], 'data': answered[0]['raw'],
             'note': '; '.join('pending %s (0x%02X) answered with %s'

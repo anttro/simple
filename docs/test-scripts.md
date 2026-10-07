@@ -466,8 +466,24 @@ Optional - an omitted (or empty) object answers `ok` (`0x00`).  The TERMINAL
 RESPONSE follows the TS 102 223 §6.8.0 object order (Command details, Device
 identities, **Result**, Duration, Text string, Item identifier, …):
 
-- `result` - name or hex (`ok`, `partial`, `missing`, `refused`,
-  `not_understood`, `modified`, `cancel`, `back`, `timeout`, `no_response`).
+- `result` - a script alias or the two-digit hex value.  The editor offers
+  the **full TS 102 223 §8.12.0 list** (`00`–`3F`), labelled
+  `<hex> - <alias>` where an alias exists, else `<hex> - <name>`, plus a
+  **manual** hex entry for any other value.  The aliases:
+  `ok`=00, `partial`=01, `missing`=02, `modified`=07, `cancel`=10,
+  `back`=11, `timeout`=12, `refused`=22, `not_understood`=32 (and
+  `no_response`=12, kept for compatibility only).
+  **v3.23.5 corrected** `refused` (was `03`), `not_understood` (was `04`),
+  `modified` (was `06`) and `no_response` (was `22`) to their spec meanings -
+  a stored script using one of them now answers with the corrected value.
+- `additional_info` - the general result's additional-information byte (a hex
+  byte, default `00`): the Result is sent in the general form
+  `83 02 <result> <additional_info>`.  TS 102 223 §8.12.2 defines the values
+  for the terminal problem (`20`): `00` no specific cause, `01` screen busy,
+  `02` busy on call, `04` no service, `05` access control class bar,
+  `06` radio resource not granted, `07` not in speech call, `09` busy on
+  SEND DTMF, `0A` no NAA active; the network problem (`21`) is NAA-specific
+  (`00` = no specific cause).  The editor suggests the §8.12.2 list.
 - `text` + `dcs` - the Text string for a GET INKEY / GET INPUT answer.  `dcs`
   uses the spec's recommended codings: `"00"` GSM default alphabet 7 bits
   **packed**, `"04"` GSM default alphabet 8 bits (one octet per character),

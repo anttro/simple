@@ -27,6 +27,7 @@ from pysim_simple_server import events
 
 __all__ = [
     'ScriptError', 'ACTION_KINDS', 'FAIL_LEVELS', 'POR_CHECKS', 'RESULT_NAMES',
+    'TR_RESULTS', 'TR_RESULT_ADD_INFO',
     'normalise_script', 'normalise_step', 'normalise_respond',
     'match_value', 'match_text', 'match_item', 'combine_levels', 'build_tr',
     'pack_gsm7',
@@ -37,11 +38,79 @@ ACTION_KINDS = ('envelope', 'event', 'menu-select', 'file-write', 'file-read',
 FAIL_LEVELS = ('error', 'warning')
 POR_CHECKS = ('none', 'ok', 'any')
 
-# TERMINAL RESPONSE result values commonly used by scripts (TS 102 223 8.12).
+# TERMINAL RESPONSE general results (TS 102 223 v18.3.0 8.12.0) and the
+# terminal-problem additional information (8.12.2), pinned by
+# frontend/tests/tr_results.json (both suites drift-guard against it).
+TR_RESULTS = {
+    '00': 'Command performed successfully',
+    '01': 'Command performed with partial comprehension',
+    '02': 'Command performed, with missing information',
+    '03': 'REFRESH performed with additional EFs read',
+    '04': 'Command performed successfully, but requested icon could not be displayed',
+    '05': 'Command performed, but modified by call control by NAA',
+    '06': 'Command performed successfully, limited service',
+    '07': 'Command performed with modification',
+    '08': 'REFRESH performed but indicated NAA was not active',
+    '09': 'Command performed successfully, tone not played',
+    '10': 'Proactive UICC session terminated by the user',
+    '11': 'Backward move in the proactive UICC session requested by the user',
+    '12': 'No response from user',
+    '13': 'Help information required by the user',
+    '14': 'Reserved for GSM/3G',
+    '15': 'Reserved for 3GPP (for future usage)',
+    '16': 'Reserved for 3GPP (for future usage)',
+    '20': 'Terminal currently unable to process command',
+    '21': 'Network currently unable to process command',
+    '22': 'User did not accept the proactive command',
+    '23': 'User cleared down call before connection or network release',
+    '24': 'Action in contradiction with the current timer state',
+    '25': 'Interaction with call control by NAA, temporary problem',
+    '26': 'Launch browser generic error',
+    '27': 'MMS temporary problem',
+    '28': 'Reserved for 3GPP (BIP temporary error, T timer in the additional information)',
+    '29': 'Reserved for 3GPP (for future usage)',
+    '30': "Command beyond terminal's capabilities",
+    '31': 'Command type not understood by terminal',
+    '32': 'Command data not understood by terminal',
+    '33': 'Command number not known by terminal',
+    '34': 'Reserved for GSM/3G',
+    '35': 'Reserved for GSM/3G',
+    '36': 'Error, required values are missing',
+    '37': 'Reserved for GSM/3G',
+    '38': 'MultipleCard commands error',
+    '39': 'Interaction with call control by NAA, permanent problem',
+    '3A': 'Bearer Independent Protocol permanent error',
+    '3B': 'Access Technology unable to process command',
+    '3C': 'Frames error',
+    '3D': 'MMS Error',
+    '3E': 'Reserved for 3GPP (for future usage)',
+    '3F': 'Reserved for 3GPP (for future usage)',
+}
+
+TR_RESULT_ADD_INFO = {
+    '00': 'No specific cause can be given',
+    '01': 'Screen is busy',
+    '02': 'Terminal currently busy on call',
+    '03': 'Reserved for GSM/3G',
+    '04': 'No service',
+    '05': 'Access control class bar',
+    '06': 'Radio resource not granted',
+    '07': 'Not in speech call',
+    '08': 'Reserved for GSM/3G',
+    '09': 'Terminal currently busy on SEND DTMF command',
+    '0A': 'No NAA active',
+}
+
+# The script authoring aliases: a convenience for the common values (the
+# script may also use the two-digit hex value directly).  `no_response` is
+# kept as an alias of 12 for backward compatibility but is not offered by the
+# editor (12's canonical alias is `timeout`); the v3.23.5 review corrected
+# `refused` (03 -> 22), `not_understood` (04 -> 32), `modified` (06 -> 07)
+# and `no_response` (22 -> 12) to their TS 102 223 8.12.0 meanings.
 RESULT_NAMES = {
-    'ok': 0x00, 'partial': 0x01, 'missing': 0x02, 'refused': 0x03,
-    'not_understood': 0x04, 'modified': 0x06,
-    'cancel': 0x10, 'back': 0x11, 'timeout': 0x12, 'no_response': 0x22,
+    'ok': 0x00, 'partial': 0x01, 'missing': 0x02, 'refused': 0x22,
+    'not_understood': 0x32, 'modified': 0x07,
+    'cancel': 0x10, 'back': 0x11, 'timeout': 0x12, 'no_response': 0x12,
 }
 
 _HEX_MASK_RE = re.compile(r'^[0-9A-F?]+$')
@@ -87,6 +156,16 @@ def _int(value, what, lo, hi):
     if not lo <= v <= hi:
         raise ScriptError('%s must be %d..%d' % (what, lo, hi))
     return v
+
+
+def _hex_byte(value, what):
+    """A byte given as an int or as a hex string ('0A' / '0a' / '0x0A')."""
+    if isinstance(value, str):
+        text = value.strip().lower().replace('0x', '')
+        if not re.fullmatch(r'[0-9a-f]{1,2}', text):
+            raise ScriptError('%s must be a hex byte' % what)
+        return int(text, 16)
+    return _int(value, what, 0, 255)
 
 
 def _data_hex(value, what, allow_empty=False):
@@ -562,12 +641,17 @@ def normalise_respond(respond, cmd_type=None):
     else:
         res = _int(res, 'respond result', 0, 255)
     out = {'result': res}
+    if respond.get('additional_info') is not None:
+        out['additional_info'] = _hex_byte(respond['additional_info'],
+                                           'respond additional_info')
     if respond.get('item_id') is not None:
         out['item_id'] = _int(respond['item_id'], 'respond item_id', 1, 255)
     if respond.get('text') is not None:
         out['text'] = str(respond['text'])
         dcs = respond.get('dcs')
-        out['dcs'] = _int(dcs, 'respond dcs', 0, 255) if dcs is not None else 0x00
+        # the field is a hex byte (the PWA's input strips to hex): parse it as
+        # hex, not decimal - '0A' used to be refused and '10' read as 0x0A
+        out['dcs'] = _hex_byte(dcs, 'respond dcs') if dcs is not None else 0x00
         # The same coding the TERMINAL RESPONSE builder uses: a text the
         # selected dcs cannot code (a non-GSM character with 00/04) must fail
         # the script at load, not mid-run after the command was fetched
@@ -627,7 +711,8 @@ def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None):
     out = bytearray([0x81, 0x03, cmd_num & 0xFF, cmd_type & 0xFF, 0x00])
     out += bytes([0x82, 0x02, dev_dst & 0xFF, dev_src & 0xFF])
     result = int(respond.get('result', 0))
-    out += bytes([0x83, 0x02, result & 0xFF, 0x00])
+    add_info = int(respond.get('additional_info', 0) or 0)
+    out += bytes([0x83, 0x02, result & 0xFF, add_info & 0xFF])
     if answer_tlvs:
         out += bytes.fromhex(answer_tlvs)
     if respond.get('text') is not None:

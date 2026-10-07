@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.4';
+const SIMPLE_VERSION = '3.23.5';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -7960,6 +7960,146 @@ function testDeleteStep(i) {
 	testRenderSteps();
 }
 
+// TERMINAL RESPONSE general results (TS 102 223 v18.3.0 8.12.0) and the
+// terminal-problem additional information (8.12.2): the step editor offers
+// the full list labelled 'hex - alias' (where a script alias exists) or
+// 'hex - name', plus a manual hex entry.  The values are the spec's; the
+// aliases are the authoring convenience.  frontend/tests/tr_results.json is
+// the fixture both suites drift-guard against.
+const TR_RESULTS = [
+	{v: '00', alias: 'ok', name: 'Command performed successfully'},
+	{v: '01', alias: 'partial', name: 'Command performed with partial comprehension'},
+	{v: '02', alias: 'missing', name: 'Command performed, with missing information'},
+	{v: '03', name: 'REFRESH performed with additional EFs read'},
+	{v: '04', name: 'Command performed successfully, but requested icon could not be displayed'},
+	{v: '05', name: 'Command performed, but modified by call control by NAA'},
+	{v: '06', name: 'Command performed successfully, limited service'},
+	{v: '07', alias: 'modified', name: 'Command performed with modification'},
+	{v: '08', name: 'REFRESH performed but indicated NAA was not active'},
+	{v: '09', name: 'Command performed successfully, tone not played'},
+	{v: '10', alias: 'cancel', name: 'Proactive UICC session terminated by the user'},
+	{v: '11', alias: 'back', name: 'Backward move in the proactive UICC session requested by the user'},
+	{v: '12', alias: 'timeout', name: 'No response from user'},
+	{v: '13', name: 'Help information required by the user'},
+	{v: '14', name: 'Reserved for GSM/3G'},
+	{v: '15', name: 'Reserved for 3GPP (for future usage)'},
+	{v: '16', name: 'Reserved for 3GPP (for future usage)'},
+	{v: '20', name: 'Terminal currently unable to process command'},
+	{v: '21', name: 'Network currently unable to process command'},
+	{v: '22', alias: 'refused', name: 'User did not accept the proactive command'},
+	{v: '23', name: 'User cleared down call before connection or network release'},
+	{v: '24', name: 'Action in contradiction with the current timer state'},
+	{v: '25', name: 'Interaction with call control by NAA, temporary problem'},
+	{v: '26', name: 'Launch browser generic error'},
+	{v: '27', name: 'MMS temporary problem'},
+	{v: '28', name: 'Reserved for 3GPP (BIP temporary error, T timer in the additional information)'},
+	{v: '29', name: 'Reserved for 3GPP (for future usage)'},
+	{v: '30', name: 'Command beyond terminal\'s capabilities'},
+	{v: '31', name: 'Command type not understood by terminal'},
+	{v: '32', alias: 'not_understood', name: 'Command data not understood by terminal'},
+	{v: '33', name: 'Command number not known by terminal'},
+	{v: '34', name: 'Reserved for GSM/3G'},
+	{v: '35', name: 'Reserved for GSM/3G'},
+	{v: '36', name: 'Error, required values are missing'},
+	{v: '37', name: 'Reserved for GSM/3G'},
+	{v: '38', name: 'MultipleCard commands error'},
+	{v: '39', name: 'Interaction with call control by NAA, permanent problem'},
+	{v: '3A', name: 'Bearer Independent Protocol permanent error'},
+	{v: '3B', name: 'Access Technology unable to process command'},
+	{v: '3C', name: 'Frames error'},
+	{v: '3D', name: 'MMS Error'},
+	{v: '3E', name: 'Reserved for 3GPP (for future usage)'},
+	{v: '3F', name: 'Reserved for 3GPP (for future usage)'},
+];
+
+const TR_RESULT_ADD_INFO = [
+	{v: '00', name: 'No specific cause can be given'},
+	{v: '01', name: 'Screen is busy'},
+	{v: '02', name: 'Terminal currently busy on call'},
+	{v: '03', name: 'Reserved for GSM/3G'},
+	{v: '04', name: 'No service'},
+	{v: '05', name: 'Access control class bar'},
+	{v: '06', name: 'Radio resource not granted'},
+	{v: '07', name: 'Not in speech call'},
+	{v: '08', name: 'Reserved for GSM/3G'},
+	{v: '09', name: 'Terminal currently busy on SEND DTMF command'},
+	{v: '0A', name: 'No NAA active'},
+];
+
+// The script authoring aliases (the script may also use the hex value).
+// `no_response` is kept for backward compatibility (12) but is not offered
+// by the editor - 12's canonical alias is `timeout`.
+const TR_RESULT_ALIASES = {
+	ok: '00', partial: '01', missing: '02', refused: '22', not_understood: '32',
+	modified: '07', cancel: '10', back: '11', timeout: '12', no_response: '12',
+};
+
+// The result select's options: 'hex - alias' where an alias exists, else
+// 'hex - spec name', plus a manual hex entry.
+function trResultOptions() {
+	const opts = TR_RESULTS.map(r => ({v: r.alias || r.v, l: r.v + ' - ' + (r.alias || r.name)}));
+	opts.push({v: 'manual', l: t('manual input')});
+	return opts;
+}
+
+// A stored result -> the select's value and the manual hex ('' unless the
+// value is not in the list).  Accepts the aliases, the hex and the 0x form.
+function trResultFormValue(stored) {
+	const raw = String(stored === undefined || stored === null ? '' : stored).trim();
+	if (raw === '') return {value: '', manual: ''};
+	if (TR_RESULT_ALIASES[raw.toLowerCase()]) return {value: raw.toLowerCase(), manual: ''};
+	const hex = raw.replace(/^0x/i, '').toUpperCase();
+	if (/^[0-9A-F]{2}$/.test(hex)) {
+		const hit = TR_RESULTS.find(r => r.v === hex);
+		return hit ? {value: hit.alias || hit.v, manual: ''} : {value: 'manual', manual: hex};
+	}
+	return {value: 'ok', manual: ''};
+}
+
+// A result value is valid when it is an alias or a hex byte.
+function trResultValid(v) {
+	const s = String(v === undefined || v === null ? '' : v).trim().toLowerCase();
+	return !!TR_RESULT_ALIASES[s] || /^(0x)?[0-9a-f]{2}$/.test(s);
+}
+
+// The collected result value of a result select: the selected option's
+// alias/hex, or the manual hex entry ('' when empty/invalid -
+// testStepFormError reports it).  `fallback` is the empty-select default
+// (the drain's optional `first` keeps the empty value).
+function trResultCollect(selId, hexId, fallback) {
+	const v = ((document.getElementById(selId) || {}).value || '');
+	if (v !== 'manual') return v || fallback || '';
+	return ((document.getElementById(hexId) || {}).value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+}
+
+// Show/hide a result select's manual hex entry.
+function testTrResultChanged(sel, wrapId) {
+	const el = document.getElementById(wrapId);
+	if (el) el.classList.toggle('hidden', sel.value !== 'manual');
+}
+
+// The result row's HTML: the select, its manual hex entry and the optional
+// additional-information field (a hex byte; the terminal-problem codings are
+// suggested through the datalist).
+function trResultRowHtml(selId, stored, addInfo, opts) {
+	const v = trResultFormValue(stored);
+	const wrapId = selId + '-hexwrap';
+	const options = (opts && opts.empty ? [{v: '', l: t(opts.empty)}] : []).concat(trResultOptions());
+	let html = '<div class="flex gap-2">'
+		+ testFormSelect(selId, v.value, options, "testTrResultChanged(this, '" + wrapId + "')")
+		+ '<div id="' + wrapId + '" class="w-24' + (v.value === 'manual' ? '' : ' hidden') + '">'
+		+ testFormInput(selId + '-hex', v.manual, '00', 'maxlength="2"') + '</div></div>';
+	const add = addInfo === undefined || addInfo === null || addInfo === '' ? ''
+		: (typeof addInfo === 'number' ? addInfo.toString(16).toUpperCase().padStart(2, '0') : String(addInfo).toUpperCase());
+	html += '<div class="mt-1 flex gap-2 items-center"><label class="text-xs text-gray-500 dark:text-slate-400 shrink-0">'
+		+ esc(t('Additional information (optional hex byte)')) + '</label>'
+		+ '<div class="w-24">' + testFormInput(selId + '-addinfo', add, '00', 'list="tr-addinfo-list" maxlength="2"') + '</div></div>';
+	html += '<datalist id="tr-addinfo-list">'
+		+ TR_RESULT_ADD_INFO.map(a => '<option value="' + esc(a.v) + '">' + esc(a.name) + '</option>').join('')
+		+ '</datalist>';
+	return html;
+}
+
 function testFormRow(label, inner) {
 	return '<div><label class="block mb-1 text-xs font-medium text-gray-700 dark:text-slate-300">' + esc(t(label)) + '</label>' + inner + '</div>';
 }
@@ -8073,15 +8213,11 @@ function testStepRender() {
 		} else if (step.kind === 'proactive-drain') {
 			const pr = p.respond || {};
 			html += testFormRow('TERMINAL RESPONSE result (each command)',
-				testFormSelect('test-f-presult', pr.result === undefined ? 'ok' : String(pr.result), [
-					{v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')}, {v: 'back', l: t('back')},
-					{v: 'timeout', l: t('timeout')}, {v: 'no_response', l: t('no response')}]));
+				trResultRowHtml('test-f-presult', pr.result === undefined ? 'ok' : pr.result, pr.additional_info));
 			const pf = p.first || {};
 			html += testFormRow('First command only (optional)',
-				testFormSelect('test-f-pfirst', pf.result === undefined ? '' : String(pf.result), [
-					{v: '', l: t('same as above')}, {v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')},
-					{v: 'back', l: t('back')}, {v: 'timeout', l: t('timeout')},
-					{v: 'no_response', l: t('no response')}]));
+				trResultRowHtml('test-f-pfirst', pf.result === undefined ? '' : pf.result, pf.additional_info,
+					{empty: 'same as above'}));
 			html += testFormRow('Attempts (STATUS rounds)', testFormInput('test-f-pattempts', p.attempts === undefined ? 3 : p.attempts, '1..1000'));
 			html += testFormRow('Interval (ms, between rounds)', testFormInput('test-f-pinterval', p.interval_ms === undefined ? 200 : p.interval_ms, '0..10000'));
 			const rq = p.require || {};
@@ -8124,9 +8260,8 @@ function testStepRender() {
 			+ '<button onclick="testAddCheck()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600">' + esc(t('Add check')) + '</button></div>'
 			+ '<div id="test-checks"></div></div>';
 		const r = step.respond || {};
-		html += testFormRow('TERMINAL RESPONSE result', testFormSelect('test-f-result', r.result === undefined ? 'ok' : String(r.result), [
-			{v: 'ok', l: t('ok')}, {v: 'cancel', l: t('cancel')}, {v: 'back', l: t('back')},
-			{v: 'timeout', l: t('timeout')}, {v: 'no_response', l: t('no response')}]));
+		html += testFormRow('TERMINAL RESPONSE result',
+			trResultRowHtml('test-f-result', r.result === undefined ? 'ok' : r.result, r.additional_info));
 		html += testFormRow('Item identifier (SELECT ITEM / SET UP MENU)', testFormInput('test-f-ritem', r.item_id, '1..255'));
 		html += testFormRow('Text (GET INKEY / GET INPUT)', '<div class="flex gap-2">'
 			+ testFormInput('test-f-rtext', r.text, 'text')
@@ -8406,9 +8541,13 @@ function testStepCollect() {
 		}
 		else if (kind === 'status') { p.attempts = num('test-f-attempts', 1); p.interval_ms = num('test-f-interval', 200); }
 		else if (kind === 'proactive-drain') {
-			p.respond = {result: val('test-f-presult') || 'ok'};
-			const first = val('test-f-pfirst');
+			p.respond = {result: trResultCollect('test-f-presult', 'test-f-presult-hex', 'ok')};
+			const padd = hexNoMask('test-f-presult-addinfo');
+			if (padd) p.respond.additional_info = padd;
+			const first = trResultCollect('test-f-pfirst', 'test-f-pfirst-hex', '');
 			if (first) p.first = {result: first};
+			const fadd = hexNoMask('test-f-pfirst-addinfo');
+			if (fadd && p.first) p.first.additional_info = fadd;
 			p.attempts = num('test-f-pattempts', 3);
 			p.interval_ms = num('test-f-pinterval', 200);
 			const requireCmd = val('test-f-prequire');
@@ -8457,7 +8596,9 @@ function testStepCollect() {
 			if (c.kind === 'files') return !!(c.files && c.files.length);
 			return !!(c.value || '').trim();
 		});
-		const r = {result: val('test-f-result') || 'ok'};
+		const r = {result: trResultCollect('test-f-result', 'test-f-result-hex', 'ok')};
+		const radd = hexNoMask('test-f-result-addinfo');
+		if (radd) r.additional_info = radd;
 		const ri = num('test-f-ritem', 0);
 		if (ri) r.item_id = ri;
 		const text = val('test-f-rtext');
@@ -8502,9 +8643,19 @@ function testStepFormError() {
 		}
 		if ((step.kind === 'file-write' || step.kind === 'file-read') && !p.path) return t('file path is empty');
 		if (step.kind === 'status' && !(p.attempts >= 1)) return t('attempts must be at least 1');
-		if (step.kind === 'proactive-drain' && !(p.attempts >= 1)) return t('attempts must be at least 1');
+		if (step.kind === 'proactive-drain') {
+			if (!(p.attempts >= 1)) return t('attempts must be at least 1');
+			if (!trResultValid((p.respond || {}).result)) return t('TERMINAL RESPONSE result must be two hex digits');
+			const fsel = val('test-f-pfirst');
+			if (fsel === 'manual' && !/^[0-9A-F]{2}$/.test(hexNoMask('test-f-pfirst-hex'))) {
+				return t('TERMINAL RESPONSE result must be two hex digits');
+			}
+			if (fsel && fsel !== 'manual' && !trResultValid(fsel)) return t('TERMINAL RESPONSE result must be two hex digits');
+		}
 	} else if (!step.command) {
 		return t('command is required');
+	} else if (!trResultValid((step.respond || {}).result)) {
+		return t('TERMINAL RESPONSE result must be two hex digits');
 	}
 	return '';
 }
@@ -16699,7 +16850,9 @@ async function pysimProactiveLogRender() {
             if (e.tr_hex !== undefined) {
                 if (e.tr_result !== undefined) {
                     html += '<div class="flex gap-1"><span class="text-gray-500 dark:text-slate-400 shrink-0">' + t('Result') + ':</span>'
-                        + '<span class="break-all">' + (e.tr_result_name ? esc(e.tr_result_name) + ' (' + esc(e.tr_result) + ')' : esc(e.tr_result)) + '</span></div>';
+                        + '<span class="break-all">' + (e.tr_result_name
+                            ? esc(e.tr_result_name) + (e.tr_result_info_name ? ' \u00b7 ' + esc(e.tr_result_info_name) : '') + ' (' + esc(e.tr_result) + ')'
+                            : esc(e.tr_result)) + '</span></div>';
                 }
                 if (e.tr_hex) {
                     html += pysimLogFields(e.tr_decoded);
@@ -22872,11 +23025,9 @@ const LANG_RU = {
 	'Text': 'Текст',
 	'id': 'id',
 	'text': 'текст',
-	'ok': 'ок',
-	'cancel': 'отмена',
-	'back': 'назад',
-	'timeout': 'тайм-аут',
-	'no response': 'нет ответа',
+	'manual input': 'ручной ввод',
+	'Additional information (optional hex byte)': 'Дополнительная информация (необязательный hex-байт)',
+	'TERMINAL RESPONSE result must be two hex digits': 'Результат TERMINAL RESPONSE — ровно два hex-символа',
 	'PoR = por_ok': 'PoR = por_ok',
 	'event data is required': 'нужны данные события',
 	'event data must be hex': 'данные события должны быть в hex',

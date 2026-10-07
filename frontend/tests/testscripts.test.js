@@ -57,6 +57,16 @@ globalThis.testSuites = () => _testSuites || [];
 eval(extractFunc(html, 'testFormRow'));
 eval(extractFunc(html, 'testFormInput'));
 eval(extractFunc(html, 'testFormSelect'));
+// the TERMINAL RESPONSE result tables + the shared result-row helpers
+eval(extractBlock('const TR_RESULTS = [', 'const TR_RESULT_ADD_INFO = [').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ADD_INFO = [', 'const TR_RESULT_ALIASES = {').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ALIASES = {', 'function trResultOptions').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'trResultOptions'));
+eval(extractFunc(html, 'trResultFormValue'));
+eval(extractFunc(html, 'trResultValid'));
+eval(extractFunc(html, 'trResultCollect'));
+eval(extractFunc(html, 'testTrResultChanged'));
+eval(extractFunc(html, 'trResultRowHtml'));
 eval(extractFunc(html, 'testStepRender'));
 eval(extractFunc(html, 'testRenderChecks'));
 eval(extractFunc(html, 'testStepCollect'));

@@ -774,9 +774,17 @@ TPDU: `da` digits with whitespace skipped and a leading `+` ignored,
 only) or `files` (the File List of a
 REFRESH, TS 102 223 8.18; `files` is a list of path hex strings, matched
 order-insensitively); `respond` is the TERMINAL RESPONSE in the TS 102 223
-6.8.0 object order (`result` name or value; `text`+`dcs` for GET INKEY/GET
+6.8.0 object order (`result` - a script alias or a two-digit hex value from
+the full TS 102 223 8.12.0 list; `additional_info` - the general result's
+additional-information hex byte, sent as `83 02 <result> <additional_info>`,
+default `00`; `text`+`dcs` for GET INKEY/GET
 INPUT, `dcs` `00` packed / `04` 8-bit / `08` UCS2; `item_id`; extra `raw`
-TLVs appended after the standard objects).  The terminal's own objects ride
+TLVs appended after the standard objects).  The aliases (`ok`=00,
+`partial`=01, `missing`=02, `modified`=07, `cancel`=10, `back`=11,
+`timeout`=12, `refused`=22, `not_understood`=32, plus the compatibility-only
+`no_response`=12) follow the spec; v3.23.5 corrected `refused`,
+`not_understood`, `modified` and `no_response` (they used to carry legacy
+values).  The terminal's own objects ride
 along unless `raw` overrides them: a successful PROVIDE LOCAL INFORMATION
 answer carries the TR Config PLI dictionary entry (or the host clock for the
 date/time qualifier) and a POLL INTERVAL answer the current-interval echo.
