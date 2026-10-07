@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.23.1'
+VERSION = '3.23.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -7738,12 +7738,21 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp, 400)
             self._log_resp(resp)
             return
+        steps = [step for _entry, script in members for step in script['steps']]
+        if any(s['type'] == 'action' and s['kind'] == 'scp80' for s in steps):
+            err = _test_preset_error({'steps': steps}, preset)
+            if err:
+                resp = {'error': err}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
         reset_info = None
         if suite.get('start_reset'):
             # A suite may start with a card reset: the physical reset + the
             # full equip re-initialization, so its scripts run against a
-            # freshly initialized card.  This runs before the scp80 checks and
-            # the ADM gate: the card session changes, so the ADM latch is
+            # freshly initialized card.  This runs after the preset checks - a
+            # run that cannot start must not reset the card - and before the
+            # ADM gate: the card session changes, so the ADM latch is
             # re-verified against the post-reset card, and the ICCID must
             # still match the run's preset (a reset can switch the active
             # profile on an eUICC).
@@ -7774,14 +7783,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                                  're-select the preset and retry'
                                  % (self.server.iccid, (preset or {}).get('iccid')),
                         'reset': reset_info}
-                self._send_json(resp, 400)
-                self._log_resp(resp)
-                return
-        steps = [step for _entry, script in members for step in script['steps']]
-        if any(s['type'] == 'action' and s['kind'] == 'scp80' for s in steps):
-            err = _test_preset_error({'steps': steps}, preset)
-            if err:
-                resp = {'error': err}
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return

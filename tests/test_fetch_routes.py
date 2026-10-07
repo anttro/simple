@@ -1702,6 +1702,21 @@ class TestScriptStoreHttpTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertFalse(snap['running'], snap)
 
+    def test_a_bad_scp80_preset_refuses_before_the_reset(self):
+        # v3.23.2: the preset checks come first - a suite that cannot start
+        # must not reset the card
+        self.server.app = object()
+        suite = self._suite(name='reset me', start_reset=True)
+        self._post('/api/test/scripts', self._script(
+            suite_id=suite['id'],
+            steps=[{'type': 'action', 'kind': 'scp80',
+                    'params': {'apdu': '80E2900000'}}]))
+        with mock.patch.object(self.srv, '_card_reset_reinit') as r:
+            status, resp = self._post('/api/test/run', {'suite_id': suite['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('incomplete', resp['error'])
+        r.assert_not_called()
+
     def test_suite_start_reset_refuses_a_mismatched_iccid(self):
         self.server.app = object()
         suite = self._suite(name='reset me', start_reset=True)
