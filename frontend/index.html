@@ -8094,7 +8094,9 @@ const TR_RESULT_ALIASES = {
 function trCommandCode(name) {
 	const want = String(name === undefined || name === null ? '' : name).toUpperCase();
 	for (const k in CMD_NAMES) {
-		if (CMD_NAMES[k] === want) return parseInt(k, 16);
+		// case-insensitive: CMD_NAMES carries a mixed-case entry
+		// ('End of the proactive UICC session')
+		if (String(CMD_NAMES[k]).toUpperCase() === want) return parseInt(k, 16);
 	}
 	return NaN;
 }

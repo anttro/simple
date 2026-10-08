@@ -477,7 +477,10 @@ identities, **Result**, Duration, Text string, Item identifier, …):
   than `ANY`) the list is **grouped** by the spec's applicability table
   (TS 102 223 Tables 6.1/6.2/6.3, "proactive commands versus possible terminal
   response"): the command-relevant values first, the rest after - nothing is
-  hidden, the manual entry covers everything.  The aliases:
+  hidden, the manual entry covers everything.  Commands the table does not
+  list (SEND SS / SEND USSD / SEND SHORT MESSAGE / GEOGRAPHICAL LOCATION
+  REQUEST / End of the proactive UICC session) keep the flat list.  The
+  aliases:
   `ok`=00, `partial`=01, `missing`=02, `modified`=07, `cancel`=10,
   `back`=11, `timeout`=12, `refused`=22, `not_understood`=32 (and
   `no_response`=12, kept for compatibility only).

@@ -154,6 +154,22 @@ test('the command/result grouping table matches the parsed spec fixture', () => 
 	for (const code of Object.keys(TR_RESULT_BY_COMMAND)) {
 		assert.ok(CMD_NAMES[code], 'the mapped code 0x' + code + ' must be a known command');
 	}
+	// independent semantic pins (from the spec's command clauses): a column
+	// shift in the parsed table would break these
+	const has = (cmd, res) => TR_RESULT_BY_COMMAND[cmd].indexOf(res) >= 0;
+	assert.ok(has('01', '03') && has('01', '08'), 'REFRESH: additional EFs / NAA not active');
+	assert.ok(has('20', '09'), 'PLAY TONE: tone not played');
+	assert.ok(!has('01', '09') && !has('20', '03'), 'the command-specific values do not leak');
+	assert.ok(has('27', '24'), 'TIMER MANAGEMENT: timer state');
+	assert.ok(has('15', '26'), 'LAUNCH BROWSER: generic error');
+	assert.ok(has('40', '28') && has('40', '3A') && has('40', '3B'), 'OPEN CHANNEL: BIP / access technology');
+	assert.ok(has('60', '27') && has('60', '3D'), 'the MMS commands: MMS errors');
+	assert.ok(has('33', '38'), 'GET READER STATUS: MultipleCard');
+	// the spec's tables omit SEND SS / SEND USSD / SEND SHORT MESSAGE /
+	// GEOGRAPHICAL LOCATION REQUEST / End of the proactive UICC session -
+	// those keep the flat list (the fallback is checked in the grouping test)
+	assert.ok(trCommandCode('End of the proactive UICC session') === 0x81,
+		'a mixed-case command name must still resolve');
 });
 
 test('trResultOptions groups the list by the selected command', () => {
@@ -162,6 +178,9 @@ test('trResultOptions groups the list by the selected command', () => {
 	assert.strictEqual(flat.length, TR_RESULTS.length + 1);
 	assert.strictEqual(trResultOptions({ command: 'ANY' }).filter(o => o.group).length, 0,
 		'ANY stays flat');
+	// a command the spec's tables omit keeps the flat list too
+	assert.strictEqual(trResultOptions({ command: 'SEND SS' }).filter(o => o.group).length, 0,
+		'SEND SS (not in the tables) stays flat');
 	const grouped = trResultOptions({ command: 'REFRESH' });
 	assert.deepStrictEqual(grouped.filter(o => o.group).map(o => o.group),
 		['relevant for REFRESH', 'all other results']);
