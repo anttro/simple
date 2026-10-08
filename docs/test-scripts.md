@@ -473,7 +473,11 @@ identities, **Result**, Duration, Text string, Item identifier, …):
 - `result` - a script alias or the two-digit hex value.  The editor offers
   the **full TS 102 223 §8.12.0 list** (`00`–`3F`), labelled
   `<hex> - <alias>` where an alias exists, else `<hex> - <name>`, plus a
-  **manual** hex entry for any other value.  The aliases:
+  **manual** hex entry for any other value.  With a command selected (other
+  than `ANY`) the list is **grouped** by the spec's applicability table
+  (TS 102 223 Tables 6.1/6.2/6.3, "proactive commands versus possible terminal
+  response"): the command-relevant values first, the rest after - nothing is
+  hidden, the manual entry covers everything.  The aliases:
   `ok`=00, `partial`=01, `missing`=02, `modified`=07, `cancel`=10,
   `back`=11, `timeout`=12, `refused`=22, `not_understood`=32 (and
   `no_response`=12, kept for compatibility only).

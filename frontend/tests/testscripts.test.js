@@ -62,8 +62,10 @@ eval(extractFunc(html, 'testFormInput'));
 eval(extractFunc(html, 'testFormSelect'));
 // the TERMINAL RESPONSE result tables + the shared result-row helpers
 eval(extractBlock('const TR_RESULTS = [', 'const TR_RESULT_ADD_INFO = [').replace(/^const /gm, 'var '));
-eval(extractBlock('const TR_RESULT_ADD_INFO = [', 'const TR_RESULT_ALIASES = {').replace(/^const /gm, 'var '));
-eval(extractBlock('const TR_RESULT_ALIASES = {', 'function trResultOptions').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ADD_INFO = [', '// TS 102 223 v18.3.0 Tables 6.1/6.2').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_BY_COMMAND = {', 'const TR_RESULT_ALIASES = {').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ALIASES = {', 'function trCommandCode').replace(/^const /gm, 'var '));
+eval(extractFunc(html, 'trCommandCode'));
 eval(extractFunc(html, 'trResultOptions'));
 eval(extractFunc(html, 'trResultFormValue'));
 eval(extractFunc(html, 'trResultValid'));

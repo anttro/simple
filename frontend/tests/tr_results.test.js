@@ -31,9 +31,12 @@ function extractFunc(src, name) {
 
 // Rewrite top-level const -> var so the tables leak out of sloppy-mode eval.
 eval(extractBlock('const TR_RESULTS = [', 'const TR_RESULT_ADD_INFO = [').replace(/^const /gm, 'var '));
-eval(extractBlock('const TR_RESULT_ADD_INFO = [', 'const TR_RESULT_ALIASES = {').replace(/^const /gm, 'var '));
-eval(extractBlock('const TR_RESULT_ALIASES = {', 'function trResultOptions').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ADD_INFO = [', '// TS 102 223 v18.3.0 Tables 6.1/6.2').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_BY_COMMAND = {', 'const TR_RESULT_ALIASES = {').replace(/^const /gm, 'var '));
+eval(extractBlock('const TR_RESULT_ALIASES = {', 'function trCommandCode').replace(/^const /gm, 'var '));
+eval(extractBlock('const CMD_NAMES = {', 'function cmdQualifierShort').replace(/^const /gm, 'var '));
 eval(extractFunc(html, 'esc'));
+eval(extractFunc(html, 'trCommandCode'));
 eval(extractFunc(html, 'trResultOptions'));
 eval(extractFunc(html, 'trResultFormValue'));
 eval(extractFunc(html, 'trResultValid'));
@@ -110,7 +113,7 @@ test('the step editor offers the full list for all three result fields', () => {
 	assert.ok(form.includes("{empty: 'same as above'}"), 'the first keeps its empty option');
 	// the suggestion list is rendered by the first result row of each form
 	// (the drain's respond and the expectation), never twice in one form
-	assert.strictEqual((form.match(/\{list: true\}/g) || []).length, 2, form);
+	assert.strictEqual((form.match(/\{list: true/g) || []).length, 2, form);
 });
 
 test('trResultRowHtml renders the manual entry and the additional info', () => {
@@ -134,4 +137,60 @@ test('trResultRowHtml renders the manual entry and the additional info', () => {
 	const twoRows = trResultRowHtml('test-f-presult', 'ok', '', { list: true })
 		+ trResultRowHtml('test-f-pfirst', '', '', { empty: 'same as above' });
 	assert.strictEqual((twoRows.match(/id="tr-addinfo-list"/g) || []).length, 1, twoRows);
+});
+
+test('the command/result grouping table matches the parsed spec fixture', () => {
+	const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'tr_result_by_command.json'), 'utf8'));
+	assert.deepStrictEqual(TR_RESULT_BY_COMMAND, fixture.commands);
+	// the editor's command names resolve to their type codes (the first code
+	// wins, matching testCommandOptions' de-duplication)
+	assert.strictEqual(trCommandCode('REFRESH'), 0x01);
+	assert.strictEqual(trCommandCode('PLAY TONE'), 0x20);
+	assert.strictEqual(trCommandCode('TIMER MANAGEMENT'), 0x27);
+	assert.strictEqual(trCommandCode('OPEN CHANNEL'), 0x40);
+	assert.ok(Number.isNaN(trCommandCode('ANY')));
+	assert.ok(Number.isNaN(trCommandCode('NONSENSE')));
+	// every mapped code is a known proactive command
+	for (const code of Object.keys(TR_RESULT_BY_COMMAND)) {
+		assert.ok(CMD_NAMES[code], 'the mapped code 0x' + code + ' must be a known command');
+	}
+});
+
+test('trResultOptions groups the list by the selected command', () => {
+	const flat = trResultOptions();
+	assert.strictEqual(flat.filter(o => o.group).length, 0, 'no groups without a command');
+	assert.strictEqual(flat.length, TR_RESULTS.length + 1);
+	assert.strictEqual(trResultOptions({ command: 'ANY' }).filter(o => o.group).length, 0,
+		'ANY stays flat');
+	const grouped = trResultOptions({ command: 'REFRESH' });
+	assert.deepStrictEqual(grouped.filter(o => o.group).map(o => o.group),
+		['relevant for REFRESH', 'all other results']);
+	// the first group carries the spec's REFRESH set in the spec order
+	const split = grouped.findIndex(o => o.group === 'all other results');
+	const first = grouped.slice(1, split);
+	assert.deepStrictEqual(first.map(o => o.v),
+		TR_RESULT_BY_COMMAND['01'].map(hex => (TR_RESULTS.find(r => r.v === hex) || {}).alias || hex));
+	// nothing is hidden: both groups together are the full list + the manual
+	// entry, and the stored value always matches an option
+	const values = grouped.filter(o => !o.group).map(o => o.v).sort();
+	const all = TR_RESULTS.map(r => r.alias || r.v).concat(['manual']).sort();
+	assert.deepStrictEqual(values, all);
+});
+
+test('testFormSelect renders the optgroups', () => {
+	const out = testFormSelect('x', 'ok', [{ group: 'relevant for REFRESH' }, { v: 'ok', l: '00 - ok' },
+		{ group: 'all other results' }, { v: '1F', l: '1F - Slices status change' }]);
+	assert.ok(out.includes('<optgroup label="relevant for REFRESH">'), out);
+	assert.ok(out.includes('<optgroup label="all other results">'), out);
+	assert.strictEqual((out.match(/<optgroup/g) || []).length, 2, out);
+	assert.strictEqual((out.match(/<\/optgroup>/g) || []).length, 2, out);
+	assert.ok(out.includes('<option value="ok" selected>00 - ok</option>'), out);
+	// the flat form is unchanged
+	assert.ok(!testFormSelect('y', 'ok', [{ v: 'ok', l: '00 - ok' }]).includes('optgroup'));
+});
+
+test('the expectation result row passes the selected command', () => {
+	const form = extractFunc(html, 'testStepRender');
+	assert.ok(/trResultRowHtml\('test-f-result'[\s\S]*?command: step\.command \|\| 'ANY'/.test(form),
+		'the expectation result must group by the selected command');
 });
