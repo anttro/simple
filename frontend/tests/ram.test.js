@@ -466,13 +466,23 @@ test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', 
 		steps: [{ name: 'INSTALL [for load]' }, { name: 'LOAD (1/240)' }, { name: 'LOAD (2/240)', por_sw: '6985' }],
 	};
 	const hint = ramInstallFailHint(failedLoad, { requires_java_card: '2.2.2' });
-	assert.ok(hint.includes('every import version under Requires'), hint);
+	// v3.23.9: a rejected LOAD points at the compatibility test (the typical
+	// library-version gate) - the old "smaller LOAD block" advice is gone
+	assert.ok(hint.includes('CAP compatibility test'), hint);
 	assert.ok(hint.includes('(Java Card \u2265 2.2.2)'), hint);
-	assert.ok(hint.includes('smaller LOAD block'), hint);
+	assert.ok(!hint.includes('smaller LOAD block'), hint);
 	// without a CAP analysis (INSTALL [for install] ops) the level is omitted
 	const noMem = ramInstallFailHint(failedLoad, null);
-	assert.ok(noMem.includes('every import version under Requires'), noMem);
+	assert.ok(noMem.includes('CAP compatibility test'), noMem);
 	assert.ok(!noMem.includes('Java Card'), noMem);
+	// an INSTALL [for load] refusal gets its own advice (a duplicate load
+	// file from an earlier run is the usual cause), not the LOAD hint
+	const installFail = ramInstallFailHint(
+		{ success: false, failed_step: 1,
+		  steps: [{ name: 'INSTALL [for load]', por_sw: '6985' }] }, null);
+	assert.ok(installFail.includes('refused to open the load file'), installFail);
+	assert.ok(installFail.includes('delete it first'), installFail);
+	assert.ok(!installFail.includes('compatibility test'), installFail);
 	// only a load-related step gets the hint
 	assert.strictEqual(ramInstallFailHint(
 		{ success: false, failed_step: 2, steps: [{ name: 'INSTALL [for load]' }, { name: 'INSTALL [for install]' }] }, null), '');
@@ -485,6 +495,19 @@ test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', 
 		  steps: [{ name: 'INSTALL [for load]' }, { name: 'LOAD (2/240)', por_sw: '6438' }] },
 		{ requires_java_card: '2.2.2', components: comps });
 	assert.ok(withBoundary.startsWith('the failed step completes Import. '), withBoundary);
+});
+
+test('the failed install offers the one-click compatibility test', () => {
+	// the modal carries the button for a failed LOAD; the handler switches the
+	// RAM operation to the compatibility test and runs it (the CAP file input
+	// still holds the same file)
+	const install = extractFunc(html, 'ramShowInstallResult');
+	assert.ok(install.includes('ramRunCompatTest()'), install.slice(0, 400));
+	assert.ok(install.includes("t('Run the CAP compatibility test')"), install);
+	const run = extractFunc(html, 'ramRunCompatTest');
+	assert.ok(run.includes("sel.value = 'compat'"), run);
+	assert.ok(run.includes('ramOpChanged()'), run);
+	assert.ok(run.includes('ramExecute()'), run);
 });
 
 test('ramOpChanged clears the executed status only on a real op change', () => {

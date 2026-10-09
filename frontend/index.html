@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.8';
+const SIMPLE_VERSION = '3.23.9';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -12065,13 +12065,21 @@ function ramInstallFailHint(data, mem) {
 	const steps = data.steps || [];
 	const step = steps[(Number(data.failed_step) || 1) - 1] || null;
 	const name = step ? String(step.name || '') : '';
-	if (!/^(LOAD |INSTALL \[for load\])/.test(name)) return '';
+	if (name === 'INSTALL [for load]') {
+		// the card refused to open the load file: usually the package is
+		// already on the card (a duplicate load-file AID from an earlier
+		// run), or it rejected the load parameters
+		return t('the card refused to open the load file. If this package is already installed (an earlier run), delete it first (Explore \u2192 Delete) and retry; otherwise check the install parameters.');
+	}
+	if (!/^LOAD /.test(name)) return '';
+	// the LOAD gate: the card verifies the CAP's import list while it reads
+	// the Import component, so a library-version mismatch is the typical
+	// cause - point at the compatibility test that finds the exact one
 	let hint = '';
 	const sc = ramStepComponents(name, mem && mem.components, data.load_block_size);
 	if (sc && sc.completed.length) hint += t('the failed step completes') + ' ' + sc.completed[sc.completed.length - 1] + '. ';
-	hint += t('a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card');
+	hint += t('a LOAD rejected here means the card refused the CAP\'s libraries: run the CAP compatibility test - it checks this CAP\'s import list against the card (Set all 0.0, then restore the lines one at a time to find the missing package and version)');
 	if (mem && mem.requires_java_card) hint += ' (Java Card \u2265 ' + mem.requires_java_card + ')';
-	hint += t('. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)');
 	return hint;
 }
 
@@ -12951,6 +12959,16 @@ function ramShowInstallResult(data, okText, capMem) {
 	// successful run and for failures that are not LOAD/INSTALL [for load]).
 	let modal = esc(txt);
 	modal += ramCompatDetailHtml(data, capMem || null);
+	// a failed LOAD is typically the library gate: offer the one-click
+	// compatibility test with the same CAP (the file input still holds it,
+	// the probe list is prefilled with its imports)
+	if (!data.success) {
+		const fStep = (data.steps || [])[(Number(data.failed_step) || 1) - 1] || null;
+		if (fStep && /^LOAD /.test(String(fStep.name || ''))) {
+			modal += '<div class="mt-3"><button type="button" onclick="ramRunCompatTest()" class="px-3 py-1.5 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700">'
+				+ esc(t('Run the CAP compatibility test')) + '</button></div>';
+		}
+	}
 	// low counter: not recoverable by retrying - state it and offer the
 	// bounded sync probe or the preset jump (v3.6.58)
 	if (spCntrLow(data)) {
@@ -12959,6 +12977,18 @@ function ramShowInstallResult(data, okText, capMem) {
 		ramShowCntrLow(undefined, 'ram');
 	}
 	ramOpModalFinish(resultEl.textContent, !!data.success, modal, true);
+}
+
+// One-click diagnostic from a failed install: close the modal, switch the RAM
+// operation to the compatibility test (the CAP file input still holds the
+// same file and the probe list is prefilled with its imports) and run it.
+function ramRunCompatTest() {
+	const sel = document.getElementById('ram-op');
+	if (!sel) return;
+	ramOpModalClose();
+	sel.value = 'compat';
+	ramOpChanged();
+	ramExecute();
 }
 
 async function ramExecute() {
@@ -23159,6 +23189,9 @@ const LANG_RU = {
 	'text': 'текст',
 	'relevant for': 'подходит для',
 	'all other results': 'остальные результаты',
+	'Run the CAP compatibility test': 'Запустить тест совместимости CAP',
+	'the card refused to open the load file. If this package is already installed (an earlier run), delete it first (Explore \u2192 Delete) and retry; otherwise check the install parameters.': 'карта отказалась открыть load-файл. Если этот пакет уже установлен (прошлый запуск), сначала удалите его (Explore \u2192 Удалить) и повторите; иначе проверьте параметры установки.',
+	'a LOAD rejected here means the card refused the CAP\'s libraries: run the CAP compatibility test - it checks this CAP\'s import list against the card (Set all 0.0, then restore the lines one at a time to find the missing package and version)': 'LOAD отклонён — карта не поддерживает библиотеки CAP: запустите тест совместимости CAP — он проверяет список импорта CAP по карте (сначала «Set all 0.0», затем возвращайте строки по одной, чтобы найти отсутствующий пакет и версию)',
 	'TERMINAL PROFILE re-sent \u2014 new CAT session': 'TERMINAL PROFILE отправлен заново \u2014 новая CAT-сессия',
 	'manual input': 'ручной ввод',
 	'Additional information (optional hex byte)': 'Дополнительная информация (необязательный hex-байт)',
