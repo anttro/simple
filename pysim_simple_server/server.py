@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.23.9'
+VERSION = '3.24.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -483,6 +483,74 @@ def _read_iccid(app):
     finally:
         if cleanup:
             cleanup()
+
+
+# EF.ARR copies referenced by the FCP security attribute DO '8B' (ISO 7816-4
+# Table 25): the MF copy and the ADF.USIM copy (TS 102 221 13.4).  The read
+# runs once per card session (_refresh_arr_cache); the PWA's file manager
+# resolves the referenced record's access rules against the cache.
+ARR_READ_PATHS = ('MF/2F06', 'ADF.USIM/6F06')
+ARR_RECORD_LIMIT = 64
+
+
+def _arr_fid(fid):
+    """True if the FID is an EF.ARR copy referenced by FCP '8B'."""
+    return str(fid or '').upper() in ('2F06', '6F06')
+
+
+def _read_arr(app):
+    """Best-effort EF.ARR reads (ARR_READ_PATHS): the access rule records the
+    FCP '8B' security attribute references point at.  Returns a list of
+    {'fid','path','record_len','num_records','records'} dicts (records as hex,
+    1-based) or None; never raises."""
+    if not app or not getattr(app, 'rs', None):
+        return None
+    lchan = app.rs.lchan[0]
+    out = []
+    for path in ARR_READ_PATHS:
+        cleanup = None
+        try:
+            _, cleanup = _select_path(lchan, path, app)
+            if _get_file_type(lchan, lchan.selected_file) not in ('linear_fixed', 'cyclic'):
+                continue
+            n = min(lchan.selected_file_num_of_rec() or 1, ARR_RECORD_LIMIT)
+            records = []
+            for i in range(1, n + 1):
+                rv = lchan.read_record(i)
+                data = rv[0] if isinstance(rv, tuple) else rv
+                records.append((data or '').upper())
+            out.append({'fid': path.rsplit('/', 1)[-1].upper(),
+                        'path': path,
+                        'record_len': _fcp_value(lchan, 'selected_file_record_len'),
+                        'num_records': len(records),
+                        'records': records})
+        except Exception:
+            continue
+        finally:
+            if cleanup:
+                try:
+                    cleanup()
+                except Exception:
+                    pass
+    return out or None
+
+
+def _refresh_arr_cache(server):
+    """Read the EF.ARR copies into the session cache (best effort); a failed
+    read clears the previous session's cache."""
+    server.arr = _read_arr(getattr(server, 'app', None))
+    if server.arr:
+        _tlog('equip: EF.ARR ' + ', '.join(
+            '%s (%d rec)' % (a['fid'], a['num_records']) for a in server.arr))
+
+
+def _arr_refresh_after_write(server, app, fid):
+    """Re-read the cache after a write to an EF.ARR copy: the referenced
+    access rules may have changed.  Returns True when a refresh happened."""
+    if not _arr_fid(fid):
+        return False
+    server.arr = _read_arr(app)
+    return True
 
 
 _MCC_MNC_CACHE = {'path': None, 'data': None}
@@ -4361,6 +4429,7 @@ def _handle_card_disconnect(stale=False):
         _server_ref.event_list = None
         _server_ref.sim_menu = None
         _server_ref.iccid = None
+        _server_ref.arr = None
         _server_ref.net_state = None
         _server_ref.equipping = False
         _server_ref.card_session = getattr(_server_ref, 'card_session', 0) + 1
@@ -4435,6 +4504,7 @@ def _apply_equipped_card(server):
     server.card_present = True
     server.card_session = getattr(server, 'card_session', 0) + 1
     server.iccid = None
+    server.arr = None
     # Read the ICCID before the TERMINAL PROFILE starts a CAT session: the
     # PWA auto-selects the matching card preset (SCP80 views) from it.
     server.iccid = _read_iccid(server.app)
@@ -4444,6 +4514,9 @@ def _apply_equipped_card(server):
         # ICCID (still before the TERMINAL PROFILE opens a CAT session).  A
         # card without a readable ICCID is considered unusable - give up.
         _netstate_init(server)
+        # EF.ARR (FCP '8B' references): read once per card session - the
+        # file manager resolves the referenced record's rules from it.
+        _refresh_arr_cache(server)
     else:
         server.net_state = None
         _tlog('equip: ICCID not readable - network state skipped')
@@ -5923,7 +5996,7 @@ _CARD_FREE_GET = frozenset([
     '/api/stk-status', '/api/poll-status', '/api/proactive-log',
     '/api/menu', '/api/events', '/api/terminal-profile',
     '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
-    '/api/net-state', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
+    '/api/net-state', '/api/arr', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
     '/api/test/suites',
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
@@ -7956,6 +8029,17 @@ class PysimHandler(BaseHTTPRequestHandler):
             _netstate_compute(self.server)
             self._send_json({'available': True, 'state': state})
             self._log_resp({'available': True})
+        elif self.path == '/api/arr':
+            # EF.ARR session cache (v3.24.0): read once per card session in
+            # _refresh_arr_cache; the file manager resolves the FCP '8B'
+            # security attribute references against it.  Cache-only - served
+            # without the card lock (see _CARD_FREE_GET).
+            self._log_req()
+            arrs = getattr(self.server, 'arr', None)
+            self._send_json({'ok': bool(arrs),
+                             'session': getattr(self.server, 'card_session', 0),
+                             'arrs': arrs or []})
+            self._log_resp({'ok': bool(arrs), 'arrs': len(arrs or [])})
         elif self.path == '/api/status':
             self._log_req()
             app = self.server.app
@@ -8723,6 +8807,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                 else:
                     sw = sw_match.group(1) if sw_match else '9000'
                     resp = {'success': True, 'sw': sw}
+                    # An EF.ARR write changes the referenced access rules:
+                    # refresh the session cache the file manager reads.
+                    _arr_refresh_after_write(self.server, app,
+                                             getattr(lchan.selected_file, 'fid', None))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:

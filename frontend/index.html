@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.23.9';
+const SIMPLE_VERSION = '3.24.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -15060,8 +15060,9 @@ async function pysimFsToggleDir(name) {
 
 let pysimFsSelected = null;
 
-function pysimFsInfoHtml(sel, name) {
+function pysimFsInfoHtml(sel, name, opts) {
 	if (!sel) return '';
+	opts = opts || {};
 	const num = v => (v === null || v === undefined) ? null : String(v);
 	const attrs = [];
 	if (sel.fid) attrs.push('FID: ' + esc(String(sel.fid).toUpperCase()));
@@ -15079,8 +15080,24 @@ function pysimFsInfoHtml(sel, name) {
 		(name ? '<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">' + esc(name) + '</legend>' : '') +
 		(attrs.length ? '<div class="' + metaCls + ' mb-0.5">' + attrs.join(' · ') + '</div>' : '') +
 		'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' +
-		profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null }) +
+		profilerFciPreviewItems(sel.fci_hex, { hideFileSize: num(sel.file_size) !== null, arr: opts.arr, path: opts.path }) +
 		'</div></fieldset>';
+}
+
+// EF.ARR cache for the file manager's FCP view (v3.24.0): the server reads
+// the card's ARR copies once per session (GET /api/arr is itself cache-only);
+// a card-session change drops this copy.
+let _pysimArrCache = null;
+
+async function pysimArrEnsure() {
+	if (_pysimArrCache && _pysimArrCache.session === _pysimCardSession) return _pysimArrCache.arrs;
+	try {
+		const data = await pysimFetch('/api/arr');
+		_pysimArrCache = { session: _pysimCardSession, arrs: (data && data.arrs) || [] };
+	} catch (e) {
+		_pysimArrCache = { session: _pysimCardSession, arrs: [] };
+	}
+	return _pysimArrCache.arrs;
 }
 
 async function pysimFsClickFile(name) {
@@ -15095,7 +15112,8 @@ async function pysimFsClickFile(name) {
 		pysimFsRenderTree();
 	}
 	pysimFsSelected = name;
-	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel, name) : '';
+	const arrs = await pysimArrEnsure();
+	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel, name, { arr: arrs, path: pysimFsNodePath(node) }) : '';
 	document.getElementById('pysim-fs-content').innerHTML = '';
 	pysimFsSyncContentVisibility();
 	document.getElementById('pysim-fs-status').textContent = exists ? '' : '✗ File not found on card';
@@ -15257,6 +15275,10 @@ async function pysimFsSave() {
 	const statusEl = document.getElementById('pysim-fs-status');
 	const out = document.getElementById('pysim-fs-content');
 	const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
+	// An EF.ARR write changes the referenced access rules: drop the client
+	// ARR cache so the next FCP view refetches the server's refreshed copy.
+	const wroteFid = String((node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : '')).toUpperCase();
+	const arrTouched = wroteFid === '2F06' || wroteFid === '6F06';
 	statusEl.textContent = 'Saving...';
 	try {
 		const textareas = out.querySelectorAll('textarea');
@@ -15267,6 +15289,7 @@ async function pysimFsSave() {
 			const data = await pysimFetch('/api/write', body);
 			if (data.success) {
 				statusEl.textContent = 'SW: ' + data.sw + ' OK';
+				if (arrTouched) _pysimArrCache = null;
 				pysimFsCancel();
 				pysimFsRead();
 			} else {
@@ -15298,6 +15321,7 @@ async function pysimFsSave() {
 				return;
 			}
 			statusEl.textContent = 'SW: 9000 OK';
+			if (arrTouched) _pysimArrCache = null;
 			pysimFsCancel();
 			pysimFsRead();
 		}
@@ -19616,6 +19640,8 @@ function snapshotSaveName() {
 
 function profilerRenderSnapshotFiles(s) {
 	if (!s.files.length) return '<span class="text-gray-400">' + t('No files captured.') + '</span>';
+	// the snapshot's own EF.ARR copies resolve the FCP '8B' references offline
+	const snapArr = profilerSnapshotArr(s);
 	let html = '';
 	for (const f of s.files) {
 		const name = profilerCustomNameForPath(f.path) || f.name;
@@ -19644,7 +19670,7 @@ function profilerRenderSnapshotFiles(s) {
 			html += '<div class="flex-1 min-w-0"><div class="text-xs text-gray-500 dark:text-slate-400 mb-0.5">' + esc(t('FCI hex (raw SELECT response)')) + '</div>' +
 				'<textarea readonly rows="2" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800 break-all">' + escHtml(f.fciHex) + '</textarea></div>';
 			html += '<div class="flex-1 min-w-0"><div class="text-xs text-gray-500 dark:text-slate-400 mb-0.5">' + esc(t('Decoded FCI')) + '</div>' +
-				'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(f.fciHex) + '</div></div>';
+				'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(f.fciHex, { arr: snapArr, path: f.path }) + '</div></div>';
 			html += '</div>';
 		}
 		const dec = f.content ? efDecodeFile(f.name, efFidFromPath(f.path), f.content) : null;
@@ -20357,6 +20383,65 @@ function fcpPsTemplate(v) {
 	return pins.length ? pins.join('; ') : (v || '');
 }
 
+// FCP '8B' security attribute referencing (ISO 7816-4 5.4.3.3, Table 25):
+// one ARR byte (a record in the implicitly known EF.ARR), a file identifier +
+// ARR byte (the record number), or a file identifier followed by (SEID, ARR)
+// pairs.  Returns null for a malformed length (the raw value is shown then).
+function fcpArrRef(value) {
+	const v = (value || '').toUpperCase();
+	if (!/^[0-9A-F]*$/.test(v)) return null;
+	if (v.length === 2) return { implicit: true, record: parseInt(v, 16) };
+	if (v.length === 6) return { fid: v.substr(0, 4), record: parseInt(v.substr(4, 2), 16) };
+	if (v.length >= 8 && v.length % 2 === 0) {
+		const pairs = [];
+		for (let i = 4; i + 4 <= v.length; i += 4) {
+			pairs.push({ seid: parseInt(v.substr(i, 2), 16), record: parseInt(v.substr(i + 2, 2), 16) });
+		}
+		return { fid: v.substr(0, 4), pairs: pairs };
+	}
+	return null;
+}
+
+// SEID label (TS 102 221 9.3.1 / Table 9.0d: SE00 and SE01 are defined; the
+// same pattern names any other value).
+function fcpSeidName(seid) {
+	return 'SE' + (Number(seid) || 0).toString(16).toUpperCase().padStart(2, '0');
+}
+
+// Access rules of the record(s) an FCP '8B' reference points at, resolved
+// against a set of EF.ARR copies ({fid, path, records[]} - the server's
+// /api/arr cache or a snapshot's own EF.ARR files).  `path` is the tree path
+// of the file whose FCI is shown: it picks the ARR copy of that DF (the
+// ISO 7816-4 5.4.3.3 lookup order - ADF files use the ADF's 6F06 copy).
+// Returns [] when nothing resolves - the caller stays silent (v3.24.0).
+function fcpArrRules(ref, arrs, path) {
+	if (!ref || !arrs || !arrs.length) return [];
+	const df = (((path || '').split('/')[0]) || 'MF').toUpperCase();
+	const pick = fid => {
+		const hits = arrs.filter(a => String(a.fid || '').toUpperCase() === fid);
+		if (!hits.length) return null;
+		return hits.find(a => String(a.path || '').split('/')[0].toUpperCase() === df) || hits[0];
+	};
+	const out = [];
+	const add = (label, fid, record) => {
+		const arr = pick(fid);
+		const recs = (arr && arr.records) || [];
+		if (!(record >= 1) || record > recs.length) return;
+		const dec = efDecArr(efBytes(recs[record - 1] || ''));
+		for (const rule of ((dec && dec.rules) || [])) {
+			out.push((label ? label + ': ' : '') + rule);
+		}
+	};
+	if (ref.implicit) {
+		add('', df.startsWith('ADF.') ? '6F06' : '2F06', ref.record);
+	} else if (ref.pairs) {
+		for (const p of ref.pairs) add(fcpSeidName(p.seid), ref.fid, p.record);
+	} else {
+		add('', ref.fid, ref.record);
+	}
+	return out;
+}
+
 function fcpDo(key, value) {
 	if (/^[0-9A-F]+$/.test(value) === false) value = value || '';
 	switch (key) {
@@ -20370,7 +20455,13 @@ function fcpDo(key, value) {
 		case '87': return { name: 'FCI extension EF', decoded: value };
 		case '88': return { name: 'Short file identifier', decoded: fcpSfi(value) };
 		case '8A': return { name: 'Life cycle status', decoded: fcpLifeCycle(value) };
-		case '8B': return { name: 'Security attributes (referenced)', decoded: value.length >= 6 ? 'EF_ARR ' + value.substr(0, 4) + ', record ' + fcpInt(value.substr(4, 2)) : value };
+		case '8B': {
+			const ref = fcpArrRef(value);
+			if (!ref) return { name: 'Security attributes (referenced)', decoded: value };
+			if (ref.implicit) return { name: 'Security attributes (referenced)', decoded: 'record ' + ref.record + ' (implicit EF_ARR)' };
+			if (ref.pairs) return { name: 'Security attributes (referenced)', decoded: 'EF_ARR ' + ref.fid + ', ' + ref.pairs.map(p => fcpSeidName(p.seid) + ' \u2192 record ' + p.record).join(', ') };
+			return { name: 'Security attributes (referenced)', decoded: 'EF_ARR ' + ref.fid + ', record ' + ref.record };
+		}
 		case '8C': return { name: 'Security attributes (compact)', decoded: value };
 		case '8D': return { name: 'Security env. template EF', decoded: value };
 		case '8E': return { name: 'Channel security attribute', decoded: value };
@@ -20562,6 +20653,26 @@ function fcpDiffHtml(expectedHex, actualHex, labels) {
 	return html;
 }
 
+// EF.ARR copies captured inside a snapshot (the scan stores every readable
+// file): the snapshot's FCI view resolves '8B' references offline from them,
+// shaped like the server's /api/arr entries (v3.24.0).
+function profilerSnapshotArr(snapshot) {
+	const out = [];
+	for (const f of ((snapshot && snapshot.files) || [])) {
+		const fid = efFidFromPath(f.path);
+		if (!fid || (fid !== '2F06' && fid !== '6F06')) continue;
+		if (!f.content || f.content.kind !== 'record') continue;
+		out.push({
+			fid: fid,
+			path: f.path,
+			record_len: f.recordLen,
+			num_records: f.numRecords,
+			records: (f.content.records || []).map(r => r.data || ''),
+		});
+	}
+	return out;
+}
+
 // Decoded FCI rows.  The short file identifier belongs to the file
 // identifier, so it is merged into that row.  `opts.hideFileSize` drops the
 // File size DO where the caller already shows the size (file manager header).
@@ -20573,7 +20684,11 @@ function profilerFciPreviewItems(hex, opts) {
 	for (const it of d.items) {
 		if (it.decoded === null) continue;
 		if (opts.hideFileSize && it.key === '80') continue;
-		rows.push({ key: it.key, name: it.name, text: it.decoded || it.value });
+		// the referenced EF.ARR record's access rules, when the caller has the
+		// ARR content (the file manager's live cache, or a snapshot's copy)
+		const ref = it.key === '8B' ? fcpArrRef(it.value) : null;
+		rows.push({ key: it.key, name: it.name, text: it.decoded || it.value,
+			sub: ref ? fcpArrRules(ref, opts.arr, opts.path) : [] });
 	}
 	const fi = rows.find(r => r.key === '83');
 	const sfi = rows.find(r => r.key === '88');
@@ -20584,6 +20699,9 @@ function profilerFciPreviewItems(hex, opts) {
 	let html = '';
 	for (const r of rows) {
 		html += '<div>' + esc(r.name) + ': <span class="text-gray-800 dark:text-slate-200">' + esc(r.text) + '</span></div>';
+		for (const s of (r.sub || [])) {
+			html += '<div class="pl-2 text-gray-500 dark:text-slate-400">\u21b3 ' + esc(s) + '</div>';
+		}
 	}
 	if (d.error) {
 		html += '<div class="text-red-600">' + esc(t('Decode failed')) + ': ' + esc(d.error) + '</div>';

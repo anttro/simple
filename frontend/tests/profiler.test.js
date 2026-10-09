@@ -22,6 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -810,6 +811,94 @@ test('pysimFsInfoHtml keeps the FCI File size when the header has none', () => {
 	assert.ok(!out.includes('Size:'), out);
 	assert.ok(out.includes('File size:'), out);
 	assert.ok(out.includes('75 bytes'), out);
+	delete global.t;
+});
+
+test('fcpArrRef parses the three 8B referencing forms', () => {
+	assert.deepStrictEqual(fcpArrRef('17'), { implicit: true, record: 23 });
+	assert.deepStrictEqual(fcpArrRef('2F0617'), { fid: '2F06', record: 23 });
+	assert.deepStrictEqual(fcpArrRef('2f0600170101'), {
+		fid: '2F06', pairs: [{ seid: 0, record: 23 }, { seid: 1, record: 1 }] });
+	assert.strictEqual(fcpArrRef('2F060'), null);   // odd length
+	assert.strictEqual(fcpArrRef('ZZZZZZ'), null);  // not hex
+});
+
+test('fcpDo decodes every 8B referencing form', () => {
+	global.t = s => s;
+	assert.strictEqual(fcpDo('8B', '2F0617').decoded, 'EF_ARR 2F06, record 23');
+	assert.strictEqual(fcpDo('8B', '17').decoded, 'record 23 (implicit EF_ARR)');
+	assert.strictEqual(fcpDo('8B', '2F0600170101').decoded,
+		'EF_ARR 2F06, SE00 \u2192 record 23, SE01 \u2192 record 1');
+	assert.strictEqual(fcpDo('8B', '2F06').decoded, '2F06');
+	delete global.t;
+});
+
+test('the FCI view shows the referenced EF.ARR rules when the ARR is known', () => {
+	global.t = s => s;
+	// the stk_params fixture FCI with 8B 03 2F06 02 (record 2)
+	const hex = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const arrs = [{ fid: '2F06', path: 'MF/2F06', record_len: 6, num_records: 2,
+		records: ['FFFFFFFFFFFFFFFFFFFFFFFF', '800101A40683010A950108'] }];
+	const out = profilerFciPreviewItems(hex, { arr: arrs, path: 'MF/7F20/6F07' });
+	assert.ok(out.includes('EF_ARR 2F06, record 2'), out);
+	assert.ok(out.includes('AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)'), out);
+	assert.ok(out.includes('\u21b3'), out);
+	// without ARR data the row is unchanged
+	const plain = profilerFciPreviewItems(hex);
+	assert.ok(plain.includes('EF_ARR 2F06, record 2'), plain);
+	assert.ok(!plain.includes('ADM1'), plain);
+	// an out-of-range record stays silent
+	const hex9 = '621A82054221000F0583026F4F8A01058B032F06098802004B8801B0';
+	const oor = profilerFciPreviewItems(hex9, { arr: arrs, path: 'MF/2F06' });
+	assert.ok(oor.includes('EF_ARR 2F06, record 9'), oor);
+	assert.ok(!oor.includes('ADM1'), oor);
+	delete global.t;
+});
+
+test('the implicit 8B form uses the ARR of the file\'s DF', () => {
+	global.t = s => s;
+	// 8B 01 02: implicit EF_ARR, record 2
+	const hex = '621882054221000F0583026F4F8A01058B01028002004B8801B0';
+	const arrs = [
+		{ fid: '2F06', path: 'MF/2F06', records: ['FFFFFFFF', '800101A40683010A950108'] },
+		{ fid: '6F06', path: 'ADF.USIM/6F06', records: ['FFFFFFFF', '8001019000'] },
+	];
+	// an ADF.USIM file resolves against the ADF's 6F06 copy
+	const adf = profilerFciPreviewItems(hex, { arr: arrs, path: 'ADF.USIM/6F07' });
+	assert.ok(adf.includes('record 2 (implicit EF_ARR)'), adf);
+	assert.ok(adf.includes('AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always'), adf);
+	assert.ok(!adf.includes('ADM1'), adf);
+	// an MF-tree file resolves against MF/2F06
+	const mf = profilerFciPreviewItems(hex, { arr: arrs, path: 'MF/7F20/6F07' });
+	assert.ok(mf.includes('AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)'), mf);
+	delete global.t;
+});
+
+test('the snapshot FCI view resolves references from the snapshot ARR', () => {
+	global.t = s => s;
+	const snap = { files: [
+		{ path: 'MF/2F06', name: 'EF.ARR', fileType: 'linear_fixed', recordLen: 6, numRecords: 2,
+		  content: { kind: 'record', records: [{ num: 1, data: 'FFFFFFFFFFFFFFFFFFFFFFFF' },
+			{ num: 2, data: '800101A40683010A950108' }] } },
+		{ path: 'MF/7F20/6F07', name: 'EF.IMSI',
+		  fciHex: '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0' },
+	]};
+	const arrs = profilerSnapshotArr(snap);
+	assert.deepStrictEqual(arrs.map(a => a.fid), ['2F06']);
+	const out = profilerFciPreviewItems(snap.files[1].fciHex, { arr: arrs, path: snap.files[1].path });
+	assert.ok(out.includes('AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)'), out);
+	delete global.t;
+});
+
+test('pysimFsInfoHtml shows the referenced ARR rules when given the cache', () => {
+	global.t = s => s;
+	const hex = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const arrs = [{ fid: '2F06', path: 'MF/2F06', records: ['', '800101a40683010a950108'] }];
+	const out = pysimFsInfoHtml({ fid: '6f4f', file_type: 'linear_fixed', file_size: 75,
+		record_len: 15, num_of_rec: 5, fci_hex: hex }, 'EF.SAMPLE',
+		{ arr: arrs, path: 'MF/7F20/6F4F' });
+	assert.ok(out.includes('EF_ARR 2F06, record 2'), out);
+	assert.ok(out.includes('ADM1 (verify)'), out);
 	delete global.t;
 });
 

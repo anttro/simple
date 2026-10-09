@@ -74,6 +74,7 @@ a 3.x PWA).
 | `/api/net-sim` | POST | Run a network-condition scenario (attach, service loss, roaming, churn, 2G, SMS, CB, AUTHENTICATE) |
 | `/api/net-state` | GET | Cached network-state monitor (service, location, per-file state) |
 | `/api/net-state-refresh` | POST | Re-read the monitored files (optional `files` list) and return the updated monitor state |
+| `/api/arr` | GET | Cached EF.ARR copies (the FCP '8B' security attribute references): records per ARR file |
 | `/api/mcc-mnc` | GET | Search the optional MCC/MNC operator list (`?q=`; `?random=1&exclude=`) |
 | `/api/proactive-log` | GET | Last 50 proactive commands |
 | `/api/status-poll` | POST | Manual STATUS poll + FETCH if 91XX |
@@ -1397,6 +1398,27 @@ optional body filters the read:
 
 Without a body all monitored files are re-read. Answers `503` when the reader
 is not initialized.
+
+### `GET /api/arr`
+
+Returns the card's cached **EF.ARR copies** — the access-rule files the FCP
+security attribute DO `'8B'` references (ISO 7816-4 Table 25).  The copies
+are read once per card session when a card is equipped (`MF/2F06` and
+`ADF.USIM/6F06`, best effort) and served from memory, so this endpoint
+performs no card I/O; a disconnect clears the cache, and an `EF.ARR` write
+through `/api/write` refreshes it.
+
+```json
+{"ok": true, "session": 12, "arrs": [
+   {"fid": "2F06", "path": "MF/2F06", "record_len": 10, "num_records": 23,
+    "records": ["FFFF...", "..."]}]}
+```
+
+`ok` is `false` (with an empty `arrs`) when the card has no readable ARR.
+The PWA's file manager resolves the `'8B'` reference of the selected file's
+FCI against this cache and shows the referenced record's access rules as
+indented lines; snapshots resolve the same references from their own
+captured `EF.ARR` copy.
 
 ### `GET /api/proactive-log`
 
