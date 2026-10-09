@@ -482,7 +482,13 @@ test('ramInstallFailHint names the CAP import requirement for a rejected LOAD', 
 		  steps: [{ name: 'INSTALL [for load]', por_sw: '6985' }] }, null);
 	assert.ok(installFail.includes('refused to open the load file'), installFail);
 	assert.ok(installFail.includes('delete it first'), installFail);
+	assert.ok(installFail.includes('Delete All'), installFail);
 	assert.ok(!installFail.includes('compatibility test'), installFail);
+	// a low-counter rejection is not a CAP problem: the card never executed
+	// the command, so the hint stays silent (the counter box is the action)
+	assert.strictEqual(ramInstallFailHint(
+		{ success: false, failed_step: 2, cntr_low: true,
+		  steps: [{ name: 'INSTALL [for load]' }, { name: 'LOAD (1/240)' }] }, null), '');
 	// only a load-related step gets the hint
 	assert.strictEqual(ramInstallFailHint(
 		{ success: false, failed_step: 2, steps: [{ name: 'INSTALL [for load]' }, { name: 'INSTALL [for install]' }] }, null), '');
@@ -504,6 +510,8 @@ test('the failed install offers the one-click compatibility test', () => {
 	const install = extractFunc(html, 'ramShowInstallResult');
 	assert.ok(install.includes('ramRunCompatTest()'), install.slice(0, 400));
 	assert.ok(install.includes("t('Run the CAP compatibility test')"), install);
+	// a low-counter rejection keeps the counter box as the only action
+	assert.ok(install.includes('!spCntrLow(data)'), install);
 	const run = extractFunc(html, 'ramRunCompatTest');
 	assert.ok(run.includes("sel.value = 'compat'"), run);
 	assert.ok(run.includes('ramOpChanged()'), run);

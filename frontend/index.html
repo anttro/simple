@@ -12062,6 +12062,9 @@ function ramStepLine(s, idx, comps, blockSize) {
 // (capmem memory_json) when the install came from a .cap.
 function ramInstallFailHint(data, mem) {
 	if (!data || data.success) return '';
+	// a low-counter rejection is not a CAP problem: the card never executed
+	// the command, and the counter box is the actionable path (v3.6.58)
+	if (spCntrLow(data)) return '';
 	const steps = data.steps || [];
 	const step = steps[(Number(data.failed_step) || 1) - 1] || null;
 	const name = step ? String(step.name || '') : '';
@@ -12069,7 +12072,7 @@ function ramInstallFailHint(data, mem) {
 		// the card refused to open the load file: usually the package is
 		// already on the card (a duplicate load-file AID from an earlier
 		// run), or it rejected the load parameters
-		return t('the card refused to open the load file. If this package is already installed (an earlier run), delete it first (Explore \u2192 Delete) and retry; otherwise check the install parameters.');
+		return t('the card refused to open the load file. If this package is already installed (an earlier run), delete it first in Explore (\u201cDelete All\u201d on the package row) and retry; otherwise check the install parameters.');
 	}
 	if (!/^LOAD /.test(name)) return '';
 	// the LOAD gate: the card verifies the CAP's import list while it reads
@@ -12962,7 +12965,9 @@ function ramShowInstallResult(data, okText, capMem) {
 	// a failed LOAD is typically the library gate: offer the one-click
 	// compatibility test with the same CAP (the file input still holds it,
 	// the probe list is prefilled with its imports)
-	if (!data.success) {
+	// a low-counter rejection is not a CAP problem - the card never executed
+	// the command and the counter box below is the actionable path (v3.6.58)
+	if (!data.success && !spCntrLow(data)) {
 		const fStep = (data.steps || [])[(Number(data.failed_step) || 1) - 1] || null;
 		if (fStep && /^LOAD /.test(String(fStep.name || ''))) {
 			modal += '<div class="mt-3"><button type="button" onclick="ramRunCompatTest()" class="px-3 py-1.5 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700">'
@@ -22220,8 +22225,6 @@ const LANG_RU = {
 	'completes': 'завершает',
 	'inside': 'внутри',
 	'the failed step completes': 'неудавшийся шаг завершает',
-	'a LOAD rejected here means the card refused the CAP: every import version under Requires must be present on the card': 'отклонение LOAD здесь означает, что карта отклонила CAP: все версии импортов из «Требуются» должны присутствовать на карте',
-	'. If the CAP needs only versions this card has, retry with a smaller LOAD block (e.g. 64 B)': '. Если CAP требует только доступные этой карте версии, повторите с меньшим размером блока LOAD (например, 64 Б)',
 	'Profile from snapshot': 'Профиль из снимка',
 	'Profile verification results for:': 'Результаты проверки профиля:',
 	'Snapshot comparison results:': 'Результаты сравнения снимков:',
@@ -23190,8 +23193,8 @@ const LANG_RU = {
 	'relevant for': 'подходит для',
 	'all other results': 'остальные результаты',
 	'Run the CAP compatibility test': 'Запустить тест совместимости CAP',
-	'the card refused to open the load file. If this package is already installed (an earlier run), delete it first (Explore \u2192 Delete) and retry; otherwise check the install parameters.': 'карта отказалась открыть load-файл. Если этот пакет уже установлен (прошлый запуск), сначала удалите его (Explore \u2192 Удалить) и повторите; иначе проверьте параметры установки.',
-	'a LOAD rejected here means the card refused the CAP\'s libraries: run the CAP compatibility test - it checks this CAP\'s import list against the card (Set all 0.0, then restore the lines one at a time to find the missing package and version)': 'LOAD отклонён — карта не поддерживает библиотеки CAP: запустите тест совместимости CAP — он проверяет список импорта CAP по карте (сначала «Set all 0.0», затем возвращайте строки по одной, чтобы найти отсутствующий пакет и версию)',
+	'the card refused to open the load file. If this package is already installed (an earlier run), delete it first in Explore (\u201cDelete All\u201d on the package row) and retry; otherwise check the install parameters.': 'карта отказалась открыть load-файл. Если этот пакет уже установлен (прошлый запуск), сначала удалите его в Explore («Удалить все» в строке пакета) и повторите; иначе проверьте параметры установки.',
+	'a LOAD rejected here means the card refused the CAP\'s libraries: run the CAP compatibility test - it checks this CAP\'s import list against the card (Set all 0.0, then restore the lines one at a time to find the missing package and version)': 'LOAD отклонён — карта не поддерживает библиотеки CAP: запустите тест совместимости CAP — он проверяет список импорта CAP по карте (сначала «Все 0.0», затем возвращайте строки по одной, чтобы найти отсутствующий пакет и версию)',
 	'TERMINAL PROFILE re-sent \u2014 new CAT session': 'TERMINAL PROFILE отправлен заново \u2014 новая CAT-сессия',
 	'manual input': 'ручной ввод',
 	'Additional information (optional hex byte)': 'Дополнительная информация (необязательный hex-байт)',
