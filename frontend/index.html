@@ -19807,31 +19807,164 @@ function profilerRenderRule(i, r) {
 	return html;
 }
 
-// Access-rules check editor (v3.25.0): the captured rule lines are read-only
-// (capture fills them from the card/snapshot); the radio toggles the check.
+// Access-rules check editor (v3.25.0): captured rules open as structured rows
+// (operation bits / command + security conditions) and hand-made rules can be
+// built the same way; every change re-encodes the canonical decoded line the
+// check compares.  Forms outside the supported subset stay raw (read-only,
+// removable).  Capture fills the lines when a profile is created from a card
+// or a snapshot; the radio toggles the check.
 function profilerRenderAccessRulesEditor(i, r) {
 	const ar = r.accessRules || null;
 	const lines = (ar && ar.expected) || [];
-	const on = !!(ar && ar.enabled !== false && lines.length);
+	const on = !!(ar && ar.enabled !== false);
 	let html = '<div class="flex items-center justify-between mb-1 mt-1">';
 	html += '<span class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Check access rules')) + '</span>';
 	html += '<div class="flex items-center gap-3">';
 	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="none"' + (!on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',false)"> ' + esc(t('None')) + '</label>';
-	html += '<label class="text-xs flex items-center gap-1' + (lines.length ? '' : ' opacity-50') + '"><input type="radio" name="profiler-ar-' + i + '" value="check"' + (on ? ' checked' : '') + (lines.length ? '' : ' disabled') + ' onchange="profilerSetAccessRules(' + i + ',true)"> ' + esc(t('Check')) + '</label>';
+	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="check"' + (on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',true)"> ' + esc(t('Check')) + '</label>';
 	html += '</div></div>';
 	if (r.fciMode === 'exact') {
 		html += '<label class="text-xs flex items-center gap-1 mb-1' + (on ? '' : ' opacity-50') + '"><input type="checkbox"' + (ar && ar.ignoreFciRef ? ' checked' : '') + (on ? '' : ' disabled') + ' onchange="profilerSetAccessRulesIgnore(' + i + ',this.checked)"> ' + esc(t('Ignore the EF.ARR reference in the exact FCI')) + '</label>';
 	}
-	if (lines.length) {
-		html += '<div class="mb-2 pl-2 space-y-0.5">';
-		for (const x of lines) {
-			html += '<div class="text-xs font-mono text-gray-600 dark:text-slate-400">' + esc('\u21b3 ' + x) + '</div>';
-		}
-		html += '</div>';
-	} else {
-		html += '<div class="mb-2 text-xs text-gray-400 dark:text-slate-500">' + esc(t('Captured when the profile is created from a card or a snapshot')) + '</div>';
+	for (let ri = 0; ri < lines.length; ri++) {
+		html += profilerArrRuleHtml(i, ri, lines[ri]);
 	}
+	if (!lines.length) {
+		html += '<div class="mb-1 text-xs text-gray-400 dark:text-slate-500">' + esc(t('Captured when the profile is created from a card or a snapshot')) + '</div>';
+	}
+	html += '<button onclick="profilerArrAddRule(' + i + ')" class="mb-2 text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('rule')) + '</button>';
 	return html;
+}
+
+// One expected rule row: the operation form + bit checkboxes (or the RESIZE /
+// INCREASE command), the condition rows and the canonical preview line.
+function profilerArrRuleHtml(i, ri, line) {
+	const m = fcpArrRuleParse(line);
+	if (m.raw !== undefined) {
+		return '<div class="flex items-start gap-2 mb-1 pl-2">' +
+			'<span class="flex-1 text-xs font-mono text-gray-500 dark:text-slate-400 break-all">' + esc(t('raw') + ': ' + m.raw) + '</span>' +
+			'<button onclick="profilerArrRemoveRule(' + i + ',' + ri + ')" class="text-red-400 hover:text-red-600 text-xs px-1">\u2715</button></div>';
+	}
+	let html = '<div class="mb-1 pl-2 border-l-2 border-gray-200 dark:border-slate-700">';
+	html += '<div class="flex flex-wrap items-center gap-x-3 gap-y-1">';
+	html += '<select onchange="profilerArrSetKind(' + i + ',' + ri + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' +
+		'<option value="bits"' + (m.kind === 'bits' ? ' selected' : '') + '>' + esc(t('bit mask')) + '</option>' +
+		'<option value="resize"' + (m.kind === 'resize' ? ' selected' : '') + '>RESIZE FILE</option>' +
+		'<option value="increase"' + (m.kind === 'increase' ? ' selected' : '') + '>INCREASE</option></select>';
+	if (m.kind === 'bits') {
+		for (const bit of FCP_ARR_AM_BITS.slice().reverse()) {
+			html += '<label class="text-xs flex items-center gap-1"><input type="checkbox"' + (m.am & bit[0] ? ' checked' : '') +
+				' onchange="profilerArrToggleBit(' + i + ',' + ri + ',' + bit[0] + ',this.checked)"> ' + esc(bit[1]) + '</label>';
+		}
+	}
+	html += '<button onclick="profilerArrRemoveRule(' + i + ',' + ri + ')" class="ml-auto text-red-400 hover:text-red-600 text-xs px-1">\u2715</button>';
+	html += '</div>';
+	for (let si = 0; si < m.scs.length; si++) {
+		html += '<div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">';
+		html += profilerArrScSelect(i, ri, si, m.scs[si]);
+		if (m.scs[si].kind === 'key') html += profilerArrUqSelect(i, ri, si, m.scs[si].uq);
+		html += '<button onclick="profilerArrRemoveSc(' + i + ',' + ri + ',' + si + ')" class="text-red-400 hover:text-red-600 text-xs px-1">\u2715</button>';
+		html += '</div>';
+	}
+	html += '<button onclick="profilerArrAddSc(' + i + ',' + ri + ')" class="mt-0.5 text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('condition')) + '</button>';
+	html += '<div class="mt-0.5 text-xs font-mono text-gray-400 dark:text-slate-500 break-all">' + esc(fcpArrRuleEncode(m)) + '</div>';
+	html += '</div>';
+	return html;
+}
+
+// The condition select: always / never / the named key references.
+function profilerArrScSelect(i, ri, si, sc) {
+	let opts = '<option value="always"' + (sc.kind === 'alw' ? ' selected' : '') + '>always</option>';
+	opts += '<option value="never"' + (sc.kind === 'nev' ? ' selected' : '') + '>never</option>';
+	for (const k of fcpArrKeyRefOptions()) {
+		opts += '<option value="key:' + k.ref + '"' + (sc.kind === 'key' && sc.ref === k.ref ? ' selected' : '') + '>' + esc(k.name) + '</option>';
+	}
+	return '<select onchange="profilerArrSetSc(' + i + ',' + ri + ',' + si + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' + opts + '</select>';
+}
+
+// The usage-qualifier select (keys only): verify / verification not used, plus
+// the current odd value when a captured rule carried one.
+function profilerArrUqSelect(i, ri, si, uq) {
+	const verify = uq !== 0x00 && (uq & 0x08) === 0x08;
+	const custom = uq !== 0x00 && (uq & 0x08) === 0;
+	let opts = '<option value="verify"' + (verify ? ' selected' : '') + '>verify</option>';
+	opts += '<option value="not-used"' + (uq === 0x00 ? ' selected' : '') + '>verification not used</option>';
+	if (custom) {
+		opts += '<option value="usage:' + uq + '" selected>usage 0x' + uq.toString(16).toUpperCase().padStart(2, '0') + '</option>';
+	}
+	return '<select onchange="profilerArrSetUq(' + i + ',' + ri + ',' + si + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' + opts + '</select>';
+}
+
+// The stored line of one expected rule (undefined when the row is gone).
+function profilerArrLine(i, ri) {
+	if (!profilerDraft) return undefined;
+	const r = profilerDraft.rules[i];
+	return (((r && r.accessRules) || {}).expected || [])[ri];
+}
+
+// Parse the stored line, mutate the model, re-encode into the draft and
+// re-render (the check compares the stored strings).
+function profilerArrUpdate(i, ri, model) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) r.accessRules = { expected: [] };
+	r.accessRules.expected[ri] = fcpArrRuleEncode(model);
+	profilerRenderEditor();
+}
+
+function profilerArrToggleBit(i, ri, bit, on) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	profilerArrUpdate(i, ri, fcpArrRuleToggleBit(fcpArrRuleParse(line), bit, on));
+}
+
+function profilerArrSetKind(i, ri, kind) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	profilerArrUpdate(i, ri, fcpArrRuleSetKind(fcpArrRuleParse(line), kind));
+}
+
+function profilerArrSetSc(i, ri, si, value) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	profilerArrUpdate(i, ri, fcpArrRuleSetSc(fcpArrRuleParse(line), si, value));
+}
+
+function profilerArrSetUq(i, ri, si, value) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	const uq = value === 'verify' ? 0x08
+		: (value === 'not-used' ? 0x00 : parseInt(String(value).replace('usage:', ''), 10));
+	profilerArrUpdate(i, ri, fcpArrRuleSetUq(fcpArrRuleParse(line), si, uq));
+}
+
+function profilerArrAddSc(i, ri) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	profilerArrUpdate(i, ri, fcpArrRuleAddSc(fcpArrRuleParse(line)));
+}
+
+function profilerArrRemoveSc(i, ri, si) {
+	const line = profilerArrLine(i, ri);
+	if (line === undefined) return;
+	profilerArrUpdate(i, ri, fcpArrRuleRemoveSc(fcpArrRuleParse(line), si));
+}
+
+// A new rule starts from READ always (the common baseline).
+function profilerArrAddRule(i) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) r.accessRules = { expected: [] };
+	r.accessRules.expected.push(fcpArrRuleEncode({ kind: 'bits', am: 0x01, scs: [{ kind: 'alw' }] }));
+	profilerRenderEditor();
+}
+
+function profilerArrRemoveRule(i, ri) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) return;
+	r.accessRules.expected.splice(ri, 1);
+	profilerRenderEditor();
 }
 
 function profilerSetAccessRules(i, on) {
@@ -20598,6 +20731,160 @@ function fcpArrRules(ref, arrs, path) {
 		add('', ref.fid, ref.record);
 	}
 	return { found: found, rules: out };
+}
+
+// ---- structured access-rule editing (v3.25.0 review) -----------------------
+// The editor edits a decoded rule's structure (AM byte / command + SC
+// conditions) and stores the canonical decoded strings the check compares.
+// fcpArrRuleParse returns {raw} for the forms outside the supported subset
+// (OR/AND/NOT templates, SM CRTs, command descriptions) - shown read-only.
+
+// Split on a separator at parenthesis depth 0 (the templates nest).
+function fcpArrSplitTop(s, sep) {
+	const out = [];
+	let depth = 0, start = 0;
+	for (let i = 0; i < s.length; i++) {
+		if (s[i] === '(') depth++;
+		else if (s[i] === ')') depth = Math.max(0, depth - 1);
+		else if (depth === 0 && s.startsWith(sep, i)) {
+			out.push(s.slice(start, i));
+			i += sep.length - 1;
+			start = i + 1;
+		}
+	}
+	out.push(s.slice(start));
+	return out;
+}
+
+// The key reference whose pinKeyRefName matches a decoded name (null for the
+// 'key ref 0xNN' default and unknown names).
+function fcpArrKeyRefFromName(name) {
+	for (let ref = 0; ref <= 0xFF; ref++) {
+		const n = pinKeyRefName(ref);
+		if (n === name && !/^key ref /.test(n)) return ref;
+	}
+	return null;
+}
+
+// {ref, name} options for the condition select (the named key references).
+function fcpArrKeyRefOptions() {
+	const out = [];
+	for (let ref = 0; ref <= 0xFF; ref++) {
+		const n = pinKeyRefName(ref);
+		if (!/^key ref /.test(n)) out.push({ ref: ref, name: n });
+	}
+	return out;
+}
+
+// One SC (security condition) part of a decoded rule -> model, or null.
+function fcpArrScParse(text) {
+	if (text === 'always') return { kind: 'alw' };
+	if (text === 'never') return { kind: 'nev' };
+	const m = /^(.*) \((verify|verification not used|usage 0x([0-9A-F]{2}))\)$/.exec(text);
+	if (m) {
+		const ref = fcpArrKeyRefFromName(m[1]);
+		if (ref !== null) {
+			const uq = m[2] === 'verify' ? 0x08
+				: (m[2] === 'verification not used' ? 0x00 : parseInt(m[3], 16));
+			return { kind: 'key', ref: ref, uq: uq };
+		}
+	}
+	return null;
+}
+
+// Model -> the decoded string efArrSc would print (the check compares these).
+function fcpArrScEncode(sc) {
+	if (sc.kind === 'alw') return 'always';
+	if (sc.kind === 'nev') return 'never';
+	if (sc.kind === 'key') {
+		let s = pinKeyRefName(sc.ref);
+		const uq = sc.uq;
+		if (uq === null || uq === undefined || (uq & 0x08)) s += ' (verify)';
+		else if (uq === 0x00) s += ' (verification not used)';
+		else s += ' (usage 0x' + uq.toString(16).toUpperCase().padStart(2, '0') + ')';
+		return s;
+	}
+	return sc.text || '';
+}
+
+// A decoded rule line -> editable model, or {raw} when outside the subset.
+function fcpArrRuleParse(line) {
+	const s = String(line || '');
+	const idx = s.indexOf(': ');
+	const amPart = idx < 0 ? s : s.slice(0, idx);
+	const scPart = idx < 0 ? '' : s.slice(idx + 2);
+	let kind = null, am = 0;
+	if (amPart === 'RESIZE FILE (AM_DO 0x84, INS 0xD4)') kind = 'resize';
+	else if (amPart === 'INCREASE (AM_DO 0x84, INS 0x32)') kind = 'increase';
+	else {
+		const m = /^AM 0x([0-9A-F]{2}) \(/.exec(amPart);
+		if (m) { kind = 'bits'; am = parseInt(m[1], 16); }
+	}
+	if (!kind) return { raw: s };
+	const scs = [];
+	if (scPart) {
+		for (const part of fcpArrSplitTop(scPart, ' AND ')) {
+			const sc = fcpArrScParse(part);
+			if (!sc) return { raw: s };
+			scs.push(sc);
+		}
+	}
+	return { kind: kind, am: am, scs: scs };
+}
+
+// Model -> the canonical decoded line.
+function fcpArrRuleEncode(rule) {
+	if (rule.raw !== undefined) return rule.raw;
+	let am;
+	if (rule.kind === 'resize') am = 'RESIZE FILE (AM_DO 0x84, INS 0xD4)';
+	else if (rule.kind === 'increase') am = 'INCREASE (AM_DO 0x84, INS 0x32)';
+	else am = 'AM 0x' + (rule.am & 0xFF).toString(16).toUpperCase().padStart(2, '0') +
+		' (' + efArrAmLabel(rule.am) + ')';
+	const scs = (rule.scs || []).map(fcpArrScEncode);
+	return am + (scs.length ? ': ' + scs.join(' AND ') : '');
+}
+
+// The editor mutates the parsed model and re-encodes; a raw model is left as
+// it is (its row is read-only).
+function fcpArrRuleToggleBit(rule, bit, on) {
+	if (rule.raw !== undefined) return rule;
+	const am = on ? (rule.am | bit) : (rule.am & ~bit);
+	return { kind: rule.kind, am: am & 0xFF, scs: rule.scs.slice() };
+}
+
+function fcpArrRuleSetKind(rule, kind) {
+	if (rule.raw !== undefined) return rule;
+	return { kind: kind, am: kind === 'bits' ? (rule.am || 0x01) : rule.am, scs: rule.scs.slice() };
+}
+
+function fcpArrRuleSetSc(rule, si, value) {
+	if (rule.raw !== undefined) return rule;
+	const scs = rule.scs.slice();
+	if (value === 'always') scs[si] = { kind: 'alw' };
+	else if (value === 'never') scs[si] = { kind: 'nev' };
+	else if (String(value).startsWith('key:')) {
+		const prev = scs[si];
+		scs[si] = { kind: 'key', ref: parseInt(String(value).slice(4), 10),
+			uq: (prev && prev.kind === 'key') ? prev.uq : 0x08 };
+	}
+	return { kind: rule.kind, am: rule.am, scs: scs };
+}
+
+function fcpArrRuleSetUq(rule, si, uq) {
+	if (rule.raw !== undefined) return rule;
+	const scs = rule.scs.slice();
+	if (scs[si] && scs[si].kind === 'key') scs[si] = { kind: 'key', ref: scs[si].ref, uq: uq };
+	return { kind: rule.kind, am: rule.am, scs: scs };
+}
+
+function fcpArrRuleAddSc(rule) {
+	if (rule.raw !== undefined) return rule;
+	return { kind: rule.kind, am: rule.am, scs: rule.scs.concat([{ kind: 'alw' }]) };
+}
+
+function fcpArrRuleRemoveSc(rule, si) {
+	if (rule.raw !== undefined) return rule;
+	return { kind: rule.kind, am: rule.am, scs: rule.scs.filter((_, i) => i !== si) };
 }
 
 function fcpDo(key, value) {
@@ -21556,23 +21843,26 @@ function pinKeyRefName(v) {
 	return 'key ref 0x' + v.toString(16).toUpperCase().padStart(2, '0');
 }
 
-// ISO 7816-4 Tables 16/17: AM byte bit meanings.  A record does not store
-// whether it protects an EF or a DF, so both mappings are shown.
+// ISO 7816-4 Tables 16/17: AM byte bit meanings, highest bit first (the
+// decoder's label order).  A record does not store whether it protects an EF
+// or a DF, so both mappings are shown; the structured access-rule editor
+// renders the same table low-to-high as operation checkboxes (v3.25.0 review).
+const FCP_ARR_AM_BITS = [
+	[0x40, 'DELETE (self)'],
+	[0x20, 'TERMINATE EF / TERMINATE DF'],
+	[0x10, 'ACTIVATE'],
+	[0x08, 'DEACTIVATE'],
+	[0x04, 'WRITE/APPEND (EF) / CREATE FILE DF (DF)'],
+	[0x02, 'UPDATE/ERASE (EF) / CREATE FILE EF (DF)'],
+	[0x01, 'READ/SEARCH (EF) / DELETE FILE child (DF)'],
+];
+
 function efArrAmLabel(am) {
-	const bits = [
-		[0x40, 'DELETE (self)'],
-		[0x20, 'TERMINATE EF / TERMINATE DF'],
-		[0x10, 'ACTIVATE'],
-		[0x08, 'DEACTIVATE'],
-		[0x04, 'WRITE/APPEND (EF) / CREATE FILE DF (DF)'],
-		[0x02, 'UPDATE/ERASE (EF) / CREATE FILE EF (DF)'],
-		[0x01, 'READ/SEARCH (EF) / DELETE FILE child (DF)'],
-	];
 	if (am & 0x80) {
-		const low = bits.filter(b => (b[0] & 0x07) && (am & b[0])).map(b => b[1]);
+		const low = FCP_ARR_AM_BITS.filter(b => (b[0] & 0x07) && (am & b[0])).map(b => b[1]);
 		return 'bits 7-4 proprietary' + (low.length ? ' + ' + low.join(' + ') : '');
 	}
-	const ops = bits.filter(b => am & b[0]).map(b => b[1]);
+	const ops = FCP_ARR_AM_BITS.filter(b => am & b[0]).map(b => b[1]);
 	return ops.length ? ops.join(' + ') : 'no operations';
 }
 
@@ -23121,6 +23411,10 @@ const LANG_RU = {
 	'the EF.ARR reference could not be resolved (no cached EF.ARR or the record is out of range)': 'ссылку на EF.ARR не удалось разрешить (нет кэша EF.ARR или запись вне диапазона)',
 	'Captured when the profile is created from a card or a snapshot': 'Заполняется при создании профиля с карты или из снимка',
 	'EF.ARR reference ignored (verified by the access-rules check)': 'Ссылка на EF.ARR игнорируется (проверяется по правилам доступа)',
+	'rule': 'правило',
+	'condition': 'условие',
+	'raw': 'как есть',
+	'bit mask': 'битовая маска',
 	'Mask': 'Маска',
 	'Checking': 'Проверка',
 	'passed': 'пройдено',

@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -40,6 +40,7 @@ code += "var _pysimArrCache = null;\nvar _pysimCardSession = null;\n";
 // the view-history hooks (the router lives in the page; this pure test stubs it)
 code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
+code += html.match(/const FCP_ARR_AM_BITS = \[[\s\S]*?\n\];/)[0] + '\n';
 eval(code);
 
 test('profilerNormHex uppercases and strips non-hex', () => {
@@ -1055,6 +1056,81 @@ test('the implicit form prefers the file DF\'s own ARR copy', () => {
 	// without it the walk-up reaches the MF copy
 	const up = profilerFciPreviewItems(hex, { arr: [mfCopy], path: 'MF/7F20/6F07' });
 	assert.ok(up.includes(': ADM1'), up);
+	delete global.t;
+});
+
+test('fcpArrRuleParse/Encode round-trips the decoded rule forms', () => {
+	const lines = [
+		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always',
+		'AM 0x1A (ACTIVATE + DEACTIVATE + UPDATE/ERASE (EF) / CREATE FILE EF (DF)): ADM1 (verify)',
+		'AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): PIN app1 (verify) AND ADM1 (verify)',
+		'RESIZE FILE (AM_DO 0x84, INS 0xD4): never',
+		'INCREASE (AM_DO 0x84, INS 0x32): ADM1 (verify)',
+		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF))',
+	];
+	for (const line of lines) {
+		const m = fcpArrRuleParse(line);
+		assert.strictEqual(m.raw, undefined, line);
+		assert.strictEqual(fcpArrRuleEncode(m), line, line);
+	}
+	// template forms and unknown conditions stay raw and unchanged
+	for (const raw of [
+		'AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): (PIN app1 (verify) OR PIN app2 (verify))',
+		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): SM CRT 0xB4',
+		'command description 0x84 (D4)',
+	]) {
+		const rm = fcpArrRuleParse(raw);
+		assert.strictEqual(rm.raw, raw, raw);
+		assert.strictEqual(fcpArrRuleEncode(rm), raw, raw);
+	}
+});
+
+test('fcpArrRule mutators re-encode the canonical line', () => {
+	let m = fcpArrRuleParse('AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always');
+	m = fcpArrRuleToggleBit(m, 0x02, true);
+	assert.strictEqual(fcpArrRuleEncode(m),
+		'AM 0x03 (UPDATE/ERASE (EF) / CREATE FILE EF (DF) + READ/SEARCH (EF) / DELETE FILE child (DF)): always');
+	m = fcpArrRuleSetSc(m, 0, 'key:10');           // 10 = 0x0A = ADM1
+	assert.ok(fcpArrRuleEncode(m).endsWith(': ADM1 (verify)'), fcpArrRuleEncode(m));
+	m = fcpArrRuleSetUq(m, 0, 0x00);
+	assert.ok(fcpArrRuleEncode(m).endsWith(': ADM1 (verification not used)'), fcpArrRuleEncode(m));
+	m = fcpArrRuleAddSc(m);
+	assert.ok(fcpArrRuleEncode(m).endsWith(': ADM1 (verification not used) AND always'), fcpArrRuleEncode(m));
+	m = fcpArrRuleRemoveSc(m, 1);
+	assert.ok(fcpArrRuleEncode(m).endsWith(': ADM1 (verification not used)'), fcpArrRuleEncode(m));
+	m = fcpArrRuleSetKind(m, 'resize');
+	assert.strictEqual(fcpArrRuleEncode(m), 'RESIZE FILE (AM_DO 0x84, INS 0xD4): ADM1 (verification not used)');
+	m = fcpArrRuleSetSc(m, 0, 'never');
+	assert.strictEqual(fcpArrRuleEncode(m), 'RESIZE FILE (AM_DO 0x84, INS 0xD4): never');
+	// a raw model is never modified
+	const raw = fcpArrRuleParse('command description 0x84 (D4)');
+	assert.strictEqual(fcpArrRuleEncode(fcpArrRuleToggleBit(raw, 0x01, true)), 'command description 0x84 (D4)');
+});
+
+test('the access-rules editor renders structured rows', () => {
+	global.t = s => s;
+	const r = { fciMode: 'exact', accessRules: { expected: [
+		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always',
+		'RESIZE FILE (AM_DO 0x84, INS 0xD4): never',
+		'AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): (PIN app1 (verify) OR PIN app2 (verify))',
+	] } };
+	const html = profilerRenderAccessRulesEditor(3, r);
+	// the READ bit is checked; the condition select shows always
+	assert.ok(html.includes('type="checkbox" checked onchange="profilerArrToggleBit(3,0,1,this.checked)"'), html);
+	assert.ok(html.includes('<option value="always" selected>always</option>'), html);
+	assert.ok(html.includes('<option value="key:10">ADM1</option>'), html);
+	// the RESIZE row uses the command form, not bits
+	assert.ok(html.includes('<option value="resize" selected>RESIZE FILE</option>'), html);
+	// the template rule is raw and not editable
+	assert.ok(html.includes('raw: AM 0x02'), html);
+	assert.ok(!html.includes('profilerArrToggleBit(3,2'), html);
+	// the preview lines and the + rule button are present
+	assert.ok(html.includes('RESIZE FILE (AM_DO 0x84, INS 0xD4): never'), html);
+	assert.ok(html.includes('profilerArrAddRule(3)'), html);
+	// an empty rule shows the capture hint with no disabled controls
+	const empty = profilerRenderAccessRulesEditor(4, { fciMode: 'type_size', accessRules: null });
+	assert.ok(empty.includes('profilerArrAddRule(4)'), empty);
+	assert.ok(!empty.includes(' disabled'), empty);
 	delete global.t;
 });
 

@@ -39,7 +39,7 @@ const FNS = [
 
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
-for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP']) {
+for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'FCP_ARR_AM_BITS']) {
 	code += html.match(new RegExp('const ' + c + ' = [\\s\\S]*?\\n\\];'))[0].replace('const ', 'var ') + '\n';
 }
 for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_PHASE_NAMES']) {
