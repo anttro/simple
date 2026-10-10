@@ -20545,33 +20545,53 @@ function fcpWithoutArrRef(hex) {
 // Access rules of the record(s) an FCP '8B' reference points at, resolved
 // against a set of EF.ARR copies ({fid, path, records[]} - the server's
 // /api/arr cache or a snapshot's own EF.ARR files).  `path` is the tree path
-// of the file whose FCI is shown: it picks the ARR copy of that DF (the
-// ISO 7816-4 5.4.3.3 lookup order - ADF files use the ADF's 6F06 copy).
+// of the file whose FCI is shown: the ARR copy is looked up per the ISO
+// 7816-4 5.4.3.3 / TS 102 221 9.2.7 order - the file's own DF first, then
+// walking up to the ADF/MF (a DF/ADF level holds 6F06, MF holds 2F06).
 // Returns {found, rules}: found = at least one referenced record exists;
 // rules = the decoded rule lines (empty when nothing resolves - the caller
-// stays silent, v3.24.0).
+// stays silent, v3.24.0; v3.25.0 walk-up fix).
 function fcpArrRules(ref, arrs, path) {
 	if (!ref || !arrs || !arrs.length) return { found: false, rules: [] };
-	const df = (((path || '').split('/')[0]) || 'MF').toUpperCase();
+	// the file's DF chain, own DF first: MF/7F20/6F07 -> ['MF/7F20', 'MF'];
+	// ADF.USIM/6F07 -> ['ADF.USIM', 'MF']
+	const segs = ((path || '').toUpperCase().split('/')).filter(s => s);
+	const fileDf = segs.slice(0, -1);
+	const chain = [];
+	for (let i = fileDf.length; i > 0; i--) chain.push(fileDf.slice(0, i).join('/'));
+	if (!chain.includes('MF')) chain.push('MF');
+	const dfOf = a => String(a.path || '').toUpperCase().split('/').slice(0, -1).join('/');
+	const pickAt = (df, fid) => arrs.find(a =>
+		String(a.fid || '').toUpperCase() === fid && dfOf(a) === df) || null;
 	const pick = fid => {
 		const hits = arrs.filter(a => String(a.fid || '').toUpperCase() === fid);
 		if (!hits.length) return null;
-		return hits.find(a => String(a.path || '').split('/')[0].toUpperCase() === df) || hits[0];
+		for (const df of chain) {
+			const hit = hits.find(a => dfOf(a) === df);
+			if (hit) return hit;
+		}
+		// no copy in the file's DF chain: only a single candidate is safe
+		return hits.length === 1 ? hits[0] : null;
 	};
 	const out = [];
 	let found = false;
-	const add = (label, fid, record) => {
-		const arr = pick(fid);
+	const add = (label, fid, record, arrOverride) => {
+		const arr = arrOverride !== undefined ? arrOverride : pick(fid);
 		const recs = (arr && arr.records) || [];
-		if (!(record >= 1) || record > recs.length) return;
+		if (!(record >= 1) || record > recs.length) return false;
 		found = true;
 		const dec = efDecArr(efBytes(recs[record - 1] || ''));
 		for (const rule of ((dec && dec.rules) || [])) {
 			out.push((label ? label + ': ' : '') + rule);
 		}
+		return true;
 	};
 	if (ref.implicit) {
-		add('', df.startsWith('ADF.') ? '6F06' : '2F06', ref.record);
+		// the implicitly known EF.ARR of the file's DF, walking up
+		for (const df of chain) {
+			const fid = df === 'MF' ? '2F06' : '6F06';
+			if (add('', fid, ref.record, pickAt(df, fid))) break;
+		}
 	} else if (ref.pairs) {
 		for (const p of ref.pairs) add(fcpSeidName(p.seid), ref.fid, p.record);
 	} else {

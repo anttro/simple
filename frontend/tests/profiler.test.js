@@ -1021,6 +1021,43 @@ test('ignoreFciRef compares the FCI without the EF.ARR reference', async () => {
 	assert.strictEqual(strict.checks.find(c => c.label === 'fci').ok, false);
 });
 
+test('a 6F06 reference resolves to the file DF\'s own ARR copy', () => {
+	global.t = s => s;
+	// 8B 03 6F06 01: record 1 of the DF-tree copy
+	const hex = '621A82054221000F0583026F4F8A01058B036F06018802004B8801B0';
+	const dfCopy = { fid: '6F06', path: 'MF/7F20/6F06', records: ['8001019000'] };
+	const adfCopy = { fid: '6F06', path: 'ADF.USIM/6F06', records: ['800101A40683010A950108'] };
+	// the file's own DF copy wins (ISO 7816-4 5.4.3.3 walk-up)
+	const df = profilerFciPreviewItems(hex, { arr: [dfCopy, adfCopy], path: 'MF/7F20/6F07' });
+	assert.ok(df.includes(': always'), df);
+	assert.ok(!df.includes('ADM1'), df);
+	// an ADF.USIM file uses the ADF's copy
+	const adf = profilerFciPreviewItems(hex, { arr: [dfCopy, adfCopy], path: 'ADF.USIM/6F07' });
+	assert.ok(adf.includes(': ADM1'), adf);
+	// two candidates outside the file's chain stay unresolved (silent)
+	const none = profilerFciPreviewItems(hex, { arr: [dfCopy, adfCopy], path: 'MF/7F10/6F07' });
+	assert.ok(!none.includes('ADM1') && !none.includes(': always'), none);
+	// a single candidate outside the chain still resolves
+	const uniq = profilerFciPreviewItems(hex, { arr: [adfCopy], path: 'MF/7F10/6F07' });
+	assert.ok(uniq.includes(': ADM1'), uniq);
+	delete global.t;
+});
+
+test('the implicit form prefers the file DF\'s own ARR copy', () => {
+	global.t = s => s;
+	// 8B 01 01: implicit EF_ARR, record 1
+	const hex = '621882054221000F0583026F4F8A01058B01018002004B8801B0';
+	const dfCopy = { fid: '6F06', path: 'MF/7F20/6F06', records: ['8001019000'] };
+	const mfCopy = { fid: '2F06', path: 'MF/2F06', records: ['800101A40683010A950108'] };
+	// the DF's own copy wins
+	const df = profilerFciPreviewItems(hex, { arr: [dfCopy, mfCopy], path: 'MF/7F20/6F07' });
+	assert.ok(df.includes(': always'), df);
+	// without it the walk-up reaches the MF copy
+	const up = profilerFciPreviewItems(hex, { arr: [mfCopy], path: 'MF/7F20/6F07' });
+	assert.ok(up.includes(': ADM1'), up);
+	delete global.t;
+});
+
 test('profilerResultAspects and the summary include Access rules', () => {
 	const res = { checks: [
 		{ label: 'exists', ok: true },

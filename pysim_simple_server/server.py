@@ -486,10 +486,11 @@ def _read_iccid(app):
 
 
 # EF.ARR copies referenced by the FCP security attribute DO '8B' (ISO 7816-4
-# Table 25): the MF copy and the ADF.USIM copy (TS 102 221 13.4).  The read
-# runs once per card session (_refresh_arr_cache); the PWA's file manager
-# resolves the referenced record's access rules against the cache.
-ARR_READ_PATHS = ('MF/2F06', 'ADF.USIM/6F06')
+# Table 25): the MF copy, the DF.TELECOM/DF.GSM copies (TS 51.011 7F10/7F20)
+# and the ADF.USIM copy (TS 102 221 13.4).  The read runs once per card
+# session (_refresh_arr_cache); the PWA's file manager resolves the referenced
+# record's access rules against the cache (the file's DF chain wins).
+ARR_READ_PATHS = ('MF/2F06', 'MF/7F10/6F06', 'MF/7F20/6F06', 'ADF.USIM/6F06')
 ARR_RECORD_LIMIT = 64
 
 

@@ -1403,8 +1403,8 @@ is not initialized.
 
 Returns the card's cached **EF.ARR copies** — the access-rule files the FCP
 security attribute DO `'8B'` references (ISO 7816-4 Table 25).  The copies
-are read once per card session when a card is equipped (`MF/2F06` and
-`ADF.USIM/6F06`, best effort) and served from memory, so this endpoint
+are read once per card session when a card is equipped (`MF/2F06`,
+`MF/7F10/6F06`, `MF/7F20/6F06` and `ADF.USIM/6F06`, best effort) and served from memory, so this endpoint
 performs no card I/O; a disconnect clears the cache, and an `EF.ARR` write
 through `/api/write` refreshes it.
 

@@ -74,6 +74,13 @@ class ReadArrTests(unittest.TestCase):
         self.assertEqual(arrs[0]['record_len'], 6)
         self.assertEqual(arrs[1]['path'], 'ADF.USIM/6F06')
 
+    def test_reads_the_df_tree_copies(self):
+        app, _ = _app({'MF/2F06': ['9000'], 'MF/7F10/6F06': ['9000'],
+                       'MF/7F20/6F06': ['9000'], 'ADF.USIM/6F06': ['9000']})
+        arrs = _read(app)
+        self.assertEqual([a['path'] for a in arrs],
+                         ['MF/2F06', 'MF/7F10/6F06', 'MF/7F20/6F06', 'ADF.USIM/6F06'])
+
     def test_a_missing_copy_is_skipped(self):
         app, _ = _app({'ADF.USIM/6F06': ['9000']})
         arrs = _read(app)
