@@ -19545,6 +19545,8 @@ function profilerEdit(i) {
 	const p = profiles[i];
 	profilerEditId = p.id;
 	profilerDraft = JSON.parse(JSON.stringify(p));
+	// a fresh draft starts with every access-rules block collapsed
+	_profilerArrOpen = {};
 	profilerSetView('editor');
 	document.getElementById('profiler-name').value = profilerDraft.name;
 	profilerRenderEditor();
@@ -19733,6 +19735,7 @@ function profilerAddRule() {
 function profilerDeleteRule(i) {
 	if (!profilerDraft) return;
 	profilerDraft.rules.splice(i, 1);
+	_profilerArrOpen = profilerArrShiftOpen(_profilerArrOpen, i);
 	profilerRenderEditor();
 }
 
@@ -19807,6 +19810,11 @@ function profilerRenderRule(i, r) {
 	return html;
 }
 
+// The expanded access-rule blocks of the profile editor (transient UI state,
+// kept across the editor re-renders; None hides the block entirely; a fresh
+// draft resets it and a deleted rule shifts the keys).
+let _profilerArrOpen = {};
+
 // Access-rules check editor (v3.25.0): captured rules open as structured rows
 // (operation bits / command + security conditions) and hand-made rules can be
 // built the same way; every change re-encodes the canonical decoded line the
@@ -19844,13 +19852,21 @@ function profilerRenderAccessRulesEditor(i, r) {
 	return html;
 }
 
-// The expanded access-rule blocks of the profile editor (transient UI state,
-// kept across the editor re-renders; None hides the block entirely).
-let _profilerArrOpen = {};
-
 function profilerArrToggleOpen(i) {
 	_profilerArrOpen[i] = !_profilerArrOpen[i];
 	profilerRenderEditor();
+}
+
+// Re-key the open-state map after a rule at `removed` was deleted: the
+// entries below stay, the ones above shift down by one.
+function profilerArrShiftOpen(open, removed) {
+	const next = {};
+	for (const k of Object.keys(open)) {
+		const n = Number(k);
+		if (n < removed) next[n] = open[k];
+		else if (n > removed) next[n - 1] = open[k];
+	}
+	return next;
 }
 
 // One expected rule row: the operation form + bit checkboxes (or the RESIZE /

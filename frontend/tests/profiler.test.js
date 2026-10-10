@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -1078,7 +1078,7 @@ test('fcpArrRuleParse/Encode round-trips the decoded rule forms', () => {
 	for (const raw of [
 		'AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): (PIN app1 (verify) OR PIN app2 (verify))',
 		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): SM CRT 0xB4',
-		'command description 0x84 (D4)',
+		'command description 0x85 (D4)',
 	]) {
 		const rm = fcpArrRuleParse(raw);
 		assert.strictEqual(rm.raw, raw, raw);
@@ -1104,8 +1104,8 @@ test('fcpArrRule mutators re-encode the canonical line', () => {
 	m = fcpArrRuleSetSc(m, 0, 'never');
 	assert.strictEqual(fcpArrRuleEncode(m), 'RESIZE FILE (AM_DO 0x84, INS 0xD4): never');
 	// a raw model is never modified
-	const raw = fcpArrRuleParse('command description 0x84 (D4)');
-	assert.strictEqual(fcpArrRuleEncode(fcpArrRuleToggleBit(raw, 0x01, true)), 'command description 0x84 (D4)');
+	const raw = fcpArrRuleParse('command description 0x85 (D4)');
+	assert.strictEqual(fcpArrRuleEncode(fcpArrRuleToggleBit(raw, 0x01, true)), 'command description 0x85 (D4)');
 });
 
 test('the access-rules editor renders structured rows', () => {
@@ -1154,7 +1154,15 @@ test('the access-rules editor renders structured rows', () => {
 	_profilerArrOpen = {};
 	// Check opens the block, None hides it
 	assert.ok(html.includes('_profilerArrOpen[i] = on;'), 'the radio drives the visibility');
+	// a fresh draft resets the open blocks
+	assert.ok(html.includes("_profilerArrOpen = {};\n\tprofilerSetView('editor');"), 'profilerEdit resets the blocks');
 	delete global.t;
+});
+
+test('the access-rule open state survives rule deletion', () => {
+	assert.deepStrictEqual(profilerArrShiftOpen({ 0: true, 2: true, 3: true }, 1), { 0: true, 1: true, 2: true });
+	assert.deepStrictEqual(profilerArrShiftOpen({ 0: true, 2: true, 3: true }, 2), { 0: true, 2: true });
+	assert.deepStrictEqual(profilerArrShiftOpen({}, 0), {});
 });
 
 test('profilerResultAspects and the summary include Access rules', () => {
