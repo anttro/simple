@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.24.0';
+const SIMPLE_VERSION = '3.25.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -18939,6 +18939,11 @@ function profilerValidateProfile(obj) {
 		if (r.type !== 'file') return 'Unsupported rule type: ' + r.type;
 		if (!r.path) return 'Rule missing path';
 		if (r.fciMode && !['type', 'type_size', 'exact'].includes(r.fciMode)) return 'Invalid FCP/FCI mode: ' + r.fciMode;
+		if (r.accessRules !== undefined && r.accessRules !== null) {
+			const ar = r.accessRules;
+			if (typeof ar !== 'object' || !Array.isArray(ar.expected) ||
+			    ar.expected.some(x => typeof x !== 'string')) return 'Invalid access rules: ' + r.path;
+		}
 	}
 	return null;
 }
@@ -19287,7 +19292,7 @@ async function profilerScanCard(ignoreFids, ignoreNames, fciMode, onProgress, ma
 
 let _scanSnapshot = null;
 
-function profilerBuildFileRuleFromSnapshot(f, ignoreFids, ignoreNames, fciMode, maskFids) {
+function profilerBuildFileRuleFromSnapshot(f, ignoreFids, ignoreNames, fciMode, maskFids, arrs) {
 	const isRecord = profilerContentKindForFileType(f.fileType) === 'record';
 	const rule = {
 		type: 'file',
@@ -19301,6 +19306,12 @@ function profilerBuildFileRuleFromSnapshot(f, ignoreFids, ignoreNames, fciMode, 
 		fciHex: f.fciHex || null,
 		content: null,
 	};
+	// Access rules from the snapshot's own EF.ARR copies (v3.25.0)
+	const ref = fcpArrRefFromFci(rule.fciHex);
+	if (ref) {
+		const got = fcpArrRules(ref, arrs || [], f.path);
+		if (got.rules.length) rule.accessRules = { expected: got.rules };
+	}
 	const seg = (f.path || '').toUpperCase().split('/').pop();
 	const fid = /^[0-9A-F]{4}$/.test(seg) ? seg : '';
 	const name = (f.name || '').toUpperCase();
@@ -19324,11 +19335,13 @@ function profilerBuildFileRuleFromSnapshot(f, ignoreFids, ignoreNames, fciMode, 
 async function profilerScanSnapshot(snapshot, ignoreFids, ignoreNames, fciMode, maskFids, onProgress) {
 	const files = (snapshot && snapshot.files) ? snapshot.files : [];
 	const total = files.length;
+	// the snapshot's own EF.ARR copies feed every rule's access-rules capture
+	const arrs = profilerSnapshotArr(snapshot);
 	if (onProgress) onProgress(0, total, '');
 	const rules = [];
 	for (let i = 0; i < files.length; i++) {
 		if (onProgress) onProgress(i + 1, total, files[i].path);
-		rules.push(profilerBuildFileRuleFromSnapshot(files[i], ignoreFids, ignoreNames, fciMode, maskFids));
+		rules.push(profilerBuildFileRuleFromSnapshot(files[i], ignoreFids, ignoreNames, fciMode, maskFids, arrs));
 		if (i % 20 === 19) await new Promise(r => setTimeout(r, 0));
 	}
 	return rules;
@@ -19353,6 +19366,16 @@ async function profilerBuildFileRule(path, c, ignoreFids, ignoreNames, fciMode, 
 		fciHex: sel.fci_hex || null,
 		content: null,
 	};
+	// Access rules (v3.25.0): resolve the FCP's '8B' reference against the
+	// card's cached EF.ARR copies.  Captured before the ignore list - the
+	// rules are the meaningful per-file check (contents may be ignored).
+	try {
+		const ref = fcpArrRefFromFci(rule.fciHex);
+		if (ref) {
+			const got = fcpArrRules(ref, await pysimArrEnsure(), path);
+			if (got.rules.length) rule.accessRules = { expected: got.rules };
+		}
+	} catch (e) {}
 	const fid = (c.fid || sel.fid || '').toUpperCase();
 	const name = (c.name || sel.name || '').toUpperCase();
 	if (ignoreFids.has(fid) || (ignoreNames && ignoreNames.has(name))) return rule;
@@ -19779,8 +19802,51 @@ function profilerRenderRule(i, r) {
 	if (r.fileType !== 'df') {
 		html += profilerRenderContentEditor(i, r);
 	}
+	html += profilerRenderAccessRulesEditor(i, r);
 	html += '</div>';
 	return html;
+}
+
+// Access-rules check editor (v3.25.0): the captured rule lines are read-only
+// (capture fills them from the card/snapshot); the radio toggles the check.
+function profilerRenderAccessRulesEditor(i, r) {
+	const ar = r.accessRules || null;
+	const lines = (ar && ar.expected) || [];
+	const on = !!(ar && ar.enabled !== false && lines.length);
+	let html = '<div class="flex items-center justify-between mb-1 mt-1">';
+	html += '<span class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Check access rules')) + '</span>';
+	html += '<div class="flex items-center gap-3">';
+	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="none"' + (!on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',false)"> ' + esc(t('None')) + '</label>';
+	html += '<label class="text-xs flex items-center gap-1' + (lines.length ? '' : ' opacity-50') + '"><input type="radio" name="profiler-ar-' + i + '" value="check"' + (on ? ' checked' : '') + (lines.length ? '' : ' disabled') + ' onchange="profilerSetAccessRules(' + i + ',true)"> ' + esc(t('Check')) + '</label>';
+	html += '</div></div>';
+	if (r.fciMode === 'exact') {
+		html += '<label class="text-xs flex items-center gap-1 mb-1' + (on ? '' : ' opacity-50') + '"><input type="checkbox"' + (ar && ar.ignoreFciRef ? ' checked' : '') + (on ? '' : ' disabled') + ' onchange="profilerSetAccessRulesIgnore(' + i + ',this.checked)"> ' + esc(t('Ignore the EF.ARR reference in the exact FCI')) + '</label>';
+	}
+	if (lines.length) {
+		html += '<div class="mb-2 pl-2 space-y-0.5">';
+		for (const x of lines) {
+			html += '<div class="text-xs font-mono text-gray-600 dark:text-slate-400">' + esc('\u21b3 ' + x) + '</div>';
+		}
+		html += '</div>';
+	} else {
+		html += '<div class="mb-2 text-xs text-gray-400 dark:text-slate-500">' + esc(t('Captured when the profile is created from a card or a snapshot')) + '</div>';
+	}
+	return html;
+}
+
+function profilerSetAccessRules(i, on) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) r.accessRules = { expected: [] };
+	r.accessRules.enabled = on;
+	profilerRenderEditor();
+}
+
+function profilerSetAccessRulesIgnore(i, on) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) r.accessRules = { expected: [] };
+	r.accessRules.ignoreFciRef = on;
 }
 
 function profilerRenderContentEditor(i, r) {
@@ -20091,11 +20157,15 @@ function profilerLiveSource() {
 	return {
 		select: path => pysimFetch('/api/select', { path: path }),
 		read: path => pysimFetch('/api/read', { path: path, mode: 'raw' }),
+		// the card's ARR cache (read once per session at equip) - fetched
+		// lazily, only when a rule checks access rules
+		arrs: () => pysimArrEnsure(),
 	};
 }
 
 function profilerSnapshotSource(snapshot) {
 	const find = path => (snapshot.files || []).find(f => (f.path || '').toUpperCase() === (path || '').toUpperCase());
+	let arrCache = null;
 	return {
 		select: async path => {
 			const f = find(path);
@@ -20117,6 +20187,8 @@ function profilerSnapshotSource(snapshot) {
 			if (f.content.kind === 'record') return { success: true, records: f.content.records };
 			return { success: true, data: f.content.data };
 		},
+		// the snapshot's own EF.ARR copies (memoized per source)
+		arrs: () => arrCache || (arrCache = profilerSnapshotArr(snapshot)),
 	};
 }
 
@@ -20164,11 +20236,50 @@ async function profilerRunRule(r, source) {
 		}
 	}
 	if (fciMode === 'exact' && r.fciHex) {
-		const expected = profilerNormHexStrict(r.fciHex);
-		const actual = profilerNormHexStrict(sel.fci_hex);
+		let expected = profilerNormHexStrict(r.fciHex);
+		let actual = profilerNormHexStrict(sel.fci_hex);
+		let ignoredRef = false;
+		// the EF.ARR reference's record number may differ across cards while
+		// the access rules match - the rules check owns its meaning then
+		if (r.accessRules && r.accessRules.enabled !== false && r.accessRules.ignoreFciRef &&
+		    (r.accessRules.expected || []).length) {
+			const e2 = fcpWithoutArrRef(expected);
+			const a2 = fcpWithoutArrRef(actual);
+			if (e2 !== null && a2 !== null) { expected = e2; actual = a2; ignoredRef = true; }
+		}
 		const ok = !!expected && expected === actual;
 		if (!ok) res.status = 'fail';
-		res.checks.push({ label: 'fci', expected: r.fciHex, actual: sel.fci_hex || '', ok: ok });
+		res.checks.push({ label: 'fci', expected: r.fciHex, actual: sel.fci_hex || '', ok: ok, ignoredRef: ignoredRef });
+	}
+	// Access rules (v3.25.0): the decoded conditions of the EF.ARR record the
+	// FCI's '8B' reference points at - record-number independent, so cards
+	// with a different EF.ARR layout still verify.
+	if (r.accessRules && r.accessRules.enabled !== false && (r.accessRules.expected || []).length) {
+		const ref = fcpArrRefFromFci(sel.fci_hex);
+		if (!ref) {
+			res.status = 'fail';
+			res.checks.push({ label: 'accessRules', expected: r.accessRules.expected, actual: null, ok: false,
+				missing: r.accessRules.expected.slice(), extra: [] });
+		} else {
+			let arrs = [];
+			try {
+				arrs = !source.arrs ? [] : (typeof source.arrs === 'function' ? await source.arrs() : source.arrs);
+			} catch (e) { arrs = []; }
+			const got = fcpArrRules(ref, arrs, r.path);
+			if (!got.found) {
+				if (res.status === 'pass') res.status = 'error';
+				res.checks.push({ label: 'accessRules', expected: r.accessRules.expected, actual: null, ok: false,
+					unresolved: true, missing: [], extra: [] });
+			} else {
+				const exp = r.accessRules.expected;
+				const missing = exp.filter(x => !got.rules.includes(x));
+				const extra = got.rules.filter(x => !exp.includes(x));
+				const ok = !missing.length && !extra.length;
+				if (!ok) res.status = 'fail';
+				res.checks.push({ label: 'accessRules', expected: exp, actual: got.rules, ok: ok,
+					missing: missing, extra: extra });
+			}
+		}
 	}
 	if (r.content) {
 		let rd;
@@ -20233,7 +20344,7 @@ function profilerCustomNameForPath(path) {
 // that actually ran. 'Exact FCI' subsumes filetype/size/records; 'exists' is
 // implicit and omitted.
 function profilerResultAspects(res) {
-	const groups = { filetype: [], size: [], records: [], 'Exact FCI': [], contents: [] };
+	const groups = { filetype: [], size: [], records: [], 'Exact FCI': [], contents: [], accessRules: [] };
 	for (const c of (res.checks || [])) {
 		const l = c.label;
 		if (l === 'fileType') groups.filetype.push(c);
@@ -20241,6 +20352,7 @@ function profilerResultAspects(res) {
 		else if (l === 'recordLen' || l === 'numRecords') groups.records.push(c);
 		else if (l === 'fci') groups['Exact FCI'].push(c);
 		else if (l === 'content' || l.startsWith('content.')) groups.contents.push(c);
+		else if (l === 'accessRules') groups.accessRules.push(c);
 	}
 	const out = [];
 	if (groups['Exact FCI'].length) {
@@ -20251,6 +20363,7 @@ function profilerResultAspects(res) {
 		if (groups.records.length) out.push({ key: 'records', ok: groups.records.every(c => c.ok) });
 	}
 	if (groups.contents.length) out.push({ key: 'contents', ok: groups.contents.every(c => c.ok) });
+	if (groups.accessRules.length) out.push({ key: 'Access rules', ok: groups.accessRules.every(c => c.ok) });
 	return out;
 }
 
@@ -20269,6 +20382,7 @@ function profilerAspectSummary(aspects, marked, tr) {
 	const parts = [];
 	if (fcp) parts.push(fcp);
 	if (has('contents')) parts.push(tr('contents'));
+	if (has('Access rules')) parts.push(tr('Access rules'));
 	return parts.join(', ');
 }
 
@@ -20409,14 +20523,35 @@ function fcpSeidName(seid) {
 	return 'SE' + (Number(seid) || 0).toString(16).toUpperCase().padStart(2, '0');
 }
 
+// The FCP's '8B' referencing DO of an FCI hex, parsed (or null).
+function fcpArrRefFromFci(hex) {
+	const item = fcpDecode(hex).items.find(i => i.key === '8B');
+	return item ? fcpArrRef(item.value) : null;
+}
+
+// The FCI without its top-level '8B' referencing DO: the exact-FCI comparison
+// with `ignoreFciRef` compares these, so a different EF.ARR record number no
+// longer fails while every other DO is still compared byte-exactly (the
+// reference's meaning is verified by the access-rules check).  Returns null
+// when the FCI does not parse - the caller falls back to the strict compare.
+function fcpWithoutArrRef(hex) {
+	const d = fcpDecode(hex);
+	if (!d.items.length || d.error) return null;
+	const parts = d.items.filter(i => i.key.indexOf('/') < 0 && i.key !== '8B').map(i => i.raw || '');
+	if (parts.some(p => !p)) return null;
+	return (d.template || '') + ':' + parts.join('');
+}
+
 // Access rules of the record(s) an FCP '8B' reference points at, resolved
 // against a set of EF.ARR copies ({fid, path, records[]} - the server's
 // /api/arr cache or a snapshot's own EF.ARR files).  `path` is the tree path
 // of the file whose FCI is shown: it picks the ARR copy of that DF (the
 // ISO 7816-4 5.4.3.3 lookup order - ADF files use the ADF's 6F06 copy).
-// Returns [] when nothing resolves - the caller stays silent (v3.24.0).
+// Returns {found, rules}: found = at least one referenced record exists;
+// rules = the decoded rule lines (empty when nothing resolves - the caller
+// stays silent, v3.24.0).
 function fcpArrRules(ref, arrs, path) {
-	if (!ref || !arrs || !arrs.length) return [];
+	if (!ref || !arrs || !arrs.length) return { found: false, rules: [] };
 	const df = (((path || '').split('/')[0]) || 'MF').toUpperCase();
 	const pick = fid => {
 		const hits = arrs.filter(a => String(a.fid || '').toUpperCase() === fid);
@@ -20424,10 +20559,12 @@ function fcpArrRules(ref, arrs, path) {
 		return hits.find(a => String(a.path || '').split('/')[0].toUpperCase() === df) || hits[0];
 	};
 	const out = [];
+	let found = false;
 	const add = (label, fid, record) => {
 		const arr = pick(fid);
 		const recs = (arr && arr.records) || [];
 		if (!(record >= 1) || record > recs.length) return;
+		found = true;
 		const dec = efDecArr(efBytes(recs[record - 1] || ''));
 		for (const rule of ((dec && dec.rules) || [])) {
 			out.push((label ? label + ': ' : '') + rule);
@@ -20440,7 +20577,7 @@ function fcpArrRules(ref, arrs, path) {
 	} else {
 		add('', ref.fid, ref.record);
 	}
-	return out;
+	return { found: found, rules: out };
 }
 
 function fcpDo(key, value) {
@@ -20598,13 +20735,13 @@ function fcpDecode(hex) {
 	const items = [];
 	for (const t of parsed.tlvs) {
 		const d = fcpDo(t.tag, t.value);
-		items.push({ key: t.tag, tag: t.tag, name: d.name, value: t.value, decoded: d.decoded });
+		items.push({ key: t.tag, tag: t.tag, name: d.name, value: t.value, decoded: d.decoded, raw: t.raw });
 		if (t.tag === 'A5' || t.tag === 'C6') {
 			const sub = fcpParseTlvs(t.value);
 			if (!error && sub.error) error = 'In ' + t.tag + ': ' + sub.error;
 			for (const s of sub.tlvs) {
 				const sd = fcpDo(t.tag + '/' + s.tag, s.value);
-				items.push({ key: t.tag + '/' + s.tag, tag: s.tag, name: sd.name, value: s.value, decoded: sd.decoded });
+				items.push({ key: t.tag + '/' + s.tag, tag: s.tag, name: sd.name, value: s.value, decoded: sd.decoded, raw: s.raw });
 			}
 		}
 	}
@@ -20616,18 +20753,19 @@ function profilerLabelText(labels, which) {
 	return labels.prefix ? t(which) + ' (' + labels[which] + ')' : labels[which];
 }
 
-function fcpDiffHtml(expectedHex, actualHex, labels) {
+function fcpDiffHtml(expectedHex, actualHex, labels, opts) {
 	const expLabel = profilerLabelText(labels, 'expected');
 	const actLabel = profilerLabelText(labels, 'actual');
 	const e = fcpDecode(expectedHex);
 	const a = fcpDecode(actualHex);
 	const eBad = !!e.error, aBad = !!a.error;
 	if (!eBad && !aBad && (!e.items.length || !a.items.length)) return '';
+	const skipKey = k => !!(opts && opts.ignoreArrRef && k === '8B');
 	const eMap = {}, aMap = {};
 	e.items.forEach(it => { eMap[it.key] = it; });
 	a.items.forEach(it => { aMap[it.key] = it; });
-	const keys = e.items.map(it => it.key);
-	for (const it of a.items) if (!eMap[it.key]) keys.push(it.key);
+	const keys = e.items.map(it => it.key).filter(k => !skipKey(k));
+	for (const it of a.items) if (!eMap[it.key] && !skipKey(it.key)) keys.push(it.key);
 	let html = '';
 	if (keys.length) {
 		html += '<div class="mt-1 text-xs text-gray-500 dark:text-slate-400">' + esc(t('FCI parameters')) + '</div>';
@@ -20651,6 +20789,10 @@ function fcpDiffHtml(expectedHex, actualHex, labels) {
 	}
 	if (eBad) html += '<div class="text-xs text-red-600 mt-0.5 pl-2">' + esc(expLabel) + ': ' + esc(e.error) + '</div>';
 	if (aBad) html += '<div class="text-xs text-red-600 mt-0.5 pl-2">' + esc(actLabel) + ': ' + esc(a.error) + '</div>';
+	if (opts && opts.ignoreArrRef) {
+		html += '<div class="text-xs text-gray-500 dark:text-slate-400 mt-0.5 pl-2">' +
+			esc(t('EF.ARR reference ignored (verified by the access-rules check)')) + '</div>';
+	}
 	return html;
 }
 
@@ -20689,7 +20831,7 @@ function profilerFciPreviewItems(hex, opts) {
 		// ARR content (the file manager's live cache, or a snapshot's copy)
 		const ref = it.key === '8B' ? fcpArrRef(it.value) : null;
 		rows.push({ key: it.key, name: it.name, text: it.decoded || it.value,
-			sub: ref ? fcpArrRules(ref, opts.arr, opts.path) : [] });
+			sub: ref ? fcpArrRules(ref, opts.arr, opts.path).rules : [] });
 	}
 	const fi = rows.find(r => r.key === '83');
 	const sfi = rows.find(r => r.key === '88');
@@ -20720,6 +20862,30 @@ function profilerFciInput(i, value) {
 	profilerUpdateFciPreview(i, value);
 }
 
+// A failed access-rules check: the decoded rules of the referenced EF.ARR
+// record, expected vs actual (set diff; v3.25.0).
+function profilerAccessRulesDiffHtml(c) {
+	let html = '<div class="mt-1 pl-2">';
+	html += '<div class="text-xs text-red-600 font-mono">' + esc(t('Access rules')) + '</div>';
+	if (c.unresolved) {
+		html += '<div class="text-xs text-yellow-600 mt-0.5">' +
+			esc(t('the EF.ARR reference could not be resolved (no cached EF.ARR or the record is out of range)')) + '</div>';
+		return html + '</div>';
+	}
+	if (!c.actual) {
+		html += '<div class="text-xs text-red-600 mt-0.5">' + esc(t('the FCI has no EF.ARR reference')) + '</div>';
+	}
+	const line = (mark, cls, text) => '<div class="text-xs font-mono mt-0.5 ' + cls + '">' + esc(mark + ' ' + text) + '</div>';
+	for (const x of (c.expected || [])) {
+		const miss = (c.missing || []).includes(x);
+		html += line(miss ? '\u2212' : '\u2713', miss ? 'text-red-600' : 'text-gray-500 dark:text-slate-400', x);
+	}
+	for (const x of (c.extra || [])) {
+		html += line('+', 'text-red-600', x);
+	}
+	return html + '</div>';
+}
+
 function profilerRenderReport(results, labels) {
 	const expLabel = profilerLabelText(labels, 'expected');
 	const actLabel = profilerLabelText(labels, 'actual');
@@ -20743,6 +20909,8 @@ function profilerRenderReport(results, labels) {
 			if (c.ok) continue;
 			if (c.label === 'extra file') {
 				html += '<div class="text-xs text-red-600 mt-1">' + esc(t('extra file')) + '</div>';
+			} else if (c.label === 'accessRules') {
+				html += profilerAccessRulesDiffHtml(c);
 			} else if (profilerRawDataCheck(c)) {
 				const isContent = c.label === 'content' || /^content\.rec\d+$/.test(c.label);
 				const dd = isContent && typeof efContentDiff === 'function'
@@ -20776,7 +20944,7 @@ function profilerRenderReport(results, labels) {
 				} else if (dd && dd.sameDecoded) {
 					html += '<div class="text-xs text-gray-500 dark:text-slate-400 pl-2 mt-0.5">' + esc(t('Decoded values match; raw bytes differ')) + '</div>';
 				}
-				if (c.label === 'fci') html += fcpDiffHtml(String(c.expected), String(c.actual), labels);
+				if (c.label === 'fci') html += fcpDiffHtml(String(c.expected), String(c.actual), labels, c.ignoredRef ? { ignoreArrRef: true } : null);
 				html += '</div>';
 			} else {
 				html += '<div class="text-xs text-red-600 mt-1">' + esc(c.label) + ': ' + esc(expLabel) + ' <b>' + esc(String(c.expected)) + '</b>, ' + esc(actLabel) + ' <b>' + esc(String(c.actual)) + '</b></div>';
@@ -22925,6 +23093,14 @@ const LANG_RU = {
 	'of': 'из',
 	'None': 'Нет',
 	'Exact': 'Точное',
+	'Check': 'Проверять',
+	'Access rules': 'Правила доступа',
+	'Check access rules': 'Проверять правила доступа',
+	'Ignore the EF.ARR reference in the exact FCI': 'Игнорировать ссылку на EF.ARR в точном FCI',
+	'the FCI has no EF.ARR reference': 'в FCI нет ссылки на EF.ARR',
+	'the EF.ARR reference could not be resolved (no cached EF.ARR or the record is out of range)': 'ссылку на EF.ARR не удалось разрешить (нет кэша EF.ARR или запись вне диапазона)',
+	'Captured when the profile is created from a card or a snapshot': 'Заполняется при создании профиля с карты или из снимка',
+	'EF.ARR reference ignored (verified by the access-rules check)': 'Ссылка на EF.ARR игнорируется (проверяется по правилам доступа)',
 	'Mask': 'Маска',
 	'Checking': 'Проверка',
 	'passed': 'пройдено',

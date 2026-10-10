@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -928,6 +928,136 @@ test('pysimArrEnsure does not cache a transient failure', async () => {
 	delete globalThis.pysimFetch;
 	_pysimArrCache = null;
 	_pysimCardSession = null;
+});
+
+test('fcpWithoutArrRef drops only the 8B referencing DO', () => {
+	const a = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const b = '621A82054221000F0583026F4F8A01058B032F06098802004B8801B0';
+	const wa = fcpWithoutArrRef(a), wb = fcpWithoutArrRef(b);
+	assert.ok(wa && wb, 'parseable');
+	assert.strictEqual(wa, wb);                    // only the record number differed
+	assert.ok(!wa.includes('8B03'), wa);           // the reference is gone
+	assert.ok(wa.includes('82054221000F05'), wa);  // every other DO is kept
+	assert.strictEqual(fcpWithoutArrRef('garbage'), null);
+});
+
+test('fcpArrRefFromFci reads the 8B reference of an FCI', () => {
+	assert.deepStrictEqual(fcpArrRefFromFci('621A82054221000F0583026F4F8A01058B032F06028802004B8801B0'),
+		{ fid: '2F06', record: 2 });
+	assert.strictEqual(fcpArrRefFromFci('621582054221000F0583026F4F8A01058002004B8801B0'), null);
+});
+
+test('access rules are captured from a snapshot rule', () => {
+	const snap = { files: [
+		{ path: 'MF/2F06', name: 'EF.ARR', fileType: 'linear_fixed', recordLen: 6, numRecords: 2,
+		  content: { kind: 'record', records: [{ num: 1, data: 'FFFF' },
+			{ num: 2, data: '800101A40683010A950108' }] } },
+		{ path: 'MF/7F20/6F07', name: 'EF.IMSI',
+		  fciHex: '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0' },
+	]};
+	const arrs = profilerSnapshotArr(snap);
+	const rule = profilerBuildFileRuleFromSnapshot(snap.files[1], new Set(), null, 'type_size', null, arrs);
+	assert.deepStrictEqual(rule.accessRules,
+		{ expected: ['AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)'] });
+	// without the ARR copies nothing is captured
+	const bare = profilerBuildFileRuleFromSnapshot(snap.files[1], new Set(), null, 'type_size', null, []);
+	assert.strictEqual(bare.accessRules, undefined);
+});
+
+test('profilerRunRule checks the access rules against the ARR copies', async () => {
+	const FCI2 = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const ADM = 'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): ADM1 (verify)';
+	const ALW = 'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always';
+	const arrs = [{ fid: '2F06', path: 'MF/2F06', records: ['FFFF', '800101A40683010A950108'] }];
+	const src = (fci, a) => ({
+		select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed', file_size: null,
+			record_len: 6, num_of_rec: 2, fci_hex: fci, exists: true }),
+		read: async () => ({ success: false }),
+		arrs: () => a,
+	});
+	const rule = fciHex => ({ type: 'file', path: 'MF/7F20/6F07', name: 'EF.SAMPLE',
+		fileType: 'linear_fixed', fciMode: 'type_size', fciHex: fciHex, accessRules: { expected: [ADM] } });
+	// pass
+	const ok = await profilerRunRule(rule(FCI2), src(FCI2, arrs));
+	assert.strictEqual(ok.status, 'pass', JSON.stringify(ok.checks));
+	// mismatch: missing + extra
+	const bad = await profilerRunRule(
+		{ ...rule(FCI2), accessRules: { expected: [ALW] } }, src(FCI2, arrs));
+	assert.strictEqual(bad.status, 'fail');
+	const c1 = bad.checks.find(c => c.label === 'accessRules');
+	assert.deepStrictEqual(c1.missing, [ALW]);
+	assert.deepStrictEqual(c1.extra, [ADM]);
+	// no EF.ARR reference on the card
+	const FCI0 = '621582054221000F0583026F4F8A01058002004B8801B0';
+	const noref = await profilerRunRule(rule(FCI2), src(FCI0, arrs));
+	assert.strictEqual(noref.status, 'fail');
+	assert.strictEqual(noref.checks.find(c => c.label === 'accessRules').actual, null);
+	// unresolvable (no cached ARR / record out of range)
+	const unres = await profilerRunRule(rule(FCI2), src(FCI2, []));
+	assert.strictEqual(unres.status, 'error');
+	assert.ok(unres.checks.find(c => c.label === 'accessRules').unresolved);
+});
+
+test('ignoreFciRef compares the FCI without the EF.ARR reference', async () => {
+	const FCI2 = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const FCI9 = '621A82054221000F0583026F4F8A01058B032F06098802004B8801B0';
+	const ALW = 'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always';
+	// record 2 and record 9 carry the same rule
+	const arrs = [{ fid: '2F06', path: 'MF/2F06',
+		records: ['', '8001019000', '', '', '', '', '', '', '8001019000'] }];
+	const src = fci => ({
+		select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed', fci_hex: fci, exists: true }),
+		read: async () => ({ success: false }),
+		arrs: () => arrs,
+	});
+	const rule = { type: 'file', path: 'MF/7F20/6F07', fileType: 'linear_fixed', fciMode: 'exact',
+		fciHex: FCI2, accessRules: { expected: [ALW], ignoreFciRef: true } };
+	const res = await profilerRunRule(rule, src(FCI9));
+	assert.strictEqual(res.status, 'pass', JSON.stringify(res.checks));
+	assert.strictEqual(res.checks.find(c => c.label === 'fci').ignoredRef, true);
+	// without the flag the same setup fails on the FCI
+	const strict = await profilerRunRule({ ...rule, accessRules: { expected: [ALW] } }, src(FCI9));
+	assert.strictEqual(strict.status, 'fail');
+	assert.strictEqual(strict.checks.find(c => c.label === 'fci').ok, false);
+});
+
+test('profilerResultAspects and the summary include Access rules', () => {
+	const res = { checks: [
+		{ label: 'exists', ok: true },
+		{ label: 'fileType', ok: true },
+		{ label: 'accessRules', ok: false, expected: ['x'], actual: ['y'], missing: ['x'], extra: ['y'] },
+	]};
+	const aspects = profilerResultAspects(res);
+	assert.ok(aspects.some(a => a.key === 'Access rules' && !a.ok), JSON.stringify(aspects));
+	const sum = profilerAspectSummary(aspects, true, s => s);
+	assert.ok(sum.includes('Access rules'), sum);
+});
+
+test('profile validation accepts the access-rules field', () => {
+	const base = { name: 'P', rules: [{ type: 'file', path: 'MF/7F20/6F07' }] };
+	assert.strictEqual(profilerValidateProfile(base), null);
+	assert.strictEqual(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: ['AM 0x01: always'] } }] }), null);
+	assert.ok(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: 'nope' } }] }));
+	assert.ok(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: [1] } }] }));
+});
+
+test('the access-rules report block marks missing and extra lines', () => {
+	global.t = s => s;
+	const html = profilerAccessRulesDiffHtml({ label: 'accessRules', ok: false,
+		expected: ['A', 'B'], actual: ['B', 'C'], missing: ['A'], extra: ['C'] });
+	assert.ok(html.includes('\u2212 A'), html);
+	assert.ok(html.includes('\u2713 B'), html);
+	assert.ok(html.includes('+ C'), html);
+	const unres = profilerAccessRulesDiffHtml({ label: 'accessRules', ok: false, unresolved: true,
+		expected: ['A'], actual: null, missing: [], extra: [] });
+	assert.ok(unres.includes('could not be resolved'), unres);
+	const noref = profilerAccessRulesDiffHtml({ label: 'accessRules', ok: false,
+		expected: ['A'], actual: null, missing: ['A'], extra: [] });
+	assert.ok(noref.includes('no EF.ARR reference'), noref);
+	delete global.t;
 });
 
 test('pysimFsInfoHtml embeds the symbolic name in the FCI border', () => {
