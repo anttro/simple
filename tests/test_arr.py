@@ -147,6 +147,16 @@ class CacheTests(unittest.TestCase):
         seg = SRC[SRC.index("elif self.path == '/api/write':"):SRC.index("elif self.path == '/api/tree':")]
         self.assertIn('_arr_refresh_after_write', seg)
 
+    def test_the_startup_init_reads_the_arr(self):
+        # a card present at server start never runs _apply_equipped_card, so
+        # the startup init reads the ARR in its own CAT-free window (v3.24.0
+        # review - the cache was empty on a startup-equipped card)
+        src = (ROOT / 'pysim_simple_server' / '__main__.py').read_text(encoding='utf-8')
+        self.assertIn('arr_files = _read_arr(app)', src)
+        self.assertIn('server.arr = arr_files', src)
+        imp = src[src.index('from .server import'):]
+        self.assertIn('_read_arr', imp[:imp.index('\n')])
+
 
 class ArrRouteTests(unittest.TestCase):
     """GET /api/arr serves the session cache without touching the card."""
