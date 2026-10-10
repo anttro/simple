@@ -496,12 +496,15 @@ All RAM operations are delivered as SCP80 secured packets (ETSI TS 102 225) via 
 
 Select a saved card configuration from the **Card preset** dropdown. If no preset is selected, the RAM tab warns and refuses to execute.
 
-The RAM subtab offers two operations selected from the **Operation** dropdown:
+The RAM subtab offers five operations selected from the **Operation** dropdown:
 
 | Operation | Description |
 |---|---|
 | **Explore Card (all GP data)** | Queries GET STATUS for ISD, Applications, ELFs, and ELF Modules, plus GET DATA FF21 for memory info. Results appear in an explorer view with per-item **Delete** buttons. |
 | **Install Package (.cap file)** | Sends a `.cap` file to the card via the server: INSTALL\[for load\] → LOAD ×N → INSTALL\[for install (+make selectable)\]. The load file is split into LOAD APDUs of 1–240 bytes of payload (240 by default, editable in **LOAD block size**); a secured packet larger than one SMS is delivered as a concatenated SMS-PP download of up to 5 segments. |
+| **CAP compatibility test** | Answers whether the card can satisfy the CAP's import list without installing anything: the server runs the format check, INSTALL\[for load\] and the LOAD blocks only up to the block completing the **Import** component (where the JCRE verifies the import list), then stops — nothing is committed and nothing has to be deleted. The **Import versions to test** list is pre-filled from the CAP analysis (`AID=version` rewrites a requested version, `+AID=version` appends a synthetic capability query, **Set all 0.0** drops every requirement); press Set all 0.0 first, then restore one line at a time to find the missing package and version. Covers the LOAD/import gate only. |
+| **INSTALL \[for install\] (loaded package)** | One INSTALL \[for install\] APDU for a package already loaded on the card (Load File AID + Module AID, privileges, install/STK parameters, optional make selectable) — iterate the parameters without re-loading the `.cap`. |
+| **INSTALL \[for make selectable\]** | One INSTALL \[for make selectable\] APDU (the instance AID) for an INSTALLED, non-selectable applet instance. |
 
 #### Explorer View
 
@@ -538,6 +541,8 @@ Stores saved card configurations (presets) in a **server-side store** — `~/.py
 | Name | Human-readable label (required) |
 | ICCID | Optional card identifier |
 | ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), stored for the file manager; not used by the SCP80/SCP81 views |
+| PIN1 / PUK1 / PIN2 / PUK2 | Optional card codes, stored for later use (4–8 decimal digits; nothing consumes them yet) |
+| CAT release | Optional card CAT (USAT) release (4–18; empty = unspecified, resolved as Rel-12) — the release guard hides CAT items introduced later (the Simulator's event parameters) |
 | SPI1 / SPI2 | Security level and PoR settings |
 | KIc / KID index | Keyset number (`01`–`0F`, from the KIc/KID byte; required together with the keys) |
 | KIc / KID key | Encryption and MAC key hex |
@@ -564,7 +569,7 @@ Connects to the bundled [`pysim-simple-server`](pysim_simple_server/) for live c
 
 ### File Browser
 
-Browse the UICC filesystem in a tree view. Files are shown with names, FIDs, and AIDs (for ADFs). Selecting a file shows its detail pane: FID, file type, size / record layout and the decoded FCI (in a bordered block labelled with the file's symbolic name) above the content pane.
+Browse the UICC filesystem in a tree view. Files are shown with names, FIDs, and AIDs (for ADFs). Selecting a file shows its detail pane: FID, file type, size / record layout and the decoded FCI (in a bordered block labelled with the file's symbolic name) above the content pane. When the FCI references its access rules through an EF.ARR record (security attribute `8B`), the referenced record's decoded rules are shown as indented lines under that row — resolved from the card's cached EF.ARR copies (MF, DF.TELECOM/DF.GSM and ADF.USIM, following the file's DF chain; a snapshot resolves them from its own captured copy).
 
 - Entries are grouped with DFs above EFs and sorted by **FID** or symbolic **Name** (pills pinned above the tree together with **Probe all files**, remembered in `localStorage`)
 - **Read raw** / **Read decoded** — read the selected file as a hex dump or as a decoded field table (client-side decoders for IMSI, ICCID, SPN, PLMN lists, LOCI/EPSLOCI, ADN/MSISDN, service tables, SUME, …); the highlighted pill is the current view and clicking either pill (re-)reads the file. The server-side pySim JSON of the same read stays behind a collapsed *pySim JSON (server)* disclosure; **Read decoded** is disabled when the client-side decoders do not cover the file (resolved by name/FID before reading)
@@ -589,10 +594,11 @@ A filesystem rule is defined by:
 
 - **Path** — `MF`-rooted (e.g. `MF/7F10/6F3A`) or ADF AID-rooted (e.g. `A0000000871002/6F07`).
 - **FCP/FCI check** — **Filetype only (FCP)**, **Filetype + size (FCP)** (adds file size, or record length/count for record files), or **Exact FCI** (byte-for-byte comparison of the raw SELECT FCP template `'62'`, catching FID/AID, life-cycle status, security-attribute, and proprietary-parameter changes).
+- **Access rules** (optional) — verifies the file's access conditions as decoded rules: the FCI's `8B` reference is resolved against the card's (or snapshot's) EF.ARR copies and the decoded lines are compared as a set — record-number independent, so cards with a different EF.ARR layout still verify (missing/extra lines are listed; a lost reference fails; an unresolvable one is unverifiable). Captured automatically when a profile is created from a card or a snapshot; the editor shows each rule as structured rows (operation bits / RESIZE FILE / INCREASE plus security-condition selects, with a canonical preview line; `+ rule` adds one, raw template forms stay read-only) and the block is collapsible with None hiding it. With **Exact FCI**, *Ignore the EF.ARR reference in the exact FCI* compares the FCI without the `8B` value — a different record number no longer fails while the rules check owns its meaning.
 - **File attributes** — file type, size, record length and record count, taken from the FCP template (any may be left unset).
 - **Check contents** (optional) — **Exact** hex equality, or **Mask** where `?` is a per-nibble wildcard (a mask with no `?` is a prefix match, e.g. `0891` for the IMSI MCC/MNC). Record files store a per-record list.
 
-The check report marks each verified aspect (e.g. *filetype ✓, size ✗, contents ✓*), lists mismatches as read-only monospace expected/actual fields aligned in one column, shows content mismatches of files with a decoder as a decoded per-field comparison (only the differing fields, expected and actual side by side; the raw pair is kept when the decoded values match), and shows a decoded per-parameter FCI comparison for FCI mismatches. Corrupt FCI data shows whatever decoded before the faulty part plus an explicit decode-failure note; record mismatches list the *matching records*. In the report the mismatch fields and FCI comparison columns are labelled `expected (profile name)` and `actual (card ICCID)` for a live check, or `actual (snapshot name)` for a snapshot check; the results header reads `Profile verification results for: <profile> → <card ICCID>` (or `… → <snapshot name>`; snapshot comparison: `Snapshot comparison results: <master> → <checked>`). **Only mismatches** in the results header hides all passing files and keeps failures and errors only.
+The check report marks each verified aspect (e.g. *filetype ✓, size ✗, contents ✓, access rules ✗*), lists mismatches as read-only monospace expected/actual fields aligned in one column, shows content mismatches of files with a decoder as a decoded per-field comparison (only the differing fields, expected and actual side by side; the raw pair is kept when the decoded values match), and shows a decoded per-parameter FCI comparison for FCI mismatches. Corrupt FCI data shows whatever decoded before the faulty part plus an explicit decode-failure note; record mismatches list the *matching records*. Access-rule mismatches list the decoded rule lines (✓ matching, − missing, + extra). In the report the mismatch fields and FCI comparison columns are labelled `expected (profile name)` and `actual (card ICCID)` for a live check, or `actual (snapshot name)` for a snapshot check; the results header reads `Profile verification results for: <profile> → <card ICCID>` (or `… → <snapshot name>`; snapshot comparison: `Snapshot comparison results: <master> → <checked>`). **Only mismatches** in the results header hides all passing files and keeps failures and errors only.
 
 #### “Profile from card” scan options
 
@@ -605,7 +611,7 @@ The list view has three tabs — **Profiles**, **Card snapshots** and **Custom f
 - **New snapshot** scans the card; **Import snapshot** loads JSON.
 - Each snapshot row has **Open** (all captured data read-only, raw FCI with decoded FCI and contents; only the name is editable), **Export**, and **Delete**.
 - **Check card snapshot** on a profile row runs the profile rules against a snapshot picked from the list, without a card reader. Files whose contents were not captured are reported as unverifiable errors.
-- **Compare snapshots** compares two snapshots offline exactly like a profile check: pick the *master* snapshot and the *snapshot to check* and get the same report — snapshot comparison is always exact (no content masking). Files present only in the checked snapshot are reported as extra files. In the comparison report the mismatch fields and FCI comparison columns are labeled with the master/checked snapshot names instead of expected/actual.
+- **Compare snapshots** compares two snapshots offline like a profile check but byte-exact for the FCI and the EF.ARR contents (the semantic access-rules aspect belongs to profiles): pick the *master* snapshot and the *snapshot to check* and get the same report — snapshot comparison is always exact (no content masking). Files present only in the checked snapshot are reported as extra files. In the comparison report the mismatch fields and FCI comparison columns are labeled with the master/checked snapshot names instead of expected/actual.
 
 ---
 
