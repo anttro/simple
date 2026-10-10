@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -37,6 +37,7 @@ code += extractFunc(html, 'profilerScanSnapshot', true) + '\n';
 code += extractFunc(html, 'pysimArrEnsure', true) + '\n';
 code += "var _scanTarget = 'profile';\nvar profilerResults = null;\nvar profilerResultsHeader = null;\nvar profilerMismatchOnly = false;\n";
 code += "var _pysimArrCache = null;\nvar _pysimCardSession = null;\n";
+code += "var _profilerArrOpen = {};\n";
 // the view-history hooks (the router lives in the page; this pure test stubs it)
 code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
@@ -1114,23 +1115,45 @@ test('the access-rules editor renders structured rows', () => {
 		'RESIZE FILE (AM_DO 0x84, INS 0xD4): never',
 		'AM 0x02 (UPDATE/ERASE (EF) / CREATE FILE EF (DF)): (PIN app1 (verify) OR PIN app2 (verify))',
 	] } };
-	const html = profilerRenderAccessRulesEditor(3, r);
+	// collapsed by default: the header + toggle carry the rule count, no rows
+	_profilerArrOpen = {};
+	const closed = profilerRenderAccessRulesEditor(3, r);
+	assert.ok(closed.includes('profilerArrToggleOpen(3)'), closed);
+	assert.ok(closed.includes('Check access rules (3)'), closed);
+	assert.ok(!closed.includes('profilerArrToggleBit(3,0,1'), closed);
+	assert.ok(!closed.includes('profilerArrAddRule(3)'), closed);
+	// expanded: structured rows
+	_profilerArrOpen = { 3: true };
+	const out = profilerRenderAccessRulesEditor(3, r);
 	// the READ bit is checked; the condition select shows always
-	assert.ok(html.includes('type="checkbox" checked onchange="profilerArrToggleBit(3,0,1,this.checked)"'), html);
-	assert.ok(html.includes('<option value="always" selected>always</option>'), html);
-	assert.ok(html.includes('<option value="key:10">ADM1</option>'), html);
+	assert.ok(out.includes('type="checkbox" checked onchange="profilerArrToggleBit(3,0,1,this.checked)"'), out);
+	assert.ok(out.includes('<option value="always" selected>always</option>'), out);
+	assert.ok(out.includes('<option value="key:10">ADM1</option>'), out);
 	// the RESIZE row uses the command form, not bits
-	assert.ok(html.includes('<option value="resize" selected>RESIZE FILE</option>'), html);
+	assert.ok(out.includes('<option value="resize" selected>RESIZE FILE</option>'), out);
 	// the template rule is raw and not editable
-	assert.ok(html.includes('raw: AM 0x02'), html);
-	assert.ok(!html.includes('profilerArrToggleBit(3,2'), html);
+	assert.ok(out.includes('raw: AM 0x02'), out);
+	assert.ok(!out.includes('profilerArrToggleBit(3,2'), out);
 	// the preview lines and the + rule button are present
-	assert.ok(html.includes('RESIZE FILE (AM_DO 0x84, INS 0xD4): never'), html);
-	assert.ok(html.includes('profilerArrAddRule(3)'), html);
-	// an empty rule shows the capture hint with no disabled controls
-	const empty = profilerRenderAccessRulesEditor(4, { fciMode: 'type_size', accessRules: null });
+	assert.ok(out.includes('RESIZE FILE (AM_DO 0x84, INS 0xD4): never'), out);
+	assert.ok(out.includes('profilerArrAddRule(3)'), out);
+	// None hides the whole block (no toggle, no body)
+	const none = profilerRenderAccessRulesEditor(3, { ...r, accessRules: { ...r.accessRules, enabled: false } });
+	assert.ok(none.includes('Check access rules'), none);
+	assert.ok(!none.includes('profilerArrToggleOpen'), none);
+	assert.ok(!none.includes('profilerArrAddRule'), none);
+	// a rule without accessRules starts hidden too (Check enables it)
+	const absent = profilerRenderAccessRulesEditor(4, { fciMode: 'type_size', accessRules: null });
+	assert.ok(!absent.includes('profilerArrToggleOpen'), absent);
+	assert.ok(!absent.includes('profilerArrAddRule'), absent);
+	// an enabled but empty block shows the capture hint and + rule
+	_profilerArrOpen = { 4: true };
+	const empty = profilerRenderAccessRulesEditor(4, { fciMode: 'type_size', accessRules: { expected: [] } });
 	assert.ok(empty.includes('profilerArrAddRule(4)'), empty);
 	assert.ok(!empty.includes(' disabled'), empty);
+	_profilerArrOpen = {};
+	// Check opens the block, None hides it
+	assert.ok(html.includes('_profilerArrOpen[i] = on;'), 'the radio drives the visibility');
 	delete global.t;
 });
 

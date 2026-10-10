@@ -19812,19 +19812,27 @@ function profilerRenderRule(i, r) {
 // built the same way; every change re-encodes the canonical decoded line the
 // check compares.  Forms outside the supported subset stay raw (read-only,
 // removable).  Capture fills the lines when a profile is created from a card
-// or a snapshot; the radio toggles the check.
+// or a snapshot; the radio toggles the check, None hides the whole block and
+// the block collapses to its header (the rules are kept either way).
 function profilerRenderAccessRulesEditor(i, r) {
 	const ar = r.accessRules || null;
 	const lines = (ar && ar.expected) || [];
 	const on = !!(ar && ar.enabled !== false);
+	const open = on && !!_profilerArrOpen[i];
 	let html = '<div class="flex items-center justify-between mb-1 mt-1">';
-	html += '<span class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Check access rules')) + '</span>';
+	if (on) {
+		html += '<button onclick="profilerArrToggleOpen(' + i + ')" class="text-xs text-gray-600 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200">' +
+			esc((open ? '\u25be ' : '\u25b8 ') + t('Check access rules') + (lines.length ? ' (' + lines.length + ')' : '')) + '</button>';
+	} else {
+		html += '<span class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Check access rules')) + '</span>';
+	}
 	html += '<div class="flex items-center gap-3">';
 	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="none"' + (!on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',false)"> ' + esc(t('None')) + '</label>';
 	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="check"' + (on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',true)"> ' + esc(t('Check')) + '</label>';
 	html += '</div></div>';
+	if (!open) return html;
 	if (r.fciMode === 'exact') {
-		html += '<label class="text-xs flex items-center gap-1 mb-1' + (on ? '' : ' opacity-50') + '"><input type="checkbox"' + (ar && ar.ignoreFciRef ? ' checked' : '') + (on ? '' : ' disabled') + ' onchange="profilerSetAccessRulesIgnore(' + i + ',this.checked)"> ' + esc(t('Ignore the EF.ARR reference in the exact FCI')) + '</label>';
+		html += '<label class="text-xs flex items-center gap-1 mb-1"><input type="checkbox"' + (ar && ar.ignoreFciRef ? ' checked' : '') + ' onchange="profilerSetAccessRulesIgnore(' + i + ',this.checked)"> ' + esc(t('Ignore the EF.ARR reference in the exact FCI')) + '</label>';
 	}
 	for (let ri = 0; ri < lines.length; ri++) {
 		html += profilerArrRuleHtml(i, ri, lines[ri]);
@@ -19834,6 +19842,15 @@ function profilerRenderAccessRulesEditor(i, r) {
 	}
 	html += '<button onclick="profilerArrAddRule(' + i + ')" class="mb-2 text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('rule')) + '</button>';
 	return html;
+}
+
+// The expanded access-rule blocks of the profile editor (transient UI state,
+// kept across the editor re-renders; None hides the block entirely).
+let _profilerArrOpen = {};
+
+function profilerArrToggleOpen(i) {
+	_profilerArrOpen[i] = !_profilerArrOpen[i];
+	profilerRenderEditor();
 }
 
 // One expected rule row: the operation form + bit checkboxes (or the RESIZE /
@@ -19972,6 +19989,8 @@ function profilerSetAccessRules(i, on) {
 	const r = profilerDraft.rules[i];
 	if (!r.accessRules) r.accessRules = { expected: [] };
 	r.accessRules.enabled = on;
+	// Check opens the block, None hides it (the rules are kept either way)
+	_profilerArrOpen[i] = on;
 	profilerRenderEditor();
 }
 
