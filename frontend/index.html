@@ -15095,7 +15095,8 @@ async function pysimArrEnsure() {
 		const data = await pysimFetch('/api/arr');
 		_pysimArrCache = { session: _pysimCardSession, arrs: (data && data.arrs) || [] };
 	} catch (e) {
-		_pysimArrCache = { session: _pysimCardSession, arrs: [] };
+		// a transient fetch failure is not cached: the next click retries
+		return [];
 	}
 	return _pysimArrCache.arrs;
 }

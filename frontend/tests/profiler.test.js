@@ -34,7 +34,9 @@ code += extractFunc(html, 'profilerCardIccid', true) + '\n';
 code += extractFunc(html, 'profilerCheck', true) + '\n';
 code += extractFunc(html, 'profilerCheckSnapshot', true) + '\n';
 code += extractFunc(html, 'profilerScanSnapshot', true) + '\n';
+code += extractFunc(html, 'pysimArrEnsure', true) + '\n';
 code += "var _scanTarget = 'profile';\nvar profilerResults = null;\nvar profilerResultsHeader = null;\nvar profilerMismatchOnly = false;\n";
+code += "var _pysimArrCache = null;\nvar _pysimCardSession = null;\n";
 // the view-history hooks (the router lives in the page; this pure test stubs it)
 code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
@@ -900,6 +902,32 @@ test('pysimFsInfoHtml shows the referenced ARR rules when given the cache', () =
 	assert.ok(out.includes('EF_ARR 2F06, record 2'), out);
 	assert.ok(out.includes('ADM1 (verify)'), out);
 	delete global.t;
+});
+
+test('pysimArrEnsure does not cache a transient failure', async () => {
+	_pysimArrCache = null;
+	_pysimCardSession = 7;
+	let calls = 0;
+	globalThis.pysimFetch = async () => {
+		calls++;
+		if (calls === 1) throw new Error('server down');
+		return { arrs: [{ fid: '2F06' }] };
+	};
+	// the failure is not cached: the next call retries and succeeds
+	assert.deepStrictEqual(await pysimArrEnsure(), []);
+	assert.strictEqual(_pysimArrCache, null);
+	assert.deepStrictEqual(await pysimArrEnsure(), [{ fid: '2F06' }]);
+	assert.strictEqual(calls, 2);
+	// the success is cached for the card session
+	assert.deepStrictEqual(await pysimArrEnsure(), [{ fid: '2F06' }]);
+	assert.strictEqual(calls, 2);
+	// a session change refetches
+	_pysimCardSession = 8;
+	await pysimArrEnsure();
+	assert.strictEqual(calls, 3);
+	delete globalThis.pysimFetch;
+	_pysimArrCache = null;
+	_pysimCardSession = null;
 });
 
 test('pysimFsInfoHtml embeds the symbolic name in the FCI border', () => {
