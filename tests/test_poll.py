@@ -2,6 +2,7 @@
 """Tests for the background STATUS polling interval semantics."""
 
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -154,6 +155,96 @@ class TestCardDrivenPolling(unittest.TestCase):
         self.assertEqual(fields[0]['value'], '2 min (120 s)')
         fields = S._decode_cmd(0x03, bytes.fromhex(SEC_30_TLV), 0)
         self.assertEqual(fields[0]['value'], '30 s')
+
+
+class FakeChattyScc:
+    """A card that re-queues the same PROVIDE LOCAL INFORMATION immediately
+    after every accepted TERMINAL RESPONSE - the live card's loop (v3.25.1)."""
+
+    cat_cla = '80'
+
+    def __init__(self):
+        self.sent = []
+        self._tp = types.SimpleNamespace(send_apdu=self._send)
+
+    def _send(self, hexstr):
+        self.sent.append(hexstr)
+        low = hexstr.lower()
+        if low.startswith('8012'):                      # FETCH: the PLI is pending
+            return ('D009810301260082028182', '9000')
+        if low.startswith('8014'):                      # TR: accepted
+            return ('', '9000')
+        if low.startswith('80f2'):                      # STATUS: re-announced
+            return ('', '910b')
+        return ('', '9000')
+
+
+class TestProactiveChainOwnership(unittest.TestCase):
+    """The auto chain must yield: a bounded number of answers per poll cycle
+    and no fetching at all while a test run owns the card (v3.25.1 - the live
+    1100-command loop held _CARD_LOCK and blocked a run's start)."""
+
+    def setUp(self):
+        self.saved = (S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED)
+        S._TEST_RUNNING = False
+
+    def tearDown(self):
+        S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED = self.saved
+
+    def _fetches(self, scc):
+        return [a for a in scc.sent if a.lower().startswith('8012')]
+
+    def test_the_poll_chain_yields_after_the_bound(self):
+        scc = FakeChattyScc()
+        S._handle_proactive_chain(scc, '910b', max_rounds=3)
+        self.assertEqual(len(self._fetches(scc)), 3)
+
+    def test_the_chain_stops_when_a_run_owns_the_card(self):
+        scc = FakeChattyScc()
+        S._TEST_RUNNING = True
+        S._handle_proactive_chain(scc, '910b')
+        self.assertEqual(scc.sent, [])
+
+    def test_the_poll_never_fetches_during_a_run_and_keeps_ticking(self):
+        scc = FakeChattyScc()
+        S._TEST_RUNNING = True
+        S._server_ref = types.SimpleNamespace(scc=scc)
+        S._POLL_ENABLED = True
+        S._POLL_DISABLED_BY_CARD = False
+        try:
+            with mock.patch.object(S, '_reset_poll_timer') as timer:
+                S._do_status_poll()
+                timer.assert_called_once()
+        finally:
+            S._POLL_ENABLED = False
+        self.assertEqual(scc.sent, [])
+
+    def test_the_timer_expiration_waits_for_a_run(self):
+        S._TEST_RUNNING = True
+        S._CARD_CONNECTED = True
+        S._server_ref = types.SimpleNamespace()
+        with mock.patch.object(S, '_timer_start') as start:
+            S._timer_expired(1, 60)
+            start.assert_called_once_with(1, 5)
+
+    def test_sim_resume_poll_rearms_only_when_enabled(self):
+        S._POLL_ENABLED = True
+        S._POLL_DISABLED_BY_CARD = False
+        with mock.patch.object(S, '_reset_poll_timer') as timer:
+            S._sim_resume_poll()
+            timer.assert_called_once()
+        S._POLL_DISABLED_BY_CARD = True
+        with mock.patch.object(S, '_reset_poll_timer') as timer:
+            S._sim_resume_poll()
+            timer.assert_not_called()
+
+    def test_every_run_end_resumes_the_poll(self):
+        # the two worker bodies, their two exception paths and the spawn
+        # failure all call the helper
+        import inspect
+        src = inspect.getsource(S)
+        self.assertEqual(src.count('\n    _sim_resume_poll()'), 2)
+        self.assertEqual(src.count('\n        _sim_resume_poll()'), 3)
 
 
 if __name__ == '__main__':

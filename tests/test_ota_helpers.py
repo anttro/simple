@@ -863,6 +863,20 @@ class TestProactiveDecode(unittest.TestCase):
         tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x00)
         self.assertEqual(tr.hex(), '81030126008202828103010093055210011000')
 
+    def test_build_tr_echoes_the_command_qualifier(self):
+        # TS 102 223 6.8.1: the TR's command details shall be identical to
+        # the command's (including the qualifier); without one they stay 00
+        self.assertTrue(_build_tr(None, 1, 0x26, 0x81, 0x82, 0x06)
+                        .hex().startswith('8103012606'))
+        self.assertTrue(_build_tr(None, 1, 0x03, 0x81, 0x82, None)
+                        .hex().startswith('8103010300'))
+        # the runner's builder echoes the same way
+        from pysim_simple_server import testscript as T
+        self.assertTrue(T.build_tr(1, 0x26, 0x82, 0x81, {}, cmd_qual=0x06)
+                        .hex().startswith('8103012606'))
+        self.assertTrue(T.build_tr(1, 0x26, 0x82, 0x81, {})
+                        .hex().startswith('8103012600'))
+
     def test_build_tr_poll_interval_duration_after_result(self):
         import pysim_simple_server.server as srv
         tr = _build_tr(None, 1, 0x03, 0x81, 0x82, None)
@@ -884,11 +898,12 @@ class TestProactiveDecode(unittest.TestCase):
             tr_west = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x03, west)
         finally:
             srv._PLI_DATA[0x03] = saved
+        # the command details echo the qualifier (TS 102 223 6.8.1)
         self.assertEqual(tr_east.hex(),
-                         '810301260082028281030100260762900312550021')
+                         '810301260382028281030100260762900312550021')
         # negative zone: the sign bit of the time zone byte (0x08)
         self.assertEqual(tr_west.hex(),
-                         '810301260082028281030100260762105080709009')
+                         '810301260382028281030100260762105080709009')
 
     def test_build_tr_pli_dict_entry_overrides_host_clock(self):
         import pysim_simple_server.server as srv
@@ -900,7 +915,7 @@ class TestProactiveDecode(unittest.TestCase):
                            datetime(2026, 9, 30, 21, 55, tzinfo=timezone.utc))
         finally:
             srv._PLI_DATA[0x03] = saved
-        self.assertEqual(tr.hex(), '810301260082028281030100130752f01000ff0001')
+        self.assertEqual(tr.hex(), '810301260382028281030100130752f01000ff0001')
 
     def test_build_tr_pli_empty_other_qualifier_sends_no_data(self):
         # a qualifier with neither an override nor a built-in default (02
@@ -913,7 +928,7 @@ class TestProactiveDecode(unittest.TestCase):
             data = srv._pli_data_hex(0x02)
         finally:
             srv._PLI_DATA[0x02] = saved
-        self.assertEqual(tr.hex(), '810301260082028281030100')
+        self.assertEqual(tr.hex(), '810301260282028281030100')
         self.assertEqual(data, '')
 
     def test_pli_defaults_cover_the_common_qualifiers(self):

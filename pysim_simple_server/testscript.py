@@ -700,15 +700,19 @@ def _encode_text(text, dcs):
     return text.encode('gsm03.38')
 
 
-def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None):
+def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None,
+             cmd_qual=None):
     """Flat COMPREHENSION-TLV TERMINAL RESPONSE payload (TS 102 223 6.8) in the
     6.8.0 object order: command details, device identities, Result, then the
     command-specific objects (the terminal's own `answer_tlvs` - the PLI data
     of PROVIDE LOCAL INFORMATION, the echoed Duration of POLL INTERVAL - the
     Text string for GET INKEY/GET INPUT, the Item identifier for SELECT ITEM)
     and any extra raw TLVs.  Matches the interactive menu TR layout; the
-    runner passes the terminal objects the script did not override."""
-    out = bytearray([0x81, 0x03, cmd_num & 0xFF, cmd_type & 0xFF, 0x00])
+    runner passes the terminal objects the script did not override.  The
+    command details echo the command's qualifier (TS 102 223 6.8.1: the
+    object shall be identical to the command's)."""
+    out = bytearray([0x81, 0x03, cmd_num & 0xFF, cmd_type & 0xFF,
+                     (cmd_qual or 0) & 0xFF])
     out += bytes([0x82, 0x02, dev_dst & 0xFF, dev_src & 0xFF])
     result = int(respond.get('result', 0))
     add_info = int(respond.get('additional_info', 0) or 0)

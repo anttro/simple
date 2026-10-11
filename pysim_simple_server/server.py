@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.0'
+VERSION = '3.25.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2697,6 +2697,12 @@ _SCP81_PSK_LEGACY = None
 # suspend it with POLLING OFF (see _POLL_DISABLED_BY_CARD).
 _POLL_ENABLED = True
 _POLL_INTERVAL = 30
+# The background poll answers at most this many announced commands per cycle:
+# a card that re-queues a command immediately (a chatty applet) must not turn
+# the poll into an unbounded chain that holds _CARD_LOCK (v3.25.1 - live
+# 2026-10-11: the EP BAP card re-queued the same PROVIDE LOCAL INFORMATION
+# 1100 times, blocking every card operation).
+_POLL_CHAIN_MAX = 10
 _POLL_TIMER = None
 # Set when the card sent POLLING OFF (TS 102 223 6.4.14): proactive polling
 # stays suspended until a POLL INTERVAL re-enables it.  Presence detection and
@@ -2785,6 +2791,9 @@ def _do_status_poll():
     global _POLL_TIMER
     _POLL_TIMER = None
     if not _POLL_ENABLED or _POLL_DISABLED_BY_CARD or _TEST_RUNNING:
+        # A test run owns the card: keep ticking (never fetch) so polling
+        # resumes by itself when the run ends (v3.25.1).
+        _reset_poll_timer()
         return
     with _CARD_LOCK:
         try:
@@ -2793,7 +2802,7 @@ def _do_status_poll():
                 st_data, st_sw = _send_status(scc)
                 sys.stderr.write('AUTO-STATUS -> %s\n' % st_sw)
                 if st_sw.startswith('91'):
-                    _handle_proactive_chain(scc, st_sw)
+                    _handle_proactive_chain(scc, st_sw, max_rounds=_POLL_CHAIN_MAX)
         except Exception as e:
             sys.stderr.write('AUTO-STATUS error: %s\n' % e)
             _handle_card_disconnect(stale=_is_transport_fatal(e))
@@ -2809,6 +2818,15 @@ def _poll_enable():
         return
     _POLL_ENABLED = True
     _reset_poll_timer()
+
+
+def _sim_resume_poll():
+    """Resume the background STATUS poll after a test run released the card
+    (no-op while polling is disabled or the card turned it off).  Every run
+    end calls this - the spawn failure included, so a run that never starts
+    cannot leave polling dead (v3.25.1)."""
+    if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
+        _reset_poll_timer()
 
 _MENU_TIMEOUT = 60
 _MENU_TIMER = None
@@ -3528,7 +3546,9 @@ def _bip_data_available(ch):
         server = _server_ref
         if not server or not _CARD_CONNECTED or not getattr(server, 'scc', None):
             return False
-        if _PROACTIVE_BUSY or getattr(server, 'stk_pending', None):
+        if _PROACTIVE_BUSY or getattr(server, 'stk_pending', None) or _TEST_RUNNING:
+            # a test run owns the card: the bytes stay un-notified and the
+            # monitor retries on its next tick (v3.25.1)
             return False
         length = min(len(ch.rx), 0xFF)
         tlv = bytes([0xB8, 0x02, 0x80 | (ch.id & 0x07), 0x00,
@@ -4265,8 +4285,10 @@ def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None):
     The object order follows TS 102 223 6.8.0: command details, device
     identities, Result, then the command-specific data objects (the echoed
     Duration for POLL INTERVAL, the PLI data for PROVIDE LOCAL INFORMATION).
-    `dt` is a test seam for the PLI date/time default (see _pli_data_hex)."""
-    base = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+    `dt` is a test seam for the PLI date/time default (see _pli_data_hex).
+    The command details echo the command's qualifier: TS 102 223 6.8.1
+    requires the object to be identical to the command's (v3.25.1)."""
+    base = bytes([0x81, 0x03, cmd_num, cmd_type, (cmd_qual or 0) & 0xFF,
                   0x82, 0x02, dev_dst, dev_src,
                   0x03, 0x01, 0x00])
     if cmd_type == 0x03:
@@ -5080,6 +5102,9 @@ def _bip_flush_channel_events(scc):
     global _FLUSHING_CHANNEL_EVENTS
     if _FLUSHING_CHANNEL_EVENTS:
         return
+    if _TEST_RUNNING:
+        # a test run owns the card: the events stay queued (v3.25.1)
+        return
     if not _BIP_LINK_EVENTS:
         _BIP.take_pending_events()
         return
@@ -5209,6 +5234,11 @@ def _timer_expired(timer_id, elapsed):
     """Pass an expired timer to the UICC with ENVELOPE (TIMER EXPIRATION)."""
     server = _server_ref
     if not _CARD_CONNECTED or not server:
+        return
+    if _TEST_RUNNING:
+        # A test run owns the card: the ENVELOPE would inject a proactive
+        # conversation into the script - retry after the run (v3.25.1).
+        _timer_start(timer_id, 5)
         return
     # Never inject the ENVELOPE while a fetched command awaits its TERMINAL
     # RESPONSE (a paused STK menu); wait outside the card lock, then retry.
@@ -5548,24 +5578,38 @@ def _parse_setup_menu_items(raw):
     return _attach_nai(items, nai)
 
 
-def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
+def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=None):
     """Run a FETCH/TERMINAL RESPONSE chain; marks the card as busy so that
     terminal-initiated ENVELOPEs (Data available, Channel status, timers) wait.
     ``status_poll=False`` skips the trailing STATUS (used by the profile
-    switch, where the card is mid-switch and must not be queried further)."""
+    switch, where the card is mid-switch and must not be queried further).
+    ``max_rounds`` bounds the answers per call (the background poll passes
+    _POLL_CHAIN_MAX so a card that re-queues a command cannot hold the card
+    lock forever); ``_TEST_RUNNING`` aborts the chain before the next FETCH -
+    a test run owns the card and the pending command stays for the script."""
     global _PROACTIVE_BUSY
     _PROACTIVE_BUSY = True
     try:
-        return _run_proactive_chain(scc, sw91, on_fetch, status_poll)
+        return _run_proactive_chain(scc, sw91, on_fetch, status_poll, max_rounds)
     finally:
         _PROACTIVE_BUSY = False
 
 
-def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True):
+def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=None):
     sys.stderr.write('91XX chain: sw=%s\n' % sw91)
     sw = sw91
     paused = False
+    rounds = 0
     while sw.startswith('91'):
+        if _TEST_RUNNING:
+            # A test run owns the card: stop before consuming another command
+            # - the pending one stays for the script (v3.25.1).
+            sys.stderr.write('91XX chain: stopping - a test run owns the card\n')
+            break
+        if max_rounds is not None and rounds >= max_rounds:
+            sys.stderr.write('91XX chain: %d rounds reached - yielding\n' % rounds)
+            break
+        rounds += 1
         fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         rv = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
         sys.stderr.write('FETCH(%s): %s -> %s\n' % (fetch_len, rv[0] if rv[0] else '(none)', rv[1]))
@@ -5766,11 +5810,21 @@ def _make_menu_fetch_handler(server, resp):
     """on_fetch callback for the menu chain: pauses on user-interactive commands
     and stores the pending command so a TERMINAL RESPONSE can be sent later."""
     def _on_menu_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst):
+        # the TR's command details echo the command's qualifier (TS 102 223
+        # 6.8.1); the on_fetch callback signature does not carry it, so parse
+        # it here (v3.25.1)
+        cmd_qual = None
+        if raw:
+            try:
+                cmd_qual = _parse_proactive_header(raw)[4]
+            except Exception:
+                cmd_qual = None
         if cmd_type == 0x21:
             text = _parse_display_text(raw) if raw else None
             if text:
                 server.stk_pending = {'type': 'display_text',
                     'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                    'cmd_qual': cmd_qual,
                     'dev_src': dev_src, 'dev_dst': dev_dst, 'text': text}
                 resp.update(type='display_text', text=text)
                 return 'pause'
@@ -5778,6 +5832,7 @@ def _make_menu_fetch_handler(server, resp):
             items = _parse_select_item(raw) if raw else []
             server.stk_pending = {'type': 'select_item',
                 'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                'cmd_qual': cmd_qual,
                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
             resp.update(type='select_item', items=items)
             return 'pause'
@@ -5785,6 +5840,7 @@ def _make_menu_fetch_handler(server, resp):
             items = _parse_setup_menu_items(raw) if raw else []
             server.stk_pending = {'type': 'select_item',
                 'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                'cmd_qual': cmd_qual,
                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
             resp.update(type='select_item', items=items)
             return 'pause'
@@ -5796,7 +5852,8 @@ def _make_menu_fetch_handler(server, resp):
             if info:
                 kind = 'get_inkey' if cmd_type == 0x22 else 'get_input'
                 pending = dict(info, type=kind, cmd_num=cmd_num,
-                               cmd_type=cmd_type, dev_src=dev_src, dev_dst=dev_dst)
+                               cmd_type=cmd_type, cmd_qual=cmd_qual,
+                               dev_src=dev_src, dev_dst=dev_dst)
                 dur = _find_duration(raw)
                 pending['duration_unit'] = dur[0] if dur else None
                 pending['shown_at'] = time.monotonic()
@@ -5892,7 +5949,8 @@ def _menu_send_response(server, result, item_id=None, text=None):
                                          0x02: 10.0}.get(pd['duration_unit'], 1.0)))
             value = max(1, min(255, value))
             duration_tlv = bytes([0x04, 0x02, pd['duration_unit'], value])
-    cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'], 0x00])
+    cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'],
+                (pd.get('cmd_qual') or 0) & 0xFF])
     di = bytes([0x82, 0x02, pd['dev_dst'], pd['dev_src']])
     # TS 102 223 6.8.0 object order: Result (C), Duration (D), Text string (E),
     # Item identifier (F).
@@ -6511,7 +6569,7 @@ def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respo
         elif cmd_type == 0x03:
             answer = '840201%02X' % _POLL_INTERVAL
     return testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond,
-                               answer_tlvs=answer or None)
+                               answer_tlvs=answer or None, cmd_qual=cmd_qual)
 
 
 def _test_run_drain(server, step):
@@ -7301,8 +7359,7 @@ def _test_run_execute(server, script, preset):
             else:
                 _TEST_RUN['status'] = 'ok'
     _TEST_RUNNING = False
-    if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
-        _reset_poll_timer()
+    _sim_resume_poll()
 
 
 def _test_run_worker(server, script, preset):
@@ -7318,8 +7375,7 @@ def _test_run_worker(server, script, preset):
             _TEST_RUN['finished'] = time.time()
             if not _TEST_RUN['status']:
                 _TEST_RUN['status'] = 'error'
-        if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
-            _reset_poll_timer()
+        _sim_resume_poll()
 
 
 # ---- test suites (v3.22.0) -------------------------------------------------
@@ -7436,6 +7492,7 @@ def _test_run_spawn(server, target, args, thread_name):
         # guard keys off _TEST_RUNNING, and no worker would ever clear it).
         _TEST_THREAD = None
         _TEST_RUNNING = False
+        _sim_resume_poll()
         with _TEST_LOCK:
             _TEST_RUN['running'] = False
             _TEST_RUN['status'] = 'error'
@@ -7593,8 +7650,7 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
         _TEST_RUN['finished'] = time.time()
         _TEST_RUN['log_prefix'] = ''      # the report is done: no stale prefix
     _TEST_RUNNING = False
-    if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
-        _reset_poll_timer()
+    _sim_resume_poll()
 
 
 def _test_suite_worker(server, suite, members, preset, preset_id):
@@ -7633,8 +7689,7 @@ def _test_suite_worker(server, suite, members, preset, preset_id):
                 }
     finally:
         _TEST_RUNNING = False
-        if _POLL_ENABLED and not _POLL_DISABLED_BY_CARD:
-            _reset_poll_timer()
+        _sim_resume_poll()
 
 
 def _test_suite_state(suite, members, preset, preset_id, session, reset_info=None):
