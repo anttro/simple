@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.1'
+VERSION = '3.25.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2542,7 +2542,7 @@ class _DefaultProactiveHandler(ProactiveHandler):
         try:
             raw = cmd_obj.to_tlv()
             if raw:
-                cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+                cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, _ = _parse_proactive_header(raw)
             entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
         except Exception:
             pass
@@ -2636,7 +2636,9 @@ PLI_QUALIFIER_NAMES = {
 
 # Sensible PLI answers for an unconfigured dictionary - the qualifiers whose
 # objects the pinned ETSI specs define (TS 102 223 8.x, tags per TS 101 220
-# V18.3.0 Table 7.23).  They are the *base layer*: a value set through
+# V18.3.0 Table 7.23, in the base (CR=0) form: the TR's response objects
+# are Min = N and 6.8.0 says they "should set the CR flag to comprehension
+# not required" - v3.25.2).  They are the *base layer*: a value set through
 # /api/pli-dict overrides its default, and clearing the field restores it
 # (v3.23.1).  Qualifier 03 stays empty - the date/time is answered from the
 # host clock (see _pli_data_hex).  The 3GPP/3GPP2-specific qualifiers (02
@@ -2647,24 +2649,24 @@ PLI_QUALIFIER_NAMES = {
 PLI_DEFAULTS = {
     # Location Information (8.19): PLMN 001/01 (the test network, TS 23.003)
     # + LAC 0000
-    0x00: '9305' + '00F110' + '0000',
+    0x00: '1305' + '00F110' + '0000',
     # IMEI (8.20): the classic test IMEI 490154203237518, nibble-swapped
     # BCD with the odd 15th digit padded by F (TS 124 008 Mobile Identity)
-    0x01: '9408' + '94104502237315F8',
+    0x01: '1408' + '94104502237315F8',
     # Language (8.45): 'en' in the SMS default alphabet (bit 8 clear)
-    0x04: 'AD02' + '656E',
-    # Timing Advance (3GPP; tag 2E/AE): ME status 00 + TA 00
-    0x05: 'AE02' + '0000',
+    0x04: '2D02' + '656E',
+    # Timing Advance (3GPP; base tag 2E): ME status 00 + TA 00
+    0x05: '2E02' + '0000',
     # Access technology (8.61): E-UTRAN
-    0x06: 'BF01' + '08',
-    # IMEISV (8.74, tag 62/E2): the test IMEI + SVN 08
-    0x08: 'E208' + '9410450223731580',
-    # Network search mode (8.75, tag 65/E5): automatic
-    0x09: 'E501' + '01',
-    # Battery state (8.76, tag 63/E3): full
+    0x06: '3F01' + '08',
+    # IMEISV (8.74, base tag 62): the test IMEI + SVN 08
+    0x08: '6208' + '9410450223731580',
+    # Network search mode (8.75, base tag 65): automatic
+    0x09: '6501' + '01',
+    # Battery state (8.76, base tag 63): full
     0x0A: '6301' + '04',
     # Access technologies (8.61): UTRAN + E-UTRAN
-    0x0E: 'BF02' + '0308',
+    0x0E: '3F02' + '0308',
 }
 
 _PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}   # the operator overrides
@@ -2923,7 +2925,7 @@ _server_ref = None
 def _tr_data_only(tr_tlv):
     """Strip boilerplate CTLVs (Command Details, Device IDs, Result) from TR,
     returning only command-specific data TLVs or empty bytes."""
-    skip_tags = {0x81, 0x82, 0x03, 0x83}
+    skip_tags = {0x01, 0x81, 0x02, 0x82, 0x03, 0x83}
     data = bytearray()
     off = 0
     while off < len(tr_tlv) - 1:
@@ -3301,7 +3303,7 @@ def _decode_tr(type_hex, qual_hex, tr_hex):
         cmd_type = int(type_hex, 16) if type_hex else None
     except ValueError:
         return [{'label': 'Data', 'value': h}]
-    if cmd_type == 0x03 and len(h) >= 8 and h[0:2] == '84':
+    if cmd_type == 0x03 and len(h) >= 8 and h[0:2] in ('84', '04'):
         return [{'label': 'Interval', 'value': '%d s' % int(h[6:8], 16)}]
     if cmd_type == 0x27:
         tlvs = _tlv_map(bytes.fromhex(h))
@@ -3378,13 +3380,17 @@ def _bip_channel_id(dev_dst):
     return (dev_dst & 0x07) if 0x21 <= dev_dst <= 0x27 else None
 
 
-def _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, result=0x00, info=None, extra=b''):
+def _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, result=0x00, info=None, extra=b'',
+            cd_tag=None):
     """TERMINAL RESPONSE payload for a BIP command.
 
-    Tags follow the captured real-terminal traces (comprehension TLVs 01/02/03)
-    and the result precedes the optional Channel status / data TLVs.
+    The tags follow the captured real-terminal traces: the command details
+    echo the command's tag form (TS 102 223 6.8.1) and the response objects
+    use the base (CR=0) forms per 6.8.0 (Min = N); the result precedes the
+    optional Channel status / data TLVs.
     """
-    tr = bytes([0x01, 0x03, cmd_num & 0xFF, cmd_type & 0xFF, (cmd_qual if cmd_qual is not None else 0) & 0xFF,
+    tr = bytes([(cd_tag or 0x01), 0x03, cmd_num & 0xFF, cmd_type & 0xFF,
+                (cmd_qual if cmd_qual is not None else 0) & 0xFF,
                 0x02, 0x02, 0x82, 0x81])
     if info is None:
         tr += bytes([0x03, 0x01, result & 0xFF])
@@ -3427,8 +3433,13 @@ def _decode_bip_cmd(cmd_type, raw):
     return out
 
 
-def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst):
+def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst, cd_tag=None):
     """Handle a BIP proactive command. Returns TR payload bytes, or None for the generic path."""
+    if cd_tag is None:
+        cd_tag = _cd_tag_of(raw)
+    def _tr(result=0x00, info=None, extra=b''):
+        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst,
+                       result, info, extra, cd_tag=cd_tag)
     tlvs = httpota.proactive_tlvs(raw)
     channel = _bip_channel_id(dev_dst)
     if cmd_type == 0x40:
@@ -3439,7 +3450,7 @@ def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
         extra += bytes([httpota.TAG_BUFFER_SIZE, 0x02]) + buffer_size.to_bytes(2, 'big')
         if not _BIP.enabled:
             _BIP.log('open-unavailable', reason='BIP not enabled')
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00, extra)
+            return _tr(0x3A, 0x00, extra)
         addr = httpota.parse_other_address(_cmd_tlv(tlvs, httpota.TAG_OTHER_ADDRESS))
         proto, port = httpota.parse_transport_level(_cmd_tlv(tlvs, httpota.TAG_TRANSPORT_LEVEL))
         if not addr or port is None:
@@ -3451,28 +3462,28 @@ def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
                      note='destination/transport not fully specified')
         cid, err = _BIP.open(addr or '-', port or 0, buffer_size, proto=proto)
         if cid is None:
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00, extra)
+            return _tr(0x3A, 0x00, extra)
         if cmd_qual and (cmd_qual & 0x04):
             # Background mode: the terminal shall inform the UICC that the
             # link was established (TS 102 223 7.5.11).
             _BIP._queue_link_status(cid, status=0x80 | (cid & 0x07), info=0x00)
         status = bytes([httpota.TAG_CHANNEL_STATUS, 0x02, 0x80 | (cid & 0x07), 0x00])
-        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x00, None, status + extra)
+        return _tr(0x00, None, status + extra)
     if cmd_type == 0x43:
         data = _cmd_tlv(tlvs, httpota.TAG_CHANNEL_DATA)
         if channel is None or not _BIP.send(channel, data):
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00)
+            return _tr(0x3A, 0x00)
         length = _BIP.send_capacity(channel)
-        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x00, None,
+        return _tr(0x00, None,
                        bytes([httpota.TAG_CHANNEL_DATA_LENGTH, 0x01, length & 0xFF]))
     if cmd_type == 0x42:
         req = _cmd_tlv(tlvs, httpota.TAG_CHANNEL_DATA_LENGTH) or b'\x00'
         n = req[0] if req else 0
         if channel is None:
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00)
+            return _tr(0x3A, 0x00)
         data = _BIP.receive(channel, n)
         if data is None:
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00)
+            return _tr(0x3A, 0x00)
         remaining = _BIP.available(channel)
         # The channel data TLV length is BER-encoded: a single byte only up
         # to 127, then the 0x81 long form (the reference terminal traces use
@@ -3486,16 +3497,16 @@ def _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
             else:
                 extra = bytes([httpota.TAG_CHANNEL_DATA, 0x81, len(data)]) + data
         extra += bytes([httpota.TAG_CHANNEL_DATA_LENGTH, 0x01, 0xFF if remaining > 0xFF else remaining])
-        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x00, None, extra)
+        return _tr(0x00, None, extra)
     if cmd_type == 0x41:
         if channel is None or not _BIP.close(channel):
-            return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x3A, 0x00)
-        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x00)
+            return _tr(0x3A, 0x00)
+        return _tr(0x00)
     if cmd_type == 0x44:
         extra = b''
         for cid in sorted(_BIP.channels):
             extra += bytes([httpota.TAG_CHANNEL_STATUS, 0x02, 0x80 | (cid & 0x07), 0x00])
-        return _bip_tr(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst, 0x00, None, extra)
+        return _tr(0x00, None, extra)
     return None
 
 
@@ -4279,20 +4290,23 @@ def _pli_data_hex(cmd_qual, dt=None):
     return ''
 
 
-def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None):
+def _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, dt=None, cd_tag=None):
     """Build the TERMINAL RESPONSE TLV payload for a fetched command.
 
     The object order follows TS 102 223 6.8.0: command details, device
     identities, Result, then the command-specific data objects (the echoed
     Duration for POLL INTERVAL, the PLI data for PROVIDE LOCAL INFORMATION).
     `dt` is a test seam for the PLI date/time default (see _pli_data_hex).
-    The command details echo the command's qualifier: TS 102 223 6.8.1
-    requires the object to be identical to the command's (v3.25.1)."""
-    base = bytes([0x81, 0x03, cmd_num, cmd_type, (cmd_qual or 0) & 0xFF,
-                  0x82, 0x02, dev_dst, dev_src,
+    The command details echo the command's tag form and qualifier (TS 102 223
+    6.8.1: the object shall be identical to the command's); the response
+    objects use the base (CR=0) forms per 6.8.0 ("for all COMPREHENSION-TLV
+    objects with Min = N the terminal should set the CR flag to comprehension
+    not required") - v3.25.2."""
+    base = bytes([(cd_tag or 0x81), 0x03, cmd_num, cmd_type, (cmd_qual or 0) & 0xFF,
+                  0x02, 0x02, dev_dst, dev_src,
                   0x03, 0x01, 0x00])
     if cmd_type == 0x03:
-        base += bytes([0x84, 0x02, 0x01, _POLL_INTERVAL])
+        base += bytes([0x04, 0x02, 0x01, _POLL_INTERVAL])
     elif cmd_type == 0x26 and cmd_qual is not None:
         pli_hex = _pli_data_hex(cmd_qual, dt)
         if pli_hex:
@@ -5275,14 +5289,16 @@ def _timer_expired(timer_id, elapsed):
             break
 
 
-def _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst):
+def _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst, cd_tag=None):
     """Terminal side of TIMER MANAGEMENT. Returns the TERMINAL RESPONSE payload."""
     tlvs = httpota.proactive_tlvs(raw)
     tid = _cmd_tlv(tlvs, 0x24)
     timer_id = tid[0] if tid else 1
     action = (cmd_qual or 0) & 0x03
-    base = bytes([0x81, 0x03, cmd_num, cmd_type, (cmd_qual or 0) & 0xFF,
-                  0x82, 0x02, dev_dst, dev_src])
+    if cd_tag is None:
+        cd_tag = _cd_tag_of(raw)
+    base = bytes([(cd_tag or 0x81), 0x03, cmd_num, cmd_type, (cmd_qual or 0) & 0xFF,
+                  0x02, 0x02, dev_dst, dev_src])
     if action == 0x00:
         value = _cmd_tlv(tlvs, 0x25)
         if len(value) >= 3 and 1 <= timer_id <= 8:
@@ -5296,7 +5312,7 @@ def _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst):
         return base + bytes([0x03, 0x01, 0x24])
     if action == 0x01:
         _timer_cancel(timer_id)
-    return (base + bytes([0xA4, 0x01, timer_id & 0xFF, 0xA5, 0x03])
+    return (base + bytes([0x24, 0x01, timer_id & 0xFF, 0x25, 0x03])
             + _hms_bcd(remaining) + bytes([0x03, 0x01, 0x00]))
 
 
@@ -5326,15 +5342,31 @@ def _parse_proactive_header(raw):
     cmd_num, cmd_type = 1, 0
     cmd_qual = None
     dev_src, dev_dst = 0x83, 0x81
+    cd_tag = None
     for tag, val in _ber_tlv_list(_proactive_body(raw)):
         # Cards use both the plain (01/02) and comprehension-required
         # (81/82) tag variants - TS 101 220 7.1.1 leaves the CR flag to the
-        # application, and the reference cards switch between them.
+        # application, and the reference cards switch between them.  The
+        # command-details tag is kept: the TR echoes it (TS 102 223 6.8.1,
+        # v3.25.2).
         if tag in (0x01, 0x81) and len(val) >= 3:
+            cd_tag = tag
             cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
         elif tag in (0x02, 0x82) and len(val) >= 2:
             dev_src, dev_dst = val[0], val[1]
-    return cmd_num, cmd_type, dev_src, dev_dst, cmd_qual
+    return cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag
+
+
+def _cd_tag_of(raw):
+    """The command-details tag of a fetched command (0x01 or 0x81), or None
+    when it cannot be parsed: the TERMINAL RESPONSE echoes it (TS 102 223
+    6.8.1, v3.25.2)."""
+    if not raw:
+        return None
+    try:
+        return _parse_proactive_header(raw)[5]
+    except Exception:
+        return None
 
 
 def _find_sms_tpdu(raw):
@@ -5616,7 +5648,7 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=
         fdata, sw = rv[0], rv[1]
         raw = bytes.fromhex(fdata) if fdata else None
         action = None
-        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
+        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = 1, 0, 0x83, 0x81, None, None
         entry = None
         if raw:
             # Every step is guarded: a decoder bug must never break the
@@ -5625,7 +5657,7 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=
             # card's command left unanswered).  The exception and the
             # offending bytes go to the log; the TR is still sent.
             try:
-                cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+                cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
             except Exception as e:
                 sys.stderr.write('FETCH parse error: %s (raw=%s)\n' % (e, raw.hex()))
             try:
@@ -5656,15 +5688,18 @@ def _run_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=
             tr_tlv = None
             try:
                 if raw and cmd_type in (0x40, 0x41, 0x42, 0x43, 0x44):
-                    tr_tlv = _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
+                    tr_tlv = _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst,
+                                                 cd_tag=cd_tag)
                 if cmd_type == 0x27:
-                    tr_tlv = _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst)
+                    tr_tlv = _handle_timer_command(cmd_num, cmd_type, cmd_qual, raw, dev_src, dev_dst,
+                                                   cd_tag=cd_tag)
             except Exception as e:
                 sys.stderr.write('FETCH handler error: %s (raw=%s)\n' % (
                     e, raw.hex() if raw else '(none)'))
                 tr_tlv = None
             if tr_tlv is None:
-                tr_tlv = _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual)
+                tr_tlv = _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual,
+                                   cd_tag=cd_tag)
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
             _record_tr(entry, tr_tlv, tr_rv[1])
@@ -5735,6 +5770,7 @@ def _send_terminal_profile(scc, tp_hex):
             fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
             cmd_num, cmd_type = 1, 0
             cmd_qual = None
+            cd_tag = None
             dev_src, dev_dst = 0x83, 0x81
             if fdata:
                 raw = bytes.fromhex(fdata)
@@ -5745,6 +5781,7 @@ def _send_terminal_profile(scc, tp_hex):
                         val = raw[off + 2: off + 2 + tlen]
                         off += 2 + tlen
                         if tag in (0x81, 0x01) and tlen >= 3:
+                            cd_tag = tag
                             cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
                         elif tag in (0x82, 0x02) and tlen >= 2:
                             dev_src, dev_dst = val[0], val[1]
@@ -5760,7 +5797,8 @@ def _send_terminal_profile(scc, tp_hex):
                 entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
             else:
                 entry = None
-            tr_tlv = _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual)
+            tr_tlv = _build_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual,
+                               cd_tag=cd_tag)
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             _record_tr(entry, tr_tlv, tr_rv[1])
@@ -5814,9 +5852,11 @@ def _make_menu_fetch_handler(server, resp):
         # 6.8.1); the on_fetch callback signature does not carry it, so parse
         # it here (v3.25.1)
         cmd_qual = None
+        cd_tag = None
         if raw:
             try:
-                cmd_qual = _parse_proactive_header(raw)[4]
+                hdr = _parse_proactive_header(raw)
+                cmd_qual, cd_tag = hdr[4], hdr[5]
             except Exception:
                 cmd_qual = None
         if cmd_type == 0x21:
@@ -5824,7 +5864,7 @@ def _make_menu_fetch_handler(server, resp):
             if text:
                 server.stk_pending = {'type': 'display_text',
                     'cmd_num': cmd_num, 'cmd_type': cmd_type,
-                    'cmd_qual': cmd_qual,
+                    'cmd_qual': cmd_qual, 'cd_tag': cd_tag,
                     'dev_src': dev_src, 'dev_dst': dev_dst, 'text': text}
                 resp.update(type='display_text', text=text)
                 return 'pause'
@@ -5832,7 +5872,7 @@ def _make_menu_fetch_handler(server, resp):
             items = _parse_select_item(raw) if raw else []
             server.stk_pending = {'type': 'select_item',
                 'cmd_num': cmd_num, 'cmd_type': cmd_type,
-                'cmd_qual': cmd_qual,
+                'cmd_qual': cmd_qual, 'cd_tag': cd_tag,
                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
             resp.update(type='select_item', items=items)
             return 'pause'
@@ -5840,7 +5880,7 @@ def _make_menu_fetch_handler(server, resp):
             items = _parse_setup_menu_items(raw) if raw else []
             server.stk_pending = {'type': 'select_item',
                 'cmd_num': cmd_num, 'cmd_type': cmd_type,
-                'cmd_qual': cmd_qual,
+                'cmd_qual': cmd_qual, 'cd_tag': cd_tag,
                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
             resp.update(type='select_item', items=items)
             return 'pause'
@@ -5852,7 +5892,7 @@ def _make_menu_fetch_handler(server, resp):
             if info:
                 kind = 'get_inkey' if cmd_type == 0x22 else 'get_input'
                 pending = dict(info, type=kind, cmd_num=cmd_num,
-                               cmd_type=cmd_type, cmd_qual=cmd_qual,
+                               cmd_type=cmd_type, cmd_qual=cmd_qual, cd_tag=cd_tag,
                                dev_src=dev_src, dev_dst=dev_dst)
                 dur = _find_duration(raw)
                 pending['duration_unit'] = dur[0] if dur else None
@@ -5906,7 +5946,7 @@ def _input_text_tlv(pd, text):
     SMS default alphabet unpacked (DCS '04'), as UCS2 ('08') when the request
     asked for it, or packed ('00') for a packed GET INPUT."""
     if text == '':
-        return bytes([0x8D, 0x00])            # null text string (empty input)
+        return bytes([0x0D, 0x00])            # null text string (empty input)
     if pd.get('yes_no'):
         body = bytes([0x04, 0x01 if text == '01' else 0x00])
     elif pd.get('ucs2'):
@@ -5915,7 +5955,7 @@ def _input_text_tlv(pd, text):
         body = bytes([0x00]) + _pack_gsm7(text.encode('gsm03.38'))
     else:
         body = bytes([0x04]) + text.encode('gsm03.38')
-    return bytes([0x8D, len(body)]) + body
+    return bytes([0x0D, len(body)]) + body
 
 
 def _menu_send_response(server, result, item_id=None, text=None):
@@ -5949,16 +5989,16 @@ def _menu_send_response(server, result, item_id=None, text=None):
                                          0x02: 10.0}.get(pd['duration_unit'], 1.0)))
             value = max(1, min(255, value))
             duration_tlv = bytes([0x04, 0x02, pd['duration_unit'], value])
-    cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'],
+    cd = bytes([(pd.get('cd_tag') or 0x81), 0x03, pd['cmd_num'], pd['cmd_type'],
                 (pd.get('cmd_qual') or 0) & 0xFF])
-    di = bytes([0x82, 0x02, pd['dev_dst'], pd['dev_src']])
+    di = bytes([0x02, 0x02, pd['dev_dst'], pd['dev_src']])
     # TS 102 223 6.8.0 object order: Result (C), Duration (D), Text string (E),
     # Item identifier (F).
     tr_data = cd + di
     tr_data += bytes([0x83, 0x02, gr, 0x00])
     tr_data += duration_tlv + text_tlv
     if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
-        tr_data += bytes([0x90, 0x01, item_id])
+        tr_data += bytes([0x10, 0x01, item_id])
     tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
     tr_rv = scc._tp.send_apdu(tr_hex)
     sys.stderr.write('TR(menu): cmd=%02x type=%02x result=%02x -> %s\n' % (pd['cmd_num'], pd['cmd_type'], gr, tr_rv[1]))
@@ -6552,7 +6592,7 @@ def _drain_require_label(req):
     return name + ((' q=%s' % q['value']) if q else '')
 
 
-def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respond):
+def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respond, cd_tag=None):
     """The runner's TERMINAL RESPONSE: the scripted answer plus the terminal's
     own command-specific object(s) - the same objects the terminal's answers
     carry (`_build_tr`), unless the script supplied `raw` TLVs, which win.
@@ -6569,7 +6609,8 @@ def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respo
         elif cmd_type == 0x03:
             answer = '840201%02X' % _POLL_INTERVAL
     return testscript.build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond,
-                               answer_tlvs=answer or None, cmd_qual=cmd_qual)
+                               answer_tlvs=answer or None, cmd_qual=cmd_qual,
+                               cd_tag=cd_tag)
 
 
 def _test_run_drain(server, step):
@@ -6598,7 +6639,7 @@ def _test_run_drain(server, step):
             break
         raw = bytes.fromhex(fdata)
         _test_log('FETCH=%s -> SW=%s %s' % (fetch_apdu, fetch_sw, raw.hex().upper()))
-        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+        cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
         name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
         _test_log('CMD 0x%02X %s qual=%s' % (
             cmd_type, name, ('%02X' % cmd_qual) if cmd_qual is not None else '-'))
@@ -6609,7 +6650,7 @@ def _test_run_drain(server, step):
                 server.sim_menu = menu
         respond = p['first'] if (not consumed and p.get('first')) else p['respond']
         tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
-                                     cmd_qual, respond)
+                                     cmd_qual, respond, cd_tag=cd_tag)
         tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
         _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_rv[1]))
         consumed.append({'type_hex': '%02X' % cmd_type, 'type_name': name,
@@ -7035,7 +7076,7 @@ def _test_run_expect(server, step, pending, ctx=None):
                            'returned no data')]}, None
     raw = bytes.fromhex(fdata)
     _test_log('FETCH=%s -> SW=%s %s' % (fetch_apdu, fetch_sw, raw.hex().upper()))
-    cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+    cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
     log_entry = _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
     type_name = PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN')
     _test_log('CMD 0x%02X %s qual=%s' % (
@@ -7164,7 +7205,7 @@ def _test_run_expect(server, step, pending, ctx=None):
                 'Files', sorted(paths) == sorted(want), ', '.join(want),
                 ', '.join(paths) or '(none)', c['on_fail']))
     tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual,
-                                 step['respond'])
+                                 step['respond'], cd_tag=cd_tag)
     tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
     tr_sw = tr_rv[1]
     _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_sw))
@@ -7202,9 +7243,9 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
             if not fdata:
                 break
             raw = bytes.fromhex(fdata)
-            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
             tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
-                                         cmd_qual, {'result': result})
+                                         cmd_qual, {'result': result}, cd_tag=cd_tag)
             rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
             name = PROACTIVE_TYPE_NAMES.get(cmd_type, '?')
             answered.append({'name': name, 'type': cmd_type,

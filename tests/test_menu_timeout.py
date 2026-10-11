@@ -76,7 +76,7 @@ class TestMenuSendResponse(unittest.TestCase):
         tr = sent[0]
         self.assertTrue(tr.startswith('801400000d'), tr)
         self.assertIn('8103012100', tr)
-        self.assertIn('82028381', tr)
+        self.assertIn('02028381', tr)
         self.assertIn('83021200', tr)
 
     def test_no_pending_returns_400(self):

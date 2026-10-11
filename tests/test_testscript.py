@@ -163,21 +163,21 @@ class TestValidation(unittest.TestCase):
         # then the command-specific objects (here Text), then the raw extras.
         tr = T.build_tr(4, 0x23, 0x81, 0x82, respond)
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + '83020000'
-                         + '8D0600' + 'E8329BFD06' + 'AA01BB')
+                         '8103042300' + '02028182' + '83020000'
+                         + '0D0600' + 'E8329BFD06' + 'AA01BB')
         # 8 bits: one octet per character
         tr = T.build_tr(4, 0x23, 0x81, 0x82, {'result': 0x00, 'text': 'hello', 'dcs': 0x04})
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + '83020000' + '8D0604' + '68656C6C6F')
+                         '8103042300' + '02028182' + '83020000' + '0D0604' + '68656C6C6F')
         # UCS2 (UTF-16-BE): 'A' U+0041, 'Ж' U+0416
         tr = T.build_tr(4, 0x23, 0x81, 0x82,
                         {'result': 0x00, 'text': 'A\u0416', 'dcs': 0x08})
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + '83020000' + '8D0508' + '00410416')
+                         '8103042300' + '02028182' + '83020000' + '0D0508' + '00410416')
         # an empty answer is the null text string (Length 00, no DCS)
         tr = T.build_tr(4, 0x23, 0x81, 0x82, {'result': 0x00, 'text': ''})
         self.assertEqual(tr.hex().upper(),
-                         '8103042300' + '82028182' + '83020000' + '8D00')
+                         '8103042300' + '02028182' + '83020000' + '0D00')
 
     def test_a_text_the_dcs_cannot_code_is_refused_at_load(self):
         # v3.22.8: the load-time check uses the same coding the TERMINAL
@@ -427,15 +427,15 @@ class TestBuildTr(unittest.TestCase):
         # TS 102 223 6.8.0: the item identifier (F) follows the Result (C)
         tr = T.build_tr(3, 0x24, 0x82, 0x81, {'result': 0x00, 'item_id': 7})
         self.assertEqual(tr.hex().upper(),
-                         '81030324008202828183020000900107')
+                         '81030324000202828183020000100107')
 
     def test_cancel_response_has_no_item_identifier(self):
         tr = T.build_tr(3, 0x24, 0x82, 0x81, {'result': 0x10, 'item_id': 7})
-        self.assertEqual(tr.hex().upper(), '81030324008202828183021000')
+        self.assertEqual(tr.hex().upper(), '81030324000202828183021000')
 
     def test_display_text_result_only(self):
         tr = T.build_tr(2, 0x21, 0x82, 0x81, {'result': 0x00})
-        self.assertEqual(tr.hex().upper(), '81030221008202828183020000')
+        self.assertEqual(tr.hex().upper(), '81030221000202828183020000')
 
     def test_the_terminal_answer_objects_follow_the_result(self):
         # The runner passes the terminal's own objects (the PLI data, the
@@ -444,18 +444,18 @@ class TestBuildTr(unittest.TestCase):
         tr = T.build_tr(1, 0x26, 0x82, 0x81, {'result': 0x00},
                         answer_tlvs='2607AABBCCDDEEFF')
         self.assertEqual(tr.hex().upper(),
-                         '810301260082028281830200002607AABBCCDDEEFF')
+                         '810301260002028281830200002607AABBCCDDEEFF')
         # with a text object the answer object keeps its place
         tr = T.build_tr(1, 0x23, 0x82, 0x81,
                         {'result': 0x00, 'text': 'hi', 'dcs': 0x04},
                         answer_tlvs='8402011E')
         self.assertEqual(tr.hex().upper(),
-                         '810301230082028281830200008402011E8D03046869')
+                         '810301230002028281830200008402011E0D03046869')
         # and the script's raw TLVs stay last
         tr = T.build_tr(1, 0x26, 0x82, 0x81,
                         {'result': 0x00, 'raw': '9B0100'}, answer_tlvs='2607AA')
         self.assertEqual(tr.hex().upper(),
-                         '810301260082028281830200002607AA9B0100')
+                         '810301260002028281830200002607AA9B0100')
 
 
 # ─── runner with a fake card ─────────────────────────────────────────────
@@ -548,7 +548,7 @@ class TestRunnerDialogue(RunnerTestCase):
         self.assertEqual(run['status'], 'ok', run['steps'])
         self.assertEqual([s['status'] for s in run['steps']], ['ok', 'ok', 'ok'])
         # the SELECT ITEM TR carries the item identifier
-        self.assertIn('900101', run['steps'][1]['sent'])
+        self.assertIn('100101', run['steps'][1]['sent'])
         # the DISPLAY TEXT check decoded the text
         text_check = [c for c in run['steps'][2]['checks'] if c['label'] == 'Text'][0]
         self.assertEqual(text_check['actual'], 'hello')

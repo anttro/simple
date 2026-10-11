@@ -94,8 +94,15 @@ class TagVariantMatrixTests(unittest.TestCase):
             with self.subTest(label=label):
                 plain = parser(raw)
                 flipped = parser(flip_tags(raw))
-                self.assertEqual(plain, flipped,
-                                 '%s differs between the tag styles' % label)
+                if isinstance(plain, tuple) and len(plain) == 6:
+                    # the header parser also returns the command-details tag,
+                    # which follows the style (the TR echoes it, v3.25.2) -
+                    # the parsed values stay identical
+                    self.assertEqual(plain[:5], flipped[:5],
+                                     '%s differs between the tag styles' % label)
+                else:
+                    self.assertEqual(plain, flipped,
+                                     '%s differs between the tag styles' % label)
                 self.assertNotEqual(raw, flip_tags(raw), 'fixture has no TLVs?')
 
     def test_response_scripting_accepts_both_rapdu_tags(self):

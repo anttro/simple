@@ -802,7 +802,7 @@ class TestProactiveDecode(unittest.TestCase):
     def test_parse_proactive_header_plain_tags(self):
         import pysim_simple_server.server as srv
         raw = bytes.fromhex('d00c010301270102028182240103')
-        self.assertEqual(srv._parse_proactive_header(raw), (1, 0x27, 0x81, 0x82, 0x01))
+        self.assertEqual(srv._parse_proactive_header(raw), (1, 0x27, 0x81, 0x82, 0x01, 0x01))
 
     def test_default_handler_logs_timer_management(self):
         # pySim's auto-handler path: the parsed command object (not the empty
@@ -861,7 +861,23 @@ class TestProactiveDecode(unittest.TestCase):
         # TS 102 223 6.8.0: command details, device identities, Result, then
         # the command-specific data objects (real terminals send them last).
         tr = _build_tr(None, 1, 0x26, 0x81, 0x82, 0x00)
-        self.assertEqual(tr.hex(), '81030126008202828103010093055210011000')
+        self.assertEqual(tr.hex(), '81030126000202828103010093055210011000')
+
+    def test_response_objects_use_the_base_cr0_forms(self):
+        # TS 102 223 6.8.0: the TR's response objects are Min = N ("should
+        # set the CR flag to comprehension not required"); 6.8.1: the
+        # command details echo the command's tag form (v3.25.2)
+        from pysim_simple_server import testscript as T
+        tr = _build_tr(None, 1, 0x03, 0x81, 0x82, None, cd_tag=0x01)
+        self.assertTrue(tr.hex().startswith('010301030002028281'), tr.hex())
+        self.assertIn('040201', tr.hex())          # POLL Duration base tag
+        self.assertTrue(_build_tr(None, 1, 0x26, 0x81, 0x82, 0x00, cd_tag=0x01)
+                        .hex().startswith('010301260002028281'))
+        self.assertTrue(T.build_tr(1, 0x26, 0x82, 0x81, {}, cd_tag=0x01)
+                        .hex().startswith('010301260002028281'))
+        # no tag known: the previous CR-set default keeps the old bytes
+        self.assertTrue(_build_tr(None, 1, 0x26, 0x81, 0x82, 0x00)
+                        .hex().startswith('810301260002028281'))
 
     def test_build_tr_echoes_the_command_qualifier(self):
         # TS 102 223 6.8.1: the TR's command details shall be identical to
@@ -881,7 +897,7 @@ class TestProactiveDecode(unittest.TestCase):
         import pysim_simple_server.server as srv
         tr = _build_tr(None, 1, 0x03, 0x81, 0x82, None)
         self.assertEqual(tr.hex(),
-                         '810301030082028281030100840201%02x' % srv._POLL_INTERVAL)
+                         '810301030002028281030100040201%02x' % srv._POLL_INTERVAL)
 
     def test_build_tr_pli_datetime_from_host_clock_when_dict_empty(self):
         # 8.39 coding: the same vectors as the PWA's eventDateTimeTlv test.
@@ -900,10 +916,10 @@ class TestProactiveDecode(unittest.TestCase):
             srv._PLI_DATA[0x03] = saved
         # the command details echo the qualifier (TS 102 223 6.8.1)
         self.assertEqual(tr_east.hex(),
-                         '810301260382028281030100260762900312550021')
+                         '810301260302028281030100260762900312550021')
         # negative zone: the sign bit of the time zone byte (0x08)
         self.assertEqual(tr_west.hex(),
-                         '810301260382028281030100260762105080709009')
+                         '810301260302028281030100260762105080709009')
 
     def test_build_tr_pli_dict_entry_overrides_host_clock(self):
         import pysim_simple_server.server as srv
@@ -915,7 +931,7 @@ class TestProactiveDecode(unittest.TestCase):
                            datetime(2026, 9, 30, 21, 55, tzinfo=timezone.utc))
         finally:
             srv._PLI_DATA[0x03] = saved
-        self.assertEqual(tr.hex(), '810301260382028281030100130752f01000ff0001')
+        self.assertEqual(tr.hex(), '810301260302028281030100130752f01000ff0001')
 
     def test_build_tr_pli_empty_other_qualifier_sends_no_data(self):
         # a qualifier with neither an override nor a built-in default (02
@@ -928,7 +944,7 @@ class TestProactiveDecode(unittest.TestCase):
             data = srv._pli_data_hex(0x02)
         finally:
             srv._PLI_DATA[0x02] = saved
-        self.assertEqual(tr.hex(), '810301260282028281030100')
+        self.assertEqual(tr.hex(), '810301260202028281030100')
         self.assertEqual(data, '')
 
     def test_pli_defaults_cover_the_common_qualifiers(self):
@@ -936,15 +952,15 @@ class TestProactiveDecode(unittest.TestCase):
         # define (TS 102 223 8.x, tags per TS 101 220 V18.3.0 Table 7.23)
         import pysim_simple_server.server as srv
         d = srv.PLI_DEFAULTS
-        self.assertEqual(d[0x00], '930500F1100000')        # 001/01 + LAC 0000
-        self.assertEqual(d[0x01], '940894104502237315F8')  # IMEI, F pad
-        self.assertEqual(d[0x04], 'AD02656E')              # 'en'
-        self.assertEqual(d[0x05], 'AE020000')              # Timing Advance
-        self.assertEqual(d[0x06], 'BF0108')                # E-UTRAN
-        self.assertEqual(d[0x08], 'E2089410450223731580')  # IMEISV
-        self.assertEqual(d[0x09], 'E50101')                # automatic
+        self.assertEqual(d[0x00], '130500F1100000')        # 001/01 + LAC 0000
+        self.assertEqual(d[0x01], '140894104502237315F8')  # IMEI, F pad
+        self.assertEqual(d[0x04], '2D02656E')              # 'en'
+        self.assertEqual(d[0x05], '2E020000')              # Timing Advance
+        self.assertEqual(d[0x06], '3F0108')                # E-UTRAN
+        self.assertEqual(d[0x08], '62089410450223731580')  # IMEISV
+        self.assertEqual(d[0x09], '650101')                # automatic
         self.assertEqual(d[0x0A], '630104')                # battery full
-        self.assertEqual(d[0x0E], 'BF020308')              # UTRAN + E-UTRAN
+        self.assertEqual(d[0x0E], '3F020308')              # UTRAN + E-UTRAN
         # the date/time stays dynamic; the 3GPP/3GPP2 qualifiers stay empty
         self.assertNotIn(0x03, d)
         for q in (0x02, 0x07, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x12,
@@ -1208,7 +1224,7 @@ class TestTimerManagement(unittest.TestCase):
     def test_start_returns_result_only_and_arms_timer(self):
         import pysim_simple_server.server as srv
         tr = srv._handle_timer_command(1, 0x27, 0x00, self.START, 0x81, 0x82)
-        self.assertEqual(tr.hex(), '810301270082028281030100')
+        self.assertEqual(tr.hex(), '810301270002028281030100')
         remaining = srv._timer_remaining(1)
         self.assertTrue(55 <= remaining <= 60, remaining)
 
@@ -1216,20 +1232,20 @@ class TestTimerManagement(unittest.TestCase):
         import pysim_simple_server.server as srv
         srv._handle_timer_command(1, 0x27, 0x00, self.START, 0x81, 0x82)
         tr = srv._handle_timer_command(1, 0x27, 0x02, self.START, 0x81, 0x82)
-        self.assertEqual(tr.hex(), '810301270282028281a40101a503001000030100')
+        self.assertEqual(tr.hex(), '8103012702020282812401012503001000030100')
 
     def test_deactivate_stops_and_reports_value(self):
         import pysim_simple_server.server as srv
         srv._handle_timer_command(1, 0x27, 0x00, self.START, 0x81, 0x82)
         tr = srv._handle_timer_command(1, 0x27, 0x01, self.START, 0x81, 0x82)
         self.assertTrue(tr.hex().startswith('8103012701'), tr.hex())
-        self.assertIn('a40101a503001000', tr.hex())
+        self.assertIn('2401012503001000', tr.hex())
         self.assertIsNone(srv._timer_remaining(1))
 
     def test_get_on_stopped_timer_is_contradiction(self):
         import pysim_simple_server.server as srv
         tr = srv._handle_timer_command(1, 0x27, 0x02, self.START, 0x81, 0x82)
-        self.assertEqual(tr.hex(), '810301270282028281030124')
+        self.assertEqual(tr.hex(), '810301270202028281030124')
 
     def test_timer_expiration_envelope(self):
         import pysim_simple_server.server as srv
@@ -2130,7 +2146,7 @@ class ProactiveLongTlvTests(unittest.TestCase):
            TPDU + bytes(range(len(TPDU), 150)))
 
     def test_header_parses_with_a_long_form_tlv(self):
-        self.assertEqual(_parse_proactive_header(self.RAW), (1, 0x13, 0x81, 0x83, 0))
+        self.assertEqual(_parse_proactive_header(self.RAW), (1, 0x13, 0x81, 0x83, 0, 0x81))
         # the long TLV is found as one TLV, not mis-walked into its value
         self.assertEqual(sorted(_tlv_map(self.RAW[3:]).keys()), [0x81, 0x82, 0x86, 0x8B])
         self.assertEqual(len(_find_sms_tpdu(self.RAW)), 150 * 2)
@@ -2138,7 +2154,7 @@ class ProactiveLongTlvTests(unittest.TestCase):
     def test_a_truncated_tlv_does_not_raise(self):
         # a declared length running past the data ends the walk
         raw = bytes.fromhex('d004810381')
-        self.assertEqual(_parse_proactive_header(raw), (1, 0, 0x83, 0x81, None))
+        self.assertEqual(_parse_proactive_header(raw), (1, 0, 0x83, 0x81, None, None))
         self.assertEqual(_tlv_map(bytes.fromhex('810381')), {})
         # display text with a long-form text TLV (144 bytes -> 8D 81 90)
         text = bytes([0x8D, 0x81, 0x90]) + b'\x00' * 0x90
@@ -2385,19 +2401,19 @@ class StkInputTests(unittest.TestCase):
     def test_input_text_tlv_codings(self):
         pd = {'type': 'get_input', 'digits_only': True, 'hidden': True}
         # digits: SMS default alphabet unpacked (DCS 04), one byte per char
-        self.assertEqual(_input_text_tlv(pd, '1234').hex().upper(), '8D050431323334')
+        self.assertEqual(_input_text_tlv(pd, '1234').hex().upper(), '0D050431323334')
         # empty input: the null text string (6.8.5)
-        self.assertEqual(_input_text_tlv(pd, '').hex().upper(), '8D00')
+        self.assertEqual(_input_text_tlv(pd, '').hex().upper(), '0D00')
         # UCS2 request: DCS 08
         self.assertEqual(_input_text_tlv(dict(pd, ucs2=True, hidden=False), '12').hex().upper(),
-                         '8D050800310032')
+                         '0D050800310032')
         # packed request: DCS 00 + TS 23.038 septet packing
         self.assertEqual(_input_text_tlv(dict(pd, packed=True, hidden=False), '1234').hex().upper(),
-                         '8D050031D98C06')
+                         '0D050031D98C06')
         # GET INKEY Yes/No: value 01 positive / 00 negative (6.8.5)
         yesno = {'type': 'get_inkey', 'yes_no': True}
-        self.assertEqual(_input_text_tlv(yesno, '01').hex().upper(), '8D020401')
-        self.assertEqual(_input_text_tlv(yesno, '00').hex().upper(), '8D020400')
+        self.assertEqual(_input_text_tlv(yesno, '01').hex().upper(), '0D020401')
+        self.assertEqual(_input_text_tlv(yesno, '00').hex().upper(), '0D020400')
 
     def test_pack_gsm7_matches_the_sms_packing(self):
         self.assertEqual(_pack_gsm7(b'1234').hex().upper(), '31D98C06')
@@ -2452,7 +2468,7 @@ class StkInputTests(unittest.TestCase):
         resp, code = _menu_send_response(server, 'ok', None, '1234')
         self.assertEqual(code, 200, resp)
         apdu = server.scc._tp.sent[0].upper()
-        self.assertIn('8D050431323334', apdu)          # the entered digits
+        self.assertIn('0D050431323334', apdu)          # the entered digits
         self.assertIn('83020000', apdu)                # successful result
         self.assertIsNone(server.stk_pending)
         # a rejected value sends nothing and keeps the command pending

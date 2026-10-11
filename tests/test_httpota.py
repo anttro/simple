@@ -30,6 +30,9 @@ OPEN_LOCALHOST = bytes.fromhex(
 
 TR_OPEN_OK = '0103014001020282810301003802810035010339020200'
 TR_OPEN_FAIL = '01030140010202828103023a0035010339020200'
+# the same vector as sent by the handler: the command details echo the
+# command's tag form (the test raws use 81/82, TS 102 223 6.8.1)
+TR_OPEN_OK_ECHO = '8103014001020282810301003802810035010339020200'
 
 
 class PeerServer(threading.Thread):
@@ -314,13 +317,13 @@ class BipCommandFlowTest(unittest.TestCase):
 
     def test_open_send_receive_close_flow(self):
         tr = server._handle_bip_command(None, 1, 0x40, 0x01, open_cmd('127.0.0.1', self.peer.port), 0x81, 0x82)
-        self.assertEqual(tr.hex(), TR_OPEN_OK)
+        self.assertEqual(tr.hex(), TR_OPEN_OK_ECHO)
 
         tr = server._handle_bip_command(None, 1, 0x43, 0x01,
                                         channel_cmd(0x43, 0x01, bytes([0x36, 0x08]) + b'CLIENTHE'),
                                         0x81, 0x21)
         tlvs = parse_tr(tr)
-        self.assertEqual(tlvs[0x01].hex(), '014301')
+        self.assertEqual(tlvs[0x81].hex(), '014301')
         self.assertEqual(tlvs[0x02].hex(), '8281')
         self.assertEqual(tlvs[0x03], b'\x00')
         self.assertEqual(tlvs[0x37], b'\xff')
@@ -337,7 +340,7 @@ class BipCommandFlowTest(unittest.TestCase):
         self.assertEqual(tlvs[0x37], b'\x00')
 
         tr = server._handle_bip_command(None, 1, 0x41, 0x00, channel_cmd(0x41, 0x00), 0x81, 0x21)
-        self.assertEqual(tr.hex(), '010301410002028281030100')
+        self.assertEqual(tr.hex(), '810301410002028281030100')
         self.peer.done.wait(3)
         self.assertEqual(self.peer.received, b'CLIENTHE')
 

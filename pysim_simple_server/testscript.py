@@ -701,7 +701,7 @@ def _encode_text(text, dcs):
 
 
 def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None,
-             cmd_qual=None):
+             cmd_qual=None, cd_tag=None):
     """Flat COMPREHENSION-TLV TERMINAL RESPONSE payload (TS 102 223 6.8) in the
     6.8.0 object order: command details, device identities, Result, then the
     command-specific objects (the terminal's own `answer_tlvs` - the PLI data
@@ -709,11 +709,12 @@ def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None,
     Text string for GET INKEY/GET INPUT, the Item identifier for SELECT ITEM)
     and any extra raw TLVs.  Matches the interactive menu TR layout; the
     runner passes the terminal objects the script did not override.  The
-    command details echo the command's qualifier (TS 102 223 6.8.1: the
-    object shall be identical to the command's)."""
-    out = bytearray([0x81, 0x03, cmd_num & 0xFF, cmd_type & 0xFF,
+    command details echo the command's tag form and qualifier (TS 102 223
+    6.8.1: the object shall be identical to the command's); the response
+    objects use the base (CR=0) forms per 6.8.0 (Min = N) - v3.25.2."""
+    out = bytearray([(cd_tag or 0x81), 0x03, cmd_num & 0xFF, cmd_type & 0xFF,
                      (cmd_qual or 0) & 0xFF])
-    out += bytes([0x82, 0x02, dev_dst & 0xFF, dev_src & 0xFF])
+    out += bytes([0x02, 0x02, dev_dst & 0xFF, dev_src & 0xFF])
     result = int(respond.get('result', 0))
     add_info = int(respond.get('additional_info', 0) or 0)
     out += bytes([0x83, 0x02, result & 0xFF, add_info & 0xFF])
@@ -723,13 +724,13 @@ def build_tr(cmd_num, cmd_type, dev_dst, dev_src, respond, answer_tlvs=None,
         text = str(respond['text'])
         if text == '':
             # TS 102 223 8.15: a null text string is Length 00, no value part
-            out += bytes([0x8D, 0x00])
+            out += bytes([0x0D, 0x00])
         else:
             dcs = int(respond.get('dcs', 0x00))
             body = _encode_text(text, dcs)
-            out += bytes([0x8D, len(body) + 1, dcs]) + body
+            out += bytes([0x0D, len(body) + 1, dcs]) + body
     if respond.get('item_id') is not None and result == 0x00:
-        out += bytes([0x90, 0x01, respond['item_id'] & 0xFF])
+        out += bytes([0x10, 0x01, respond['item_id'] & 0xFF])
     if respond.get('raw'):
         out += bytes.fromhex(respond['raw'])
     return bytes(out)

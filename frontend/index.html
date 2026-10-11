@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.25.1';
+const SIMPLE_VERSION = '3.25.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -18140,24 +18140,24 @@ function encImeisvPli(digits) {
 }
 
 const PLI_CODECS = {
-	'00': { tlv: '9305',
+	'00': { tlv: '1305',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 10) return null;
 			const pl = decPlmn(v); return { mcc: pl[0], mnc: pl[1], lac: v.slice(6,10).toUpperCase() };
 		},
-		encode(v) { return '9305' + encPlmn(v.mcc||'250',v.mnc||'01') + ((v.lac||'0000').toUpperCase()); },
+		encode(v) { return '1305' + encPlmn(v.mcc||'250',v.mnc||'01') + ((v.lac||'0000').toUpperCase()); },
 		fields: [
 			{id:'mcc',label:'MCC',type:'text',pattern:'\\d{3}',placeholder:'e.g. 250'},
 			{id:'mnc',label:'MNC',type:'text',pattern:'\\d{2,3}',placeholder:'e.g. 01'},
 			{id:'lac',label:'LAC/TAC',type:'text',pattern:'[0-9A-Fa-f]{4}',placeholder:'hex'},
 		],
 	},
-	'01': { tlv: '9408',
+	'01': { tlv: '1408',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 16) return null;
 			return { imei: decImei(v) };
 		},
-		encode(v) { const imei = encImeiPli(v.imei||''); return imei ? '9408'+imei : ''; },
+		encode(v) { const imei = encImeiPli(v.imei||''); return imei ? '1408'+imei : ''; },
 		fields: [
 			{id:'imei',label:'IMEI',type:'text',pattern:'\\d{15}',placeholder:'15 digits'},
 		],
@@ -18210,39 +18210,39 @@ const PLI_CODECS = {
 			{id:'tz',label:'TZ offset',type:'text',pattern:'[-+]\\d{2}:?\\d{2}',placeholder:'+00:00'},
 		],
 	},
-	'04': { tlv: 'AD02',
+	'04': { tlv: '2D02',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 4) return null;
 			return { lang: String.fromCharCode(parseInt(v[0]+v[1],16), parseInt(v[2]+v[3],16)) };
 		},
 		encode(v) {
 			const lang = (v.lang||'en').slice(0,2);
-			return 'AD02' + lang.charCodeAt(0).toString(16).padStart(2,'0') + lang.charCodeAt(1).toString(16).padStart(2,'0');
+			return '2D02' + lang.charCodeAt(0).toString(16).padStart(2,'0') + lang.charCodeAt(1).toString(16).padStart(2,'0');
 		},
 		fields: [
 			{id:'lang',label:'Language',type:'text',pattern:'[a-zA-Z]{2,3}',placeholder:'en'},
 		],
 	},
-	'05': { tlv: 'AE02',
+	'05': { tlv: '2E02',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 4) return null;
 			return { status: parseInt(v[0]+v[1],16).toString(), ta: parseInt(v[2]+v[3],16).toString() };
 		},
-		encode(v) { return 'AE02' + (parseInt(v.status)||0).toString(16).padStart(2,'0') + (parseInt(v.ta)||0).toString(16).padStart(2,'0'); },
+		encode(v) { return '2E02' + (parseInt(v.status)||0).toString(16).padStart(2,'0') + (parseInt(v.ta)||0).toString(16).padStart(2,'0'); },
 		fields: [
 			{id:'status',label:'ME Status',type:'number',min:'0',max:'255',placeholder:'0'},
 			{id:'ta',label:'Timing Advance',type:'number',min:'0',max:'255',placeholder:'0'},
 		],
 	},
-	'06': { tlv: 'BF01',
+	'06': { tlv: '3F01',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 2) return null;
 			return { tech: parseInt(v[0]+v[1],16).toString() };
 		},
-		encode(v) { return 'BF01' + (parseInt(v.tech)||0).toString(16).padStart(2,'0'); },
+		encode(v) { return '3F01' + (parseInt(v.tech)||0).toString(16).padStart(2,'0'); },
 		fields: [{id:'tech',label:'Access Technology',type:'select',opts:ACCESSTECH}],
 	},
-	'08': { tlv: 'E208',
+	'08': { tlv: '6208',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 16) return null;
 			return { imeisv: decImei(v) + v.slice(14,16).toUpperCase() };
@@ -18253,17 +18253,17 @@ const PLI_CODECS = {
 			let h = '';
 			for (let i = 0; i < 16; i += 2)
 				h += (parseInt(raw[i+1])<<4 | parseInt(raw[i])).toString(16).padStart(2,'0');
-			return 'E208' + h;
+			return '6208' + h;
 		},
 		fields: [{id:'imeisv',label:'IMEISV',type:'text',pattern:'\\d{16}',placeholder:'16 digits'}],
 	},
-	'09': { tlv: 'E501',
+	'09': { tlv: '6501',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 2) return null;
 			return { mode: parseInt(v[0]+v[1],16).toString() };
 		},
 		encode(v) {
-			return 'E501' + (parseInt(v.mode)||0).toString(16).padStart(2,'0');
+			return '6501' + (parseInt(v.mode)||0).toString(16).padStart(2,'0');
 		},
 		fields: [{id:'mode',label:'Search Mode',type:'select',
 			opts:[{v:0,l:'Manual'},{v:1,l:'Automatic'}]}],
@@ -18281,7 +18281,7 @@ const PLI_CODECS = {
 			opts:[{v:0,l:'Very low'},{v:1,l:'Low'},{v:2,l:'Average'},{v:3,l:'Good'},
 				{v:4,l:'Full'},{v:0xFE,l:'Not battery powered'},{v:0xFF,l:'Unknown / charging'}]}],
 	},
-	'0E': { tlv: 'BF',
+	'0E': { tlv: '3F',
 		decode(hex) {
 			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 2) return null;
 			const techs = []; for (let i = 0; i < v.length; i += 2) techs.push(parseInt(v[i]+v[i+1],16));
@@ -18291,7 +18291,7 @@ const PLI_CODECS = {
 			const techs = (v.techs||'').split(',').filter(t => t !== '').map(t => parseInt(t)&0xFF);
 			if (!techs.length) return '';
 			const len = techs.length.toString(16).padStart(2,'0');
-			return 'BF' + len + techs.map(t => t.toString(16).padStart(2,'0')).join('');
+			return '3F' + len + techs.map(t => t.toString(16).padStart(2,'0')).join('');
 		},
 		fields: [
 			{id:'techs',label:'Access Technologies (comma-separated)',type:'text',

@@ -145,15 +145,15 @@ class PliDictHttpTests(unittest.TestCase):
         try:
             status, resp = self._req('GET', '/api/pli-dict')
             self.assertEqual(status, 200, resp)
-            self.assertEqual(resp['00'], '930500F1100000')
+            self.assertEqual(resp['00'], '130500F1100000')
             self.assertEqual(resp['0A'], '630104')
             self.assertEqual(resp['03'], '')      # the host clock answers it
             self.assertEqual(resp['02'], '')      # no default
             status, resp = self._req('POST', '/api/pli-dict',
-                                     {'01': '94080000000000000000'})
+                                     {'01': '14080000000000000000'})
             self.assertEqual(status, 200, resp)
-            self.assertEqual(resp['01'], '94080000000000000000')
-            self.assertEqual(srv._PLI_DATA.get(0x01), '94080000000000000000')
+            self.assertEqual(resp['01'], '14080000000000000000')
+            self.assertEqual(srv._PLI_DATA.get(0x01), '14080000000000000000')
             # clearing the field restores the default
             status, resp = self._req('POST', '/api/pli-dict', {'01': ''})
             self.assertEqual(status, 200, resp)
