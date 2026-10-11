@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.6'
+VERSION = '3.25.7'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1270,6 +1270,32 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     return tpdu.hex()
 
 
+def _envelope_get_response(scc, data, sw):
+    """Fetch response bytes the card holds after an ENVELOPE.
+
+    ISO 7816-4: a 61xx answer promises response bytes - GET RESPONSE with the
+    named length (Le 256 is coded 00).  A 62xx/63xx answer *without* data can
+    mean the same thing on cards that do not use 61xx for it - the quirk the
+    remote-command status words already acknowledge (_ram_remote_sw_ok; live
+    2026-10-11: an SPI2 01 secured packet - TS 31.115 4.2/4.4 b6=0, the PoR
+    retrieved by the ME from the ENVELOPE - answered 63xx with the whole PoR
+    behind one GET RESPONSE, and the operation reported no PoR at all).
+
+    The GET RESPONSE's result is adopted when it delivered bytes (or for a
+    61xx, which promised them).  Otherwise the original answer is kept: a
+    62xx/63xx whose GET RESPONSE brings nothing was a real warning, and its
+    PoR may still arrive later via SEND SHORT MESSAGE - the v3.6.58 path (the
+    STATUS poll below) must stay intact."""
+    if not (sw.startswith('61') or (not data and sw[:2] in ('62', '63'))):
+        return data, sw
+    get_len = int(sw[2:], 16) if sw.startswith('61') and len(sw) == 4 else 0x100
+    get_le = '%02x' % get_len if get_len <= 0xFF else '00'   # Le 256 = 00
+    gdata, gsw = scc._tp.send_apdu('00c00000' + get_le)
+    if gdata or sw.startswith('61'):
+        return gdata, gsw
+    return data, sw
+
+
 def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
                    handle_proactive=True, poll_status=True):
     from pySim.ts_31_102 import SMSPPDownload
@@ -1318,10 +1344,11 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
     sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
     env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(sms_dl.to_tlv()), b2h(sms_dl.to_tlv()))
     data, sw = scc._tp.send_apdu(env_hex)
-    if sw.startswith('61'):
-        get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-        data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
-    elif handle_proactive and sw.startswith('91'):
+    # 61xx promises response bytes; a 62xx/63xx without data may hold them too
+    # (the card's own "more data" quirk) - for an SPI2 b6=0 packet the PoR is
+    # retrieved from this exchange (TS 31.115 4.2/4.4, v3.25.7).
+    data, sw = _envelope_get_response(scc, data, sw)
+    if handle_proactive and sw.startswith('91'):
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
     # Late-PoR fallback: only after the last segment of a packet (a
@@ -5099,9 +5126,7 @@ def _send_event_download(scc, event_type, event_data=None, drain=True, src=None,
     if log:
         sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
     data, sw = scc._tp.send_apdu(env_hex)
-    if sw.startswith('61'):
-        get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-        data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
+    data, sw = _envelope_get_response(scc, data, sw)
     if log:
         sys.stderr.write('ENVELOPE SW: %s\n' % sw)
     if drain and sw.startswith('91'):

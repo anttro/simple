@@ -441,6 +441,78 @@ class TestSmsConcatenation(unittest.TestCase):
         self.assertEqual(SCP80_MAX_SEGMENTS, 5)
 
 
+class TestEnvelopeGetResponse(unittest.TestCase):
+    """The ENVELOPE's response bytes: 61xx promises them (ISO 7816-4), and a
+    62xx/63xx without data may hold them too - the card's own "more data"
+    quirk.  v3.25.7, live 2026-10-11: an SPI2 01 secured packet (TS 31.115
+    4.2/4.4 b6=0 - the PoR retrieved by the ME from the ENVELOPE) answered
+    63xx with the whole PoR behind one GET RESPONSE, and the operation
+    reported no PoR at all."""
+
+    class FakeTp:
+        def __init__(self, answers):
+            self.answers = list(answers)
+            self.sent = []
+        def send_apdu(self, apdu):
+            self.sent.append(apdu)
+            return self.answers.pop(0)
+
+    def _scc(self, answers):
+        class FakeScc:
+            cat_cla = '80'
+        scc = FakeScc()
+        scc._tp = self.FakeTp(answers)
+        return scc
+
+    def test_61xx_fetches_the_named_length(self):
+        import pysim_simple_server.server as srv
+        scc = self._scc([('', '610B'), ('00112233445566778899AA', '9000')])
+        data, sw = srv._send_envelope('00', scc, handle_proactive=False)
+        self.assertEqual(scc._tp.sent[1], '00c000000b')
+        self.assertEqual((data, sw), ('00112233445566778899AA', '9000'))
+
+    def test_a_warning_with_pending_bytes_fetches_the_por(self):
+        import pysim_simple_server.server as srv
+        por = '00' * 30
+        scc = self._scc([('', '6310'), (por, '9000')])
+        data, sw = srv._send_envelope('00', scc, handle_proactive=False)
+        self.assertEqual(scc._tp.sent[1], '00c0000000')   # Le 256
+        self.assertEqual((data, sw), (por, '9000'))
+
+    def test_a_short_61_sw_uses_le_256_not_an_odd_apdu(self):
+        # '%02x' % 0x100 emitted a 3-digit (odd-length) APDU
+        import pysim_simple_server.server as srv
+        scc = self._scc([('', '61'), ('AABB', '9000')])
+        data, sw = srv._send_envelope('00', scc, handle_proactive=False)
+        self.assertEqual(scc._tp.sent[1], '00c0000000')
+        self.assertEqual((data, sw), ('AABB', '9000'))
+
+    def test_a_warning_without_pending_bytes_keeps_the_warning(self):
+        # nothing to fetch: the warning stays, so the late-PoR STATUS poll
+        # (the SEND SHORT MESSAGE path, v3.6.58) still runs
+        import pysim_simple_server.server as srv
+
+        class FakeSubmit:
+            sms_segments = []
+            submit_tpdu_hex = None
+            submit_ud_hex = None
+
+        scc = self._scc([('', '6200'), ('', '6A86')])
+        with mock.patch.object(srv, '_send_status', return_value=('', '9000')) as status, \
+                mock.patch.object(srv, '_handle_proactive_chain'):
+            data, sw = srv._send_envelope('00', scc, submit_handler=FakeSubmit())
+        self.assertEqual(scc._tp.sent[1], '00c0000000')
+        self.assertEqual((data, sw), ('', '6200'))
+        self.assertTrue(status.called)
+
+    def test_the_event_envelope_uses_the_same_fetch(self):
+        import pysim_simple_server.server as srv
+        scc = self._scc([('', '6310'), ('AABB', '9000')])
+        data, sw = srv._send_event_download(scc, 0x03, log=False)
+        self.assertEqual(scc._tp.sent[1], '00c0000000')
+        self.assertEqual((data, sw), ('AABB', '9000'))
+
+
 class TestDecodePor(unittest.TestCase):
     def test_plaintext_no_cc_synthetic(self):
         r = _decode_por('02', '01', '15', '15', '0000000001', K, K,
