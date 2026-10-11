@@ -534,7 +534,11 @@ the data really flows to/from the configured BIP target, and the BIP events
 (Data available, Channel status) flow for the channels the card itself opened -
 so an applet's own HTTP/BIP conversation completes inside a scripted run.  The
 BIP **control** API stays blocked while a run is active (409), like the
-terminal's other automatic actions (polling, timers, menu).
+terminal's other automatic actions (polling, menu).  The one remaining
+automatic action that still waits is the **timer expiration** event: a
+TIMER MANAGEMENT timer the card armed is not fired during a run (it retries
+every 5 s and fires when the run ends) - a deliberate exception to the
+"the card's own conversation continues" rule, to review later (v3.25.3).
 
 A step's `respond` overrides the terminal when it carries `raw` TLVs or a
 **non-ok result** - the way to script an applet error path:
