@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.4'
+VERSION = '3.25.5'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2669,7 +2669,13 @@ PLI_DEFAULTS = {
     0x0E: '3F02' + '0308',
 }
 
-_PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}   # the operator overrides
+# The operator's overrides only, keyed by qualifier code - the built-in
+# PLI_DEFAULTS above are the base layer and stay the fallback; a field cleared
+# through /api/pli-dict removes its entry (v3.25.5).  Keeping this dict free
+# of placeholder keys is deliberate: the POST's guard tests the known
+# qualifiers, never "an override already exists" (a full-dict Save posts every
+# field - an empty one must not make later overrides no-ops).
+_PLI_DATA = {}
 
 _BIP = httpota.BipTerminal()
 # Active BIP session, shared by the SCP81 listener and the Simulator's
@@ -9102,7 +9108,10 @@ class PysimHandler(BaseHTTPRequestHandler):
                     if isinstance(v, str):
                         try:
                             code = int(k, 16)
-                            if code in _PLI_DATA:
+                            # a known qualifier - never "an override already
+                            # exists": a new override must stick, and a clear
+                            # must not poison a later set (v3.25.5, live report)
+                            if code in PLI_QUALIFIER_NAMES:
                                 if v:
                                     bytes.fromhex(v)      # valid hex only
                                     _PLI_DATA[code] = v

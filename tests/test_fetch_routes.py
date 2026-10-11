@@ -142,6 +142,7 @@ class PliDictHttpTests(unittest.TestCase):
 
     def test_defaults_overrides_and_clearing(self):
         import pysim_simple_server.server as srv
+        saved = dict(srv._PLI_DATA)
         try:
             status, resp = self._req('GET', '/api/pli-dict')
             self.assertEqual(status, 200, resp)
@@ -162,8 +163,46 @@ class PliDictHttpTests(unittest.TestCase):
             # a bad value is ignored
             status, resp = self._req('POST', '/api/pli-dict', {'01': 'ZZ'})
             self.assertEqual(resp['01'], srv.PLI_DEFAULTS[0x01])
+            self.assertNotIn(0x01, srv._PLI_DATA)
         finally:
-            srv._PLI_DATA.pop(0x01, None)
+            srv._PLI_DATA.clear()
+            srv._PLI_DATA.update(saved)
+
+    def test_a_new_override_after_a_full_save_sticks(self):
+        # The PWA's Save posts every field; the empty ones used to pop the
+        # dictionary's placeholder keys, after which the old `code in
+        # _PLI_DATA` guard silently skipped every later override for those
+        # qualifiers - POST answered 200 with the unchanged/default dict
+        # (live report 2026-10-11).  The guard now tests the known qualifiers.
+        import pysim_simple_server.server as srv
+        saved = dict(srv._PLI_DATA)
+        try:
+            full = {('%02X' % q): '' for q in srv.PLI_QUALIFIER_NAMES}
+            status, resp = self._req('POST', '/api/pli-dict', full)
+            self.assertEqual(status, 200, resp)
+            self.assertEqual(srv._PLI_DATA, {})
+            # a new override for a qualifier with a default sticks
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': '630102'})
+            self.assertEqual(resp['0A'], '630102')
+            # and one for a qualifier without a default
+            status, resp = self._req('POST', '/api/pli-dict', {'02': 'AABBCC'})
+            self.assertEqual(resp['02'], 'AABBCC')
+            status, resp = self._req('GET', '/api/pli-dict')
+            self.assertEqual(resp['0A'], '630102')
+            self.assertEqual(resp['02'], 'AABBCC')
+            # clearing restores the default and a later set still works
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': ''})
+            self.assertEqual(resp['0A'], srv.PLI_DEFAULTS[0x0A])
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': '630103'})
+            self.assertEqual(resp['0A'], '630103')
+            # an unknown qualifier is ignored
+            status, resp = self._req('POST', '/api/pli-dict', {'18': 'AABB'})
+            self.assertEqual(status, 200, resp)
+            self.assertNotIn(0x18, srv._PLI_DATA)
+            self.assertEqual(resp['0A'], '630103')
+        finally:
+            srv._PLI_DATA.clear()
+            srv._PLI_DATA.update(saved)
 
 
 class CardFreeGetTests(unittest.TestCase):
