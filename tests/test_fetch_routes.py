@@ -199,7 +199,40 @@ class PliDictHttpTests(unittest.TestCase):
             status, resp = self._req('POST', '/api/pli-dict', {'18': 'AABB'})
             self.assertEqual(status, 200, resp)
             self.assertNotIn(0x18, srv._PLI_DATA)
+            self.assertEqual(resp['unknown'], ['18'])
             self.assertEqual(resp['0A'], '630103')
+        finally:
+            srv._PLI_DATA.clear()
+            srv._PLI_DATA.update(saved)
+
+    def test_rejected_values_are_reported(self):
+        # a field the server cannot use is named in the response, never
+        # silently dropped (v3.25.6): the PWA shows it under the Save button
+        import pysim_simple_server.server as srv
+        saved = dict(srv._PLI_DATA)
+        try:
+            # an odd-length hex value
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': '63010'})
+            self.assertEqual(status, 200, resp)
+            self.assertEqual(resp['invalid'], ['0A'])
+            self.assertNotIn(0x0A, srv._PLI_DATA)
+            self.assertEqual(resp['0A'], srv.PLI_DEFAULTS[0x0A])
+            # a non-hex value and a non-hex key
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': 'ZZ', '0G': 'AA'})
+            self.assertEqual(sorted(resp['invalid']), ['0A', '0G'])
+            self.assertNotIn('unknown', resp)
+            # a non-string value
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': 123})
+            self.assertEqual(resp['invalid'], ['0A'])
+            # an unknown (well-formed) qualifier
+            status, resp = self._req('POST', '/api/pli-dict', {'18': 'AABB'})
+            self.assertEqual(resp['unknown'], ['18'])
+            self.assertNotIn('invalid', resp)
+            # a valid save carries neither rejection list
+            status, resp = self._req('POST', '/api/pli-dict', {'0A': '630102'})
+            self.assertEqual(resp['0A'], '630102')
+            self.assertNotIn('invalid', resp)
+            self.assertNotIn('unknown', resp)
         finally:
             srv._PLI_DATA.clear()
             srv._PLI_DATA.update(saved)

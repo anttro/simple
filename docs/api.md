@@ -1520,11 +1520,17 @@ override is set.
 
 ### `POST /api/pli-dict`
 
-Updates dictionary entries. Body is a map of qualifier code to hex value;
-keys must be known qualifiers and values valid hex, otherwise they are
-ignored.  A non-empty value becomes an override; an **empty value clears the
+Updates dictionary entries. Body is a map of qualifier code to hex value.
+A non-empty value becomes an override; an **empty value clears the
 override**, so the built-in default (if any) applies again.  Returns the
-updated effective dictionary.
+updated effective dictionary plus, when any field was not saved, the lists
+that name them: `invalid` (a malformed key or value — not hex, an odd number
+of digits, a non-string value) and `unknown` (a well-formed code outside the
+qualifier list); both keys are omitted when everything was applied (v3.25.6).
+
+```json
+{"00": "130500F1100000", "0A": "630102", "invalid": ["0G"], "unknown": ["18"]}
+```
 
 ### `POST /api/scp81/bip`
 

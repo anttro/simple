@@ -87,3 +87,43 @@ test('the server PLI defaults decode through their codecs', () => {
 	assert.deepStrictEqual(PLI_CODECS['09'].decode('650101'), { mode: '1' });
 	assert.deepStrictEqual(PLI_CODECS['0A'].decode('630104'), { charge: '4' });
 });
+
+// the same extraction the profiler tests use
+function extractFunc(src, name) {
+	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
+	const m = re.exec(src);
+	if (!m) throw new Error('function ' + name + ' not found');
+	let i = m.index + m[0].length - 1;
+	let depth = 0;
+	for (; i < src.length; i++) {
+		if (src[i] === '{') depth++;
+		else if (src[i] === '}') {
+			depth--;
+			if (depth === 0) break;
+		}
+	}
+	return src.slice(m.index, i + 1);
+}
+
+test('a rejected PLI save is reported, not silently dropped', () => {
+	// the server names the fields it could not use (invalid/unknown) and the
+	// PWA shows them under the Save button (v3.25.6)
+	global.t = s => s;
+	eval(extractFunc(html, 'pysimPliRejectMsg'));
+	assert.strictEqual(pysimPliRejectMsg({}), '');
+	assert.strictEqual(pysimPliRejectMsg({ '0A': '630104' }), '');
+	assert.strictEqual(pysimPliRejectMsg({ invalid: ['0A'] }),
+		'Not saved: 0A (invalid value)');
+	assert.strictEqual(pysimPliRejectMsg({ unknown: ['18'] }),
+		'Not saved: 18 (unknown qualifier)');
+	assert.strictEqual(pysimPliRejectMsg({ invalid: ['0A'], unknown: ['18'] }),
+		'Not saved: 0A (invalid value), 18 (unknown qualifier)');
+	// the save posts every field (no silent client-side skip) and wires the
+	// message element + the reject branch
+	assert.ok(html.includes('if (el) data[q.code] = el.value.trim()'),
+		'every field is sent to the server for validation');
+	assert.ok(html.includes('id="pli-save-msg"'), 'the message element exists');
+	assert.ok(html.includes('const reject = pysimPliRejectMsg(resp);'),
+		'the save reports the rejection');
+	delete global.t;
+});

@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.5'
+VERSION = '3.25.6'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -9103,25 +9103,41 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/pli-dict':
             body = self._read_body()
             self._log_req(body)
+            invalid, unknown = [], []
             if isinstance(body, dict):
                 for k, v in body.items():
-                    if isinstance(v, str):
+                    if not isinstance(v, str):
+                        invalid.append(k)
+                        continue
+                    try:
+                        code = int(k, 16)
+                    except ValueError:
+                        invalid.append(k)
+                        continue
+                    # a known qualifier - never "an override already exists":
+                    # a new override must stick, and a clear must not poison a
+                    # later set (v3.25.5, live report)
+                    if code not in PLI_QUALIFIER_NAMES:
+                        unknown.append(k)
+                        continue
+                    if v:
                         try:
-                            code = int(k, 16)
-                            # a known qualifier - never "an override already
-                            # exists": a new override must stick, and a clear
-                            # must not poison a later set (v3.25.5, live report)
-                            if code in PLI_QUALIFIER_NAMES:
-                                if v:
-                                    bytes.fromhex(v)      # valid hex only
-                                    _PLI_DATA[code] = v
-                                else:
-                                    # clearing the field restores the default
-                                    _PLI_DATA.pop(code, None)
-                        except (ValueError, KeyError):
-                            pass
+                            bytes.fromhex(v)      # valid hex only
+                        except ValueError:
+                            invalid.append(k)
+                            continue
+                        _PLI_DATA[code] = v
+                    else:
+                        # clearing the field restores the default
+                        _PLI_DATA.pop(code, None)
             resp = {('%02X' % q): (_PLI_DATA.get(q) or PLI_DEFAULTS.get(q, ''))
                     for q in PLI_QUALIFIER_NAMES}
+            # a field the server could not use is named in the response, never
+            # silently dropped (v3.25.6): the PWA shows it under the Save button
+            if invalid:
+                resp['invalid'] = invalid
+            if unknown:
+                resp['unknown'] = unknown
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/poll-toggle':

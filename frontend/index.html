@@ -1302,6 +1302,7 @@
 		<div id="phone-sub-tr" class="hidden">
 			<div class="flex justify-between items-center mb-2">
 				<span class="text-sm text-gray-500 dark:text-slate-400" data-l10n="PROVIDE LOCAL INFORMATION response data">PROVIDE LOCAL INFORMATION response data</span>
+				<span id="pli-save-msg" class="flex-1 mx-2 text-right text-xs text-red-600"></span>
 				<button id="pli-save-btn" data-needs="server" onclick="pysimPliSave()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
 			</div>
 			<div class="text-xs text-gray-400 dark:text-slate-500 mb-1" data-l10n="The date/time qualifier is answered from the host clock while its entry is empty.">The date/time qualifier is answered from the host clock while its entry is empty.</div>
@@ -1905,7 +1906,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.25.5';
+const SIMPLE_VERSION = '3.25.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -18404,25 +18405,42 @@ function pysimPliApplyRow(code) {
 	if (tog) tog.textContent = '▶';
 }
 
+// The server names the fields it could not use (invalid value/key, unknown
+// qualifier) - show them instead of silently dropping the edit (v3.25.6).
+function pysimPliRejectMsg(resp) {
+	const bad = [];
+	((resp && resp.invalid) || []).forEach(c => bad.push(c + ' (' + t('invalid value') + ')'));
+	((resp && resp.unknown) || []).forEach(c => bad.push(c + ' (' + t('unknown qualifier') + ')'));
+	return bad.length ? t('Not saved') + ': ' + bad.join(', ') : '';
+}
+
 async function pysimPliSave() {
 	const btn = document.getElementById('pli-save-btn');
+	const msg = document.getElementById('pli-save-msg');
 	btn.disabled = true;
 	btn.textContent = t('Saving...');
+	if (msg) msg.textContent = '';
 	const data = {};
 	PLI_QUALIFIERS.forEach(q => {
 		const el = document.getElementById('pli-v-' + q.code);
-		if (el) {
-			const v = el.value.trim().replace(/\s/g, '');
-			if (v && !/^[0-9A-Fa-f]*$/.test(v)) return;
-			data[q.code] = v;
-		}
+		// every field is sent - the server validates and names what it cannot
+		// use (a bad value is no longer skipped silently, v3.25.6)
+		if (el) data[q.code] = el.value.trim().replace(/\s/g, '');
 	});
 	try {
-		await pysimFetch('/api/pli-dict', data);
+		const resp = await pysimFetch('/api/pli-dict', data);
+		const reject = pysimPliRejectMsg(resp);
 		pysimPliRender();      // a cleared field shows its default again
-		btn.textContent = t('Saved');
-		btn.classList.add('bg-emerald-700');
-		setTimeout(() => { btn.textContent = t('Save'); btn.classList.remove('bg-emerald-700'); btn.disabled = false; }, 1500);
+		if (msg) msg.textContent = reject;
+		if (reject) {
+			btn.textContent = t('Not saved');
+			btn.classList.add('bg-red-600');
+			setTimeout(() => { btn.textContent = t('Save'); btn.classList.remove('bg-red-600'); btn.disabled = false; }, 2500);
+		} else {
+			btn.textContent = t('Saved');
+			btn.classList.add('bg-emerald-700');
+			setTimeout(() => { btn.textContent = t('Save'); btn.classList.remove('bg-emerald-700'); btn.disabled = false; }, 1500);
+		}
 	} catch (e) {
 		btn.textContent = 'Error';
 		btn.classList.add('bg-red-600');
@@ -23435,6 +23453,9 @@ const LANG_RU = {
 	'Saving...': 'Сохранение...',
 	'Saved': 'Сохранено',
 	'Save': 'Сохранить',
+	'Not saved': 'Не сохранено',
+	'invalid value': 'недопустимое значение',
+	'unknown qualifier': 'неизвестный квалификатор',
 	'Profiler': 'Профайлер',
 	'New profile': 'Новый профиль',
 	'Profile from card': 'Профиль с карты',

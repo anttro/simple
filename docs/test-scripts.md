@@ -534,7 +534,7 @@ the data really flows to/from the configured BIP target, and the BIP events
 (Data available, Channel status) flow for the channels the card itself opened -
 so an applet's own HTTP/BIP conversation completes inside a scripted run.  The
 BIP **control** API stays blocked while a run is active (409), like the
-terminal's other automatic actions (polling, menu).  The one remaining
+terminal's other automatic actions (polling, menu).  The one card-initiated
 automatic action that still waits is the **timer expiration** event: a
 TIMER MANAGEMENT timer the card armed is not fired during a run (it retries
 every 5 s and fires when the run ends) - a deliberate exception to the
