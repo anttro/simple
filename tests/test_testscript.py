@@ -2056,5 +2056,84 @@ class TestAdmGate(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class TestRunnerBipCommands(RunnerTestCase):
+    """The runner's steps let the terminal answer the card's own BIP commands
+    (v3.25.3): a channel the card opens during a run really opens and its data
+    really flows - unless the script overrides the answer with `raw` TLVs or a
+    non-ok result (an applet error path to test)."""
+
+    OPEN = 'D02B8103014001820281828500B50103B9020200C70B076D656761666F6E2E7275'
+    BIP_TR = bytes.fromhex('010301400002028281030100')
+
+    def _tr(self, scc):
+        return [a for a in scc.sent if a.startswith('8014')][-1]
+
+    def _pending(self, scc, cmd):
+        scc.push('80F2', '', '9109')          # STATUS: the command is pending
+        scc.push('8012', cmd, '9000')
+        scc.push('8014', '', '9000')
+
+    def _run_bip(self, scc, steps):
+        with mock.patch.object(S, '_handle_bip_command',
+                               return_value=self.BIP_TR) as bip:
+            run = self.run_script(FakeServer(scc), steps)
+        return run, bip
+
+    def test_a_drain_lets_the_terminal_answer_bip(self):
+        scc = FakeScc()
+        scc.push('80F2', '', '9109').push('8012', self.OPEN, '9000')
+        scc.push('8014', '', '9000').push('80F2', '', '9000')
+        run, bip = self._run_bip(scc, [
+            {'type': 'action', 'kind': 'proactive-drain',
+             'params': {'attempts': 2, 'respond': {'result': 'ok'}}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(bip.call_count, 1)
+        self.assertEqual(bip.call_args[0][2], 0x40)
+        self.assertTrue(self._tr(scc).endswith(self.BIP_TR.hex().upper()),
+                        self._tr(scc))
+
+    def test_an_expectation_lets_the_terminal_answer_bip(self):
+        scc = FakeScc()
+        self._pending(scc, self.OPEN)
+        run, bip = self._run_bip(scc, [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'ANY', 'respond': {'result': 'ok'}},
+        ])
+        self.assertEqual(run['status'], 'ok', run['steps'])
+        self.assertEqual(bip.call_count, 1)
+
+    def test_a_raw_answer_overrides_the_terminal_bip(self):
+        scc = FakeScc()
+        self._pending(scc, self.OPEN)
+        _run, bip = self._run_bip(scc, [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'ANY',
+             'respond': {'result': 'ok', 'raw': '010301400002028281030100'}},
+        ])
+        self.assertEqual(bip.call_count, 0)
+        self.assertTrue(self._tr(scc).endswith('010301400002028281030100'),
+                        self._tr(scc))
+
+    def test_a_non_ok_result_overrides_the_terminal_bip(self):
+        scc = FakeScc()
+        self._pending(scc, self.OPEN)
+        _run, bip = self._run_bip(scc, [
+            {'type': 'action', 'kind': 'status', 'params': {'attempts': 2}},
+            {'type': 'expect', 'command': 'ANY', 'respond': {'result': 'refused'}},
+        ])
+        self.assertEqual(bip.call_count, 0)
+        self.assertIn('83022200', self._tr(scc))
+
+    def test_the_cleanup_drain_handles_bip(self):
+        scc = FakeScc()
+        scc.push('8012', self.OPEN, '9000')
+        with mock.patch.object(S, '_handle_bip_command',
+                               return_value=self.BIP_TR) as bip:
+            drained = S._test_drain_pending(scc, 9)
+        self.assertEqual(bip.call_count, 1)
+        self.assertIn('OPEN CHANNEL', drained.get('note', ''))
+
+
 if __name__ == '__main__':
     unittest.main()

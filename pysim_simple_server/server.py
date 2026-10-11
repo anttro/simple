@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.2'
+VERSION = '3.25.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -3557,10 +3557,11 @@ def _bip_data_available(ch):
         server = _server_ref
         if not server or not _CARD_CONNECTED or not getattr(server, 'scc', None):
             return False
-        if _PROACTIVE_BUSY or getattr(server, 'stk_pending', None) or _TEST_RUNNING:
-            # a test run owns the card: the bytes stay un-notified and the
-            # monitor retries on its next tick (v3.25.1)
+        if _PROACTIVE_BUSY or getattr(server, 'stk_pending', None):
             return False
+        # A test run owns the card, but this event is only ever sent for a
+        # channel the card itself opened - the card's own BIP conversation
+        # continuing - so it flows during a run too (v3.25.3).
         length = min(len(ch.rx), 0xFF)
         tlv = bytes([0xB8, 0x02, 0x80 | (ch.id & 0x07), 0x00,
                      0xB7, 0x01, length])
@@ -5116,9 +5117,9 @@ def _bip_flush_channel_events(scc):
     global _FLUSHING_CHANNEL_EVENTS
     if _FLUSHING_CHANNEL_EVENTS:
         return
-    if _TEST_RUNNING:
-        # a test run owns the card: the events stay queued (v3.25.1)
-        return
+    # The queued events describe channels the card itself opened: they flow
+    # during a test run too - the card must learn that its link died, else it
+    # waits for the run to end (v3.25.3).
     if not _BIP_LINK_EVENTS:
         _BIP.take_pending_events()
         return
@@ -6613,6 +6614,28 @@ def _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual, respo
                                cd_tag=cd_tag)
 
 
+_BIP_CMD_TYPES = (0x40, 0x41, 0x42, 0x43, 0x44)
+
+
+def _test_step_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag,
+                  respond, raw):
+    """The TERMINAL RESPONSE of a test step for a fetched command: the card's
+    own BIP commands (0x40-0x44) are handled by the terminal, so its channels
+    keep working while a run owns the card (v3.25.3).  The script overrides
+    the answer when it carries `raw` TLVs or a non-ok result (an applet error
+    path to test); everything else goes through the scripted answer."""
+    r = respond or {}
+    if cmd_type in _BIP_CMD_TYPES and not r.get('raw') and r.get('result', 0) == 0x00:
+        tr = _handle_bip_command(scc, cmd_num, cmd_type, cmd_qual, raw,
+                                 dev_src, dev_dst, cd_tag=cd_tag)
+        if tr:
+            _test_log('BIP: the terminal answered %s (0x%02X)'
+                      % (PROACTIVE_TYPE_NAMES.get(cmd_type, '?'), cmd_type))
+            return tr
+    return _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
+                                   cmd_qual, respond, cd_tag=cd_tag)
+
+
 def _test_run_drain(server, step):
     """The proactive drain action: poll STATUS and consume every announced
     command - the TERMINAL RESPONSE is `first` for the first one, `respond`
@@ -6649,10 +6672,11 @@ def _test_run_drain(server, step):
             if menu:
                 server.sim_menu = menu
         respond = p['first'] if (not consumed and p.get('first')) else p['respond']
-        tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
-                                     cmd_qual, respond, cd_tag=cd_tag)
+        tr = _test_step_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual,
+                           cd_tag, respond, raw)
         tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
         _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_rv[1]))
+        _bip_flush_channel_events(scc)
         consumed.append({'type_hex': '%02X' % cmd_type, 'type_name': name,
                          'qualifier': ('%02X' % cmd_qual) if cmd_qual is not None else None,
                          'tr_sw': tr_rv[1], 'raw': raw.hex().upper()})
@@ -7204,12 +7228,13 @@ def _test_run_expect(server, step, pending, ctx=None):
             checks.append(_test_check_result(
                 'Files', sorted(paths) == sorted(want), ', '.join(want),
                 ', '.join(paths) or '(none)', c['on_fail']))
-    tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src, cmd_qual,
-                                 step['respond'], cd_tag=cd_tag)
+    tr = _test_step_tr(scc, cmd_num, cmd_type, dev_src, dev_dst, cmd_qual,
+                       cd_tag, step['respond'], raw)
     tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
     tr_sw = tr_rv[1]
     _test_log('TR=%s -> SW=%s' % (tr.hex().upper(), tr_sw))
     _record_tr(log_entry, tr, tr_sw)
+    _bip_flush_channel_events(scc)
     status = testscript.combine_levels([c['level'] if not c['ok'] else 'ok' for c in checks])
     result = {'status': status, 'sw': tr_sw, 'data': raw.hex().upper(),
               'sent': 'TR ' + tr.hex().upper(), 'checks': checks,
@@ -7244,9 +7269,10 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
                 break
             raw = bytes.fromhex(fdata)
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
-            tr = _test_terminal_response(cmd_num, cmd_type, dev_dst, dev_src,
-                                         cmd_qual, {'result': result}, cd_tag=cd_tag)
+            tr = _test_step_tr(scc, cmd_num, cmd_type, dev_src, dev_dst,
+                               cmd_qual, cd_tag, {'result': result}, raw)
             rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))
+            _bip_flush_channel_events(scc)
             name = PROACTIVE_TYPE_NAMES.get(cmd_type, '?')
             answered.append({'name': name, 'type': cmd_type,
                              'raw': raw.hex().upper(), 'tr': tr.hex().upper(),

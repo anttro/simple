@@ -525,6 +525,29 @@ The `proactive-drain` action's `respond`/`first` use the same shape (the command
 type varies per drained command, so `text`/`item_id` apply where the command
 carries them).
 
+### BIP commands in scripts
+
+The card's own BIP commands (`OPEN CHANNEL` 0x40, `CLOSE CHANNEL` 0x41,
+`RECEIVE DATA` 0x42, `SEND DATA` 0x43, `GET CHANNEL STATUS` 0x44) are answered
+by the **terminal**, not by the script: during a run the channels really open,
+the data really flows to/from the configured BIP target, and the BIP events
+(Data available, Channel status) flow for the channels the card itself opened -
+so an applet's own HTTP/BIP conversation completes inside a scripted run.  The
+BIP **control** API stays blocked while a run is active (409), like the
+terminal's other automatic actions (polling, timers, menu).
+
+A step's `respond` overrides the terminal when it carries `raw` TLVs or a
+**non-ok result** - the way to script an applet error path:
+
+```json
+{"type": "expect", "command": "OPEN CHANNEL",
+ "respond": {"result": "refused"}}
+```
+
+A plain `{"result": "ok"}` (or no `respond`) leaves the BIP answer to the
+terminal; the step log names it (`BIP: the terminal answered OPEN CHANNEL
+(0x40)`).
+
 ## The two PoR transports (SPI2)
 
 1. **Inline** - the card answers the ENVELOPE `9000` with the PoR in the

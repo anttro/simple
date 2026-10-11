@@ -185,11 +185,13 @@ class TestProactiveChainOwnership(unittest.TestCase):
     1100-command loop held _CARD_LOCK and blocked a run's start)."""
 
     def setUp(self):
-        self.saved = (S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED)
+        self.saved = (S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED,
+                      S._BIP_LINK_EVENTS, S._FLUSHING_CHANNEL_EVENTS)
         S._TEST_RUNNING = False
 
     def tearDown(self):
-        S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED = self.saved
+        (S._TEST_RUNNING, S._server_ref, S._CARD_CONNECTED,
+         S._BIP_LINK_EVENTS, S._FLUSHING_CHANNEL_EVENTS) = self.saved
 
     def _fetches(self, scc):
         return [a for a in scc.sent if a.lower().startswith('8012')]
@@ -237,6 +239,29 @@ class TestProactiveChainOwnership(unittest.TestCase):
         with mock.patch.object(S, '_reset_poll_timer') as timer:
             S._sim_resume_poll()
             timer.assert_not_called()
+
+    def test_data_available_flows_during_a_run(self):
+        # a BIP channel only exists because the card opened it: the event is
+        # the card's own conversation continuing, so it flows during a run
+        # (v3.25.3 - the card must not wait for the run to end)
+        ch = types.SimpleNamespace(peer_closed=False, rx=b'ABCD', id=1)
+        S._server_ref = types.SimpleNamespace(scc=object(), event_list=[0x09])
+        S._CARD_CONNECTED = True
+        S._TEST_RUNNING = True
+        with mock.patch.object(S, '_send_event_download') as send:
+            ok = S._bip_data_available(ch)
+        self.assertTrue(ok)
+        send.assert_called_once()
+        self.assertEqual(send.call_args[0][1], 0x09)
+
+    def test_link_events_are_taken_during_a_run(self):
+        # the queued link events describe the card's own channels: the flush
+        # no longer stops at the run guard (v3.25.3)
+        S._TEST_RUNNING = True
+        S._BIP_LINK_EVENTS = False
+        with mock.patch.object(S._BIP, 'take_pending_events') as take:
+            S._bip_flush_channel_events(None)
+        take.assert_called_once()
 
     def test_every_run_end_resumes_the_poll(self):
         # the two worker bodies, their two exception paths and the spawn
