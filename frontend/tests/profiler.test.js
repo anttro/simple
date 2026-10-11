@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -1000,6 +1000,45 @@ test('profilerRunRule checks the access rules against the ARR copies', async () 
 	assert.ok(unres.checks.find(c => c.label === 'accessRules').unresolved);
 });
 
+test('the access-rules Contains mode checks the listed rules per operation', async () => {
+	const FCI2 = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const line = (am, scs) => fcpArrRuleEncode({ kind: 'bits', am: am, scs: scs });
+	const ALW = { kind: 'alw' }, ADM1 = { kind: 'key', ref: 0x0A, uq: 0x08 };
+	// the card's record: READ+WRITE combined always, the other bits ADM1, RESIZE never
+	const arrs = [{ fid: '2F06', path: 'MF/2F06',
+		records: ['FFFF', '800105900080011AA40683010A9501088401D49700'] }];
+	const src = {
+		select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed', file_size: null,
+			record_len: 6, num_of_rec: 2, fci_hex: FCI2, exists: true }),
+		read: async () => ({ success: false }),
+		arrs: () => arrs,
+	};
+	const rule = ar => ({ type: 'file', path: 'MF/7F20/6F07', name: 'EF.SAMPLE',
+		fileType: 'linear_fixed', fciMode: 'type_size', fciHex: FCI2, accessRules: ar });
+	// READ/WRITE always, RESIZE not listed: the combined 0x05 satisfies both
+	// lines; the ADM1 and RESIZE rules are not checked
+	const ok = await profilerRunRule(rule({ mode: 'contains', expected: [line(0x01, [ALW]), line(0x04, [ALW])] }), src);
+	assert.strictEqual(ok.status, 'pass', JSON.stringify(ok.checks));
+	assert.strictEqual(ok.checks.find(c => c.label === 'accessRules').mode, 'contains');
+	// the same lines in the default exact mode fail on the AM grouping
+	const ex = await profilerRunRule(rule({ expected: [line(0x01, [ALW]), line(0x04, [ALW])] }), src);
+	assert.strictEqual(ex.status, 'fail');
+	assert.strictEqual(ex.checks.find(c => c.label === 'accessRules').missing.length, 2);
+	// a listed operation the card grants with another condition fails
+	const miss = await profilerRunRule(rule({ mode: 'contains', expected: [line(0x02, [ALW])] }), src);
+	assert.strictEqual(miss.status, 'fail');
+	const mc = miss.checks.find(c => c.label === 'accessRules');
+	assert.deepStrictEqual(mc.missing, [line(0x02, [ALW])]);
+	assert.deepStrictEqual(mc.extra, []);
+	// the RESIZE condition is checked when listed
+	const resize = fcpArrRuleEncode({ kind: 'resize', scs: [{ kind: 'nev' }] });
+	const rOk = await profilerRunRule(rule({ mode: 'contains', expected: [resize] }), src);
+	assert.strictEqual(rOk.status, 'pass', JSON.stringify(rOk.checks));
+	const rBad = await profilerRunRule(rule({ mode: 'contains',
+		expected: [fcpArrRuleEncode({ kind: 'resize', scs: [ADM1] })] }), src);
+	assert.strictEqual(rBad.status, 'fail');
+});
+
 test('ignoreFciRef compares the FCI without the EF.ARR reference', async () => {
 	const FCI2 = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
 	const FCI9 = '621A82054221000F0583026F4F8A01058B032F06098802004B8801B0';
@@ -1108,6 +1147,30 @@ test('fcpArrRule mutators re-encode the canonical line', () => {
 	assert.strictEqual(fcpArrRuleEncode(fcpArrRuleToggleBit(raw, 0x01, true)), 'command description 0x85 (D4)');
 });
 
+test('fcpArrRuleSatisfied matches per operation, whatever the AM grouping', () => {
+	const line = (am, scs) => fcpArrRuleEncode({ kind: 'bits', am: am, scs: scs });
+	const ALW = { kind: 'alw' }, ADM1 = { kind: 'key', ref: 0x0A, uq: 0x08 };
+	// the card combines READ+WRITE in one AM byte and grants the other bits ADM1
+	const card = [line(0x05, [ALW]), line(0x1A, [ADM1])];
+	assert.ok(fcpArrRuleSatisfied(line(0x01, [ALW]), card));  // READ covered by the combined 0x05
+	assert.ok(fcpArrRuleSatisfied(line(0x04, [ALW]), card));  // WRITE too
+	assert.ok(fcpArrRuleSatisfied(line(0x1A, [ADM1]), card)); // a multi-bit rule, same grouping
+	assert.ok(!fcpArrRuleSatisfied(line(0x02, [ALW]), card)); // UPDATE is ADM1, not always
+	assert.ok(!fcpArrRuleSatisfied(line(0x08, [ALW]), card)); // DEACTIVATE is ADM1
+	// a command entry keys by command, not by bits
+	const resize = fcpArrRuleEncode({ kind: 'resize', scs: [{ kind: 'nev' }] });
+	assert.ok(fcpArrRuleSatisfied(resize, card.concat([resize])));
+	assert.ok(!fcpArrRuleSatisfied(fcpArrRuleEncode({ kind: 'resize', scs: [ADM1] }), card.concat([resize])));
+	assert.ok(!fcpArrRuleSatisfied(resize, card));
+	// a form outside the subset compares by exact string
+	assert.ok(fcpArrRuleSatisfied('command description 0x85 (D4)', ['command description 0x85 (D4)']));
+	assert.ok(!fcpArrRuleSatisfied('command description 0x85 (D4)', card));
+	// the proprietary (b8) form stays whole
+	const prop = fcpArrRuleEncode({ kind: 'bits', am: 0x81, scs: [ALW] });
+	assert.ok(fcpArrRuleSatisfied(prop, [prop]));
+	assert.ok(!fcpArrRuleSatisfied(prop, [line(0x01, [ALW])]));
+});
+
 test('the access-rules editor renders structured rows', () => {
 	global.t = s => s;
 	const r = { fciMode: 'exact', accessRules: { expected: [
@@ -1159,6 +1222,36 @@ test('the access-rules editor renders structured rows', () => {
 	delete global.t;
 });
 
+test('the access-rules Match selector switches to per-operation Contains', () => {
+	global.t = s => s;
+	const r = { fciMode: 'type_size', accessRules: { expected: [
+		'AM 0x01 (READ/SEARCH (EF) / DELETE FILE child (DF)): always'] } };
+	_profilerArrOpen = { 3: true };
+	const exact = profilerRenderAccessRulesEditor(3, r);
+	assert.ok(exact.includes('profilerSetAccessRulesMode(3,this.value)'), exact);
+	assert.ok(exact.includes('<option value="exact" selected>Exact</option>'), exact);
+	assert.ok(exact.includes('<option value="contains">Contains (per operation)</option>'), exact);
+	assert.ok(!exact.includes('\u00b7 per operation'), exact);
+	const contains = profilerRenderAccessRulesEditor(3, { ...r,
+		accessRules: { ...r.accessRules, mode: 'contains' } });
+	assert.ok(contains.includes('<option value="contains" selected>Contains (per operation)</option>'), contains);
+	assert.ok(contains.includes('Check access rules (1) \u00b7 per operation'), contains);
+	// the collapsed header carries the mode badge too
+	_profilerArrOpen = {};
+	const closed = profilerRenderAccessRulesEditor(3, { ...r,
+		accessRules: { ...r.accessRules, mode: 'contains' } });
+	assert.ok(closed.includes('\u00b7 per operation'), closed);
+	// None hides the selector, an empty block has none
+	const none = profilerRenderAccessRulesEditor(3, { ...r,
+		accessRules: { ...r.accessRules, enabled: false } });
+	assert.ok(!none.includes('profilerSetAccessRulesMode'), none);
+	_profilerArrOpen = { 4: true };
+	const empty = profilerRenderAccessRulesEditor(4, { fciMode: 'type_size', accessRules: { expected: [] } });
+	assert.ok(!empty.includes('profilerSetAccessRulesMode'), empty);
+	_profilerArrOpen = {};
+	delete global.t;
+});
+
 test('the access-rule open state survives rule deletion', () => {
 	assert.deepStrictEqual(profilerArrShiftOpen({ 0: true, 2: true, 3: true }, 1), { 0: true, 1: true, 2: true });
 	assert.deepStrictEqual(profilerArrShiftOpen({ 0: true, 2: true, 3: true }, 2), { 0: true, 2: true });
@@ -1186,6 +1279,12 @@ test('profile validation accepts the access-rules field', () => {
 		accessRules: { expected: 'nope' } }] }));
 	assert.ok(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
 		accessRules: { expected: [1] } }] }));
+	assert.strictEqual(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: ['AM 0x01: always'], mode: 'exact' } }] }), null);
+	assert.strictEqual(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: ['AM 0x01: always'], mode: 'contains' } }] }), null);
+	assert.ok(profilerValidateProfile({ ...base, rules: [{ type: 'file', path: 'MF/7F20/6F07',
+		accessRules: { expected: ['AM 0x01: always'], mode: 'partial' } }] }));
 });
 
 test('the access-rules report block marks missing and extra lines', () => {
@@ -1201,6 +1300,12 @@ test('the access-rules report block marks missing and extra lines', () => {
 	const noref = profilerAccessRulesDiffHtml({ label: 'accessRules', ok: false,
 		expected: ['A'], actual: null, missing: ['A'], extra: [] });
 	assert.ok(noref.includes('no EF.ARR reference'), noref);
+	// contains: the mode note, no extra lines
+	const cont = profilerAccessRulesDiffHtml({ label: 'accessRules', mode: 'contains', ok: false,
+		expected: ['A'], actual: ['B'], missing: ['A'], extra: [] });
+	assert.ok(cont.includes('Compared per operation; other card rules are ignored'), cont);
+	assert.ok(cont.includes('\u2212 A'), cont);
+	assert.ok(!cont.includes('+ B'), cont);
 	delete global.t;
 });
 

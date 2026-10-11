@@ -1905,7 +1905,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.25.3';
+const SIMPLE_VERSION = '3.25.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -18943,6 +18943,7 @@ function profilerValidateProfile(obj) {
 			const ar = r.accessRules;
 			if (typeof ar !== 'object' || !Array.isArray(ar.expected) ||
 			    ar.expected.some(x => typeof x !== 'string')) return 'Invalid access rules: ' + r.path;
+			if (ar.mode !== undefined && !['exact', 'contains'].includes(ar.mode)) return 'Invalid access rules mode: ' + r.path;
 		}
 	}
 	return null;
@@ -19827,14 +19828,22 @@ function profilerRenderAccessRulesEditor(i, r) {
 	const lines = (ar && ar.expected) || [];
 	const on = !!(ar && ar.enabled !== false);
 	const open = on && !!_profilerArrOpen[i];
+	const contains = !!(ar && ar.mode === 'contains');
 	let html = '<div class="flex items-center justify-between mb-1 mt-1">';
 	if (on) {
 		html += '<button onclick="profilerArrToggleOpen(' + i + ')" class="text-xs text-gray-600 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200">' +
-			esc((open ? '\u25be ' : '\u25b8 ') + t('Check access rules') + (lines.length ? ' (' + lines.length + ')' : '')) + '</button>';
+			esc((open ? '\u25be ' : '\u25b8 ') + t('Check access rules') + (lines.length ? ' (' + lines.length + ')' : '') +
+				(contains ? ' \u00b7 ' + t('per operation') : '')) + '</button>';
 	} else {
 		html += '<span class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Check access rules')) + '</span>';
 	}
 	html += '<div class="flex items-center gap-3">';
+	if (on && lines.length) {
+		html += '<label class="text-xs flex items-center gap-1" title="' + esc(t('Exact: the card rules must equal the listed rules. Contains: each listed rule must be granted per operation; other card rules are ignored.')) + '">' +
+			esc(t('Match')) + ' <select onchange="profilerSetAccessRulesMode(' + i + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' +
+			'<option value="exact"' + (contains ? '' : ' selected') + '>' + esc(t('Exact')) + '</option>' +
+			'<option value="contains"' + (contains ? ' selected' : '') + '>' + esc(t('Contains (per operation)')) + '</option></select></label>';
+	}
 	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="none"' + (!on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',false)"> ' + esc(t('None')) + '</label>';
 	html += '<label class="text-xs flex items-center gap-1"><input type="radio" name="profiler-ar-' + i + '" value="check"' + (on ? ' checked' : '') + ' onchange="profilerSetAccessRules(' + i + ',true)"> ' + esc(t('Check')) + '</label>';
 	html += '</div></div>';
@@ -20015,6 +20024,17 @@ function profilerSetAccessRulesIgnore(i, on) {
 	const r = profilerDraft.rules[i];
 	if (!r.accessRules) r.accessRules = { expected: [] };
 	r.accessRules.ignoreFciRef = on;
+}
+
+// Exact (default) compares the canonical lines as stored; 'contains' checks
+// every listed rule per operation and ignores the rules not listed (v3.25.4).
+function profilerSetAccessRulesMode(i, v) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.accessRules) r.accessRules = { expected: [] };
+	if (v === 'contains') r.accessRules.mode = 'contains';
+	else delete r.accessRules.mode;
+	profilerRenderEditor();
 }
 
 function profilerRenderContentEditor(i, r) {
@@ -20423,10 +20443,14 @@ async function profilerRunRule(r, source) {
 	// FCI's '8B' reference points at - record-number independent, so cards
 	// with a different EF.ARR layout still verify.
 	if (r.accessRules && r.accessRules.enabled !== false && (r.accessRules.expected || []).length) {
+		// 'contains' (per operation, v3.25.4): every listed rule must be granted
+		// by the card - matched per AM bit / command entry, whatever AM grouping
+		// the card uses - and a rule not listed is not checked.
+		const arMode = r.accessRules.mode === 'contains' ? 'contains' : 'exact';
 		const ref = fcpArrRefFromFci(sel.fci_hex);
 		if (!ref) {
 			res.status = 'fail';
-			res.checks.push({ label: 'accessRules', expected: r.accessRules.expected, actual: null, ok: false,
+			res.checks.push({ label: 'accessRules', mode: arMode, expected: r.accessRules.expected, actual: null, ok: false,
 				missing: r.accessRules.expected.slice(), extra: [] });
 		} else {
 			let arrs = [];
@@ -20436,15 +20460,17 @@ async function profilerRunRule(r, source) {
 			const got = fcpArrRules(ref, arrs, r.path);
 			if (!got.found) {
 				if (res.status === 'pass') res.status = 'error';
-				res.checks.push({ label: 'accessRules', expected: r.accessRules.expected, actual: null, ok: false,
+				res.checks.push({ label: 'accessRules', mode: arMode, expected: r.accessRules.expected, actual: null, ok: false,
 					unresolved: true, missing: [], extra: [] });
 			} else {
 				const exp = r.accessRules.expected;
-				const missing = exp.filter(x => !got.rules.includes(x));
-				const extra = got.rules.filter(x => !exp.includes(x));
+				const missing = arMode === 'contains'
+					? exp.filter(x => !fcpArrRuleSatisfied(x, got.rules))
+					: exp.filter(x => !got.rules.includes(x));
+				const extra = arMode === 'contains' ? [] : got.rules.filter(x => !exp.includes(x));
 				const ok = !missing.length && !extra.length;
 				if (!ok) res.status = 'fail';
-				res.checks.push({ label: 'accessRules', expected: exp, actual: got.rules, ok: ok,
+				res.checks.push({ label: 'accessRules', mode: arMode, expected: exp, actual: got.rules, ok: ok,
 					missing: missing, extra: extra });
 			}
 		}
@@ -20879,6 +20905,50 @@ function fcpArrRuleEncode(rule) {
 	return am + (scs.length ? ': ' + scs.join(' AND ') : '');
 }
 
+// The AM entries a rule asserts, for the per-operation 'contains' match
+// (v3.25.4): one per operation bit (bit form) or the command form
+// (RESIZE/INCREASE); the proprietary (b8) form stays whole - its high nibble
+// is opaque.  Null for the forms outside the supported subset (raw).
+function fcpArrRuleOps(m) {
+	if (!m || m.raw !== undefined) return null;
+	if (m.kind === 'bits') {
+		if (m.am & 0x80) return [{ am: m.am & 0xFF }];
+		const ops = [];
+		for (const b of FCP_ARR_AM_BITS) if (m.am & b[0]) ops.push({ bit: b[0] });
+		return ops;
+	}
+	return [{ kind: m.kind }];
+}
+
+// Does one card rule cover an operation of the expected rule?
+function fcpArrRuleOpCovered(op, cm) {
+	if (!cm || cm.raw !== undefined) return false;
+	if (op.bit !== undefined) return cm.kind === 'bits' && (cm.am & op.bit) !== 0;
+	if (op.am !== undefined) return cm.kind === 'bits' && (cm.am & 0xFF) === op.am;
+	return cm.kind === op.kind;
+}
+
+// 'Contains' match (v3.25.4): every operation of the expected rule must be
+// covered by a card rule with the same SC list, whatever AM grouping the card
+// uses; a rule not listed is not checked.  A form outside the supported
+// subset (raw, or a card line with a label prefix) compares by exact string.
+function fcpArrRuleSatisfied(line, cardRules) {
+	const rules = cardRules || [];
+	const m = fcpArrRuleParse(line);
+	if (m.raw !== undefined) return rules.includes(m.raw);
+	const ops = fcpArrRuleOps(m);
+	if (!ops || !ops.length) return rules.includes(line);
+	const want = (m.scs || []).map(fcpArrScEncode).join(' AND ');
+	for (const op of ops) {
+		if (!rules.some(x => {
+			const cm = fcpArrRuleParse(x);
+			return cm.raw === undefined && fcpArrRuleOpCovered(op, cm) &&
+				(cm.scs || []).map(fcpArrScEncode).join(' AND ') === want;
+		})) return false;
+	}
+	return true;
+}
+
 // The editor mutates the parsed model and re-encodes; a raw model is left as
 // it is (its row is read-only).
 function fcpArrRuleToggleBit(rule, bit, on) {
@@ -21209,6 +21279,10 @@ function profilerFciInput(i, value) {
 function profilerAccessRulesDiffHtml(c) {
 	let html = '<div class="mt-1 pl-2">';
 	html += '<div class="text-xs text-red-600 font-mono">' + esc(t('Access rules')) + '</div>';
+	if (c.mode === 'contains') {
+		html += '<div class="text-xs text-gray-500 dark:text-slate-400 mt-0.5">' +
+			esc(t('Compared per operation; other card rules are ignored')) + '</div>';
+	}
 	if (c.unresolved) {
 		html += '<div class="text-xs text-yellow-600 mt-0.5">' +
 			esc(t('the EF.ARR reference could not be resolved (no cached EF.ARR or the record is out of range)')) + '</div>';
@@ -23441,6 +23515,11 @@ const LANG_RU = {
 	'Check': 'Проверять',
 	'Access rules': 'Правила доступа',
 	'Check access rules': 'Проверять правила доступа',
+	'Match': 'Сопоставление',
+	'Contains (per operation)': 'Содержит (по операциям)',
+	'per operation': 'по операциям',
+	'Exact: the card rules must equal the listed rules. Contains: each listed rule must be granted per operation; other card rules are ignored.': 'Точное: правила карты должны совпадать со всеми перечисленными. Содержит: каждое перечисленное правило должно быть разрешено — сравнение по операциям; остальные правила карты игнорируются.',
+	'Compared per operation; other card rules are ignored': 'Сравнение по операциям; остальные правила карты игнорируются',
 	'Ignore the EF.ARR reference in the exact FCI': 'Игнорировать ссылку на EF.ARR в точном FCI',
 	'the FCI has no EF.ARR reference': 'в FCI нет ссылки на EF.ARR',
 	'the EF.ARR reference could not be resolved (no cached EF.ARR or the record is out of range)': 'ссылку на EF.ARR не удалось разрешить (нет кэша EF.ARR или запись вне диапазона)',
