@@ -5,4 +5,4 @@ __pycache__/
 dist/
 build/
 AGENTS.md
-simple_lastrun.log
+simple_lastrun*.log
