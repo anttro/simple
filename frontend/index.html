@@ -1833,6 +1833,7 @@
 					<option value="type" data-l10n="Filetype only (FCP)">Filetype only (FCP)</option>
 					<option value="type_size" selected data-l10n="Filetype + size (FCP)">Filetype + size (FCP)</option>
 					<option value="exact" data-l10n="Exact FCI">Exact FCI</option>
+					<option value="custom" data-l10n="Custom (per data object)">Custom (per data object)</option>
 				</select>
 			</div>
 			<div id="profiler-scan-progress" class="text-xs text-gray-500 dark:text-slate-400 mb-2 hidden"></div>
@@ -1906,7 +1907,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.25.7';
+const SIMPLE_VERSION = '3.25.8';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -18956,7 +18957,19 @@ function profilerValidateProfile(obj) {
 		if (!r || typeof r !== 'object') return 'Invalid rule';
 		if (r.type !== 'file') return 'Unsupported rule type: ' + r.type;
 		if (!r.path) return 'Rule missing path';
-		if (r.fciMode && !['type', 'type_size', 'exact'].includes(r.fciMode)) return 'Invalid FCP/FCI mode: ' + r.fciMode;
+		if (r.fciMode && !['type', 'type_size', 'exact', 'custom'].includes(r.fciMode)) return 'Invalid FCP/FCI mode: ' + r.fciMode;
+		if (r.fciDos !== undefined && r.fciDos !== null) {
+			if (!Array.isArray(r.fciDos)) return 'Invalid FCI data objects: ' + r.path;
+			for (const d of r.fciDos) {
+				if (!d || typeof d !== 'object') return 'Invalid FCI data object: ' + r.path;
+				if (!/^[0-9A-F]{2}(?:[0-9A-F]{2})?(?:\/[0-9A-F]{2}(?:[0-9A-F]{2})?)?$/.test(String(d.key || '').toUpperCase()))
+					return 'Invalid FCI data object tag: ' + r.path;
+				if (!['value', 'present', 'absent'].includes(d.mode)) return 'Invalid FCI data object mode: ' + r.path;
+				if (d.mode === 'value' && !/^[0-9A-F?]{2,}$/.test(String(d.value || '').toUpperCase()))
+					return 'Invalid FCI data object value: ' + r.path;
+			}
+		}
+		if (r.fciExtra !== undefined && !['ignore', 'fail'].includes(r.fciExtra)) return 'Invalid FCI extra data object policy: ' + r.path;
 		if (r.accessRules !== undefined && r.accessRules !== null) {
 			const ar = r.accessRules;
 			if (typeof ar !== 'object' || !Array.isArray(ar.expected) ||
@@ -19325,6 +19338,12 @@ function profilerBuildFileRuleFromSnapshot(f, ignoreFids, ignoreNames, fciMode, 
 		fciHex: f.fciHex || null,
 		content: null,
 	};
+	// Custom FCI (v3.25.8): seed the per-data-object expectations from the
+	// captured FCI - value-exact at first, relaxed in the editor.
+	if (rule.fciMode === 'custom') {
+		const dos = fcpDosFromFci(rule.fciHex);
+		if (dos.length) rule.fciDos = dos;
+	}
 	// Access rules from the snapshot's own EF.ARR copies (v3.25.0)
 	const ref = fcpArrRefFromFci(rule.fciHex);
 	if (ref) {
@@ -19385,6 +19404,12 @@ async function profilerBuildFileRule(path, c, ignoreFids, ignoreNames, fciMode, 
 		fciHex: sel.fci_hex || null,
 		content: null,
 	};
+	// Custom FCI (v3.25.8): seed the per-data-object expectations from the
+	// captured FCI - value-exact at first, relaxed in the editor.
+	if (rule.fciMode === 'custom') {
+		const dos = fcpDosFromFci(rule.fciHex);
+		if (dos.length) rule.fciDos = dos;
+	}
 	// Access rules (v3.25.0): resolve the FCP's '8B' reference against the
 	// card's cached EF.ARR copies.  Captured before the ignore list - the
 	// rules are the meaningful per-file check (contents may be ignored).
@@ -19799,6 +19824,7 @@ function profilerRenderRule(i, r) {
 		'<option value="type"' + (fciMode === 'type' ? ' selected' : '') + '>' + esc(t('Filetype only (FCP)')) + '</option>' +
 		'<option value="type_size"' + (fciMode === 'type_size' ? ' selected' : '') + '>' + esc(t('Filetype + size (FCP)')) + '</option>' +
 		'<option value="exact"' + (fciMode === 'exact' ? ' selected' : '') + '>' + esc(t('Exact FCI')) + '</option>' +
+		'<option value="custom"' + (fciMode === 'custom' ? ' selected' : '') + '>' + esc(t('Custom (per data object)')) + '</option>' +
 		'</select></div>';
 	html += '<div class="flex-1"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">' + esc(t('File type')) + '</label>' +
 		'<select onchange="profilerUpdateRuleFileType(' + i + ',this.value||null)" class="w-full border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1 dark:bg-slate-800">' + ftOpts + '</select></div>';
@@ -19813,7 +19839,7 @@ function profilerRenderRule(i, r) {
 			'<input type="number" value="' + (r.numRecords === null ? '' : r.numRecords) + '" oninput="profilerUpdateRule(' + i + ',\'numRecords\',this.value===\'\'?null:parseInt(this.value))" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="—"></div>';
 	}
 	html += '</div>';
-	if (fciMode === 'exact') {
+	if (fciMode === 'exact' || fciMode === 'custom') {
 		html += '<div class="mb-2 flex gap-3 items-start">';
 		html += '<div class="flex-1 min-w-0"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">' + esc(t('FCI hex (raw SELECT response)')) + '</label>' +
 			'<textarea oninput="profilerFciInput(' + i + ',this.value)" rows="4" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="62...">' + escHtml(r.fciHex || '') + '</textarea></div>';
@@ -19821,12 +19847,123 @@ function profilerRenderRule(i, r) {
 			'<div id="profiler-fci-preview-' + i + '" class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(r.fciHex || '') + '</div></div>';
 		html += '</div>';
 	}
+	if (fciMode === 'custom') {
+		html += profilerRenderFciDosEditor(i, r);
+	}
 	if (r.fileType !== 'df') {
 		html += profilerRenderContentEditor(i, r);
 	}
 	html += profilerRenderAccessRulesEditor(i, r);
 	html += '</div>';
 	return html;
+}
+
+// Custom-FCI editor (v3.25.8): a per-data-object expectation list.  Profiles
+// created from a card or a snapshot with fciMode 'custom' are seeded with the
+// captured FCI's objects (all 'value', the captured bytes); a rule with a
+// captured FCI but an empty list can be filled from it here.  Only the listed
+// objects are checked; `present`/`absent` demand or forbid one, and a value
+// without '?' matches as a prefix ('?' masks a nibble).
+function profilerRenderFciDosEditor(i, r) {
+	const dos = r.fciDos || [];
+	let html = '<div class="mb-2 p-2 border border-gray-200 dark:border-slate-600 rounded">';
+	html += '<div class="flex flex-wrap items-center gap-2 mb-1">';
+	html += '<span class="text-xs font-semibold text-gray-500 dark:text-slate-400">' + esc(t('Data objects (FCI)')) + (dos.length ? ' (' + dos.length + ')' : '') + '</span>';
+	if (!dos.length && r.fciHex) {
+		html += '<button onclick="profilerFciDosLoad(' + i + ')" class="text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">' + esc(t('load from the captured FCI')) + '</button>';
+	}
+	html += '<label class="ml-auto text-xs flex items-center gap-1">' + esc(t('Extra data objects')) +
+		' <select onchange="profilerSetFciExtra(' + i + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' +
+		'<option value="ignore"' + (r.fciExtra !== 'fail' ? ' selected' : '') + '>' + esc(t('ignore')) + '</option>' +
+		'<option value="fail"' + (r.fciExtra === 'fail' ? ' selected' : '') + '>' + esc(t('fail')) + '</option></select></label>';
+	html += '</div>';
+	html += '<datalist id="profiler-fci-do-keys-' + i + '">' +
+		FCP_DO_KEYS.map(k => '<option value="' + k + '">' + esc(fcpDoName(k)) + '</option>').join('') + '</datalist>';
+	for (let di = 0; di < dos.length; di++) html += profilerFciDoRowHtml(i, di, dos[di]);
+	if (!dos.length) {
+		html += '<div class="mb-1 text-xs text-gray-400 dark:text-slate-500">' + esc(t('No data objects listed - the FCI is not checked.')) + '</div>';
+	}
+	html += '<button onclick="profilerFciDosAdd(' + i + ')" class="text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('data object')) + '</button>';
+	html += '</div>';
+	return html;
+}
+
+// One expectation row: the tag (with the known keys suggested), the mode, and
+// the value for the 'value' mode.
+function profilerFciDoRowHtml(i, di, d) {
+	const mode = (d.mode === 'present' || d.mode === 'absent') ? d.mode : 'value';
+	let html = '<div class="flex flex-wrap items-center gap-1.5 mb-1 pl-2 border-l-2 border-gray-200 dark:border-slate-700">';
+	html += '<input list="profiler-fci-do-keys-' + i + '" value="' + escHtml(d.key || '') + '" oninput="profilerFciDoSetKey(' + i + ',' + di + ',this.value)" class="w-20 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800" placeholder="82">';
+	html += '<select onchange="profilerFciDoSetMode(' + i + ',' + di + ',this.value)" class="text-xs border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 dark:bg-slate-800">' +
+		'<option value="value"' + (mode === 'value' ? ' selected' : '') + '>' + esc(t('value')) + '</option>' +
+		'<option value="present"' + (mode === 'present' ? ' selected' : '') + '>' + esc(t('present')) + '</option>' +
+		'<option value="absent"' + (mode === 'absent' ? ' selected' : '') + '>' + esc(t('absent')) + '</option></select>';
+	if (mode === 'value') {
+		html += '<input value="' + escHtml(d.value || '') + '" oninput="profilerFciDoSetValue(' + i + ',' + di + ',this.value)" class="w-44 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800" placeholder="' + esc(t('hex; no ? = prefix, ? = any nibble')) + '">';
+	}
+	html += '<span id="profiler-fci-do-name-' + i + '-' + di + '" class="text-xs text-gray-400 dark:text-slate-500 truncate">' + esc(fcpDoName(d.key)) + '</span>';
+	html += '<button onclick="profilerFciDoRemove(' + i + ',' + di + ')" class="ml-auto text-red-400 hover:text-red-600 text-xs px-1">\u2715</button>';
+	html += '</div>';
+	return html;
+}
+
+function profilerFciDosAdd(i) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.fciDos) r.fciDos = [];
+	r.fciDos.push({ key: '82', mode: 'value', value: '' });
+	profilerRenderEditor();
+}
+
+function profilerFciDoRemove(i, di) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.fciDos) return;
+	r.fciDos.splice(di, 1);
+	if (!r.fciDos.length) delete r.fciDos;
+	profilerRenderEditor();
+}
+
+function profilerFciDoSetKey(i, di, v) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.fciDos || !r.fciDos[di]) return;
+	r.fciDos[di].key = String(v || '').trim().toUpperCase();
+	const el = document.getElementById('profiler-fci-do-name-' + i + '-' + di);
+	if (el) el.textContent = fcpDoName(r.fciDos[di].key);
+}
+
+function profilerFciDoSetMode(i, di, v) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.fciDos || !r.fciDos[di]) return;
+	r.fciDos[di].mode = (v === 'present' || v === 'absent') ? v : 'value';
+	profilerRenderEditor();
+}
+
+function profilerFciDoSetValue(i, di, v) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (!r.fciDos || !r.fciDos[di]) return;
+	r.fciDos[di].value = String(v || '').trim().toUpperCase();
+}
+
+function profilerSetFciExtra(i, v) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	if (v === 'fail') r.fciExtra = 'fail';
+	else delete r.fciExtra;
+}
+
+// Fill an empty list from the rule's own captured FCI (never the card - the
+// rows come from what the profile already stores; v3.25.8).
+function profilerFciDosLoad(i) {
+	if (!profilerDraft) return;
+	const r = profilerDraft.rules[i];
+	const dos = fcpDosFromFci(r.fciHex);
+	if (!dos.length) return;
+	r.fciDos = dos;
+	profilerRenderEditor();
 }
 
 // The expanded access-rule blocks of the profile editor (transient UI state,
@@ -20457,6 +20594,32 @@ async function profilerRunRule(r, source) {
 		if (!ok) res.status = 'fail';
 		res.checks.push({ label: 'fci', expected: r.fciHex, actual: sel.fci_hex || '', ok: ok, ignoredRef: ignoredRef });
 	}
+	// Custom FCI (v3.25.8): a per-data-object expectation list - only the
+	// listed objects are checked (not listed = not checked); `value` reuses
+	// the contents vocabulary (no '?' = prefix, '?' = nibble mask), `present`
+	// demands the object, `absent` forbids it, and `fciExtra: 'fail'` also
+	// fails on any object the card carries although it is not listed
+	// (order-insensitive strictness).
+	if (fciMode === 'custom' && (r.fciDos || []).length) {
+		const dec = fcpDecode(sel.fci_hex || '');
+		const dos = [];
+		for (const d of r.fciDos) {
+			const hits = dec.items.filter(it => it.key === d.key);
+			let ok;
+			if (d.mode === 'absent') ok = hits.length === 0;
+			else if (d.mode === 'present') ok = hits.length > 0;
+			else ok = hits.some(it => profilerMatch('mask', d.value || '', it.value));
+			dos.push({ key: d.key, name: fcpDoName(d.key), mode: d.mode, value: d.value || '',
+				ok: ok, actual: hits.map(it => it.value) });
+		}
+		const listed = {};
+		r.fciDos.forEach(d => { listed[d.key] = true; });
+		const extra = r.fciExtra === 'fail' ? dec.items.filter(it => !listed[it.key]) : [];
+		const ok = dos.every(d => d.ok) && !extra.length && !dec.error;
+		if (!ok) res.status = 'fail';
+		res.checks.push({ label: 'fci', mode: 'custom', dos: dos, extra: extra,
+			parseError: dec.error || '', expected: r.fciDos, actual: dec.items, ok: ok });
+	}
 	// Access rules (v3.25.0): the decoded conditions of the EF.ARR record the
 	// FCI's '8B' reference points at - record-number independent, so cards
 	// with a different EF.ARR layout still verify.
@@ -20556,13 +20719,13 @@ function profilerCustomNameForPath(path) {
 // that actually ran. 'Exact FCI' subsumes filetype/size/records; 'exists' is
 // implicit and omitted.
 function profilerResultAspects(res) {
-	const groups = { filetype: [], size: [], records: [], 'Exact FCI': [], contents: [], accessRules: [] };
+	const groups = { filetype: [], size: [], records: [], 'Exact FCI': [], 'FCI (custom)': [], contents: [], accessRules: [] };
 	for (const c of (res.checks || [])) {
 		const l = c.label;
 		if (l === 'fileType') groups.filetype.push(c);
 		else if (l === 'fileSize') groups.size.push(c);
 		else if (l === 'recordLen' || l === 'numRecords') groups.records.push(c);
-		else if (l === 'fci') groups['Exact FCI'].push(c);
+		else if (l === 'fci') groups[c.mode === 'custom' ? 'FCI (custom)' : 'Exact FCI'].push(c);
 		else if (l === 'content' || l.startsWith('content.')) groups.contents.push(c);
 		else if (l === 'accessRules') groups.accessRules.push(c);
 	}
@@ -20574,6 +20737,7 @@ function profilerResultAspects(res) {
 		if (groups.size.length) out.push({ key: 'size', ok: groups.size.every(c => c.ok) });
 		if (groups.records.length) out.push({ key: 'records', ok: groups.records.every(c => c.ok) });
 	}
+	if (groups['FCI (custom)'].length) out.push({ key: 'FCI (custom)', ok: groups['FCI (custom)'].every(c => c.ok) });
 	if (groups.contents.length) out.push({ key: 'contents', ok: groups.contents.every(c => c.ok) });
 	if (groups.accessRules.length) out.push({ key: 'Access rules', ok: groups.accessRules.every(c => c.ok) });
 	return out;
@@ -21178,6 +21342,32 @@ function fcpDecode(hex) {
 	return { ok: !error && items.length > 0, template, items, error };
 }
 
+// The data object keys the FCI decoder names (TS 102 221 11.1.1.4 + the
+// A5/C6 children) - the custom-FCI editor's tag suggestions (v3.25.8).
+const FCP_DO_KEYS = [
+	'80', '81', '82', '83', '84', '85', '86', '87', '88', '8A', '8B', '8C',
+	'8D', '8E', 'A0', 'A5', 'AB', 'C6',
+	'A5/80', 'A5/81', 'A5/82', 'A5/83', 'A5/84', 'A5/85', 'A5/86', 'A5/87',
+	'A5/88', 'A5/89', 'A5/8A', 'A5/8B', 'A5/C0', 'A5/C1', 'A5/C2',
+	'C6/90', 'C6/95', 'C6/83',
+];
+
+// A data object's display name ('' for an empty or unknown key).
+function fcpDoName(key) {
+	const k = String(key || '').toUpperCase();
+	if (!k) return '';
+	const n = fcpDo(k, '').name || '';
+	return /^Unknown TLV/.test(n) ? '' : n;
+}
+
+// The decoded data objects of an FCI as custom-check rows: one 'value'
+// expectation per object, the captured bytes - profiles created from a card
+// or a snapshot with fciMode 'custom' are seeded with these (v3.25.8).
+function fcpDosFromFci(hex) {
+	const dec = fcpDecode(hex || '');
+	return dec.items.map(it => ({ key: it.key, mode: 'value', value: it.value }));
+}
+
 function profilerLabelText(labels, which) {
 	if (!labels || !labels[which]) return t(which);
 	return labels.prefix ? t(which) + ' (' + labels[which] + ')' : labels[which];
@@ -21320,6 +21510,38 @@ function profilerAccessRulesDiffHtml(c) {
 	return html + '</div>';
 }
 
+// The custom FCI's expectation rows in the report (v3.25.8): the same marks
+// as the access-rules diff - '−' a failed expectation, '+' an object the card
+// carries although fciExtra forbids it.
+function profilerFciDosDiffHtml(c) {
+	let html = '<div class="mt-1 pl-2">';
+	html += '<div class="text-xs text-red-600 font-mono">' + esc(t('FCI (custom)')) + '</div>';
+	if (c.parseError) {
+		html += '<div class="text-xs text-yellow-600 mt-0.5">' +
+			esc(t('the FCI could not be parsed') + ': ' + c.parseError) + '</div>';
+	}
+	const line = (mark, cls, text) => '<div class="text-xs font-mono mt-0.5 ' + cls + '">' + esc(mark + ' ' + text) + '</div>';
+	for (const d of (c.dos || [])) {
+		const desc = d.key + (d.name ? ' (' + d.name + ')' : '');
+		const mark = d.ok ? '\u2713' : '\u2212';
+		const cls = d.ok ? 'text-gray-500 dark:text-slate-400' : 'text-red-600';
+		if (d.mode === 'absent') {
+			html += line(mark, cls, desc + ': ' + t('must be absent') +
+				(d.ok ? '' : ' \u2014 ' + t('the card has') + ': ' + d.actual.join(', ')));
+		} else if (d.mode === 'present') {
+			html += line(mark, cls, desc + ': ' + t('must be present') +
+				(d.ok ? '' : ' \u2014 ' + t('not found')));
+		} else {
+			html += line(mark, cls, desc + ' = ' + d.value +
+				(d.ok ? '' : ' \u2014 ' + t('the card has') + ': ' + (d.actual.join(', ') || t('not found'))));
+		}
+	}
+	for (const it of (c.extra || [])) {
+		html += line('+', 'text-red-600', it.key + (it.name ? ' (' + it.name + ')' : '') + ' = ' + it.value);
+	}
+	return html + '</div>';
+}
+
 function profilerRenderReport(results, labels) {
 	const expLabel = profilerLabelText(labels, 'expected');
 	const actLabel = profilerLabelText(labels, 'actual');
@@ -21345,6 +21567,8 @@ function profilerRenderReport(results, labels) {
 				html += '<div class="text-xs text-red-600 mt-1">' + esc(t('extra file')) + '</div>';
 			} else if (c.label === 'accessRules') {
 				html += profilerAccessRulesDiffHtml(c);
+			} else if (c.label === 'fci' && c.mode === 'custom') {
+				html += profilerFciDosDiffHtml(c);
 			} else if (profilerRawDataCheck(c)) {
 				const isContent = c.label === 'content' || /^content\.rec\d+$/.test(c.label);
 				const dd = isContent && typeof efContentDiff === 'function'
@@ -23503,6 +23727,22 @@ const LANG_RU = {
 	'Filetype only (FCP)': 'Только тип файла (FCP)',
 	'Filetype + size (FCP)': 'Тип файла + размер (FCP)',
 	'Exact FCI': 'Полный FCI',
+	'Custom (per data object)': 'По объектам данных',
+	'Data objects (FCI)': 'Объекты данных (FCI)',
+	'data object': 'объект данных',
+	'Extra data objects': 'Лишние объекты данных',
+	'ignore': 'игнорировать',
+	'fail': 'не допускать',
+	'load from the captured FCI': 'заполнить из записанного FCI',
+	'No data objects listed - the FCI is not checked.': 'Объекты данных не перечислены — FCI не проверяется.',
+	'value': 'значение',
+	'hex; no ? = prefix, ? = any nibble': 'hex; без ? — префикс, ? — любой полубайт',
+	'FCI (custom)': 'FCI (по объектам)',
+	'the FCI could not be parsed': 'FCI не удалось разобрать',
+	'must be present': 'должен присутствовать',
+	'must be absent': 'должен отсутствовать',
+	'the card has': 'на карте',
+	'not found': 'не найдено',
 	'FCI hex (raw SELECT response)': 'FCI hex (сырой ответ SELECT)',
 	'FCI parameters': 'Параметры FCI',
 	'Parameter': 'Параметр',

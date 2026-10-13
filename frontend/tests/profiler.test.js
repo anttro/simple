@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'fcpDosFromFci', 'fcpDoName', 'profilerRenderFciDosEditor', 'profilerFciDoRowHtml', 'profilerFciDosDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -42,6 +42,7 @@ code += "var _profilerArrOpen = {};\n";
 code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
 code += html.match(/const FCP_ARR_AM_BITS = \[[\s\S]*?\n\];/)[0] + '\n';
+code += html.match(/const FCP_DO_KEYS = \[[\s\S]*?\n\];/)[0] + '\n';
 eval(code);
 
 test('profilerNormHex uppercases and strips non-hex', () => {
@@ -1307,6 +1308,168 @@ test('the access-rules report block marks missing and extra lines', () => {
 	assert.ok(cont.includes('\u2212 A'), cont);
 	assert.ok(!cont.includes('+ B'), cont);
 	delete global.t;
+});
+
+test('the custom FCI check matches per data object', async () => {
+	const FCI = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	const src = {
+		select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed', file_size: null,
+			record_len: 6, num_of_rec: 2, fci_hex: FCI, exists: true }),
+		read: async () => ({ success: false }),
+	};
+	const rule = dos => ({ type: 'file', path: 'MF/7F20/6F07', name: 'EF.SAMPLE',
+		fileType: 'linear_fixed', recordLen: 6, numRecords: 2, fciMode: 'custom',
+		fciHex: FCI, fciDos: dos });
+	const run = dos => profilerRunRule(rule(dos), src);
+	// exact value, the prefix form (the record number ignored) and the mask
+	let r = await run([{ key: '82', mode: 'value', value: '4221000F05' },
+		{ key: '8B', mode: 'value', value: '2F0602' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	const c0 = r.checks.find(c => c.label === 'fci');
+	assert.strictEqual(c0.mode, 'custom');
+	assert.deepStrictEqual(c0.dos.map(d => d.ok), [true, true]);
+	// the type/size/record checks still run in the custom mode
+	assert.ok(r.checks.some(c => c.label === 'recordLen' && c.ok), JSON.stringify(r.checks));
+	r = await run([{ key: '8B', mode: 'value', value: '2F06' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	r = await run([{ key: '8B', mode: 'value', value: '2F06??' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	r = await run([{ key: '8B', mode: 'value', value: '2F07' }]);
+	assert.strictEqual(r.status, 'fail');
+	assert.deepStrictEqual(r.checks.find(c => c.label === 'fci').dos[0].actual, ['2F0602']);
+	// present / absent
+	r = await run([{ key: '83', mode: 'present' }, { key: 'A0', mode: 'absent' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	r = await run([{ key: 'A0', mode: 'present' }]);
+	assert.strictEqual(r.status, 'fail');
+	assert.deepStrictEqual(r.checks.find(c => c.label === 'fci').dos[0].actual, []);
+	r = await run([{ key: '83', mode: 'absent' }]);
+	assert.strictEqual(r.status, 'fail');
+	// a duplicated tag: any occurrence satisfies, 'absent' needs none
+	r = await run([{ key: '88', mode: 'value', value: '004B' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	r = await run([{ key: '88', mode: 'value', value: 'FFFF' }]);
+	assert.strictEqual(r.status, 'fail');
+	r = await run([{ key: '88', mode: 'absent' }]);
+	assert.strictEqual(r.status, 'fail');
+	// extras: ignored by default, failing with fciExtra
+	r = await run([{ key: '82', mode: 'present' }]);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	r = await profilerRunRule({ ...rule([{ key: '82', mode: 'present' }]), fciExtra: 'fail' }, src);
+	assert.strictEqual(r.status, 'fail');
+	assert.ok(r.checks.find(c => c.label === 'fci').extra.some(it => it.key === '8B'));
+	// an empty list checks nothing
+	r = await run([]);
+	assert.ok(!r.checks.some(c => c.label === 'fci'), JSON.stringify(r.checks));
+	// a nested A5 child is addressable
+	const FCI_A5 = '621382054221000F0583026F4F8A0105A503800101';
+	const a5src = { ...src, select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed',
+		record_len: 6, num_of_rec: 2, fci_hex: FCI_A5, exists: true }) };
+	r = await profilerRunRule({ ...rule([{ key: 'A5/80', mode: 'value', value: '01' }]), fciHex: FCI_A5 }, a5src);
+	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	// an unparseable FCI fails with the parse error
+	const bad = { ...src, select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed',
+		record_len: 6, num_of_rec: 2, fci_hex: '62', exists: true }) };
+	r = await profilerRunRule({ ...rule([{ key: '82', mode: 'present' }]), fciHex: '62' }, bad);
+	assert.strictEqual(r.status, 'fail');
+	assert.ok(r.checks.find(c => c.label === 'fci').parseError, JSON.stringify(r.checks));
+});
+
+test('a custom-mode profile is seeded with the captured FCI objects', () => {
+	const snap = { files: [
+		{ path: 'MF/2F06', name: 'EF.ARR', fileType: 'linear_fixed', recordLen: 6, numRecords: 2,
+		  content: { kind: 'record', records: [{ num: 1, data: 'FFFF' },
+			{ num: 2, data: '800101A40683010A950108' }] } },
+		{ path: 'MF/7F20/6F07', name: 'EF.IMSI',
+		  fciHex: '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0' },
+	]};
+	const arrs = profilerSnapshotArr(snap);
+	const rule = profilerBuildFileRuleFromSnapshot(snap.files[1], new Set(), null, 'custom', null, arrs);
+	assert.ok(Array.isArray(rule.fciDos) && rule.fciDos.length >= 5, JSON.stringify(rule.fciDos));
+	assert.deepStrictEqual(rule.fciDos[0], { key: '82', mode: 'value', value: '4221000F05' });
+	assert.ok(rule.fciDos.some(d => d.key === '8B' && d.value === '2F0602'));
+	// the other modes do not seed
+	const exact = profilerBuildFileRuleFromSnapshot(snap.files[1], new Set(), null, 'exact', null, arrs);
+	assert.strictEqual(exact.fciDos, undefined);
+});
+
+test('the custom-FCI editor renders the data object rows', () => {
+	global.t = s => s;
+	const r = { fciMode: 'custom', fciHex: '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0',
+		fciDos: [{ key: '82', mode: 'value', value: '4221000F05' },
+			{ key: '88', mode: 'present' }, { key: 'A0', mode: 'absent' }] };
+	const out = profilerRenderFciDosEditor(3, r);
+	assert.ok(out.includes('Data objects (FCI) (3)'), out);
+	assert.ok(out.includes('profilerFciDoSetKey(3,0,this.value)'), out);
+	assert.ok(out.includes('<option value="present" selected>present</option>'), out);
+	assert.ok(out.includes('<option value="absent" selected>absent</option>'), out);
+	assert.ok(out.includes('value="4221000F05"'), out);
+	assert.ok(out.includes('profilerSetFciExtra(3,this.value)'), out);
+	assert.ok(out.includes('<option value="ignore" selected>ignore</option>'), out);
+	assert.ok(out.includes('profilerFciDosAdd(3)'), out);
+	assert.ok(out.includes('profilerFciDoRemove(3,2)'), out);
+	// no value input on the present/absent rows
+	assert.ok(!out.includes('profilerFciDoSetValue(3,1'), out);
+	// the known-key datalist carries the names
+	assert.ok(out.includes('<datalist id="profiler-fci-do-keys-3">'), out);
+	assert.ok(out.includes('<option value="8B">Security attributes (referenced)</option>'), out);
+	const fail = profilerRenderFciDosEditor(3, { ...r, fciExtra: 'fail' });
+	assert.ok(fail.includes('<option value="fail" selected>fail</option>'), fail);
+	// the load link only with a captured FCI and an empty list
+	const empty = profilerRenderFciDosEditor(3, { ...r, fciDos: [] });
+	assert.ok(empty.includes('profilerFciDosLoad(3)'), empty);
+	assert.ok(empty.includes('No data objects listed'), empty);
+	const noHex = profilerRenderFciDosEditor(3, { ...r, fciDos: [], fciHex: null });
+	assert.ok(!noHex.includes('profilerFciDosLoad'), noHex);
+	// the mode selector offers the custom mode (editor + scan dialog)
+	assert.ok(html.includes('value="custom"\' + (fciMode === \'custom\''), 'the editor option');
+	assert.ok(html.includes('data-l10n="Custom (per data object)"'), 'the scan dialog option');
+	delete global.t;
+});
+
+test('the custom FCI report block marks the expectations', () => {
+	global.t = s => s;
+	const out = profilerFciDosDiffHtml({ label: 'fci', mode: 'custom', ok: false, parseError: '',
+		dos: [
+			{ key: '82', name: 'File descriptor', mode: 'value', value: '4221000F05', ok: true, actual: ['4221000F05'] },
+			{ key: '88', name: 'Short file identifier', mode: 'present', ok: false, actual: [] },
+			{ key: 'A0', name: '', mode: 'absent', ok: false, actual: ['01'] },
+		],
+		extra: [{ key: '8B', name: 'Security attributes (referenced)', value: '2F0602' }] });
+	assert.ok(out.includes('\u2713 82 (File descriptor) = 4221000F05'), out);
+	assert.ok(out.includes('\u2212 88 (Short file identifier): must be present \u2014 not found'), out);
+	assert.ok(out.includes('\u2212 A0: must be absent \u2014 the card has: 01'), out);
+	assert.ok(out.includes('+ 8B (Security attributes (referenced)) = 2F0602'), out);
+	const perr = profilerFciDosDiffHtml({ label: 'fci', mode: 'custom', ok: false,
+		parseError: 'Truncated at offset 1', dos: [], extra: [] });
+	assert.ok(perr.includes('the FCI could not be parsed: Truncated at offset 1'), perr);
+	delete global.t;
+});
+
+test('the custom FCI aspects stay separate from the exact one', () => {
+	const aspects = profilerResultAspects({ checks: [
+		{ label: 'fci', mode: 'custom', ok: false, dos: [], extra: [] },
+		{ label: 'recordLen', ok: true },
+	]});
+	assert.ok(aspects.some(a => a.key === 'FCI (custom)' && !a.ok), JSON.stringify(aspects));
+	assert.ok(aspects.some(a => a.key === 'records'), JSON.stringify(aspects));
+});
+
+test('profile validation accepts the custom FCI fields', () => {
+	const base = { name: 'P', rules: [{ type: 'file', path: 'MF/7F20/6F07', fciMode: 'custom',
+		fciDos: [{ key: '82', mode: 'value', value: '4221000F05' },
+			{ key: '88', mode: 'present' }, { key: 'A0', mode: 'absent' },
+			{ key: 'A5/80', mode: 'value', value: '01' }] }] };
+	const withRule = f => ({ ...base, rules: [{ ...base.rules[0], ...f }] });
+	assert.strictEqual(profilerValidateProfile(base), null);
+	assert.strictEqual(profilerValidateProfile(withRule({ fciExtra: 'fail' })), null);
+	assert.strictEqual(profilerValidateProfile(withRule({ fciExtra: 'ignore' })), null);
+	assert.ok(profilerValidateProfile(withRule({ fciMode: 'bogus' })));
+	assert.ok(profilerValidateProfile(withRule({ fciDos: 'nope' })));
+	assert.ok(profilerValidateProfile(withRule({ fciDos: [{ key: 'ZZ', mode: 'value', value: '01' }] })));
+	assert.ok(profilerValidateProfile(withRule({ fciDos: [{ key: '82', mode: 'nope' }] })));
+	assert.ok(profilerValidateProfile(withRule({ fciDos: [{ key: '82', mode: 'value', value: 'Z' }] })));
+	assert.ok(profilerValidateProfile(withRule({ fciExtra: 'nope' })));
 });
 
 test('pysimFsInfoHtml embeds the symbolic name in the FCI border', () => {
