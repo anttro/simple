@@ -1367,6 +1367,16 @@ test('the custom FCI check matches per data object', async () => {
 		record_len: 6, num_of_rec: 2, fci_hex: FCI_A5, exists: true }) };
 	r = await profilerRunRule({ ...rule([{ key: 'A5/80', mode: 'value', value: '01' }]), fciHex: FCI_A5 }, a5src);
 	assert.strictEqual(r.status, 'pass', JSON.stringify(r.checks));
+	// fciExtra covers a listed template's children and a listed child's parent
+	// (an unlisted sibling still fails)
+	const FCI_A5T = '621682054221000F0583026F4F8A0105A506800101810102';
+	const a5tsrc = { ...src, select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed',
+		record_len: 6, num_of_rec: 2, fci_hex: FCI_A5T, exists: true }) };
+	r = await profilerRunRule({ ...rule([{ key: 'A5', mode: 'present' }]), fciHex: FCI_A5T, fciExtra: 'fail' }, a5tsrc);
+	assert.strictEqual(r.status, 'fail');   // 82/83/8A are still extras
+	assert.deepStrictEqual(r.checks.find(c => c.label === 'fci').extra.map(it => it.key), ['82', '83', '8A']);
+	r = await profilerRunRule({ ...rule([{ key: 'A5/80', mode: 'present' }]), fciHex: FCI_A5T, fciExtra: 'fail' }, a5tsrc);
+	assert.deepStrictEqual(r.checks.find(c => c.label === 'fci').extra.map(it => it.key), ['82', '83', '8A', 'A5/81']);
 	// an unparseable FCI fails with the parse error
 	const bad = { ...src, select: async () => ({ name: 'EF.SAMPLE', file_type: 'linear_fixed',
 		record_len: 6, num_of_rec: 2, fci_hex: '62', exists: true }) };

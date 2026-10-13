@@ -20614,7 +20614,13 @@ async function profilerRunRule(r, source) {
 		}
 		const listed = {};
 		r.fciDos.forEach(d => { listed[d.key] = true; });
-		const extra = r.fciExtra === 'fail' ? dec.items.filter(it => !listed[it.key]) : [];
+		// An object is covered by its own key, by a listed parent (a listed
+		// template accepts its children) or by a listed child (the parent of
+		// a listed child is implied); an unlisted sibling still fails.
+		const covered = k => listed[k] ||
+			(k.indexOf('/') > 0 && listed[k.split('/')[0]]) ||
+			Object.keys(listed).some(l => l.startsWith(k + '/'));
+		const extra = r.fciExtra === 'fail' ? dec.items.filter(it => !covered(it.key)) : [];
 		const ok = dos.every(d => d.ok) && !extra.length && !dec.error;
 		if (!ok) res.status = 'fail';
 		res.checks.push({ label: 'fci', mode: 'custom', dos: dos, extra: extra,
