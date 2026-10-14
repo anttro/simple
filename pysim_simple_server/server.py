@@ -2701,8 +2701,13 @@ def _ram_batch_worker(state):
             session = getattr(server, 'card_session', 0) if server is not None else None
             # The connection state is the module global the whole server uses
             # (_apply_equipped_card / _handle_card_disconnect); the server
-            # object itself has no `connected` attribute (v3.28.0 review).
-            connected = bool(server is not None and _CARD_CONNECTED)
+            # object itself has no `connected` attribute.  The equip must also
+            # have finished (`card_ready_session`, set at the end of
+            # _apply_equipped_card and by the startup init) - acting mid-equip
+            # would consume the card session with a bogus 'no ICCID' skip
+            # (v3.28.0 audit).
+            connected = bool(server is not None and _CARD_CONNECTED
+                             and getattr(server, 'card_ready_session', None) == session)
             with _RAM_BATCH_LOCK:
                 if state['stop']:
                     break
@@ -2732,9 +2737,9 @@ def _ram_batch_worker(state):
         sys.stderr.write('RAM-BATCH: %s after %d attempts\n' % (phase, total))
 
 
-def _ram_batch_start(server, body):
+def _ram_batch_start(body):
     """Validate the CAP/parameters (the plan is card independent, so it is built
-    once) and spawn the worker.  Raises ValueError (400) for a bad request and
+    once) and spawn the worker (the worker reads `_server_ref` itself).  Raises ValueError (400) for a bad request and
     RuntimeError (409) when another batch or a test run is active."""
     global _RAM_BATCH
     with _RAM_BATCH_LOCK:
@@ -5106,6 +5111,12 @@ def _apply_equipped_card(server):
     server.sim_menu = sm
     server.event_list = el
     _tlog('equip: terminal profile done')
+    # The card session is now fully initialized (the ICCID read, the network
+    # state, the TERMINAL PROFILE and its drain are done).  The batch worker
+    # waits for this marker before acting: _CARD_CONNECTED flips True before
+    # the ICCID is read, so a poll landing mid-equip would consume the session
+    # with a bogus 'no ICCID' skip (v3.28.0 audit).
+    server.card_ready_session = server.card_session
 
 
 def _card_reset_reinit(server, label='RESET'):
@@ -10038,7 +10049,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             self._log_req(body)
             try:
-                _ram_batch_start(self.server, body)
+                _ram_batch_start(body)
             except ValueError as e:
                 resp = {'error': str(e)}
                 self._send_json(resp, 400)

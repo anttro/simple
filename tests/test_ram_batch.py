@@ -57,13 +57,17 @@ def _preset(iccid, name='Card', keyset=1):
             'tars': [tar]}
 
 
-def _fake_server(iccid, store, session=1):
+def _fake_server(iccid, store, session=1, ready=None):
     """A server-shaped object carrying only the attributes the real server
     object has.  The connection state is the module global `_CARD_CONNECTED`
-    (v3.28.0 review: a fake `connected` attribute here hid a bug - the worker
-    read it and never saw a card)."""
+    (v3.28.0 audit: a fake `connected` attribute here hid a bug - the worker
+    read it and never saw a card); `card_ready_session` is the marker
+    _apply_equipped_card sets when the session is fully initialized (it
+    defaults to the session, i.e. a finished equip)."""
     return SimpleNamespace(iccid=iccid, card_presets=store,
-                           card_session=session, scc=object())
+                           card_session=session,
+                           card_ready_session=session if ready is None else ready,
+                           scc=object())
 
 
 class BatchStateTests(unittest.TestCase):
@@ -268,6 +272,47 @@ class RamInstallPlanTests(unittest.TestCase):
 
 
 class BatchWorkerSourceTests(unittest.TestCase):
+    def test_the_worker_waits_for_a_finished_equip(self):
+        """_CARD_CONNECTED flips True (and the session bumps) before the ICCID
+        is read: acting mid-equip would consume the card with a bogus 'no
+        ICCID' skip.  The worker must wait for the ready marker (v3.28.0
+        audit)."""
+        st = srv._ram_batch_new_state(_plan())
+        preset = _preset('8970119000004600098', 'Alfa')
+        srv._RAM_BATCH = st
+        # the session is bumped but the equip has not finished yet
+        srv._server_ref = _fake_server('8970119000004600098', _FakeStore([preset]),
+                                       session=9, ready=8)
+        calls = []
+        with mock.patch.object(srv, '_CARD_CONNECTED', True), \
+                mock.patch.object(srv, '_ram_install_run',
+                                  lambda *a, **k: calls.append(1) or {'success': True}):
+            t = threading.Thread(target=srv._ram_batch_worker, args=(st,), daemon=True)
+            t.start()
+            time.sleep(0.8)                     # a couple of polls mid-equip
+            self.assertEqual(calls, [])
+            self.assertEqual(st['attempts'], [])
+            srv._server_ref.card_ready_session = 9   # the equip finished
+            for _ in range(60):
+                if st['attempts']:
+                    break
+                time.sleep(0.05)
+            srv._ram_batch_stop()
+            t.join(timeout=3)
+        srv._server_ref = None
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(st['attempts'][0]['result'], 'installed')
+
+    def test_the_ready_marker_is_set_on_every_equip_path(self):
+        """_apply_equipped_card marks the finished session, and the startup
+        init (which never runs it) sets the same marker (v3.28.0 audit)."""
+        import inspect
+        src = inspect.getsource(srv._apply_equipped_card)
+        self.assertIn('server.card_ready_session = server.card_session', src)
+        main = (PROJECTS / 'simple' / 'pysim_simple_server' / '__main__.py').read_text(
+            encoding='utf-8')
+        self.assertIn('server.card_ready_session = server.card_session', main)
+
     def test_the_worker_reads_the_module_connection_state(self):
         """The server object has no `connected` attribute - the worker must
         read `_CARD_CONNECTED`, the global the rest of the server uses
@@ -288,17 +333,17 @@ class BatchLifecycleTests(unittest.TestCase):
     def test_start_refuses_a_second_batch_and_a_test_run(self):
         with mock.patch.object(srv, '_ram_install_plan', lambda body: _plan()), \
                 mock.patch.object(srv, '_ram_batch_worker', lambda state: None):
-            st = srv._ram_batch_start(None, {'cap_hex': 'AA'})
+            st = srv._ram_batch_start({'cap_hex': 'AA'})
             self.assertTrue(st['active'])
             with self.assertRaises(RuntimeError):
-                srv._ram_batch_start(None, {'cap_hex': 'AA'})
+                srv._ram_batch_start({'cap_hex': 'AA'})
             srv._ram_batch_stop()
         # a test run blocks the start
         srv._RAM_BATCH = None
         with mock.patch.object(srv, '_ram_install_plan', lambda body: _plan()), \
                 mock.patch.object(srv, '_TEST_RUNNING', True):
             with self.assertRaises(RuntimeError):
-                srv._ram_batch_start(None, {'cap_hex': 'AA'})
+                srv._ram_batch_start({'cap_hex': 'AA'})
 
     def test_the_status_payload_shape(self):
         idle = srv._ram_batch_status()
@@ -308,7 +353,7 @@ class BatchLifecycleTests(unittest.TestCase):
         self.assertIsNone(srv._ram_batch_summary())
         with mock.patch.object(srv, '_ram_install_plan', lambda body: _plan()), \
                 mock.patch.object(srv, '_ram_batch_worker', lambda state: None):
-            srv._ram_batch_start(None, {'cap_hex': 'AA'})
+            srv._ram_batch_start({'cap_hex': 'AA'})
         srv._ram_batch_record(srv._RAM_BATCH, {'iccid': '8970119000004600098',
                                                'result': 'installed'})
         st = srv._ram_batch_status()

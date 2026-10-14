@@ -324,6 +324,10 @@ def main():
     server.stk_pending = None
     server.card_present = card is not None
     server.card_session = 1 if card is not None else 0
+    # The startup init inlines the post-equip work (it never runs
+    # _apply_equipped_card): the batch worker's ready marker must be set
+    # here too (v3.28.0 audit).
+    server.card_ready_session = server.card_session
     server.iccid = iccid
     # EF.ARR cache (v3.24.0): read by the startup init above (a card present
     # at server start); a later equip refreshes it in _apply_equipped_card.
