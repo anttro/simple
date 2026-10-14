@@ -1181,6 +1181,51 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('needs a default keyset', resp['error'])
 
+    def test_a_keyless_tar_builds_the_no_security_form(self):
+        # v3.26.0 review: an MSL 00 entry without a default keyset is a
+        # legitimate keyless TAR - the operation sends the spec's '00/00'
+        # KIc/KID form instead of failing on an empty one, and a TAR outside
+        # the preset is refused with a hint
+        p = self.store.add(self._preset(iccid='8970119000004600098',
+            tars=[{'role': 'isd', 'tar': '000000', 'msl': '00'},
+                  {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'keyset': 1},
+                  {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'keyset': 1}],
+            keysets=[self._keyset(), self._keyset(kic='29', kid='29')]))
+        built = []
+        patches = [
+            mock.patch.object(self.srv, '_build_secured_packet',
+                              side_effect=lambda *a, **k: (built.append(a) or ('00' * 21, {}))),
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 21, 'segments': 1,
+                'response_data': ''}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: None),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'apdu': '00A40000023F00', 'spi2': '01', 'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        args = built[0]
+        self.assertEqual((args[0], args[2], args[3]), ('00', '00', '00'))
+        # a TAR outside the preset without explicit KIc/KID is refused: the
+        # SPI1 resolution names it first, and with an explicit SPI1 the
+        # keyset hint follows
+        status, resp = self._post('/api/send-ota', {
+            'apdu': '00A40000023F00', 'spi2': '01', 'preset_id': p['id'],
+            'tar': 'B00099'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('B00099', resp['error'])
+        status, resp = self._post('/api/send-ota', {
+            'apdu': '00A40000023F00', 'spi2': '01', 'preset_id': p['id'],
+            'tar': 'B00099', 'spi1': '16'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('is not in the preset', resp['error'])
+
     def test_a_ram_install_refuses_an_undefined_key_version(self):
         p = self.store.add(self._preset(iccid='8970119000004600098'))
         status, resp = self._post('/api/ram-install', {

@@ -25,7 +25,8 @@ let code = '';
 for (const fn of ['spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
 	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'spCounterTracked', 'spPresetIdx', 'ramPresetIdx',
 	'tarPresetIdx', 'spKeysetSync', 'ramRender', 'esc', 'escHtml',
-	'cardsTarList', 'cardsTarEntry', 'cardsRoleTar']) {
+	'cardsTarList', 'cardsTarEntry', 'cardsRoleTar',
+	'spTarChanged', 'spKeysetApply', 'updateSpKic', 'updateSpKid']) {
 	code += extractFunc(html, fn) + '\n';
 }
 code += 'function t(s){return s;}\n';
@@ -178,6 +179,43 @@ test('the RAM and TAR views rebuild their keyset lists when their preset is know
 	assert.ok(tar.includes(': _ramCardIdx;'), 'tarRender keeps the remembered preset');
 	// opening the TAR pill populates both its selectors
 	assert.ok(html.includes("if (name === 'tar') { tarRender(); tarProbeRender(); }"));
+});
+
+test('spTarChanged applies the TAR keyset and clears it for a keyless TAR', () => {
+	// v3.26.0 review: a TAR without a default keyset (MSL 00) must reset the
+	// form to the no-security '00/00' form - a stale previous TAR's KIc/KID
+	// would otherwise travel explicitly and build a non-keyless packet
+	globalThis.updateKeyPlaceholder = () => {};
+	globalThis.spInvalidate = () => {};
+	globalThis.updateSp = () => {};
+	globalThis.spCntrPlaceholder = () => {};
+	const els = {
+		'sp-tar': { value: '', disabled: false, innerHTML: '', options: [] },
+		'sp-card-sel': { value: '0' },
+		'sp-kic-idx': { value: '' }, 'sp-kic-alg': { value: '' }, 'sp-kic-hex': { value: '' },
+		'sp-kid-idx': { value: '' }, 'sp-kid-alg': { value: '' }, 'sp-kid-hex': { value: '' },
+		'sp-kic-key': { value: '' }, 'sp-kid-key': { value: '' }, 'sp-cntr': { value: 'X' },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	globalThis.cards = [{ name: 'EP', keysets: [
+		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }],
+		tars: [
+			{ role: 'isd', tar: '000000', msl: '16', keyset: 1 },
+			{ tar: 'B00011', msl: '00' }] }];
+	// a keyset TAR applies its KIc/KID and keys (the counter override clears)
+	els['sp-tar'].value = '000000';
+	spTarChanged();
+	assert.strictEqual(els['sp-kic-hex'].value, '15');
+	assert.strictEqual(els['sp-kid-hex'].value, '15');
+	assert.strictEqual(els['sp-kic-key'].value, 'AA');
+	assert.strictEqual(els['sp-cntr'].value, '');
+	// a keyless TAR (MSL 00, no default keyset) resets to the no-security form
+	els['sp-kic-key'].value = 'AA';
+	els['sp-tar'].value = 'B00011';
+	spTarChanged();
+	assert.strictEqual(els['sp-kic-hex'].value, '00');
+	assert.strictEqual(els['sp-kid-hex'].value, '00');
+	assert.strictEqual(els['sp-kic-key'].value, '');
 });
 
 test('the TAR selector waits for a preset and lists its entries', () => {

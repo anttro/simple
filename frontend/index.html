@@ -5075,6 +5075,10 @@ function spTarChanged() {
 	if (entry) {
 		const ks = entry.keyset ? spKeysetFor(preset, entry.keyset) : null;
 		if (ks) spKeysetApply(ks);
+		// A TAR without a default keyset (MSL 00) gets the spec's no-security
+		// values - a stale previous TAR's KIc/KID would otherwise travel
+		// explicitly and build a non-keyless packet (v3.26.0 review).
+		else spKeysetApply({ kic: '00', kid: '00', kicKey: '', kidKey: '' });
 		if (entry.msl) spSpi1Seed(entry.msl);
 	}
 	spInvalidate();

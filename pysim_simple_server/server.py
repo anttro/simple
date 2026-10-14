@@ -1700,15 +1700,6 @@ def _preset_keyset_check(server, preset_id, kic, kid):
     return None
 
 
-def _preset_tar_keyset(server, preset_id, tar):
-    """The default keyset number of a TAR in the named preset (v3.26.0), or
-    None (no preset, no such TAR entry, or an MSL 00 entry without one)."""
-    preset = _preset_by_id(server, preset_id)
-    if preset is None:
-        return None
-    return presets.tar_keyset(preset, tar)
-
-
 def _preset_keyset_by_kvn(preset, kvn):
     """The preset's keyset dict with number `kvn`, or None."""
     return next((ks for ks in _preset_keysets(preset)
@@ -1737,6 +1728,18 @@ def _resolve_operation_keyset(server, body, tar):
         if msl and msl != '00':
             return None, ('TAR %s needs a default keyset (its MSL %s requires '
                           'security) - set it in the Cards tab' % (tar, msl))
+        if presets.tar_entry(preset, tar) is None:
+            # A TAR outside the preset: the caller must name its keyset - the
+            # old silent '25' default was arbitrary (v3.26.0 review).
+            return None, ('TAR %s is not in the preset - add it in the Cards '
+                          'tab or pass the keyset (KIc/KID) explicitly' % tar)
+        # An MSL 00 entry without a default keyset: the spec's no-security
+        # values (A.2) - the packet is built keyless.  A keyset set on an
+        # MSL 00 entry was handled above (it supplies its KIc/KID).
+        body['kic'] = '00'
+        body['kid'] = '00'
+        body['kicKey'] = ''
+        body['kidKey'] = ''
         return None, None
     keyset = _preset_keyset_by_kvn(preset, kvn)
     if keyset is None:
