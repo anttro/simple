@@ -14731,8 +14731,14 @@ function cardsOutfileRender() {
 	const o = _cardsOutfile;
 	if (!panel || !o) return;
 	const keysets = cardsOutfileKeysets();
-	const selected = keysets.includes(o.tarKeyset) ? o.tarKeyset : (keysets[0] || null);
-	o.tarKeyset = selected;
+	// An empty or failed preview must not drop a chosen keyset: the value is
+	// only re-selected against a list that has keysets, and the option list is
+	// the preview's keysets plus a remembered value (so it stays visible).
+	if (keysets.length && !keysets.includes(o.tarKeyset)) o.tarKeyset = keysets[0];
+	const options = keysets.slice();
+	if (o.tarKeyset && !options.includes(o.tarKeyset)) options.push(o.tarKeyset);
+	options.sort((a, b) => a - b);
+	const selected = o.tarKeyset;
 	let html = '<div class="flex items-center justify-between mb-2">';
 	html += '<span class="text-sm font-semibold">' + esc(t('outfile import')) +
 		': <span class="font-mono text-xs">' + esc(o.file || '') + '</span></span>';
@@ -14747,7 +14753,7 @@ function cardsOutfileRender() {
 		'<option value="aes"' + (o.algorithm16 === 'aes' ? ' selected' : '') + '>AES</option></select></label>';
 	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Default keyset for the TARs')) +
 		'<select id="cards-of-keyset" onchange="cardsOutfilePreview()" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
-		(keysets.length ? keysets.map(v => '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(t('Keyset') + ' ' + v) + '</option>').join('')
+		(options.length ? options.map(v => '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(t('Keyset') + ' ' + v) + '</option>').join('')
 			: '<option value="">\u2014</option>') +
 		'</select></label>';
 	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Import mode')) +
@@ -14788,6 +14794,8 @@ async function cardsOutfileImport() {
 	const o = _cardsOutfile;
 	if (!o) return;
 	cardsOutfileControls();
+	// Replace wipes the whole store - the destructive choice asks first
+	if (o.mode === 'replace' && !confirm(t('Replace mode wipes the whole preset store. Continue?'))) return;
 	const btn = document.getElementById('cards-of-import');
 	if (btn) btn.disabled = true;
 	const body = {
@@ -23283,6 +23291,7 @@ const LANG_RU = {
 	'Import mode': 'Режим импорта',
 	'Merge': 'Дополнить',
 	'Replace': 'Заменить',
+	'Replace mode wipes the whole preset store. Continue?': 'Режим «Заменить» очищает всё хранилище пресетов. Продолжить?',
 	'TAR table': 'Таблица TAR',
 	'Refresh preview': 'Обновить предпросмотр',
 	'Name': 'Имя',

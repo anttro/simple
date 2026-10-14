@@ -10875,11 +10875,30 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._send_json(resp, 400)
                     self._log_resp(resp)
                     return
+            # A misspelled algorithm must not silently pick one: the 16-byte
+            # key's algorithm nibble decides whether the card accepts the
+            # packet at all.
+            algorithm16 = str(body.get('algorithm16') or '3des2').strip().lower()
+            if algorithm16 not in outfile.ALGORITHM16_CHOICES:
+                resp = {'error': 'algorithm16 must be one of: %s'
+                                 % ', '.join(outfile.ALGORITHM16_CHOICES)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            mode = body.get('mode')
+            if mode in (None, ''):
+                mode = None
+            elif mode not in ('merge', 'replace'):
+                resp = {'error': "mode must be 'merge', 'replace' or omitted "
+                                 '(a preview)'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             try:
                 parsed = outfile.parse_outfile(
                     text,
                     name=str(body.get('name') or ''),
-                    algorithm16=str(body.get('algorithm16') or '3des2'),
+                    algorithm16=algorithm16,
                     tars=body.get('tars'),
                     tar_keyset=tar_keyset)
             except ValueError as e:
@@ -10887,8 +10906,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
-            mode = body.get('mode')
-            if mode not in ('merge', 'replace'):
+            if mode is None:
                 resp = {'ok': True, 'preview': True,
                         'presets': parsed['presets'], 'report': parsed['report']}
                 self._send_json(resp)

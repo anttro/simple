@@ -307,7 +307,9 @@ ignored.
 Without a `mode` the call is a **dry run**: the parsed presets and the report
 come back for the preview (nothing is stored).  With `mode: "merge"` /
 `"replace"` the same parse runs and the presets are imported through the
-store (`replace` wipes the store first, like `/api/presets/import`).
+store (`replace` wipes the store first, like `/api/presets/import`); any other
+`mode` value is refused with `400` — a typo must not silently turn an import
+into a preview.
 
 ```json
 {"text": "…", "name": "Batch 0002", "algorithm16": "3des2",
@@ -322,7 +324,9 @@ store (`replace` wipes the store first, like `/api/presets/import`).
 - `name` — one common name applied to every imported card; empty falls back
   to the card's ICCID.
 - `algorithm16` — the algorithm nibble for a **16-byte** key: `"3des2"`
-  (default, KIc/KID nibble `5`) or `"aes"` (nibble `2`).  The key size alone
+  (default, KIc/KID nibble `5`) or `"aes"` (nibble `2`); any other value is
+  refused with `400` (a misspelled algorithm must never silently pick one —
+  the nibble decides whether the card accepts the packet).  The key size alone
   decides the others: 8 bytes → DES (`1`), 24 bytes → 3DES3 (`9`); any other
   size skips that keyset with a report line.
 - `tars` — the TAR table every imported card gets (defaults to the three role

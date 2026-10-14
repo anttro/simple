@@ -45,10 +45,11 @@ code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_
 // absent (the code guards every getElementById result).
 const els = {};
 const app = new Function('els', `
-	var sandbox = { calls: [], io: [], alerts: [], fetched: 0, reply: null, replyError: null };
+	var sandbox = { calls: [], io: [], alerts: [], fetched: 0, reply: null, replyError: null, confirmResult: true };
 	var document = { getElementById: id => els[id] || null };
 	var t = k => k;
 	var alert = m => { sandbox.alerts.push(String(m)); };
+	var confirm = m => { sandbox.confirmCalls = (sandbox.confirmCalls || []); sandbox.confirmCalls.push(String(m)); return sandbox.confirmResult; };
 	var ioStatus = (id, msg) => { sandbox.io.push([id, msg]); };
 	var pysimFetchOk = async (path, body) => {
 		sandbox.calls.push({ path: path, body: body });
@@ -252,6 +253,7 @@ test('the import posts the chosen mode and refreshes the list', async () => {
 	app.calls = [];
 	app.fetched = 0;
 	app.io = [];
+	app.confirmResult = true;
 	app.reply = { ok: true, preview: false, added: 2, skipped: 1, errors: ['dup'] };
 	setEl('cards-outfile-panel', '');
 	setEl('cards-of-mode', 'replace');
@@ -266,4 +268,46 @@ test('the import posts the chosen mode and refreshes the list', async () => {
 	assert.strictEqual(app.fetched, 1);
 	assert.deepStrictEqual(app.io, [['cards-io', 'Imported 2 cards (1 skipped).']]);
 	assert.strictEqual(app.state, null);               // the panel closed
+	// the replace mode asks first, and a declined answer imports nothing
+	assert.deepStrictEqual(app.confirmCalls, ['Replace mode wipes the whole preset store. Continue?']);
+});
+
+test('a declined replace confirmation aborts the import', async () => {
+	clearEls();
+	app.calls = [];
+	app.confirmResult = false;
+	setEl('cards-of-mode', 'replace');
+	app.state = { text: TEXT, file: 'batch.out', name: 'x', algorithm16: '3des2',
+		tarKeyset: null, mode: 'merge', preview: { presets: [], report: {} } };
+	await app.cardsOutfileImport();
+	app.confirmResult = true;
+	assert.strictEqual(app.calls.length, 0);
+	assert.ok(app.state);                              // the panel stays open
+	// merge never asks
+	app.confirmResult = false;
+	setEl('cards-of-mode', 'merge');
+	app.reply = { ok: true, preview: false, added: 1, skipped: 0, errors: [] };
+	await app.cardsOutfileImport();
+	app.confirmResult = true;
+	assert.strictEqual(app.calls.length, 1);
+});
+
+test('a chosen keyset survives an empty (failed) preview', () => {
+	clearEls();
+	setEl('cards-outfile-panel', '');
+	app.state = { text: TEXT, file: 'a.out', name: 'x', algorithm16: '3des2',
+		tarKeyset: 2, mode: 'merge',
+		preview: { presets: [{ iccid: '8970119000004600098', keysets: [{ kic: '15' }, { kic: '25' }] }], report: {} } };
+	app.cardsOutfileRender();
+	assert.strictEqual(app.state.tarKeyset, 2);
+	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="2" selected>/);
+	// a failed re-preview has no keysets - the choice must not be dropped
+	app.state.preview = { report: { error: 'TAR must be three hex bytes: ZZ' } };
+	app.cardsOutfileRender();
+	assert.strictEqual(app.state.tarKeyset, 2);
+	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="2" selected>/);
+	// a keyset the new preview does not define falls back to its first one
+	app.state.preview = { presets: [{ iccid: '8970119000004600098', keysets: [{ kic: '15' }] }], report: {} };
+	app.cardsOutfileRender();
+	assert.strictEqual(app.state.tarKeyset, 1);
 });

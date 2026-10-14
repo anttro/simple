@@ -955,6 +955,21 @@ class PresetStoreHttpTests(unittest.TestCase):
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tar_keyset': 99})
         self.assertEqual(status, 400, resp)
+        # a misspelled algorithm or mode is refused, never silently defaulted
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'algorithm16': 'aes-256'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('algorithm16', resp['error'])
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'mode': 'Merge'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('mode', resp['error'])
+        # replace wipes the store first
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'name': 'Batch 1', 'mode': 'replace'})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 1)
+        self.assertEqual(len(self.store.list()), 1)
 
     def test_the_counter_an_operation_accepted_is_persisted(self):
         p = self.store.add(self._preset(iccid='8970119000004600098'))

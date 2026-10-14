@@ -82,6 +82,21 @@ class ColumnDetectionTests(unittest.TestCase):
         self.assertEqual(res['report']['cards'], 1)
         self.assertEqual(res['presets'][0]['iccid'], DIGITS)
 
+    def test_a_header_without_a_usable_column_is_not_the_column_line(self):
+        # a line carrying ICCID and nothing the import can consume is not the
+        # header (every card needs a KICn/KIDn pair)
+        text = ('ICCID CUSTOMER_NAME\nICCID KIC1 KID1\n' + DIGITS_F + ' ' +
+                K16A + ' ' + K16B + '\n')
+        cols, i = outfile.find_columns(text)
+        self.assertEqual(i, 1)
+        self.assertEqual(cols, ['ICCID', 'KIC1', 'KID1'])
+        # ...while a long unknown column name next to a real one is fine
+        text = ('ICCID TRANSPORT_KEY_IDENTIFIER KIC1 KID1\n' + DIGITS_F + ' ' +
+                'AB ' + K16A + ' ' + K16B + '\n')
+        cols, i = outfile.find_columns(text)
+        self.assertEqual(i, 0)
+        self.assertEqual(len(cols), 4)
+
 
 class AlfaShapeTests(unittest.TestCase):
     def test_the_rows_become_presets_with_three_keysets(self):
@@ -229,3 +244,15 @@ class OptionTests(unittest.TestCase):
         self.assertEqual(len(res['presets']), 1)
         self.assertNotIn('pin1', res['presets'][0])
         self.assertTrue(any('PIN1' in s for s in res['report']['skipped']))
+        # a present but unusable value is named with its raw text (a value that
+        # strips to nothing must not vanish silently)
+        text = ('ICCID KIC1 KID1 PUK1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' abcd\n')
+        res = outfile.parse_outfile(text)
+        self.assertNotIn('puk1', res['presets'][0])
+        self.assertTrue(any("PUK1 'abcd'" in s for s in res['report']['skipped']))
+        # ...while a column absent from a short row stays silent (not present)
+        text = ('ICCID KIC1 KID1 PIN1 PUK1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' 1234\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'][0]['pin1'], '1234')
+        self.assertNotIn('puk1', res['presets'][0])
+        self.assertEqual([s for s in res['report']['skipped'] if 'PUK1' in s], [])

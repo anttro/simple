@@ -41,6 +41,9 @@ from pysim_simple_server import presets
 # 3DES3.  Anything else is refused with a report line.
 _KEY_ALGO = {8: 0x01, 24: 0x09}
 _KEY_ALGO_16 = {'3des2': 0x05, 'aes': 0x02}
+# The 16-byte algorithm choices as the API accepts them (derived from the map
+# above, so the endpoint's validation and the parser cannot drift apart).
+ALGORITHM16_CHOICES = tuple(_KEY_ALGO_16)
 KEY_SIZES = (8, 16, 24)
 PSK_KEY_HEX_LEN = 32        # the store's PSK contract: 32 hex chars (16 bytes)
 MAX_KEYSET = presets.KVN_MAX
@@ -58,23 +61,42 @@ def _tokens(line):
     return [p for p in parts if p]
 
 
-# A column name: a short identifier (IMSI, ICCID, KIC1, PSK_ID, ...).  The
+# A column name: an identifier (IMSI, ICCID, KIC1, PSK_ID, ...).  The shape
 # check keeps a configuration line that names a value next to a column
-# (``ICCID 897...`` - the value token is not an identifier) from being read as
-# the column line.
-_COLUMN_NAME_RE = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,7}')
+# (``ICCID 897...`` - the value is not an identifier) from being read as the
+# column line.
+_COLUMN_NAME_RE = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
+
+# The columns the presets use, beyond ICCID itself.  A candidate header must
+# carry at least one of them: a line with ICCID and nothing usable cannot
+# yield a card (every keyset needs a KICn/KIDn pair), so it is not the header.
+_FIXED_COLUMNS = ('ADM', 'PIN1', 'PIN2', 'PUK1', 'PUK2', 'PSK', 'PSKID', 'PSK_ID')
+
+
+def _is_known_column(name):
+    """A column the import consumes: a fixed name or a numbered KIC/KID."""
+    if name in _FIXED_COLUMNS:
+        return True
+    m = re.fullmatch(r'(?:KIC|KID)([0-9]{1,2})', name)
+    return bool(m) and 1 <= int(m.group(1)) <= MAX_KEYSET
 
 
 def find_columns(text):
     """The column-name line of an outfile: the first line whose tokens all
-    look like column names and include ``ICCID`` (at least two tokens).
-    Returns ``(columns, line_index)`` with the column names uppercased, or
+    look like column names, include ``ICCID`` and carry at least one other
+    column the import consumes (at least two tokens in total).  Returns
+    ``(columns, line_index)`` with the column names uppercased, or
     ``(None, -1)``."""
     for i, line in enumerate(str(text or '').splitlines()):
         toks = _tokens(line)
-        if (len(toks) >= 2 and any(t.upper() == 'ICCID' for t in toks)
-                and all(_COLUMN_NAME_RE.fullmatch(t) for t in toks)):
-            return [t.upper() for t in toks], i
+        if len(toks) < 2 or not all(_COLUMN_NAME_RE.fullmatch(t) for t in toks):
+            continue
+        names = [t.upper() for t in toks]
+        if 'ICCID' not in names:
+            continue
+        if not any(n != 'ICCID' and _is_known_column(n) for n in names):
+            continue
+        return names, i
     return None, -1
 
 
@@ -240,14 +262,15 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
         for field, col in (('pin1', 'PIN1'), ('pin2', 'PIN2'),
                            ('puk1', 'PUK1'), ('puk2', 'PUK2')):
             i = idx[col]
-            v = re.sub(r'\D', '', str(toks[i])) if 0 <= i < len(toks) else ''
-            if not v:
-                continue
+            raw = str(toks[i]).strip() if 0 <= i < len(toks) else ''
+            if not raw:
+                continue        # the column is simply absent from this row
+            v = re.sub(r'\D', '', raw)
             if re.fullmatch(r'[0-9]{4,8}', v):
                 entry[field] = v
             else:
                 skip('line %d: %s %r is not 4-8 digits - dropped'
-                     % (row_no, col, v))
+                     % (row_no, col, raw))
         i = idx['ADM']
         if 0 <= i < len(toks) and toks[i]:
             adm = _ascii_from_hex(_hex_value(toks[i]))
