@@ -29,6 +29,9 @@ for (const fn of ['ramBatchPanelVisible', 'ramBatchAttemptsHtml', 'ramBatchRende
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 
+const RAM_BATCH_FETCH_STALE_MS = parseInt(
+	/const RAM_BATCH_FETCH_STALE_MS = (\d+);/.exec(html)[1], 10);
+
 const els = {};
 function setEl(id, value) {
 	els[id] = {
@@ -54,7 +57,11 @@ const app = new Function('els', `
 	var t = k => k;
 	var isViewVisible = () => sandbox.visibility;
 	var alert = m => sandbox.alerts.push(String(m));
-	var pysimFetch = async (p) => { sandbox.fetched.push(p); return sandbox.replies[p] || null; };
+	var pysimFetch = async (p) => {
+		sandbox.fetched.push(p);
+		if (sandbox.hangs) return new Promise(() => {});   // a stalled connection
+		return sandbox.replies[p] || null;
+	};
 	var pysimFetchOk = async (p, body) => {
 		sandbox.fetched.push(p);
 		sandbox.bodies = sandbox.bodies || {};
@@ -68,12 +75,17 @@ const app = new Function('els', `
 	var pysimApplyAvailability = () => {};
 	var _ramBatchLast = null;
 	var _ramBatchFetching = false;
+	var _ramBatchFetchAt = 0;
 	var _ramBatchSummary = null;
 	var _ramBatchProgress = null;
+	var RAM_BATCH_FETCH_STALE_MS = ${RAM_BATCH_FETCH_STALE_MS};
 	${code}
 	sandbox.getLast = () => _ramBatchLast;
 	sandbox.setLast = v => { _ramBatchLast = v; };
 	sandbox.getSummary = () => _ramBatchSummary;
+	sandbox.isFetching = () => _ramBatchFetching;
+	sandbox.setFetchingStale = ms => { _ramBatchFetching = true; _ramBatchFetchAt = Date.now() - ms; };
+	sandbox.resetFetching = () => { _ramBatchFetching = false; };
 	sandbox.getProgress = () => _ramBatchProgress;
 	sandbox.ramBatchPanelVisible = ramBatchPanelVisible;
 	sandbox.ramBatchAttemptsHtml = ramBatchAttemptsHtml;
@@ -263,6 +275,65 @@ test('the panel headline follows the live summary (phase and step)', () => {
 	app.ramBatchApplyStatus({ ram_batch: { active: true, phase: 'waiting_card', attempts_total: 0,
 		counts: { installed: 0, failed: 0, skipped: 0 } } });
 	assert.strictEqual(els['ram-batch-state'].textContent, 'Insert next card. Waiting for a card...');
+});
+
+test('a hung detailed fetch does not freeze the counts (v3.28.7)', async () => {
+	clearEls();
+	setEl('ram-op', 'batch');
+	setEl('ram-batch-panel', '');
+	setEl('ram-batch-start', '');
+	setEl('ram-batch-stop', '');
+	setEl('ram-batch-clear', '');
+	setEl('ram-batch-spin', '');
+	setEl('ram-batch-state', '');
+	setEl('ram-batch-notice', '');
+	setEl('ram-batch-counts', '');
+	setEl('ram-batch-attempts', '');
+	app.hangs = true;                        // every detailed fetch stalls
+	const sum = n => ({ ram_batch: { active: true, phase: 'waiting_card', attempts_total: n,
+		counts: { installed: n, failed: 0, skipped: 0 } } });
+	app.ramBatchApplyStatus(sum(12));
+	await new Promise(r => setImmediate(r));
+	assert.match(els['ram-batch-counts'].textContent, /Installed: 12/);
+	// the fetch never settles, but the headline must follow the summary
+	app.ramBatchApplyStatus(sum(31));
+	await new Promise(r => setImmediate(r));
+	assert.match(els['ram-batch-counts'].textContent, /Installed: 31/);
+	app.hangs = false;
+});
+
+test('a stale fetch guard is released so the report recovers (v3.28.7)', async () => {
+	clearEls();
+	setEl('ram-op', 'batch');
+	setEl('ram-batch-panel', '');
+	setEl('ram-batch-start', '');
+	setEl('ram-batch-stop', '');
+	setEl('ram-batch-clear', '');
+	setEl('ram-batch-spin', '');
+	setEl('ram-batch-state', '');
+	setEl('ram-batch-notice', '');
+	setEl('ram-batch-counts', '');
+	setEl('ram-batch-attempts', '');
+	app.fetched = [];
+	app.replies['/api/ram-batch/status'] = { active: true, phase: 'waiting_card', attempts: [],
+		attempts_total: 31, counts: { installed: 31, failed: 0, skipped: 0 } };
+	// the guard stuck for 11 s: the poll releases it and retries
+	app.setFetchingStale(11000);
+	app.ramBatchApplyStatus({ ram_batch: { active: true, phase: 'waiting_card', attempts_total: 31,
+		counts: { installed: 31, failed: 0, skipped: 0 } } });
+	// the stale guard is released and this poll retries (the fetch is issued)
+	await new Promise(r => setImmediate(r));
+	assert.deepStrictEqual(app.fetched, ['/api/ram-batch/status']);
+	assert.ok(!app.isFetching(), 'the guard must be clear again after the fetch');
+	assert.match(els['ram-batch-counts'].textContent, /Installed: 31/);
+	// a fresh guard is kept (no duplicate fetch)
+	app.fetched = [];
+	app.setFetchingStale(1000);
+	app.ramBatchApplyStatus({ ram_batch: { active: true, phase: 'waiting_card', attempts_total: 31,
+		counts: { installed: 31, failed: 0, skipped: 0 } } });
+	await new Promise(r => setImmediate(r));
+	assert.deepStrictEqual(app.fetched, []);
+	app.resetFetching();
 });
 
 test('the stop and clear calls hit their endpoints', async () => {

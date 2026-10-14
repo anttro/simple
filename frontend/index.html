@@ -1910,7 +1910,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.28.6';
+const SIMPLE_VERSION = '3.28.7';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10155,8 +10155,11 @@ function ramHideProgress() {
 // (the attempts list) is fetched only when the summary says it changed.
 let _ramBatchLast = null;        // the last detailed /api/ram-batch/status
 let _ramBatchFetching = false;
+let _ramBatchFetchAt = 0;        // when the in-flight fetch started (the watchdog)
 let _ramBatchSummary = null;     // /api/status.ram_batch
 let _ramBatchProgress = null;    // /api/status.ram_progress
+// A fetch that never settled must not block the report forever (v3.28.7).
+const RAM_BATCH_FETCH_STALE_MS = 10000;
 
 function ramBatchPanelVisible() {
 	const op = document.getElementById('ram-op');
@@ -10167,6 +10170,7 @@ function ramBatchPanelVisible() {
 async function ramBatchFetch() {
 	if (_ramBatchFetching) return;
 	_ramBatchFetching = true;
+	_ramBatchFetchAt = Date.now();
 	try {
 		_ramBatchLast = await pysimFetch('/api/ram-batch/status');
 	} catch (e) { /* the next poll retries */ }
@@ -10181,14 +10185,22 @@ function ramBatchApplyStatus(status) {
 	_ramBatchSummary = status.ram_batch || null;
 	_ramBatchProgress = status.ram_progress || null;
 	if (!ramBatchPanelVisible()) return;
+	// The summary carries the headline (the phase, the current card, the
+	// counts, the notice): render it on every poll, even when a detailed fetch
+	// is due or stuck - a hung fetch used to freeze the whole panel at the
+	// last successful render (v3.28.7).
+	ramBatchRender();
+	if (_ramBatchFetching && Date.now() - _ramBatchFetchAt > RAM_BATCH_FETCH_STALE_MS) {
+		// the in-flight fetch is stale (a stalled connection): release the
+		// guard so this poll retries and the report can recover
+		_ramBatchFetching = false;
+	}
 	const total = _ramBatchSummary ? (_ramBatchSummary.attempts_total || 0) : 0;
 	const active = _ramBatchSummary ? !!_ramBatchSummary.active : false;
 	if (!_ramBatchLast || (_ramBatchLast.attempts_total || 0) !== total
 			|| !!_ramBatchLast.active !== active) {
 		ramBatchFetch();
-		return;
 	}
-	ramBatchRender();
 }
 
 function ramBatchRender() {
