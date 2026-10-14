@@ -344,8 +344,9 @@ into a preview.
 Recognised columns (case-insensitive): `ICCID` (the digits + odd-nibble F
 pad, the plain digits, spaced digits or the raw nibble-swapped EF hex all
 normalise to the same value), `PIN1`/`PIN2`, `PUK1`/`PUK2` (4–8 digits; an
-invalid value is dropped and reported, the card is kept), `ADM` (the ASCII
-string, hex-encoded — `3632333239463337` → `62329F37`), `PSK` (the SCP81 key,
+invalid value is dropped and reported, the card is kept), `ADM` (the key's
+**hex value**, 4–16 hex digits — the length varies; this is the form the preset
+store and `/api/verify-adm` use), `PSK` (the SCP81 key,
 exactly 32 hex chars) and `KICn`/`KIDn` — one keyset per numbered pair, up to
 15.  The **KIc/KID bytes are never in the file**: the keyset number is the
 column number (`KIC2` → keyset 2) and the algorithm nibble follows the key

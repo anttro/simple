@@ -139,7 +139,7 @@ class BapShapeTests(unittest.TestCase):
         self.assertEqual(p['pin2'], '4321')
         self.assertEqual(p['puk1'], '12345678')
         self.assertEqual(p['puk2'], '87654321')
-        self.assertEqual(p['adm'], '62329F37')       # the ASCII-hex decode
+        self.assertEqual(p['adm'], '3632333239463337')   # the key's hex value as-is
         # EKI, KIK and the IMSI columns are ignored - one keyset only
         self.assertEqual(len(p['keysets']), 1)
         self.assertEqual(p['keysets'][0]['kicKey'], K16A)
@@ -233,11 +233,35 @@ class OptionTests(unittest.TestCase):
         self.assertEqual(len(res['presets']), 1)
         self.assertEqual(res['presets'][0]['pin1'], '1234')
         self.assertNotIn('adm', res['presets'][0])
-        # a present ADM is decoded from its ASCII-hex form
+        # the ADM column is the key's hex value, stored as-is (v3.28.2): the
+        # length varies, and the value is never ASCII-decoded
         text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
                 ' 3632333239463337\n')
         res = outfile.parse_outfile(text)
-        self.assertEqual(res['presets'][0]['adm'], '62329F37')
+        self.assertEqual(res['presets'][0]['adm'], '3632333239463337')
+        # ...an 8-byte binary-looking value (the AM0027 sample's shape)
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' CFA3DD9C6B7F0F8C\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'][0]['adm'], 'CFA3DD9C6B7F0F8C')
+        # ...a shorter key (4 hex digits) and the lowercase form
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' 1a2b3c4d\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'][0]['adm'], '1A2B3C4D')
+        # a non-hex or too-short ADM is dropped with its reason
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' ZZZZ\n')
+        res = outfile.parse_outfile(text)
+        self.assertNotIn('adm', res['presets'][0])
+        self.assertTrue(any('ADM is not 4-16 hex digits' in s
+                            for s in res['report']['skipped']))
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' 123\n')
+        res = outfile.parse_outfile(text)
+        self.assertNotIn('adm', res['presets'][0])
+        self.assertTrue(any('ADM is not 4-16 hex digits' in s
+                            for s in res['report']['skipped']))
         # a present but invalid PIN is dropped, the card kept
         text = ('ICCID KIC1 KID1 PIN1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' 12\n')
         res = outfile.parse_outfile(text)

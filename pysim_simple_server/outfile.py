@@ -8,8 +8,9 @@ prefix) - and continues with one whitespace-separated row per card.  The
 header and every column the presets do not use are ignored.
 
 Recognised columns (case-insensitive): ``ICCID``, ``PIN1``/``PIN2``,
-``PUK1``/``PUK2``, ``ADM`` (the ASCII string, hex-encoded - the vendors print
-``3632333239463337`` for ``62329F37``), ``PSK`` (the SCP81 key, 16 bytes; an
+``PUK1``/``PUK2``, ``ADM`` (the key's hex value - the length varies, e.g. 8 or
+16 hex digits; this is the form the preset store and ``/api/verify-adm`` use,
+where pySim pads it with 'f' to the 8 CHV bytes), ``PSK`` (the SCP81 key, 16 bytes; an
 optional ``PSKID``/``PSK_ID`` column names its identity, defaulting to the
 card's ICCID) and ``KICn``/``KIDn`` - one keyset per numbered pair, up to 15.
 Everything else (``IMSI*``, ``EKI``, ``KIKn`` - the key-management key, no
@@ -175,14 +176,6 @@ def _hex_value(tok):
     return v if v and len(v) % 2 == 0 else ''
 
 
-def _ascii_from_hex(v):
-    """The ADM column: an ASCII string hex-encoded.  '' when it is not."""
-    try:
-        return bytes.fromhex(v).decode('ascii')
-    except (ValueError, UnicodeDecodeError):
-        return ''
-
-
 def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None):
     """Parse an outfile into preset dicts (the store's shape).
 
@@ -273,11 +266,13 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
                      % (row_no, col, raw))
         i = idx['ADM']
         if 0 <= i < len(toks) and toks[i]:
-            adm = _ascii_from_hex(_hex_value(toks[i]))
-            if re.fullmatch(r'[0-9A-Fa-f]{4,16}', adm or ''):
-                entry['adm'] = adm.upper()
+            # The ADM column carries the key's hex value itself (the length
+            # varies) - the form the preset store and /api/verify-adm use.
+            adm = re.sub(r'[^0-9A-Fa-f]', '', str(toks[i])).upper()
+            if re.fullmatch(r'[0-9A-F]{4,16}', adm):
+                entry['adm'] = adm
             else:
-                skip('line %d: ADM is not an ASCII-hex key - dropped' % row_no)
+                skip('line %d: ADM is not 4-16 hex digits - dropped' % row_no)
         i = idx['PSK']
         if 0 <= i < len(toks) and toks[i]:
             psk = _hex_value(toks[i])
