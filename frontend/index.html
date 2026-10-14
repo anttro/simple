@@ -10213,6 +10213,9 @@ function ramBatchRender() {
 		stopBtn.textContent = phase === 'stopping' ? t('Stopping...') : t('Stop');
 		stopBtn.disabled = phase === 'stopping';
 	}
+	// the server refuses a clear while the run is active
+	const clearBtn = document.getElementById('ram-batch-clear');
+	if (clearBtn) clearBtn.disabled = active;
 	const stateEl = document.getElementById('ram-batch-state');
 	if (stateEl) {
 		if (!active) {
@@ -10261,7 +10264,7 @@ function ramBatchAttemptsHtml(attempts) {
 		const tone = a.result === 'installed' ? 'text-emerald-600 dark:text-emerald-400'
 			: (a.result === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400');
 		const detail = a.result === 'failed'
-			? [a.failed_step, a.por_sw || a.sw].filter(Boolean).join(' \u2014 ')
+			? [a.failed_step, a.por_sw || a.sw || a.error].filter(Boolean).join(' \u2014 ')
 			: (a.reason || '');
 		html += '<tr class="border-b border-gray-100 dark:border-slate-800">'
 			+ '<td class="py-0.5 pr-2 text-gray-400 dark:text-slate-500 whitespace-nowrap">' + esc(when) + '</td>'

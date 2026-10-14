@@ -1163,7 +1163,9 @@ interrupt it; the state lives in memory and a server restart ends the run.
   `phase` is `idle` (no run), `waiting_card`, `installing`, `stopping`,
   `stopped` or `finished`.  A failed attempt carries `failed_step` (e.g.
   `LOAD (3/7)`), `por_sw` (the card's own status word), `por_status`,
-  `por_error` and `sw`; a skipped one carries `reason`.  `current` names the
+  `por_error` and `sw` — or, when the chain died before a verdict (a lost
+  card, a transport error), just `error`; a skipped one carries `reason`
+  (a request/eligibility error: the install never started).  `current` names the
   card being installed (`{iccid, preset, started}`) and `progress` mirrors the
   RAM progress payload while a chain runs.  The report keeps the last 500
   attempts (`attempts_total` counts them all).

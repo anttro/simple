@@ -2640,12 +2640,18 @@ def _ram_batch_handle_card(state, server):
     started = time.time()
     result = None
     error = None
+    request_error = False
     try:
         with _CARD_LOCK:
             result = _ram_install_run(server, body, state['plan'], server.scc)
+    except ValueError as e:
+        # A request/eligibility error (the preset's ISD keyset, the plan): the
+        # install never started - the card is skipped.
+        error = str(e)
+        request_error = True
     except Exception as e:
-        # A refused keyset, a lost card, a transport error: the card's outcome
-        # is a failure - the batch never retries it.
+        # The chain started and died (a lost card, a transport error): the
+        # attempt failed.
         error = str(e)
     finally:
         with _RAM_BATCH_LOCK:
@@ -2667,11 +2673,16 @@ def _ram_batch_handle_card(state, server):
                'cntr_low': bool(result.get('cntr_low')),
                'error': result.get('error') or ''}
         rec.update(_ram_batch_failure_fields(result))
-    else:
+    elif request_error:
         outcome = 'skipped'
         rec = {'iccid': iccid, 'preset': name, 'result': outcome,
                'duration_ms': duration,
                'reason': error or 'the install could not start'}
+    else:
+        outcome = 'failed'
+        rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+               'duration_ms': duration,
+               'error': error or 'the install failed'}
     with _RAM_BATCH_LOCK:
         state['seen'][iccid] = outcome
     _ram_batch_record(state, rec)

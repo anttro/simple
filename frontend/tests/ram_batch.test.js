@@ -140,6 +140,18 @@ test('ramBatchAttemptsHtml renders every verdict with its detail', () => {
 	// newest first
 	assert.ok(out.indexOf('8970119000004600114') < out.indexOf('8970119000004600098'));
 	assert.match(app.ramBatchAttemptsHtml([]), /No cards processed yet\./);
+	// a failure without a step (a lost card mid-chain) shows its error
+	assert.match(app.ramBatchAttemptsHtml([{ iccid: '8970119000004600122', result: 'failed',
+		error: 'card removed' }]), /card removed/);
+});
+
+test('the install and the batch send the form\'s ram_format', () => {
+	const fields = extractFunc(html, 'ramInstallCapFields');
+	assert.match(fields, /ram_format: \(document\.getElementById\('ram-format'\) \|\| \{\}\)\.value \|\| 'auto'/);
+	// the single install merges the shared fields into its request body
+	assert.match(extractFunc(html, 'ramInstallCap', true), /Object\.assign\(\{/);
+	assert.match(extractFunc(html, 'ramBatchStart', true),
+		/pysimFetchOk\('\/api\/ram-batch\/start', fields\)/);
 });
 
 test('ramBatchRender shows the phase, the counts and the stop button', () => {
@@ -152,12 +164,14 @@ test('ramBatchRender shows the phase, the counts and the stop button', () => {
 	setEl('ram-batch-notice', '');
 	setEl('ram-batch-counts', '');
 	setEl('ram-batch-attempts', '');
+	setEl('ram-batch-clear', '');
 	// waiting for a card
 	app.setLast({ active: true, phase: 'waiting_card', attempts: [], counts: {}, attempts_total: 0, notice: '' });
 	app.ramBatchRender();
 	assert.strictEqual(els['ram-batch-state'].textContent, 'Waiting for a card...');
 	assert.ok(els['ram-batch-stop'].classes['hidden'] === undefined);
 	assert.ok(els['ram-batch-start'].classes['hidden']);
+	assert.ok(els['ram-batch-clear'].disabled);      // the server refuses a clear while active
 	// installing card X with the live step
 	app.setLast({ active: true, phase: 'installing', attempts: [], counts: { installed: 2, failed: 1, skipped: 0 },
 		attempts_total: 3, notice: 'Card 897… installed.', current: { iccid: '8970119000004600098', preset: 'Alfa' } });
@@ -177,6 +191,7 @@ test('ramBatchRender shows the phase, the counts and the stop button', () => {
 	assert.strictEqual(els['ram-batch-state'].textContent, 'Batch stopped');
 	assert.ok(els['ram-batch-start'].classes['hidden'] === undefined);
 	assert.ok(els['ram-batch-stop'].classes['hidden']);
+	assert.ok(!els['ram-batch-clear'].disabled);     // clearable again
 });
 
 test('ramBatchApplyStatus fetches only when the summary changed', async () => {

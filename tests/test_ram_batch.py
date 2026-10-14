@@ -180,6 +180,23 @@ class BatchCardTests(unittest.TestCase):
         self.assertIn('needs a default keyset', rec['reason'])
         self.assertEqual(st['seen']['8970119000004600098'], 'skipped')
 
+    def test_a_transport_error_mid_chain_is_a_failure(self):
+        st = srv._ram_batch_new_state(_plan())
+        preset = _preset('8970119000004600098')
+
+        def fake_run(*a, **k):
+            raise OSError('card removed')
+
+        with mock.patch.object(srv, '_ram_install_run', fake_run):
+            srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
+                                                        _FakeStore([preset])))
+        rec = st['attempts'][0]
+        # the chain started and died: a failure, not a skip
+        self.assertEqual(rec['result'], 'failed')
+        self.assertIn('card removed', rec['error'])
+        self.assertEqual(st['counts']['failed'], 1)
+        self.assertEqual(st['seen']['8970119000004600098'], 'failed')
+
     def test_a_card_already_processed_is_reported_not_reinstalled(self):
         st = srv._ram_batch_new_state(_plan())
         preset = _preset('8970119000004600098', 'Alfa')
@@ -223,6 +240,26 @@ class BatchCardTests(unittest.TestCase):
         # the summary /api/status carries
         self.assertEqual(srv._ram_batch_summary()['counts']['installed'], 1)
         self.assertFalse(srv._ram_batch_summary()['active'])
+
+
+class RamInstallPlanTests(unittest.TestCase):
+    """The shared card-independent plan (v3.28.0): the block-size/hex checks
+    and the transport knobs the single install and the batch both use."""
+
+    def test_the_plan_validates_the_input(self):
+        with mock.patch.object(srv, '_cap_parse', lambda h: ('A1', 'A2', b'\x01')), \
+                mock.patch.object(srv, '_cap_apdu_sequence', lambda *a, **k: ['80E60200']):
+            plan = srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': '120'})
+            self.assertEqual(plan['block_size'], 120)
+            self.assertEqual(plan['spi2'], '01')
+            self.assertEqual(plan['ram_format'], 'auto')
+            self.assertEqual(plan['seq'], ['80E60200'])
+            with self.assertRaises(ValueError):
+                srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': 300})
+            with self.assertRaises(ValueError):
+                srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': 'x'})
+            with self.assertRaises(ValueError):
+                srv._ram_install_plan({'cap_hex': ''})
 
 
 class BatchLifecycleTests(unittest.TestCase):
