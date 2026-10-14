@@ -936,6 +936,7 @@
 					<button type="button" id="ram-batch-start" data-needs="server" data-cap-gate="ram" onclick="ramBatchStart()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start batch">Start batch</button>
 					<button type="button" id="ram-batch-stop" onclick="ramBatchStop()" class="hidden px-5 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Stop">Stop</button>
 					<button type="button" id="ram-batch-clear" onclick="ramBatchClear()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Clear">Clear</button>
+					<button type="button" id="ram-batch-show" onclick="ramBatchModalOpen()" class="hidden px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Show status">Show status</button>
 					<span id="ram-batch-spin" class="hidden animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></span>
 					<span id="ram-batch-state" class="text-sm font-medium text-gray-700 dark:text-slate-300"></span>
 				</div>
@@ -1910,6 +1911,8 @@
 		<div class="bg-white dark:bg-slate-800 rounded-lg p-4 max-w-3xl w-full max-h-[85vh] flex flex-col">
 			<div class="flex justify-between items-center mb-2 gap-3">
 				<span id="ram-op-title" class="font-bold text-sm flex-1"></span>
+				<button id="ram-op-batch-stop" onclick="ramBatchStop()" class="hidden px-3 py-1 text-xs rounded-full bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Stop">Stop</button>
+				<button id="ram-op-batch-clear" onclick="ramBatchClear()" class="hidden px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Clear">Clear</button>
 				<button id="ram-op-close" onclick="ramOpModalClose()" disabled class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Close">Close</button>
 			</div>
 			<div class="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
@@ -1919,6 +1922,7 @@
 			<div class="mt-2 w-full bg-gray-200 dark:bg-slate-700 rounded h-1.5">
 				<div id="ram-op-bar" class="bg-blue-600 dark:bg-blue-500 h-1.5 rounded" style="width:0%"></div>
 			</div>
+			<div id="ram-op-batch-info" class="hidden mt-1 text-xs whitespace-pre-line text-gray-500 dark:text-slate-400"></div>
 			<div id="ram-op-steps" class="mt-2 text-xs font-mono whitespace-pre-wrap overflow-auto text-gray-700 dark:text-slate-300"></div>
 			<div class="mt-2 text-xs text-amber-600 dark:text-amber-400" id="ram-op-warn" data-l10n="Do not close or reload this window while the operation is running.">Do not close or reload this window while the operation is running.</div>
 		</div>
@@ -1928,7 +1932,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.29.2';
+const SIMPLE_VERSION = '3.30.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10186,6 +10190,7 @@ let _ramBatchFetching = false;
 let _ramBatchFetchAt = 0;        // when the in-flight fetch started (the watchdog)
 let _ramBatchSummary = null;     // /api/status.ram_batch
 let _ramBatchProgress = null;    // /api/status.ram_progress
+let _ramBatchModalShown = false; // the batch status modal is open (v3.30.0)
 // A fetch that never settled must not block the report forever (v3.28.7).
 const RAM_BATCH_FETCH_STALE_MS = 10000;
 
@@ -10193,6 +10198,94 @@ function ramBatchPanelVisible() {
 	const op = document.getElementById('ram-op');
 	return isViewVisible('tab-scp80') && isViewVisible('scp80-sub-ram')
 		&& !!op && ramIsBatchOp(op.value);
+}
+
+// The merged batch state: the summary (the 2 s poll) wins over the last
+// detailed fetch.
+function ramBatchMergedState() {
+	return Object.assign({ active: false, phase: 'idle', attempts: [], counts: {} },
+		_ramBatchLast || {}, _ramBatchSummary || {});
+}
+
+function ramBatchTitle(kind) {
+	return kind === 'delete' ? t('Batch delete (per card)')
+		: (kind === 'reinstall-app' ? t('Batch reinstall app (per card)')
+			: t('Batch install (.cap file, per card)'));
+}
+
+// ===== the batch status modal (v3.30.0) =====
+// The same chrome as the single-operation modal, owned by the batch: the live
+// status on top (the current step or the waiting prompt) and the processed
+// cards below.  It opens on Start and on a page load with a run in flight;
+// Close stays disabled while the run is active (the run itself survives a
+// reload - that is what reopens this window) and Stop/Clear live inside it.
+function ramBatchModalOpen() {
+	const modal = document.getElementById('ram-op-modal');
+	if (!modal) return;                      // no modal in the document (tests)
+	_ramBatchModalShown = true;
+	document.getElementById('ram-op-title').textContent =
+		ramBatchTitle(ramBatchMergedState().kind || 'install-cap');
+	document.getElementById('ram-op-status').textContent = t('Working...');
+	document.getElementById('ram-op-status').className = 'text-sm text-gray-600 dark:text-slate-400';
+	document.getElementById('ram-op-bar').style.width = '0%';
+	const stepsEl = document.getElementById('ram-op-steps');
+	stepsEl.className = 'mt-2 text-xs overflow-auto text-gray-700 dark:text-slate-300';
+	stepsEl.innerHTML = '';
+	document.getElementById('ram-op-spin').classList.add('hidden');
+	document.getElementById('ram-op-warn').classList.add('hidden');
+	document.getElementById('ram-op-batch-info').classList.remove('hidden');
+	modal.classList.remove('hidden');
+	ramBatchRender();                        // paint from the current state now
+}
+
+// The modal's live render: the status (the current step or the waiting
+// prompt), the counts and the last verdict, the processed cards, the
+// Stop/Clear/Close states.
+function ramBatchModalRender(st, okLabel, actLabel) {
+	const statusEl = document.getElementById('ram-op-status');
+	if (!statusEl) return;
+	document.getElementById('ram-op-title').textContent =
+		ramBatchTitle(st.kind || 'install-cap');
+	const active = !!st.active;
+	const phase = st.phase || (active ? 'waiting_card' : 'idle');
+	let status;
+	if (phase === 'installing' || phase === 'stopping') {
+		status = phase === 'stopping' ? t('Stopping after the current card...')
+			: (ramOpProgressText(_ramBatchProgress)
+				|| (actLabel + ((st.current && st.current.iccid) ? ' ' + st.current.iccid : '')));
+	} else if (active) {
+		status = t('Insert next card. Waiting for a card...');
+	} else {
+		status = phase === 'stopped' ? t('Batch stopped')
+			: (phase === 'finished' ? t('Batch finished') : '');
+	}
+	statusEl.textContent = status;
+	// the bar follows the current operation's step; a finished report fills it
+	const p = _ramBatchProgress;
+	const pct = !active ? ((st.attempts_total || 0) > 0 ? 100 : 0)
+		: ((p && p.active && p.total) ? Math.min(100, Math.round(p.step * 100 / p.total)) : 0);
+	document.getElementById('ram-op-bar').style.width = pct + '%';
+	// the counts and the last finished card's verdict
+	const c = st.counts || {};
+	let info = okLabel + ': ' + (c.installed || 0) + ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
+		+ ' \u00b7 ' + t('Skipped') + ': ' + (c.skipped || 0);
+	if (st.attempts_total) info += ' \u00b7 ' + st.attempts_total + ' ' + t('attempts');
+	if (st.notice) info += '\n' + st.notice;
+	document.getElementById('ram-op-batch-info').textContent = info;
+	// the processed cards (the reader's scroll position is kept across renders)
+	const box = document.getElementById('ram-op-steps');
+	const prev = box.scrollTop;
+	box.innerHTML = ramBatchAttemptsHtml(st.attempts || []);
+	if (prev) box.scrollTop = prev;
+	// Stop/Clear live here; Close only once the run ended
+	const stopBtn = document.getElementById('ram-op-batch-stop');
+	stopBtn.classList.toggle('hidden', !active);
+	stopBtn.textContent = phase === 'stopping' ? t('Stopping...') : t('Stop');
+	stopBtn.disabled = phase === 'stopping';
+	const clearBtn = document.getElementById('ram-op-batch-clear');
+	clearBtn.classList.remove('hidden');
+	clearBtn.disabled = active;
+	document.getElementById('ram-op-close').disabled = active;
 }
 
 async function ramBatchFetch() {
@@ -10212,7 +10305,12 @@ function ramBatchApplyStatus(status) {
 	if (!status) return;
 	_ramBatchSummary = status.ram_batch || null;
 	_ramBatchProgress = status.ram_progress || null;
-	if (!ramBatchPanelVisible()) return;
+	// The status modal opens itself for a run in flight: Start opens it, and a
+	// page load with an active batch reopens it on the first poll (v3.30.0).
+	if (!_ramBatchModalShown && status.ram_batch && status.ram_batch.active) {
+		ramBatchModalOpen();
+	}
+	if (!ramBatchPanelVisible() && !_ramBatchModalShown) return;
 	// The summary carries the headline (the phase, the current card, the
 	// counts, the notice): render it on every poll, even when a detailed fetch
 	// is due or stuck - a hung fetch used to freeze the whole panel at the
@@ -10233,17 +10331,12 @@ function ramBatchApplyStatus(status) {
 
 function ramBatchRender() {
 	const panel = document.getElementById('ram-batch-panel');
-	if (!panel) return;
-	if (!ramBatchPanelVisible()) {
-		panel.classList.add('hidden');
-		return;
-	}
-	panel.classList.remove('hidden');
+	const visible = ramBatchPanelVisible();
+	if (panel) panel.classList.toggle('hidden', !visible);
 	// The summary (the 2 s status poll) is fresher than the last detailed
 	// fetch: it carries the phase/current/notice/counts, the attempts list
 	// comes from the detailed status.
-	const st = Object.assign({ active: false, phase: 'idle', attempts: [], counts: {} },
-		_ramBatchLast || {}, _ramBatchSummary || {});
+	const st = ramBatchMergedState();
 	const active = !!st.active;
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
 	// The success labels follow the operation (v3.29.0): the counts bucket is
@@ -10253,6 +10346,10 @@ function ramBatchRender() {
 		: (kind === 'reinstall-app' ? t('Reinstalled') : t('Installed'));
 	const actLabel = kind === 'delete' ? t('Deleting...')
 		: (kind === 'reinstall-app' ? t('Reinstalling...') : t('Installing...'));
+	// The status modal (when open) follows the same state - it must update
+	// even when the panel is not on screen (v3.30.0).
+	if (_ramBatchModalShown) ramBatchModalRender(st, okLabel, actLabel);
+	if (!visible) return;
 	const startBtn = document.getElementById('ram-batch-start');
 	if (startBtn) startBtn.classList.toggle('hidden', active);
 	const stopBtn = document.getElementById('ram-batch-stop');
@@ -10264,6 +10361,9 @@ function ramBatchRender() {
 	// the server refuses a clear while the run is active
 	const clearBtn = document.getElementById('ram-batch-clear');
 	if (clearBtn) clearBtn.disabled = active;
+	// the status modal can be reopened for a running or finished report
+	const showBtn = document.getElementById('ram-batch-show');
+	if (showBtn) showBtn.classList.toggle('hidden', !(active || (st.attempts_total || 0) > 0));
 	// A throbber while a card is actually being installed (`current` is set for
 	// the whole install, the stopping phase included).
 	const spinEl = document.getElementById('ram-batch-spin');
@@ -10430,6 +10530,8 @@ async function ramBatchStart() {
 	try {
 		_ramBatchLast = await pysimFetchOk('/api/ram-batch/start', fields);
 		_ramBatchSummary = null;
+		// the run's status window: the progress on top, the cards below
+		ramBatchModalOpen();
 	} catch (e) {
 		alert(t('Error') + ': ' + e.message);
 	} finally {
@@ -10442,6 +10544,9 @@ async function ramBatchStart() {
 async function ramBatchStop() {
 	const stopBtn = document.getElementById('ram-batch-stop');
 	if (stopBtn) stopBtn.disabled = true;
+	// the modal's Stop too (the render restores the states after the request)
+	const modalStop = document.getElementById('ram-op-batch-stop');
+	if (modalStop) modalStop.disabled = true;
 	try {
 		_ramBatchLast = await pysimFetchOk('/api/ram-batch/stop', {});
 		_ramBatchSummary = null;    // the poll refreshes it; the fresh detail wins
@@ -10477,14 +10582,20 @@ function ramOpBeforeUnload(e) {
 
 function ramOpModalBegin(title) {
 	_ramOpActive = true;
+	_ramBatchModalShown = false;             // a single operation owns the modal
 	document.getElementById('ram-op-title').textContent = title || '';
 	document.getElementById('ram-op-status').textContent = t('Working...');
 	document.getElementById('ram-op-status').className = 'text-sm text-gray-600 dark:text-slate-400';
 	document.getElementById('ram-op-bar').style.width = '0%';
 	document.getElementById('ram-op-steps').textContent = '';
+	document.getElementById('ram-op-steps').className =
+		'mt-2 text-xs font-mono whitespace-pre-wrap overflow-auto text-gray-700 dark:text-slate-300';
 	document.getElementById('ram-op-close').disabled = true;
 	document.getElementById('ram-op-spin').classList.remove('hidden');
 	document.getElementById('ram-op-warn').classList.remove('hidden');
+	document.getElementById('ram-op-batch-info').classList.add('hidden');
+	document.getElementById('ram-op-batch-stop').classList.add('hidden');
+	document.getElementById('ram-op-batch-clear').classList.add('hidden');
 	document.getElementById('ram-op-modal').classList.remove('hidden');
 	window.addEventListener('beforeunload', ramOpBeforeUnload);
 }
@@ -10532,6 +10643,10 @@ function ramOpModalFinish(summary, ok, content, asHtml) {
 
 function ramOpModalClose() {
 	if (_ramOpActive) return;
+	// the batch window stays while its run is active: the button is disabled
+	// by the render and this guard covers the window before the next render
+	if (_ramBatchModalShown && ramBatchMergedState().active) return;
+	_ramBatchModalShown = false;
 	document.getElementById('ram-op-modal').classList.add('hidden');
 }
 
@@ -24545,6 +24660,7 @@ const LANG_RU = {
 	'Batch (per card)': 'Пакетные операции (по картам)',
 	'Batch reinstall app (per card)': 'Пакетная переустановка приложения (по картам)',
 	'Batch delete (per card)': 'Пакетное удаление (по картам)',
+	'Show status': 'Показать статус',
 	'AID (hex)': 'AID (hex)',
 	'Target': 'Цель',
 	'Application (instance only)': 'Приложение (только экземпляр)',

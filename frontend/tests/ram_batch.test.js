@@ -23,9 +23,11 @@ function extractFunc(src, name, asyncFn) {
 
 const ASYNC_FNS = ['ramBatchFetch', 'ramBatchStart', 'ramBatchStop', 'ramBatchClear'];
 let code = '';
-for (const fn of ['ramIsBatchOp', 'ramBatchPanelVisible', 'ramBatchStepsText',
+for (const fn of ['ramIsBatchOp', 'ramBatchPanelVisible', 'ramBatchMergedState',
+	'ramBatchTitle', 'ramBatchModalOpen', 'ramBatchModalRender', 'ramBatchStepsText',
 	'ramBatchAttemptsHtml', 'ramBatchRender', 'ramBatchApplyStatus', 'ramBatchFetch',
-	'ramBatchStart', 'ramBatchStop', 'ramBatchClear', 'esc']) {
+	'ramBatchStart', 'ramBatchStop', 'ramBatchClear', 'ramOpProgressText',
+	'ramOpModalClose', 'esc']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 
@@ -36,7 +38,7 @@ const els = {};
 function setEl(id, value) {
 	els[id] = {
 		id: id, value: value === undefined ? '' : value, textContent: '', innerHTML: '',
-		disabled: false,
+		disabled: false, style: {},
 		classes: {},
 		classList: {
 			add(c) { els[id].classes[c] = true; },
@@ -56,6 +58,18 @@ function setEl(id, value) {
 }
 function clearEls() {
 	for (const k of Object.keys(els)) delete els[k];
+}
+// The modal chrome and the batch panel: the element sets the modal tests need.
+function setModalEls() {
+	for (const id of ['ram-op-modal', 'ram-op-title', 'ram-op-status', 'ram-op-bar',
+		'ram-op-steps', 'ram-op-spin', 'ram-op-warn', 'ram-op-close',
+		'ram-op-batch-info', 'ram-op-batch-stop', 'ram-op-batch-clear']) setEl(id, '');
+}
+function setPanelEls() {
+	for (const id of ['ram-op', 'ram-batch-panel', 'ram-batch-start', 'ram-batch-stop',
+		'ram-batch-clear', 'ram-batch-show', 'ram-batch-spin', 'ram-batch-state',
+		'ram-batch-notice', 'ram-batch-counts', 'ram-batch-attempts']) setEl(id, '');
+	els['ram-op'].value = 'batch';
 }
 
 const app = new Function('els', `
@@ -83,6 +97,8 @@ const app = new Function('els', `
 	var updateRcPriv = () => {};
 	var updateStkParamsHex = () => {};
 	var pysimApplyAvailability = () => {};
+	var _ramOpActive = false;
+	var _ramBatchModalShown = false;
 	var _ramBatchLast = null;
 	var _ramBatchFetching = false;
 	var _ramBatchFetchAt = 0;
@@ -93,6 +109,7 @@ const app = new Function('els', `
 	sandbox.getLast = () => _ramBatchLast;
 	sandbox.setLast = v => { _ramBatchLast = v; };
 	sandbox.getSummary = () => _ramBatchSummary;
+	sandbox.setSummary = v => { _ramBatchSummary = v; };
 	sandbox.isFetching = () => _ramBatchFetching;
 	sandbox.setFetchingStale = ms => { _ramBatchFetching = true; _ramBatchFetchAt = Date.now() - ms; };
 	sandbox.resetFetching = () => { _ramBatchFetching = false; };
@@ -100,6 +117,11 @@ const app = new Function('els', `
 	sandbox.ramBatchPanelVisible = ramBatchPanelVisible;
 	sandbox.ramBatchAttemptsHtml = ramBatchAttemptsHtml;
 	sandbox.ramBatchStepsText = ramBatchStepsText;
+	sandbox.ramBatchModalOpen = ramBatchModalOpen;
+	sandbox.ramOpModalClose = ramOpModalClose;
+	sandbox.isBatchModalShown = () => _ramBatchModalShown;
+	sandbox.resetBatchModal = () => { _ramBatchModalShown = false; };
+	sandbox.setProgress = v => { _ramBatchProgress = v; };
 	sandbox.ramBatchRender = ramBatchRender;
 	sandbox.ramBatchApplyStatus = ramBatchApplyStatus;
 	sandbox.ramBatchFetch = ramBatchFetch;
@@ -473,6 +495,105 @@ test('the attempts render the per-step tail for short chains (v3.29.0)', () => {
 	assert.match(out, /DELETE \(application\) 6A88 \(not found\)/);
 	// a long LOAD chain keeps no tail (the failing-step detail covers it)
 	assert.strictEqual(app.ramBatchStepsText({ steps: [{}, {}, {}, {}], reason: '' }), '');
+});
+
+test('the batch status modal opens on Start and on a poll with a run in flight (v3.30.0)', async () => {
+	// the markup: the window's Stop/Clear/info and the panel's Show status
+	assert.match(html, /id="ram-op-batch-stop"/);
+	assert.match(html, /id="ram-op-batch-clear"/);
+	assert.match(html, /id="ram-op-batch-info"/);
+	assert.match(html, /id="ram-batch-show" onclick="ramBatchModalOpen\(\)"/);
+	assert.match(html, /'Show status': /);
+	// Start opens it
+	clearEls();
+	setModalEls();
+	setPanelEls();
+	app.setSummary(null);
+	els['ram-op'].value = 'batch-delete';
+	setEl('ram-del-aid', 'F0414C4641610101');
+	setEl('ram-del-target', 'app');
+	app.fetched = [];
+	await app.ramBatchStart();
+	assert.ok(app.isBatchModalShown());
+	assert.ok(els['ram-op-modal'].classes['hidden'] === undefined);
+	// a page load with an active run reopens it on the first poll
+	clearEls();
+	setModalEls();
+	setPanelEls();
+	app.resetBatchModal();
+	app.ramBatchApplyStatus({ ram_batch: { active: true, phase: 'waiting_card',
+		attempts_total: 0, counts: { installed: 0, failed: 0, skipped: 0 } },
+		ram_progress: null });
+	assert.ok(app.isBatchModalShown());
+	assert.ok(els['ram-op-modal'].classes['hidden'] === undefined);
+});
+
+test('the batch modal follows the run: the step, the bar, the cards (v3.30.0)', () => {
+	clearEls();
+	setModalEls();
+	setPanelEls();
+	app.setSummary(null);
+	app.ramBatchModalOpen();
+	// waiting for a card
+	app.setLast({ kind: 'reinstall-app', active: true, phase: 'waiting_card',
+		attempts: [], counts: {}, attempts_total: 0 });
+	app.ramBatchRender();
+	assert.strictEqual(els['ram-op-title'].textContent, 'Batch reinstall app (per card)');
+	assert.strictEqual(els['ram-op-status'].textContent, 'Insert next card. Waiting for a card...');
+	assert.strictEqual(els['ram-op-bar'].style.width, '0%');
+	assert.ok(els['ram-op-close'].disabled);
+	assert.ok(els['ram-op-batch-stop'].classes['hidden'] === undefined);
+	assert.ok(els['ram-op-batch-clear'].disabled);
+	// installing: the live step and the bar
+	app.setLast({ kind: 'reinstall-app', active: true, phase: 'installing',
+		attempts: [], counts: { installed: 1, failed: 0, skipped: 0 },
+		attempts_total: 1, current: { iccid: '8970119000004600098' } });
+	app.setProgress({ active: true, step: 2, total: 4, name: 'INSTALL [for install]' });
+	app.ramBatchRender();
+	assert.match(els['ram-op-status'].textContent, /Step 2\/4 — INSTALL \[for install\]/);
+	assert.strictEqual(els['ram-op-bar'].style.width, '50%');
+	assert.match(els['ram-op-batch-info'].textContent, /Reinstalled: 1/);
+	// the finished report: the cards list, the notice, Close enabled
+	app.setLast({ kind: 'reinstall-app', active: false, phase: 'finished', attempts: [
+		{ iccid: '8970119000004600098', result: 'installed', steps: [
+			{ name: 'DELETE (application)', sw: '6101', ok: true },
+			{ name: 'INSTALL [for install]', sw: '6101', ok: true }] }],
+		counts: { installed: 1, failed: 0, skipped: 0 }, attempts_total: 1,
+		notice: 'Card 8970119000004600098 reinstalled.' });
+	app.setProgress(null);
+	app.ramBatchRender();
+	assert.match(els['ram-op-steps'].innerHTML, /DELETE \(application\) 6101 · INSTALL \[for install\] 6101/);
+	assert.match(els['ram-op-batch-info'].textContent, /Card 8970119000004600098 reinstalled\./);
+	assert.strictEqual(els['ram-op-bar'].style.width, '100%');
+	assert.ok(!els['ram-op-close'].disabled);
+	assert.ok(els['ram-op-batch-stop'].classes['hidden']);      // the run ended
+	assert.ok(!els['ram-op-batch-clear'].disabled);
+});
+
+test('the batch modal stays open while the run is active (v3.30.0)', () => {
+	clearEls();
+	setModalEls();
+	setPanelEls();
+	app.setSummary(null);
+	app.ramBatchModalOpen();
+	app.setLast({ active: true, phase: 'waiting_card', attempts: [], counts: {}, attempts_total: 0 });
+	app.ramBatchRender();
+	app.ramOpModalClose();
+	assert.ok(app.isBatchModalShown(), 'the run keeps the window open');
+	assert.ok(els['ram-op-modal'].classes['hidden'] === undefined);
+	// the run ended: Close works, and the panel offers the reopen button
+	app.setLast({ active: false, phase: 'stopped', attempts: [], counts: { installed: 1 },
+		attempts_total: 1 });
+	app.ramBatchRender();
+	app.ramOpModalClose();
+	assert.ok(!app.isBatchModalShown());
+	assert.ok(els['ram-op-modal'].classes['hidden']);
+	app.ramBatchRender();
+	assert.ok(els['ram-batch-show'].classes['hidden'] === undefined);
+	// and it reopens for the finished report
+	app.ramBatchModalOpen();
+	assert.ok(app.isBatchModalShown());
+	assert.ok(els['ram-op-modal'].classes['hidden'] === undefined);
 });
 
 test('the stop and clear calls hit their endpoints', async () => {
