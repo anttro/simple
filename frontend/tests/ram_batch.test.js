@@ -165,10 +165,12 @@ test('ramBatchRender shows the phase, the counts and the stop button', () => {
 	setEl('ram-batch-counts', '');
 	setEl('ram-batch-attempts', '');
 	setEl('ram-batch-clear', '');
-	// waiting for a card
+	setEl('ram-batch-spin', '');
+	// waiting for a card: the explicit prompt, no throbber
 	app.setLast({ active: true, phase: 'waiting_card', attempts: [], counts: {}, attempts_total: 0, notice: '' });
 	app.ramBatchRender();
-	assert.strictEqual(els['ram-batch-state'].textContent, 'Waiting for a card...');
+	assert.strictEqual(els['ram-batch-state'].textContent, 'Insert next card. Waiting for a card...');
+	assert.ok(els['ram-batch-spin'].classes['hidden']);
 	assert.ok(els['ram-batch-stop'].classes['hidden'] === undefined);
 	assert.ok(els['ram-batch-start'].classes['hidden']);
 	assert.ok(els['ram-batch-clear'].disabled);      // the server refuses a clear while active
@@ -177,12 +179,24 @@ test('ramBatchRender shows the phase, the counts and the stop button', () => {
 		attempts_total: 3, notice: 'Card 897… installed.', current: { iccid: '8970119000004600098', preset: 'Alfa' } });
 	app.ramBatchRender();
 	assert.match(els['ram-batch-state'].textContent, /Installing\.\.\. 8970119000004600098 — Alfa/);
+	assert.ok(els['ram-batch-spin'].classes['hidden'] === undefined);   // the install throbber
 	assert.match(els['ram-batch-counts'].textContent, /Installed: 2 · Failed: 1 · Skipped: 0 · 3 attempts/);
 	assert.strictEqual(els['ram-batch-notice'].textContent, 'Card 897… installed.');
-	// stopping
-	app.setLast({ active: true, phase: 'stopping', attempts: [], counts: {}, attempts_total: 0 });
+	// a new install clears the previous notice: an empty one hides the box
+	app.setLast({ active: true, phase: 'installing', attempts: [], counts: {}, attempts_total: 3,
+		notice: '', current: { iccid: '8970119000004600106' } });
 	app.ramBatchRender();
+	assert.ok(els['ram-batch-notice'].classes['hidden']);
+	// stopping while a card is still being installed: the throbber stays
+	app.setLast({ active: true, phase: 'stopping', attempts: [], counts: {}, attempts_total: 0,
+		current: { iccid: '8970119000004600098' } });
+	app.ramBatchRender();
+	assert.ok(els['ram-batch-spin'].classes['hidden'] === undefined);
 	assert.match(els['ram-batch-state'].textContent, /Stopping after the current card\.\.\./);
+	// ...but not once the install finished (stopping while waiting)
+	app.setLast({ active: true, phase: 'stopping', attempts: [], counts: {}, attempts_total: 0, current: null });
+	app.ramBatchRender();
+	assert.ok(els['ram-batch-spin'].classes['hidden']);
 	assert.strictEqual(els['ram-batch-stop'].textContent, 'Stopping...');
 	assert.ok(els['ram-batch-stop'].disabled);
 	// stopped
@@ -248,7 +262,7 @@ test('the panel headline follows the live summary (phase and step)', () => {
 	// ...and back to waiting when the card is gone
 	app.ramBatchApplyStatus({ ram_batch: { active: true, phase: 'waiting_card', attempts_total: 0,
 		counts: { installed: 0, failed: 0, skipped: 0 } } });
-	assert.strictEqual(els['ram-batch-state'].textContent, 'Waiting for a card...');
+	assert.strictEqual(els['ram-batch-state'].textContent, 'Insert next card. Waiting for a card...');
 });
 
 test('the stop and clear calls hit their endpoints', async () => {

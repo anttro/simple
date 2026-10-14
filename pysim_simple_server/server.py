@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.28.0'
+VERSION = '3.28.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -2637,6 +2637,10 @@ def _ram_batch_handle_card(state, server):
         state['seen'][iccid] = 'pending'
         state['current'] = {'iccid': iccid, 'preset': name, 'started': time.time()}
         state['phase'] = 'installing'
+        # A new card's install supersedes the previous attempt's headline: the
+        # notice reports the *last finished* card, so it must not linger while
+        # the next card is being installed (v3.28.1).
+        state['notice'] = ''
     started = time.time()
     result = None
     error = None

@@ -205,6 +205,27 @@ class BatchCardTests(unittest.TestCase):
         self.assertEqual(st['counts']['failed'], 1)
         self.assertEqual(st['seen']['8970119000004600098'], 'failed')
 
+    def test_a_new_install_clears_the_previous_notice(self):
+        """The notice reports the last *finished* card: starting the next
+        card's install must clear it (v3.28.1)."""
+        st = srv._ram_batch_new_state(_plan())
+        srv._ram_batch_record(st, {'iccid': '8970119000004600000', 'result': 'installed'})
+        self.assertIn('installed', st['notice'])
+        preset = _preset('8970119000004600098', 'Alfa')
+        seen = {}
+
+        def fake_run(server, body, plan, scc):
+            seen['notice'] = st['notice']      # what the panel would render
+            seen['current'] = st['current']
+            return {'success': True}
+
+        with mock.patch.object(srv, '_ram_install_run', fake_run):
+            srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
+                                                        _FakeStore([preset])))
+        self.assertEqual(seen['notice'], '')               # cleared while installing
+        self.assertEqual(seen['current']['iccid'], '8970119000004600098')
+        self.assertIn('installed', st['notice'])           # ...and set for the new outcome
+
     def test_a_card_already_processed_is_reported_not_reinstalled(self):
         st = srv._ram_batch_new_state(_plan())
         preset = _preset('8970119000004600098', 'Alfa')

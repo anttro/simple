@@ -918,6 +918,7 @@
 					<button type="button" id="ram-batch-start" data-needs="server" data-cap-gate="ram" onclick="ramBatchStart()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start batch">Start batch</button>
 					<button type="button" id="ram-batch-stop" onclick="ramBatchStop()" class="hidden px-5 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Stop">Stop</button>
 					<button type="button" id="ram-batch-clear" onclick="ramBatchClear()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Clear">Clear</button>
+					<span id="ram-batch-spin" class="hidden animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></span>
 					<span id="ram-batch-state" class="text-sm font-medium text-gray-700 dark:text-slate-300"></span>
 				</div>
 				<div id="ram-batch-notice" class="hidden mb-2 px-3 py-2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-sm text-blue-700 dark:text-blue-300"></div>
@@ -1909,7 +1910,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.28.0';
+const SIMPLE_VERSION = '3.28.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10216,6 +10217,10 @@ function ramBatchRender() {
 	// the server refuses a clear while the run is active
 	const clearBtn = document.getElementById('ram-batch-clear');
 	if (clearBtn) clearBtn.disabled = active;
+	// A throbber while a card is actually being installed (`current` is set for
+	// the whole install, the stopping phase included).
+	const spinEl = document.getElementById('ram-batch-spin');
+	if (spinEl) spinEl.classList.toggle('hidden', !(active && st.current));
 	const stateEl = document.getElementById('ram-batch-state');
 	if (stateEl) {
 		if (!active) {
@@ -10228,7 +10233,7 @@ function ramBatchRender() {
 		} else if (phase === 'stopping') {
 			stateEl.textContent = t('Stopping after the current card...');
 		} else {
-			stateEl.textContent = t('Waiting for a card...');
+			stateEl.textContent = t('Insert next card. Waiting for a card...');
 		}
 	}
 	const notice = document.getElementById('ram-batch-notice');
@@ -24405,14 +24410,14 @@ const LANG_RU = {
 	'Loading...': 'Загрузка...',
 	'Close': 'Закрыть',
 	'Installing package': 'Установка пакета',
-	'Batch install (.cap file, per card)': 'Пакетная установка (.cap, по картам)',
+	'Batch install (.cap file, per card)': 'Пакетная установка (.cap на множество карт)',
 	'Start batch': 'Запустить пакетную установку',
 	'Stopping...': 'Остановка…',
 	'Batch stopped': 'Пакетная установка остановлена',
 	'Batch finished': 'Пакетная установка завершена',
 	'Installing...': 'Установка…',
 	'Stopping after the current card...': 'Остановка после текущей карты…',
-	'Waiting for a card...': 'Ожидание карты…',
+	'Insert next card. Waiting for a card...': 'Вставьте следующую карту. Ожидание карты…',
 	'Installed': 'Установлено',
 	'Skipped': 'Пропущено',
 	'attempts': 'попыток',
