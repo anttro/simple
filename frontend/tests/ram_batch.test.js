@@ -24,7 +24,8 @@ function extractFunc(src, name, asyncFn) {
 const ASYNC_FNS = ['ramBatchFetch', 'ramBatchStart', 'ramBatchStop', 'ramBatchClear'];
 let code = '';
 for (const fn of ['ramIsBatchOp', 'ramBatchPanelVisible', 'ramBatchMergedState',
-	'ramBatchTitle', 'ramBatchModalOpen', 'ramBatchModalRender', 'ramBatchStepsText',
+	'ramBatchTitle', 'ramBatchModalTitle', 'ramBatchModalOpen', 'ramBatchModalRender',
+	'ramBatchStepsText',
 	'ramBatchAttemptsHtml', 'ramBatchRender', 'ramBatchApplyStatus', 'ramBatchFetch',
 	'ramBatchStart', 'ramBatchStop', 'ramBatchClear', 'ramOpProgressText',
 	'ramOpModalClose', 'esc']) {
@@ -99,6 +100,7 @@ const app = new Function('els', `
 	var pysimApplyAvailability = () => {};
 	var _ramOpActive = false;
 	var _ramBatchModalShown = false;
+	var _ramBatchLastKind = null;
 	var _ramBatchLast = null;
 	var _ramBatchFetching = false;
 	var _ramBatchFetchAt = 0;
@@ -121,6 +123,7 @@ const app = new Function('els', `
 	sandbox.ramOpModalClose = ramOpModalClose;
 	sandbox.isBatchModalShown = () => _ramBatchModalShown;
 	sandbox.resetBatchModal = () => { _ramBatchModalShown = false; };
+	sandbox.resetKind = () => { _ramBatchLastKind = null; };
 	sandbox.setProgress = v => { _ramBatchProgress = v; };
 	sandbox.ramBatchRender = ramBatchRender;
 	sandbox.ramBatchApplyStatus = ramBatchApplyStatus;
@@ -568,6 +571,29 @@ test('the batch modal follows the run: the step, the bar, the cards (v3.30.0)', 
 	assert.ok(!els['ram-op-close'].disabled);
 	assert.ok(els['ram-op-batch-stop'].classes['hidden']);      // the run ended
 	assert.ok(!els['ram-op-batch-clear'].disabled);
+});
+
+test('a cleared report keeps the run kind in the modal title (v3.30.1)', () => {
+	clearEls();
+	setModalEls();
+	setPanelEls();
+	app.setSummary(null);
+	app.ramBatchModalOpen();
+	app.setLast({ kind: 'delete', active: false, phase: 'finished', attempts: [],
+		counts: { installed: 2 }, attempts_total: 2 });
+	app.ramBatchRender();
+	assert.strictEqual(els['ram-op-title'].textContent, 'Batch delete (per card)');
+	// Clear empties the state (kind: null): the title must not flip to install
+	app.setLast({ kind: null, active: false, phase: 'idle', attempts: [],
+		counts: {}, attempts_total: 0 });
+	app.ramBatchRender();
+	assert.strictEqual(els['ram-op-title'].textContent, 'Batch delete (per card)');
+	// a fresh page (no kind ever seen) keeps the install default
+	app.resetBatchModal();
+	app.resetKind();
+	app.setLast({ kind: null, active: false, phase: 'idle', attempts: [], counts: {}, attempts_total: 0 });
+	app.ramBatchModalOpen();
+	assert.strictEqual(els['ram-op-title'].textContent, 'Batch install (.cap file, per card)');
 });
 
 test('the batch modal stays open while the run is active (v3.30.0)', () => {

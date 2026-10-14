@@ -1932,7 +1932,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.30.0';
+const SIMPLE_VERSION = '3.30.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10191,6 +10191,9 @@ let _ramBatchFetchAt = 0;        // when the in-flight fetch started (the watchd
 let _ramBatchSummary = null;     // /api/status.ram_batch
 let _ramBatchProgress = null;    // /api/status.ram_progress
 let _ramBatchModalShown = false; // the batch status modal is open (v3.30.0)
+let _ramBatchLastKind = null;    // the last seen run kind: a cleared report
+                                 // (kind: null) keeps the modal's title right
+                                 // (v3.30.1)
 // A fetch that never settled must not block the report forever (v3.28.7).
 const RAM_BATCH_FETCH_STALE_MS = 10000;
 
@@ -10213,6 +10216,13 @@ function ramBatchTitle(kind) {
 			: t('Batch install (.cap file, per card)'));
 }
 
+// The modal's title: the run's kind, falling back to the last one seen - a
+// cleared report carries kind: null, and a delete/reinstall run must not flip
+// to the install title (v3.30.1).
+function ramBatchModalTitle(kind) {
+	return ramBatchTitle(kind || _ramBatchLastKind || 'install-cap');
+}
+
 // ===== the batch status modal (v3.30.0) =====
 // The same chrome as the single-operation modal, owned by the batch: the live
 // status on top (the current step or the waiting prompt) and the processed
@@ -10224,7 +10234,7 @@ function ramBatchModalOpen() {
 	if (!modal) return;                      // no modal in the document (tests)
 	_ramBatchModalShown = true;
 	document.getElementById('ram-op-title').textContent =
-		ramBatchTitle(ramBatchMergedState().kind || 'install-cap');
+		ramBatchModalTitle(ramBatchMergedState().kind);
 	document.getElementById('ram-op-status').textContent = t('Working...');
 	document.getElementById('ram-op-status').className = 'text-sm text-gray-600 dark:text-slate-400';
 	document.getElementById('ram-op-bar').style.width = '0%';
@@ -10245,7 +10255,7 @@ function ramBatchModalRender(st, okLabel, actLabel) {
 	const statusEl = document.getElementById('ram-op-status');
 	if (!statusEl) return;
 	document.getElementById('ram-op-title').textContent =
-		ramBatchTitle(st.kind || 'install-cap');
+		ramBatchModalTitle(st.kind);
 	const active = !!st.active;
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
 	let status;
@@ -10340,8 +10350,10 @@ function ramBatchRender() {
 	const active = !!st.active;
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
 	// The success labels follow the operation (v3.29.0): the counts bucket is
-	// 'installed' for every kind - "the operation succeeded".
-	const kind = st.kind || 'install-cap';
+	// 'installed' for every kind - "the operation succeeded".  The last seen
+	// kind is remembered for the modal's title (v3.30.1).
+	if (st.kind) _ramBatchLastKind = st.kind;
+	const kind = st.kind || _ramBatchLastKind || 'install-cap';
 	const okLabel = kind === 'delete' ? t('Deleted')
 		: (kind === 'reinstall-app' ? t('Reinstalled') : t('Installed'));
 	const actLabel = kind === 'delete' ? t('Deleting...')
@@ -24671,8 +24683,8 @@ const LANG_RU = {
 	'not found': 'не найдено',
 	'Start batch': 'Запустить пакетную установку',
 	'Stopping...': 'Остановка…',
-	'Batch stopped': 'Пакетная установка остановлена',
-	'Batch finished': 'Пакетная установка завершена',
+	'Batch stopped': 'Пакетная операция остановлена',
+	'Batch finished': 'Пакетная операция завершена',
 	'Installing...': 'Установка…',
 	'Deleting...': 'Удаление…',
 	'Reinstalling...': 'Переустановка…',
