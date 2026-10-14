@@ -33,7 +33,7 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'spPresetIdx', 'tarPresetIdx',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 
 	'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
-	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
+	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramIsBatchOp', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
 for (const f of FNS) {
@@ -417,6 +417,17 @@ test('ramStepLine shows the PoR verdict and the remote status word', () => {
 	assert.ok(porLine.includes('PoR error cntr_low'), porLine);
 	const noPor = ramStepLine({ name: 'LOAD', por_status: 'no_por' }, 3);
 	assert.ok(noPor.startsWith('\u2705') && noPor.includes('no PoR'), noPor);
+});
+
+test('ramStepLine marks a tolerated not-found delete step (v3.29.0)', () => {
+	globalThis.t = s => s;
+	// a delete step's 'not found' (6A88/6A82) is not a failure: the object was
+	// already gone, the chain continued - the line says so instead of showing
+	// the failure style
+	const line = ramStepLine({ name: 'DELETE (application)', por_sw: '6A88',
+		por_error: 'remote SW 6A88', delete_not_found: true }, 0);
+	assert.strictEqual(line,
+		'\u2796 Step 1: DELETE (application) \u2014 6A88 (not found)');
 });
 
 test('ramStepComponents maps a LOAD step to the CAP components it covers', () => {

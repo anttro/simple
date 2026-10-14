@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.28.8'
+VERSION = '3.29.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -935,6 +935,21 @@ def _cap_make_selectable_apdu(instance_aid, privileges='00'):
     return '80E60800%02X%s' % (len(data) // 2, data)
 
 
+def _ram_delete_apdu(aid, cascade=False):
+    """GP DELETE (Card Spec v2.3.1 11.2, Tables 11-20/11-23): P1=00 (last/only
+    command), P2.b8 selects 'object' ('00') or 'object and related objects'
+    ('80'), the data field carries the mandatory '4F' AID TLV.  Case 3 (no
+    trailing Le: on the card's SCP80 layer a trailing byte counts as a phantom
+    second command whose SW masks the real result).  The PWA's ramDeleteApdu
+    (the Explore buttons) is the mirror; both suites pin the same bytes."""
+    a = re.sub(r'[^0-9a-fA-F]', '', str(aid or '')).upper()
+    if not a:
+        return ''
+    data = '4F' + _ber_len(len(a) // 2) + a
+    return ('80E400' + ('80' if cascade else '00')
+            + _ber_len(len(data) // 2) + data).upper()
+
+
 def _cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data, sd_aid='',
                        privileges='00', install_params='', stk_params='',
                        make_selectable=True, block_size=240, instance_aid=None,
@@ -1613,6 +1628,12 @@ def _send_secured_packet(scc, sp_hex, oa_number, sm_sc=None, include_cpi=True,
 # warnings (63xx/63Cx often carry "more data available" too); CAFE =
 # GlobalPlatform "more data available" (GET STATUS pages).
 _RAM_REMOTE_SW_OK = ('9000', 'CAFE')
+
+# A GP DELETE whose object is already gone: the delete's goal is met, so a
+# delete step (the batch delete, the reinstall's instance delete, the
+# delete-package pre-step) tolerates these and the chain proceeds (6A88 =
+# referenced data not found; 6A82 = file/application not found).
+_RAM_DELETE_NOT_FOUND = ('6A88', '6A82')
 
 
 def _ram_remote_sw_ok(sw):
@@ -2401,9 +2422,11 @@ def _ram_nv_fields(nv_before, nv_after):
 def _ram_install_plan(body):
     """The card-independent part of a CAP install: parse the .cap, build the
     INSTALL [for load] -> LOAD xN -> INSTALL [for install] chain and read the
-    transport knobs.  Nothing here touches the card, so the batch builds the
-    plan once and reuses it for every card.  Raises ValueError with the
-    caller's message (the endpoint and the batch answer 400)."""
+    transport knobs.  `delete_package` prepends a cascade DELETE on the package
+    AID (a re-install over a leftover package; the delete step tolerates 'not
+    found' - see _ram_plan_run).  Nothing here touches the card, so the batch
+    builds the plan once and reuses it for every card.  Raises ValueError with
+    the caller's message (the endpoint and the batch answer 400)."""
     cap_hex = str(body.get('cap_hex') or '').replace(' ', '')
     if not cap_hex:
         raise ValueError('No cap_hex provided')
@@ -2439,21 +2462,102 @@ def _ram_install_plan(body):
         block_size=block_size,
         nv_quota=body.get('nv_quota'),
         volatile_quota=body.get('volatile_quota'))
-    return {'loadfile_aid': loadfile_aid, 'module_aid': module_aid, 'seq': seq,
-            'block_size': block_size, 'block_size_req': block_size_req,
+    steps = []
+    for i, apdu in enumerate(seq):
+        if i == 0:
+            name = 'INSTALL [for load]'
+        elif i == len(seq) - 1:
+            name = 'INSTALL [for install]'
+        else:
+            name = 'LOAD (%d/%d)' % (i, len(seq) - 2)
+        steps.append({'name': name, 'apdu': apdu})
+    if body.get('delete_package'):
+        # A leftover package blocks INSTALL [for load]: the cascade delete
+        # clears the ELF, its modules and its applications first.  It is a
+        # delete step, so 'not found' (a fresh card) lets the chain proceed.
+        steps.insert(0, {'name': 'DELETE (package + applications)',
+                         'apdu': _ram_delete_apdu(loadfile_aid, cascade=True),
+                         'delete': True})
+    return {'kind': 'install-cap', 'seq': steps,
             'spi2': str(body.get('spi2') or '01'),
             'include_cpi': body.get('includeCpi', True),
-            'ram_format': _ram_normalize_format(body.get('ram_format'))}
+            'ram_format': _ram_normalize_format(body.get('ram_format')),
+            'nv': True, 'load_size': block_size,
+            'response': {'load_file_aid': loadfile_aid, 'module_aid': module_aid,
+                         'load_block_size': block_size,
+                         'load_block_size_requested': block_size_req,
+                         'load_block_size_auto': not block_size_req}}
 
 
-def _ram_install_run(server, body, plan, scc):
-    """Run one CAP install chain on `scc` - the caller holds the card lock.
+def _ram_delete_plan(body):
+    """The batch delete plan: one GP DELETE step.  `target` selects the P2
+    semantics (GP Card Spec v2.3.1 11.2): 'app' deletes the object only (an
+    applet instance, P2=00), 'package' the object and its related objects (the
+    load file with its modules and installed applications, P2=80).  Raises
+    ValueError (400 at Start)."""
+    aid = re.sub(r'[^0-9a-fA-F]', '', str(body.get('aid') or '')).upper()
+    if not re.fullmatch(r'(?:[0-9A-F]{2}){5,16}', aid):
+        raise ValueError('aid must be 5-16 bytes of hex (an AID)')
+    target = str(body.get('target') or 'app').strip().lower()
+    if target not in ('app', 'package'):
+        raise ValueError("target must be 'app' or 'package'")
+    cascade = target == 'package'
+    return {'kind': 'delete',
+            'seq': [{'name': 'DELETE (package + applications)' if cascade
+                     else 'DELETE (application)',
+                     'apdu': _ram_delete_apdu(aid, cascade), 'delete': True}],
+            'spi2': str(body.get('spi2') or '01'),
+            'include_cpi': body.get('includeCpi', True),
+            'ram_format': _ram_normalize_format(body.get('ram_format')),
+            'response': {'aid': aid, 'target': target}}
 
-    The per-card part: the preset's ISD TAR supplies the keyset (v3.26.0) and
-    the counter is seeded from the store (v3.20.0).  Raises ValueError for a
-    request error (the endpoint and the batch answer 400 / record the skip); a
-    chain failure comes back as ``{'success': False, ...}``.  Returns the
-    response dict.  Shared by /api/ram-install and the batch worker."""
+
+def _ram_reinstall_plan(body, kind='reinstall-app'):
+    """The reinstall plan: DELETE the applet instance (tolerating 'not found' -
+    a fresh card just installs), then INSTALL [for install] from the already
+    loaded package.  No .cap and no LOAD: the same parameters the single
+    INSTALL [for install] uses, validated here (400 at Start, never per card).
+    `kind` is 'install-app' for the single operation, 'reinstall-app' for the
+    batch (only the progress/log label differs)."""
+    loadfile = str(body.get('loadfile_aid') or '').replace(' ', '').upper()
+    module = str(body.get('module_aid') or '').replace(' ', '').upper()
+    if not loadfile or not module:
+        raise ValueError('loadfile_aid and module_aid required')
+    instance = (str(body.get('instance_aid') or '').replace(' ', '').upper()
+                or module)
+    install_apdu = _cap_install_apdu(
+        loadfile, module, instance_aid=instance,
+        privileges=str(body.get('privileges') or '').replace(' ', '') or '00',
+        install_params=str(body.get('install_params') or '').replace(' ', ''),
+        stk_params=str(body.get('stk_params') or '').replace(' ', ''),
+        make_selectable=body.get('make_selectable', True),
+        nv_quota=body.get('nv_quota'),
+        volatile_quota=body.get('volatile_quota'))
+    return {'kind': kind,
+            'seq': [{'name': 'DELETE (application)',
+                     'apdu': _ram_delete_apdu(instance, cascade=False),
+                     'delete': True},
+                    {'name': 'INSTALL [for install]', 'apdu': install_apdu}],
+            'spi2': str(body.get('spi2') or '01'),
+            'include_cpi': body.get('includeCpi', True),
+            'ram_format': _ram_normalize_format(body.get('ram_format')),
+            'response': {'load_file_aid': loadfile, 'module_aid': module,
+                         'instance_aid': instance}}
+
+
+def _ram_plan_run(server, body, plan, scc):
+    """Run one batch plan on `scc` - the caller holds the card lock.
+
+    A plan is a list of named steps (an INSTALL/LOAD chain, GP DELETEs, a
+    single INSTALL [for install]); a step flagged `delete` tolerates the 'not
+    found' status words (6A88/6A82 - the object is already gone, so the
+    delete's goal is met and the chain proceeds), while any other failure stops
+    it.  The per-card part: the preset's ISD TAR supplies the keyset (v3.26.0)
+    and the counter is seeded from the store (v3.20.0).  Raises ValueError for
+    a request error (the endpoint and the batch answer 400 / record the skip);
+    a chain failure comes back as ``{'success': False, ...}``.  Returns the
+    response dict.  Shared by /api/ram-install, /api/ram-install-app and the
+    batch worker."""
     preset = _preset_by_id(server, body.get('preset_id'))
     tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
               or '000000').strip().upper()
@@ -2475,11 +2579,12 @@ def _ram_install_run(server, body, plan, scc):
                 'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
                 'include_cpi': plan['include_cpi']}
     seq = plan['seq']
-    sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % plan['block_size'])
+    kind = plan.get('kind') or 'ram'
+    label = 'RAM-%s' % kind.upper().replace('-', ' ')
 
     # Live progress for the PWA's operation modal (the request holds _CARD_LOCK
     # until the chain is done; /api/status carries this)
-    _ram_progress_begin('install-cap', len(seq) + 1)
+    _ram_progress_begin(kind, len(seq) + 1)
     nv_before = None
     nv_after = None
     try:
@@ -2489,55 +2594,58 @@ def _ram_install_run(server, body, plan, scc):
         if ram_format == 'auto':
             _ram_progress_step(0, 'FORMAT CHECK')
             ram_format = _ram_detect_format(server, scc, sp_state, state)
-        sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
-            len(seq), len(seq) - 2, ram_format, plan['loadfile_aid']))
+        if plan.get('load_size'):
+            sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % plan['load_size'])
+        sys.stderr.write('%s: %d step(s), %s\n' % (label, len(seq), ram_format))
         # NV footprint: free non-volatile memory before the chain (best effort
         # - a card without FF21 skips it).
-        nv_before = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV before')
+        if plan.get('nv'):
+            nv_before = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV before')
 
-        for apdu_idx, gp_apdu in enumerate(seq):
-            if apdu_idx == 0:
-                step_name = 'INSTALL [for load]'
-            elif apdu_idx == len(seq) - 1:
-                step_name = 'INSTALL [for install]'
-            else:
-                step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
-            _ram_progress_step(apdu_idx + 1, step_name)
-            if not _ram_send_gp_apdu(server, scc, sp_state, state, step_name,
-                                     _ram_format_apdu(gp_apdu, ram_format)):
+        for step_idx, step in enumerate(seq):
+            step_name = step['name']
+            _ram_progress_step(step_idx + 1, step_name)
+            ok = _ram_send_gp_apdu(server, scc, sp_state, state, step_name,
+                                   _ram_format_apdu(step['apdu'], ram_format))
+            if not ok and step.get('delete'):
+                # A delete step tolerates 'not found': the object is already
+                # gone (6A88/6A82), which is exactly what the delete wanted -
+                # the chain proceeds.  Any other failure stops it.
+                rec = steps[-1] if steps else {}
+                sw = str(rec.get('por_sw') or '').upper()
+                if sw in _RAM_DELETE_NOT_FOUND:
+                    rec['delete_not_found'] = True
+                    ok = True
+            if not ok:
                 # What the failed attempt consumed (a rejected load may keep or
                 # discard its partial file - the delta tells which).
-                nv_after = _ram_read_ff21(server, scc, sp_state, state,
-                                          ram_format, 'NV after')
+                if plan.get('nv'):
+                    nv_after = _ram_read_ff21(server, scc, sp_state, state,
+                                              ram_format, 'NV after')
                 resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
                         'error': (state['encode_error'] or state['failure'].get('error')
                                   or ('%s failed' % step_name)),
-                        'final_cntr': state['cntr'], 'ram_format': ram_format,
-                        'load_file_aid': plan['loadfile_aid'],
-                        'module_aid': plan['module_aid'],
-                        'load_block_size': plan['block_size'],
-                        'load_block_size_requested': plan['block_size_req'],
-                        'load_block_size_auto': not plan['block_size_req']}
+                        'final_cntr': state['cntr'], 'ram_format': ram_format}
+                resp.update(plan.get('response') or {})
                 resp.update(_ram_nv_fields(nv_before, nv_after))
                 failed_rec = steps[-1] if steps else {}
                 resp.update(_cntr_low_fields(failed_rec.get('por_status')))
                 if resp.get('cntr_low'):
-                    sys.stderr.write('RAM-INSTALL: low counter - the packet '
-                                     'counter is not above the card\'s\n')
+                    sys.stderr.write('%s: low counter - the packet counter is '
+                                     'not above the card\'s\n' % label)
                 return resp
         # NV footprint: what the successful chain consumed.
-        nv_after = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV after')
+        if plan.get('nv'):
+            nv_after = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV after')
     finally:
         _ram_progress_end()
 
-    resp = {'success': True, 'steps': steps, 'load_file_aid': plan['loadfile_aid'],
-            'module_aid': plan['module_aid'], 'final_cntr': state['cntr'],
-            'ram_format': ram_format, 'load_block_size': plan['block_size'],
-            'load_block_size_requested': plan['block_size_req'],
-            'load_block_size_auto': not plan['block_size_req']}
+    resp = {'success': True, 'steps': steps, 'final_cntr': state['cntr'],
+            'ram_format': ram_format}
+    resp.update(plan.get('response') or {})
     resp.update(_ram_nv_fields(nv_before, nv_after))
-    sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
-        plan['loadfile_aid'], plan['module_aid'], state['cntr']))
+    sys.stderr.write('%s: Complete (%d step(s), cntr=%s)\n' % (
+        label, len(seq), state['cntr']))
     return resp
 
 
@@ -2587,7 +2695,12 @@ def _ram_batch_record(state, rec):
             state['counts'][result] += 1
         who = rec.get('iccid') or 'the card'
         if result == 'installed':
-            state['notice'] = 'Card %s installed.' % who
+            # the success verb follows the operation (the counts bucket is
+            # 'installed' for every kind - "the operation succeeded")
+            kind = ((state.get('plan') or {}).get('kind')) or 'install-cap'
+            verb = {'delete': 'deleted',
+                    'reinstall-app': 'reinstalled'}.get(kind, 'installed')
+            state['notice'] = 'Card %s %s.' % (who, verb)
         elif result == 'failed':
             step = rec.get('failed_step') or ''
             sw = rec.get('por_sw') or rec.get('sw') or ''
@@ -2613,6 +2726,20 @@ def _ram_batch_failure_fields(result):
             'por_status': rec.get('por_status') or '',
             'por_error': rec.get('por_error') or '',
             'sw': rec.get('sw') or ''}
+
+
+def _ram_batch_steps_fields(result):
+    """The attempt's per-step verdict tail for the panel: the last three steps
+    (name, ok, remote SW; a delete step that answered 'not found' is ok) plus
+    the chain length - a full LOAD chain stays short in the report."""
+    steps = result.get('steps') or []
+    out = []
+    for s in steps[-3:]:
+        out.append({'name': s.get('name') or '',
+                    'ok': (not s.get('por_error')) or bool(s.get('delete_not_found')),
+                    'sw': s.get('por_sw') or '',
+                    'not_found': bool(s.get('delete_not_found'))})
+    return {'steps': out, 'steps_total': len(steps)}
 
 
 def _ram_batch_handle_card(state, server):
@@ -2655,7 +2782,7 @@ def _ram_batch_handle_card(state, server):
     request_error = False
     try:
         with _CARD_LOCK:
-            result = _ram_install_run(server, body, state['plan'], server.scc)
+            result = _ram_plan_run(server, body, state['plan'], server.scc)
     except ValueError as e:
         # A request/eligibility error (the preset's ISD keyset, the plan): the
         # install never started - the card is skipped.
@@ -2678,6 +2805,7 @@ def _ram_batch_handle_card(state, server):
                'load_file_aid': result.get('load_file_aid'),
                'module_aid': result.get('module_aid'),
                'nv_delta': result.get('nv_delta')}
+        rec.update(_ram_batch_steps_fields(result))
     elif result is not None:
         outcome = 'failed'
         rec = {'iccid': iccid, 'preset': name, 'result': outcome,
@@ -2685,6 +2813,7 @@ def _ram_batch_handle_card(state, server):
                'cntr_low': bool(result.get('cntr_low')),
                'error': result.get('error') or ''}
         rec.update(_ram_batch_failure_fields(result))
+        rec.update(_ram_batch_steps_fields(result))
     elif request_error:
         outcome = 'skipped'
         rec = {'iccid': iccid, 'preset': name, 'result': outcome,
@@ -2750,23 +2879,35 @@ def _ram_batch_worker(state):
 
 
 def _ram_batch_start(body):
-    """Validate the CAP/parameters (the plan is card independent, so it is built
-    once) and spawn the worker (the worker reads `_server_ref` itself).  Raises ValueError (400) for a bad request and
-    RuntimeError (409) when another batch or a test run is active."""
+    """Validate the operation's parameters (the plan is card independent, so it
+    is built once) and spawn the worker (the worker reads `_server_ref` itself).
+    `kind` selects the operation: 'install-cap' (the .cap chain, optionally with
+    the delete-package pre-step), 'delete' (one GP DELETE) or 'reinstall-app'
+    (DELETE the instance + INSTALL [for install]).  Raises ValueError (400) for
+    a bad request and RuntimeError (409) when another batch or a test run is
+    active."""
     global _RAM_BATCH
     with _RAM_BATCH_LOCK:
         if _RAM_BATCH and _RAM_BATCH.get('active'):
             raise RuntimeError('a batch is already running - stop it first')
         if _TEST_RUNNING:
             raise RuntimeError('a test run is active - stop it first')
-    plan = _ram_install_plan(body)
+    kind = str(body.get('kind') or 'install-cap').strip().lower()
+    if kind == 'install-cap':
+        plan = _ram_install_plan(body)
+    elif kind == 'delete':
+        plan = _ram_delete_plan(body)
+    elif kind == 'reinstall-app':
+        plan = _ram_reinstall_plan(body)
+    else:
+        raise ValueError("kind must be 'install-cap', 'delete' or 'reinstall-app'")
     state = _ram_batch_new_state(plan)
     with _RAM_BATCH_LOCK:
         _RAM_BATCH = state
     threading.Thread(target=_ram_batch_worker, args=(state,),
                      name='ram-batch', daemon=True).start()
-    sys.stderr.write('RAM-BATCH: started (%d APDUs, loadfile_aid=%s)\n'
-                     % (len(plan['seq']), plan['loadfile_aid']))
+    sys.stderr.write('RAM-BATCH: started (%s, %d step(s))\n'
+                     % (plan['kind'], len(plan['seq'])))
     return state
 
 
@@ -2800,9 +2941,11 @@ def _ram_batch_status():
             return {'active': False, 'phase': 'idle', 'attempts': [],
                     'attempts_total': 0, 'current': None, 'notice': '',
                     'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
-                    'started': None, 'stopped': None, 'progress': None}
+                    'started': None, 'stopped': None, 'progress': None,
+                    'kind': None}
         return {'active': bool(_RAM_BATCH.get('active')),
                 'phase': _RAM_BATCH.get('phase'),
+                'kind': ((_RAM_BATCH.get('plan') or {}).get('kind')) or None,
                 'attempts': list(_RAM_BATCH['attempts']),
                 'attempts_total': _RAM_BATCH['attempts_total'],
                 'current': dict(_RAM_BATCH['current']) if _RAM_BATCH.get('current') else None,
@@ -2823,6 +2966,7 @@ def _ram_batch_summary():
         cur = _RAM_BATCH.get('current')
         return {'active': bool(_RAM_BATCH.get('active')),
                 'phase': _RAM_BATCH.get('phase'),
+                'kind': ((_RAM_BATCH.get('plan') or {}).get('kind')) or None,
                 'current': dict(cur) if cur else None,
                 'notice': _RAM_BATCH.get('notice') or '',
                 'attempts_total': _RAM_BATCH['attempts_total'],
@@ -10040,7 +10184,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # then one run on the equipped card - both shared with the
                 # batch worker (v3.28.0).
                 plan = _ram_install_plan(body)
-                resp = _ram_install_run(self.server, body, plan, scc)
+                resp = _ram_plan_run(self.server, body, plan, scc)
             except ValueError as e:
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 400)
@@ -10118,107 +10262,37 @@ class PysimHandler(BaseHTTPRequestHandler):
                 return
             try:
                 mode = (body.get('mode') or 'install').strip()
-                loadfile_aid = (body.get('loadfile_aid') or '').replace(' ', '').upper()
-                module_aid = (body.get('module_aid') or '').replace(' ', '').upper()
-                instance_aid = ((body.get('instance_aid') or '').replace(' ', '').upper()
-                                or module_aid)
-                privileges = (body.get('privileges') or '').replace(' ', '') or '00'
-                install_params_hex = (body.get('install_params') or '').replace(' ', '')
-                stk_params_hex = (body.get('stk_params') or '').replace(' ', '')
-                make_selectable = bool(body.get('make_selectable', True))
                 if mode == 'make_selectable':
+                    instance_aid = ((body.get('instance_aid') or '')
+                                    .replace(' ', '').upper())
                     if not instance_aid:
                         err = {'success': False, 'error': 'instance_aid required'}
                         self._send_json(err, 400)
                         self._log_resp(err)
                         return
-                    apdu = _cap_make_selectable_apdu(instance_aid, privileges)
-                    step_name = 'INSTALL [for make selectable]'
+                    privileges = (body.get('privileges') or '').replace(' ', '') or '00'
+                    plan = {'kind': 'make-selectable',
+                            'seq': [{'name': 'INSTALL [for make selectable]',
+                                     'apdu': _cap_make_selectable_apdu(instance_aid,
+                                                                       privileges)}],
+                            'spi2': str(body.get('spi2') or '01'),
+                            'include_cpi': body.get('includeCpi', True),
+                            'ram_format': _ram_normalize_format(body.get('ram_format'))}
+                elif mode == 'install':
+                    # The install deletes the applet instance first (tolerating
+                    # 'not found') so re-installing with new parameters works in
+                    # one step; the plan builder validates the AIDs and the
+                    # parameter composition (400 here, never mid-chain).
+                    plan = _ram_reinstall_plan(body, kind='install-app')
                 else:
-                    if not loadfile_aid or not module_aid:
-                        err = {'success': False,
-                               'error': 'loadfile_aid and module_aid required'}
-                        self._send_json(err, 400)
-                        self._log_resp(err)
-                        return
-                    try:
-                        apdu = _cap_install_apdu(
-                            loadfile_aid, module_aid, instance_aid=instance_aid,
-                            privileges=privileges, install_params=install_params_hex,
-                            stk_params=stk_params_hex, make_selectable=make_selectable,
-                            nv_quota=body.get('nv_quota'),
-                            volatile_quota=body.get('volatile_quota'))
-                    except ValueError as e:
-                        err = {'success': False, 'error': str(e)}
-                        self._send_json(err, 400)
-                        self._log_resp(err)
-                        return
-                    step_name = 'INSTALL [for install]'
-                # SCP80 params: the SPI1 comes from the MSL of the packet's
-                # TAR (the operation uses the preset's table); a caller-supplied
-                # value is only the fallback for a TAR the preset does not carry.
-                preset = _preset_by_id(self.server, body.get('preset_id'))
-                tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
-                          or '000000').strip().upper()
-                try:
-                    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'),
-                                            prefer_msl=True)
-                except ValueError as e:
-                    err = {'success': False, 'error': str(e)}
-                    self._send_json(err, 400)
-                    self._log_resp(err)
-                    return
-                sp_state = {
-                    'spi1': spi1, 'spi2': body.get('spi2', '01'),
-                    'tar': tar, 'cntr': body.get('cntr', '00000000'),
-                    'include_cpi': body.get('includeCpi', True)}
-                # The keyset: the preset's default for the operation's TAR
-                # (v3.26.0) unless the request names KIc/KID itself - then the
-                # number must be consistent and defined in the preset
-                # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
-                # before the format probe consumes a counter.
-                kvn, kic, kid, keyset_err = self._op_keyset(body, tar)
-                if keyset_err:
-                    err = {'success': False, 'error': keyset_err}
-                    self._send_json(err, 400)
-                    self._log_resp(err)
-                    return
-                sp_state['kic'] = kic
-                sp_state['kid'] = kid
-                sp_state['kic_key'] = body.get('kicKey', '')
-                sp_state['kid_key'] = body.get('kidKey', '')
-                # The counter: explicit `cntr` wins, else the preset's value
-                # for this keyset (the server owns the counters, v3.20.0).
-                sp_state['cntr'] = _preset_counter_seed(self.server, body, kvn) or sp_state['cntr']
-                state = {'steps': [], 'encode_error': None, 'failure': {},
-                         'cntr': sp_state['cntr'], 'preset_id': body.get('preset_id'),
-                         'kvn': kvn}
-                # Live progress for the PWA's operation modal (see /api/ram-install)
-                _ram_progress_begin('install-app', 2)
-                try:
-                    # RAM command format: detected per operation (a read-only
-                    # probe step) unless the caller pinned compact/expanded.
-                    ram_format = _ram_normalize_format(body.get('ram_format'))
-                    if ram_format == 'auto':
-                        _ram_progress_step(0, 'FORMAT CHECK')
-                        ram_format = _ram_detect_format(self.server, scc, sp_state, state)
-                    apdu = _ram_format_apdu(apdu, ram_format)
-                    _ram_progress_step(1, step_name)
-                    sys.stderr.write('RAM-INSTALL-APP: %s (%s, %s) cntr=%s\n' % (
-                        apdu, step_name, ram_format, sp_state['cntr']))
-                    ok = _ram_send_gp_apdu(self.server, scc, sp_state, state, step_name, apdu)
-                finally:
-                    _ram_progress_end()
-                resp = {'success': bool(ok), 'steps': state['steps'],
-                        'final_cntr': state['cntr'], 'ram_format': ram_format}
-                if not ok:
-                    resp['error'] = (state['encode_error'] or state['failure'].get('error')
-                                     or ('%s failed' % step_name))
-                    resp['failed_step'] = len(state['steps'])
-                    failed_rec = state['steps'][-1] if state['steps'] else {}
-                    resp.update(_cntr_low_fields(failed_rec.get('por_status')))
+                    raise ValueError("mode must be 'install' or 'make_selectable'")
+                resp = _ram_plan_run(self.server, body, plan, scc)
                 self._send_json(resp)
                 self._log_resp(resp)
+            except ValueError as e:
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 400)
+                self._log_resp(err)
             except Exception as e:
                 sys.stderr.write('RAM-INSTALL-APP error: %s\n' % e)
                 err = {'success': False, 'error': str(e)}

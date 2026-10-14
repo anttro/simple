@@ -1095,7 +1095,7 @@ class PresetStoreHttpTests(unittest.TestCase):
         captured = []
 
         def fake_step(server, scc, sp, state, name, apdu, silent=False):
-            captured.append((sp['spi1'], sp['tar']))
+            captured.append((name, sp['spi1'], sp['tar']))
             state['steps'].append({'name': name, 'por_status': 'por_ok', 'por_sw': '9000'})
             return True
 
@@ -1122,7 +1122,12 @@ class PresetStoreHttpTests(unittest.TestCase):
         finally:
             for patch in reversed(patches):
                 patch.stop()
-        self.assertEqual(captured, [('1A', '000000'), ('1A', '000000')])
+        # the install deletes the instance first (v3.29.0), then installs;
+        # make selectable stays a single step - all at the TAR's MSL
+        self.assertEqual(captured, [
+            ('DELETE (application)', '1A', '000000'),
+            ('INSTALL [for install]', '1A', '000000'),
+            ('INSTALL [for make selectable]', '1A', '000000')])
 
     def test_an_install_app_without_an_msl_is_refused_before_the_card(self):
         # no preset and no spi1: the resolution must refuse with the hint

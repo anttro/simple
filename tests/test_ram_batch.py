@@ -30,10 +30,14 @@ from pysim_simple_server import server as srv
 from pysim_simple_server.server import PysimHandler, _CARD_LOCK
 
 
-def _plan():
-    return {'seq': ['80E60200', '80E80000', '80E60000'], 'loadfile_aid': 'F0414C46416101',
-            'module_aid': 'F0414C4641610101', 'block_size': 240, 'block_size_req': None,
-            'spi2': '01', 'include_cpi': True, 'ram_format': 'compact'}
+def _plan(kind='install-cap'):
+    return {'kind': kind,
+            'seq': [{'name': 'INSTALL [for load]', 'apdu': '80E60200'},
+                    {'name': 'LOAD (1/1)', 'apdu': '80E80000'},
+                    {'name': 'INSTALL [for install]', 'apdu': '80E60000'}],
+            'spi2': '01', 'include_cpi': True, 'ram_format': 'compact',
+            'response': {'load_file_aid': 'F0414C46416101',
+                         'module_aid': 'F0414C4641610101'}}
 
 
 class _FakeStore:
@@ -142,7 +146,7 @@ class BatchCardTests(unittest.TestCase):
             return {'success': True, 'final_cntr': '0000000002',
                     'load_file_aid': 'F0414C46416101', 'module_aid': 'F0414C4641610101'}
 
-        with mock.patch.object(srv, '_ram_install_run', fake_run):
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset])))
         self.assertEqual(len(calls), 1)
@@ -163,7 +167,7 @@ class BatchCardTests(unittest.TestCase):
                               {'name': 'LOAD (1/1)', 'sw': '9000', 'por_sw': '6A80'}],
                     'final_cntr': '0000000002'}
 
-        with mock.patch.object(srv, '_ram_install_run', fake_run):
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset])))
         rec = st['attempts'][0]
@@ -180,7 +184,7 @@ class BatchCardTests(unittest.TestCase):
             raise ValueError('TAR 000000 needs a default keyset (its MSL 16 '
                              'requires security)')
 
-        with mock.patch.object(srv, '_ram_install_run', fake_run):
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset])))
         rec = st['attempts'][0]
@@ -195,7 +199,7 @@ class BatchCardTests(unittest.TestCase):
         def fake_run(*a, **k):
             raise OSError('card removed')
 
-        with mock.patch.object(srv, '_ram_install_run', fake_run):
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset])))
         rec = st['attempts'][0]
@@ -219,7 +223,7 @@ class BatchCardTests(unittest.TestCase):
             seen['current'] = st['current']
             return {'success': True}
 
-        with mock.patch.object(srv, '_ram_install_run', fake_run):
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset])))
         self.assertEqual(seen['notice'], '')               # cleared while installing
@@ -230,7 +234,7 @@ class BatchCardTests(unittest.TestCase):
         st = srv._ram_batch_new_state(_plan())
         preset = _preset('8970119000004600098', 'Alfa')
         calls = []
-        with mock.patch.object(srv, '_ram_install_run',
+        with mock.patch.object(srv, '_ram_plan_run',
                                lambda *a, **k: calls.append(1) or {'success': True}):
             srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
                                                         _FakeStore([preset]), session=1))
@@ -252,7 +256,7 @@ class BatchCardTests(unittest.TestCase):
                                        session=7)
         calls = []
         with mock.patch.object(srv, '_CARD_CONNECTED', True), \
-                mock.patch.object(srv, '_ram_install_run',
+                mock.patch.object(srv, '_ram_plan_run',
                                   lambda *a, **k: calls.append(1) or {'success': True}):
             t = threading.Thread(target=srv._ram_batch_worker, args=(st,), daemon=True)
             t.start()
@@ -280,16 +284,214 @@ class RamInstallPlanTests(unittest.TestCase):
         with mock.patch.object(srv, '_cap_parse', lambda h: ('A1', 'A2', b'\x01')), \
                 mock.patch.object(srv, '_cap_apdu_sequence', lambda *a, **k: ['80E60200']):
             plan = srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': '120'})
-            self.assertEqual(plan['block_size'], 120)
+            self.assertEqual(plan['load_size'], 120)
             self.assertEqual(plan['spi2'], '01')
             self.assertEqual(plan['ram_format'], 'auto')
-            self.assertEqual(plan['seq'], ['80E60200'])
+            self.assertEqual(plan['kind'], 'install-cap')
+            self.assertEqual(plan['seq'][0]['name'], 'INSTALL [for load]')
+            self.assertEqual(plan['seq'][0]['apdu'], '80E60200')
+            self.assertNotIn('delete', plan['seq'][0])
             with self.assertRaises(ValueError):
                 srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': 300})
             with self.assertRaises(ValueError):
                 srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': 'x'})
             with self.assertRaises(ValueError):
                 srv._ram_install_plan({'cap_hex': ''})
+
+    def test_delete_package_prepends_the_cascade_delete(self):
+        with mock.patch.object(srv, '_cap_parse',
+                               lambda h: ('F0414C46416101', 'A2', b'\x01')), \
+                mock.patch.object(srv, '_cap_apdu_sequence',
+                                  lambda *a, **k: ['80E60200', '80E80000', '80E60000']):
+            plan = srv._ram_install_plan({'cap_hex': 'AA', 'delete_package': True})
+        self.assertEqual(len(plan['seq']), 4)
+        self.assertEqual(plan['seq'][0]['name'], 'DELETE (package + applications)')
+        self.assertEqual(plan['seq'][0]['apdu'], '80E40080094F07F0414C46416101')
+        self.assertTrue(plan['seq'][0]['delete'])
+        self.assertEqual(plan['seq'][1]['name'], 'INSTALL [for load]')
+        self.assertFalse(plan['seq'][1].get('delete', False))
+
+
+class RamDeletePlanTests(unittest.TestCase):
+    """The batch delete plan (v3.29.0): one GP DELETE - P2=00 for an applet
+    instance, P2=80 (cascade) for a package with its related objects."""
+
+    def test_the_app_delete_is_object_only(self):
+        plan = srv._ram_delete_plan({'aid': 'F0414C4641610101', 'target': 'app'})
+        self.assertEqual(plan['kind'], 'delete')
+        self.assertEqual(plan['seq'][0]['apdu'], '80E400000A4F08F0414C4641610101')
+        self.assertTrue(plan['seq'][0]['delete'])
+        self.assertIn('application', plan['seq'][0]['name'])
+        self.assertEqual(plan['response'], {'aid': 'F0414C4641610101', 'target': 'app'})
+
+    def test_the_package_delete_cascades(self):
+        plan = srv._ram_delete_plan({'aid': 'F0 41 4C 46 41 61 01',
+                                     'target': 'package'})
+        self.assertEqual(plan['seq'][0]['apdu'], '80E40080094F07F0414C46416101')
+        self.assertIn('package', plan['seq'][0]['name'])
+
+    def test_the_target_defaults_to_the_application(self):
+        plan = srv._ram_delete_plan({'aid': 'F0414C4641610101'})
+        self.assertEqual(plan['seq'][0]['apdu'], '80E400000A4F08F0414C4641610101')
+
+    def test_the_plan_validates_the_aid_and_the_target(self):
+        for bad in ('', 'F041', 'F0414C464161010', 'ZZZZZZZZZZ'):
+            with self.assertRaises(ValueError):
+                srv._ram_delete_plan({'aid': bad})
+        with self.assertRaises(ValueError):
+            srv._ram_delete_plan({'aid': 'F0414C4641610101', 'target': 'applet'})
+
+
+class RamReinstallPlanTests(unittest.TestCase):
+    """The reinstall plan (v3.29.0): DELETE the instance, then INSTALL [for
+    install] from the loaded package - no .cap, no LOAD.  The same plan serves
+    the single INSTALL [for install] (kind 'install-app')."""
+
+    def test_the_plan_deletes_the_instance_then_installs(self):
+        plan = srv._ram_reinstall_plan({'loadfile_aid': 'F0414C46416101',
+                                        'module_aid': 'F0414C4641610101',
+                                        'privileges': '00'})
+        self.assertEqual(plan['kind'], 'reinstall-app')
+        self.assertEqual(plan['seq'][0]['name'], 'DELETE (application)')
+        self.assertEqual(plan['seq'][0]['apdu'], '80E400000A4F08F0414C4641610101')
+        self.assertTrue(plan['seq'][0]['delete'])
+        self.assertEqual(plan['seq'][1]['name'], 'INSTALL [for install]')
+        self.assertEqual(plan['seq'][1]['apdu'],
+                         srv._cap_install_apdu('F0414C46416101', 'F0414C4641610101',
+                                               instance_aid='F0414C4641610101',
+                                               privileges='00'))
+        self.assertEqual(srv._ram_reinstall_plan({'loadfile_aid': 'F0414C46416101',
+                                                  'module_aid': 'F0414C4641610101'},
+                                                 kind='install-app')['kind'],
+                         'install-app')
+
+    def test_the_plan_validates_the_aids_and_the_parameters(self):
+        with self.assertRaises(ValueError):
+            srv._ram_reinstall_plan({})
+        with self.assertRaises(ValueError):
+            srv._ram_reinstall_plan({'loadfile_aid': 'F0414C46416101'})
+        with self.assertRaises(ValueError):
+            srv._ram_reinstall_plan({'loadfile_aid': 'F0414C46416101',
+                                     'module_aid': 'F0414C4641610101',
+                                     'install_params': 'C900', 'nv_quota': 1})
+
+
+class RamPlanRunTests(unittest.TestCase):
+    """The runner's delete-step policy (v3.29.0): 'not found' (6A88/6A82)
+    continues the chain - the delete's goal is met; any other delete failure
+    stops it."""
+
+    def _run(self, por_sw):
+        sends = []
+
+        def fake_send(server, scc, sp, state, step_name, apdu, silent=False):
+            sends.append(step_name)
+            if step_name.startswith('DELETE'):
+                state['steps'].append({'name': step_name, 'por_status': 'por_ok',
+                                       'por_sw': por_sw,
+                                       'por_error': 'remote SW %s' % por_sw})
+                state['failure']['error'] = '%s: remote SW %s' % (step_name, por_sw)
+                return False
+            state['steps'].append({'name': step_name, 'por_status': 'por_ok',
+                                   'por_sw': '6101'})
+            return True
+
+        plan = {'kind': 'reinstall-app', 'ram_format': 'compact', 'spi2': '01',
+                'include_cpi': True,
+                'seq': [{'name': 'DELETE (application)', 'apdu': '80E400',
+                         'delete': True},
+                        {'name': 'INSTALL [for install]', 'apdu': '80E600'}]}
+        with mock.patch.object(srv, '_op_keyset_resolve',
+                               lambda server, body, tar: (3, '35', '35', None)), \
+                mock.patch.object(srv, '_preset_counter_seed',
+                                  lambda server, body, kvn: '0000000010'), \
+                mock.patch.object(srv, '_ram_send_gp_apdu', fake_send):
+            resp = srv._ram_plan_run(None, {'preset_id': 'p', 'spi1': '16',
+                                            'tar': '000000'}, plan, None)
+        return resp, sends
+
+    def test_a_not_found_delete_proceeds(self):
+        resp, sends = self._run('6A88')
+        self.assertTrue(resp['success'])
+        self.assertEqual(sends, ['DELETE (application)', 'INSTALL [for install]'])
+        self.assertTrue(resp['steps'][0]['delete_not_found'])
+
+    def test_another_delete_failure_stops_the_chain(self):
+        resp, sends = self._run('6A80')
+        self.assertFalse(resp['success'])
+        self.assertEqual(sends, ['DELETE (application)'])
+        self.assertEqual(resp['failed_step'], 1)
+        self.assertIn('6A80', resp['error'])
+
+
+class BatchKindTests(unittest.TestCase):
+    """The batch start dispatches by kind (v3.29.0) and the status/summary
+    carry it, so the panel's labels follow the operation."""
+
+    def setUp(self):
+        srv._RAM_BATCH = None
+
+    def tearDown(self):
+        srv._RAM_BATCH = None
+
+    def _start(self, body, plan=None):
+        with mock.patch.object(srv, '_ram_batch_worker', lambda state: None), \
+                mock.patch.object(srv.threading, 'Thread') as th:
+            th.return_value = SimpleNamespace(start=lambda: None)
+            if plan is not None:
+                with mock.patch.object(srv, '_ram_install_plan',
+                                       lambda b: plan):
+                    return srv._ram_batch_start(body)
+            return srv._ram_batch_start(body)
+
+    def test_the_delete_kind(self):
+        st = self._start({'kind': 'delete', 'aid': 'F0414C4641610101'})
+        self.assertEqual(st['plan']['kind'], 'delete')
+        self.assertEqual(srv._ram_batch_status()['kind'], 'delete')
+        self.assertEqual(srv._ram_batch_summary()['kind'], 'delete')
+
+    def test_the_reinstall_kind(self):
+        st = self._start({'kind': 'reinstall-app', 'loadfile_aid': 'F0414C46416101',
+                          'module_aid': 'F0414C4641610101'})
+        self.assertEqual(st['plan']['kind'], 'reinstall-app')
+        self.assertEqual(len(st['plan']['seq']), 2)
+
+    def test_the_default_kind_is_the_cap_install(self):
+        st = self._start({'cap_hex': 'AA'}, plan=_plan())
+        self.assertEqual(st['plan']['kind'], 'install-cap')
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            self._start({'kind': 'wipe'})
+
+    def test_the_notice_verb_follows_the_kind(self):
+        st = srv._ram_batch_new_state(_plan('delete'))
+        srv._ram_batch_record(st, {'iccid': '8970119000004600098',
+                                   'result': 'installed'})
+        self.assertIn('deleted', st['notice'])
+        st = srv._ram_batch_new_state(_plan('reinstall-app'))
+        srv._ram_batch_record(st, {'iccid': '8970119000004600098',
+                                   'result': 'installed'})
+        self.assertIn('reinstalled', st['notice'])
+        st = srv._ram_batch_new_state(_plan())
+        srv._ram_batch_record(st, {'iccid': '8970119000004600098',
+                                   'result': 'installed'})
+        self.assertIn('installed', st['notice'])
+
+    def test_the_steps_fields_carry_the_tail(self):
+        result = {'steps': [{'name': 'INSTALL [for load]', 'sw': '9000'},
+                            {'name': 'LOAD (1/1)', 'por_sw': '9000'},
+                            {'name': 'INSTALL [for install]', 'por_sw': '6101'},
+                            {'name': 'DELETE (application)', 'por_sw': '6A88',
+                             'delete_not_found': True,
+                             'por_error': 'remote SW 6A88'}]}
+        fields = srv._ram_batch_steps_fields(result)
+        self.assertEqual(fields['steps_total'], 4)
+        self.assertEqual([x['name'] for x in fields['steps']],
+                         ['LOAD (1/1)', 'INSTALL [for install]',
+                          'DELETE (application)'])
+        self.assertTrue(fields['steps'][-1]['not_found'])
+        self.assertTrue(fields['steps'][-1]['ok'])
 
 
 class BatchWorkerSourceTests(unittest.TestCase):
@@ -306,7 +508,7 @@ class BatchWorkerSourceTests(unittest.TestCase):
                                        session=9, ready=8)
         calls = []
         with mock.patch.object(srv, '_CARD_CONNECTED', True), \
-                mock.patch.object(srv, '_ram_install_run',
+                mock.patch.object(srv, '_ram_plan_run',
                                   lambda *a, **k: calls.append(1) or {'success': True}):
             t = threading.Thread(target=srv._ram_batch_worker, args=(st,), daemon=True)
             t.start()

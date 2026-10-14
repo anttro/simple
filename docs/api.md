@@ -45,12 +45,12 @@ a 3.x PWA).
 | `/api/esim/profile` | POST | Enable/disable an eSIM profile (card re-initialized after the switch) |
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
-| `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
-| `/api/ram-batch/start` | POST | Start the **batch CAP install** (v3.28.0): the server installs the same `.cap` on every card that gets equipped, using each card's preset (matched by ICCID) |
+| `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]); `delete_package` prepends a cascade DELETE on the package AID |
+| `/api/ram-batch/start` | POST | Start a **batch operation** (v3.28.0; kinds v3.29.0): `install-cap` (the same `.cap` per equipped card), `reinstall-app` (DELETE + INSTALL [for install]) or `delete` (one GP DELETE), using each card's preset (matched by ICCID) |
 | `/api/ram-batch/status` | GET | The batch state: phase, current card, counts and the attempts report (card-free) |
 | `/api/ram-batch/stop` | POST | Stop the batch — a running install finishes first (card-free, so it works while the install holds the card lock) |
 | `/api/ram-batch/clear` | POST | Drop the finished batch's report (`409` while a batch is active) |
-| `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
+| `/api/ram-install-app` | POST | INSTALL [for install] (deletes the instance first, tolerating 'not found') / INSTALL [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/cap-compat` | POST | CAP compatibility test: LOAD only to the block completing the Import component (nothing committed) |
 | `/api/test/run` | POST | Start a test script (actions + proactive expectations; `script` inline or `script_id` from the store) or a test suite (`suite_id`; ordered scripts, one card session) |
@@ -1028,7 +1028,7 @@ Clears a finished run report (409 while a run is active).
 
 ### `POST /api/ram-install`
 
-Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  A missing `cntr` is seeded from the preset's keyset (v3.20.0); an explicit value wins but never lowers the stored counter (only forward moves are persisted).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it.  The **NV footprint** is measured around the chain: a best-effort `GET DATA FF21` (Extended Card Resources, TS 102 226 §8.2.1.7.2) read before the first step and again after the last one (also on failure) reports the free non-volatile memory and its delta — the read is silent (no step record, no failure) and a card without FF21 simply yields no fields.  The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.
+Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL[for load] → LOAD ×N → INSTALL[for install (+ make selectable)]) wrapped in SCP80 secured packets. Each step is sent via ENVELOPE; the PoR verdict and the remote command's own status word are both checked and the sequence aborts on the first failure (a non-`por_ok` PoR, a remote SW outside the success set, or an undecodable PoR).  The counter advances only for a packet the card accepted (PoR `por_ok`); `final_cntr` is returned on success **and** on failure, so the caller keeps the card's consumed counter (a rejected packet leaves it unchanged).  A missing `cntr` is seeded from the preset's keyset (v3.20.0); an explicit value wins but never lowers the stored counter (only forward moves are persisted).  The RAM command format is detected per operation: a read-only `GET STATUS [ISD]` probe (`FORMAT CHECK (compact)`, then `FORMAT CHECK (expanded)`) decides between the compact C-APDU and the expanded `AA`/`22` form (TS 102 226 §5.2.1), and every INSTALL/LOAD step of the chain then uses the detected format — the response carries `ram_format`.  Pass `ram_format` (`compact`/`expanded`) to pin it.  The **NV footprint** is measured around the chain: a best-effort `GET DATA FF21` (Extended Card Resources, TS 102 226 §8.2.1.7.2) read before the first step and again after the last one (also on failure) reports the free non-volatile memory and its delta — the read is silent (no step record, no failure) and a card without FF21 simply yields no fields.  The `.cap` archive (a ZIP of nested components) is parsed server-side in `_cap_parse`; no external tooling is required.  `delete_package: true` prepends a **cascade GP DELETE** (`P2=0x80`) on the package AID — a leftover package blocks `INSTALL [for load]`, so a re-install can clear it first; the delete step tolerates 'not found' (`6A88`/`6A82`, a fresh card) and any other delete failure stops the chain with its reason (the same policy as the batch and `/api/ram-install-app`).
 
 **Request body:**
 ```json
@@ -1060,6 +1060,7 @@ Install a Java Card `.cap` file on the card via GlobalPlatform commands (INSTALL
 | `load_block_size` | no | Bytes of load-file payload per LOAD APDU, 1–240 (default 240 when omitted). SCP80 concatenation carries a secured packet larger than one SMS over up to 5 SMs, so the block size is no longer clamped to fit a single SMS. |
 | `ram_format` | no | RAM command format: `auto` (default — the read-only probe decides, recorded as `FORMAT CHECK (...)` steps), `compact` or `expanded` to pin it |
 | `includeCpi` | no | As in `/api/send-ota`: `true` (default) marks the delivered SMS with the OTA CPI IE; `false` drops it (the full 140-octet single-SM budget then applies) |
+| `delete_package` | no | If true, prepend a cascade DELETE on the package AID (`P2=0x80` — the load file with its modules and installed applications).  The delete step tolerates 'not found' (a fresh card proceeds); any other delete failure stops the chain |
 
 **Install-parameter composition (TS 102 226 §8.2.1.3.2.1; GPD_SPE_013 v1.1
 Table 6-5).**  The memory quotas (`C7`/`C8`) and an EF-form STK part (the CA)
@@ -1133,43 +1134,65 @@ The `steps` array contains one entry per GP command. `final_cntr` is the counter
 
 ### `POST /api/ram-batch/start`, `GET /api/ram-batch/status`, `POST /api/ram-batch/stop`, `POST /api/ram-batch/clear`
 
-The **batch CAP install** (v3.28.0): one `.cap` and one set of install
-parameters applied to card after card, for bulk provisioning.  The loop runs
-**in the server** (a worker thread), so a page reload or a closed tab does not
-interrupt it; the state lives in memory and a server restart ends the run.
+The **batch operations** (v3.28.0; the `reinstall-app`/`delete` kinds
+v3.29.0): one operation applied to card after card, for bulk provisioning or
+repair.  The loop runs **in the server** (a worker thread), so a page reload or
+a closed tab does not interrupt it; the state lives in memory and a server
+restart ends the run.
 
-- `POST /api/ram-batch/start` — the body is the `/api/ram-install` payload
-  **without** the per-card fields (`preset_id`, `tar`, `spi1`, `cntr`,
-  `kic`/`kid`/`kicKey`/`kidKey`): the plan is card independent and is built
-  once, so a bad `.cap` or an invalid parameter combination is a `400` at
-  Start, not a per-card failure.  **No card is needed** — the worker waits for
-  one.  `400` for a bad request, `409` when another batch or a test run is
-  active.  The response is the status payload below plus `ok: true`.
+- `POST /api/ram-batch/start` — `kind` selects the operation; the plan is card
+  independent and is built once, so a bad `.cap`, AID or parameter combination
+  is a `400` at Start, not a per-card failure.  The body carries the kind's
+  fields **without** the per-card ones (`preset_id`, `tar`, `spi1`, `cntr`,
+  `kic`/`kid`/`kicKey`/`kidKey`):
+  - `kind: "install-cap"` (default) — the `/api/ram-install` payload
+    (`cap_hex`, `sd_aid`, `install_params`, …) plus `delete_package` (a
+    cascade DELETE on the package AID before the chain, see `/api/ram-install`);
+  - `kind: "reinstall-app"` — the `/api/ram-install-app` payload (`loadfile_aid`,
+    `module_aid`, `instance_aid`, `privileges`, `install_params`,
+    `stk_params`, `make_selectable`, `nv_quota`/`volatile_quota`): DELETE the
+    applet instance (tolerating 'not found'), then INSTALL [for install] from
+    the loaded package — no `.cap`, no LOAD;
+  - `kind: "delete"` — `aid` (5-16 bytes of hex) and `target`: `"app"`
+    deletes the object only (an applet instance, `P2=00`), `"package"` the
+    object and its related objects (the load file with its modules and
+    installed applications, `P2=80`).
+
+  **No card is needed** — the worker waits for one.  `400` for a bad request
+  or an unknown `kind`, `409` when another batch or a test run is active.  The
+  response is the status payload below plus `ok: true`.
 - `GET /api/ram-batch/status` — **card-free** (the panel polls it while an
   install holds the card lock):
 
 ```json
-{"active": true, "phase": "waiting_card",
+{"active": true, "phase": "waiting_card", "kind": "reinstall-app",
  "attempts": [{"ts": 1760000000.0, "iccid": "8970119000004600098",
                "preset": "Batch 0002", "result": "installed",
-               "duration_ms": 41230, "final_cntr": "0000000005",
-               "load_file_aid": "F0414C46416101",
-               "module_aid": "F0414C4641610101", "nv_delta": 3120}],
+               "duration_ms": 4120, "final_cntr": "0000000005",
+               "steps": [{"name": "DELETE (application)", "ok": true, "sw": "6101", "not_found": false},
+                          {"name": "INSTALL [for install]", "ok": true, "sw": "6101", "not_found": false}],
+               "steps_total": 2}],
  "attempts_total": 3,
- "current": null, "notice": "Card 8970119000004600098 installed.",
+ "current": null, "notice": "Card 8970119000004600098 reinstalled.",
  "counts": {"installed": 2, "failed": 1, "skipped": 0},
  "started": 1760000000.0, "stopped": null, "progress": null}
 ```
 
   `phase` is `idle` (no run), `waiting_card`, `installing`, `stopping`,
-  `stopped` or `finished`.  A failed attempt carries `failed_step` (e.g.
-  `LOAD (3/7)`), `por_sw` (the card's own status word), `por_status`,
-  `por_error` and `sw` — or, when the chain died before a verdict (a lost
-  card, a transport error), just `error`; a skipped one carries `reason`
-  (a request/eligibility error: the install never started).  `current` names the
-  card being installed (`{iccid, preset, started}`) and `progress` mirrors the
-  RAM progress payload while a chain runs.  The report keeps the last 500
-  attempts (`attempts_total` counts them all).
+  `stopped` or `finished`; `kind` names the operation (the panel's labels
+  follow it: installed / deleted / reinstalled).  A failed attempt carries
+  `failed_step` (e.g. `LOAD (3/7)`), `por_sw` (the card's own status word),
+  `por_status`, `por_error` and `sw` — or, when the chain died before a verdict
+  (a lost card, a transport error), just `error`; a skipped one carries
+  `reason` (a request/eligibility error: the operation never started).  An
+  attempt also carries the last three steps (`steps`: `[{name, ok, sw,
+  not_found}]` plus `steps_total`), so the panel shows the per-step verdicts
+  (`DELETE (application) 6101 · INSTALL [for install] 6101`) for the short
+  delete/reinstall chains; a delete step that answered 'not found' has
+  `not_found: true` and `ok: true`.  `current` names the card being processed
+  (`{iccid, preset, started}`) and `progress` mirrors the RAM progress payload
+  while a chain runs.  The report keeps the last 500 attempts
+  (`attempts_total` counts them all).
 - `POST /api/ram-batch/stop` — sets the stop flag: a running install finishes
   first (an interrupted LOAD chain can leave a half-loaded package), then the
   run ends.  It touches no card state, so it answers while the card lock is
@@ -1186,7 +1209,11 @@ as `skipped` with its reason and the batch keeps waiting.  A card is attempted
 **once per run** (any outcome): re-equipping it is recorded as
 `already processed in this batch (<outcome>)`, never installed again —
 restart the batch to retry it.  Failures never stop the run and are never
-retried automatically.
+retried automatically.  A **delete step** (the reinstall's instance delete,
+the delete kind, the `delete_package` pre-step) tolerates 'not found'
+(`6A88`/`6A82` — the object is already gone, the goal is met); any other
+delete failure stops that card's chain and the attempt reports the delete's
+reason.
 
 `/api/status` carries a small summary in `ram_batch` — the detailed state
 **minus the attempts list** (`{active, phase, current, notice,
@@ -1197,7 +1224,7 @@ attempts report is fetched from `/api/ram-batch/status` only when
 
 ### `POST /api/ram-install-app`
 
-Run the single **INSTALL [for install]** (or **INSTALL [for make selectable]**) APDU for an *already loaded* package — one APDU, so the install parameters can be iterated without deleting and re-loading the `.cap`.  The APDU builders are shared with `/api/ram-install` (`_cap_install_apdu` / `_cap_make_selectable_apdu`; both case 3 — no trailing `Le`, which the card's SCP80 layer counts as a phantom command) and the step verdict/counter logic is the same (`final_cntr` is returned on success **and** on failure).
+Run **INSTALL [for install]** (or **INSTALL [for make selectable]**) for an *already loaded* package — no `.cap` and no LOAD, so the install parameters can be iterated without re-loading.  Since v3.29.0 the install **deletes the applet instance first** (`mode: "install"`; the operation does not delete the package, so the instance is removed for a clean re-install), tolerating 'not found' (`6A88`/`6A82` — a fresh card just installs); any other delete failure stops the chain with its reason.  `mode: "make_selectable"` stays a single APDU.  The APDU builders are shared with `/api/ram-install` (`_cap_install_apdu` / `_cap_make_selectable_apdu`; both case 3 — no trailing `Le`, which the card's SCP80 layer counts as a phantom command) and the step verdict/counter logic is the same (`final_cntr` is returned on success **and** on failure).
 
 **Request body:**
 ```json

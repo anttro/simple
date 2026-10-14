@@ -23,9 +23,9 @@ function extractFunc(src, name, asyncFn) {
 
 const ASYNC_FNS = ['ramBatchFetch', 'ramBatchStart', 'ramBatchStop', 'ramBatchClear'];
 let code = '';
-for (const fn of ['ramBatchPanelVisible', 'ramBatchAttemptsHtml', 'ramBatchRender',
-	'ramBatchApplyStatus', 'ramBatchFetch', 'ramBatchStart', 'ramBatchStop',
-	'ramBatchClear', 'esc']) {
+for (const fn of ['ramIsBatchOp', 'ramBatchPanelVisible', 'ramBatchStepsText',
+	'ramBatchAttemptsHtml', 'ramBatchRender', 'ramBatchApplyStatus', 'ramBatchFetch',
+	'ramBatchStart', 'ramBatchStop', 'ramBatchClear', 'esc']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 
@@ -79,6 +79,9 @@ const app = new Function('els', `
 	var capGateOk = () => sandbox.capGate !== false;
 	var ramReadFileHex = async () => 'AABB';
 	var ramInstallCapFields = () => ({ sd_aid: '', install_params: '', ram_format: 'auto' });
+	var ramInstallParamsCompose = () => ({ install_params: 'C900', stk_params: '' });
+	var updateRcPriv = () => {};
+	var updateStkParamsHex = () => {};
 	var pysimApplyAvailability = () => {};
 	var _ramBatchLast = null;
 	var _ramBatchFetching = false;
@@ -96,6 +99,7 @@ const app = new Function('els', `
 	sandbox.getProgress = () => _ramBatchProgress;
 	sandbox.ramBatchPanelVisible = ramBatchPanelVisible;
 	sandbox.ramBatchAttemptsHtml = ramBatchAttemptsHtml;
+	sandbox.ramBatchStepsText = ramBatchStepsText;
 	sandbox.ramBatchRender = ramBatchRender;
 	sandbox.ramBatchApplyStatus = ramBatchApplyStatus;
 	sandbox.ramBatchFetch = ramBatchFetch;
@@ -119,11 +123,20 @@ test('the RAM view wires the batch operation and the panel', () => {
 
 test('ramOpChanged hides the preset cell and Execute in batch mode', () => {
 	const src = extractFunc(html, 'ramOpChanged');
-	assert.match(src, /const isBatch = op === 'batch';/);
-	assert.match(src, /const isCap = op === 'install-cap' \|\| isBatch;/);
+	assert.match(src, /const isBatch = ramIsBatchOp\(op\);/);
+	// the per-card batch set lives in one place (the panel and the preset
+	// warning follow it too)
+	const helper = extractFunc(html, 'ramIsBatchOp');
+	assert.match(helper, /op === 'batch' \|\| op === 'batch-reinstall' \|\| op === 'batch-delete'/);
+	assert.match(extractFunc(html, 'ramBatchPanelVisible'), /ramIsBatchOp\(op\.value\)/);
+	assert.match(extractFunc(html, 'spPresetWarningRender'), /ramIsBatchOp\(ramOp\.value\)/);
+	assert.match(src, /const isCap = op === 'install-cap' \|\| op === 'batch';/);
+	assert.match(src, /const isDelete = op === 'batch-delete';/);
 	assert.match(src, /setHidden\('ram-preset-cell', isBatch\)/);
 	assert.match(src, /setHidden\('ram-exec-btn', isBatch\)/);
 	assert.match(src, /setHidden\('ram-batch-panel', !isBatch\)/);
+	assert.match(src, /setHidden\('ram-delete-rows', !isDelete\)/);
+	assert.match(src, /setHidden\('ram-del-package-row', !isCap\)/);
 	assert.match(src, /if \(isBatch\) ramBatchFetch\(\);/);
 	// the preset warning does not apply to the per-card resolution
 	const warn = extractFunc(html, 'spPresetWarningRender');
@@ -362,6 +375,104 @@ test('a stale fetch guard is released so the report recovers (v3.28.7)', async (
 	await new Promise(r => setImmediate(r));
 	assert.deepStrictEqual(app.fetched, []);
 	app.resetFetching();
+});
+
+test('the batch group carries the three operations (v3.29.0)', () => {
+	assert.match(html, /<optgroup label="Batch \(per card\)" data-l10n="Batch \(per card\)">/);
+	assert.match(html, /<option value="batch" data-l10n="Batch install \(\.cap file, per card\)">/);
+	assert.match(html, /<option value="batch-reinstall" data-l10n="Batch reinstall app \(per card\)">/);
+	assert.match(html, /<option value="batch-delete" data-l10n="Batch delete \(per card\)">/);
+	// the group sits at the end of the operation list
+	const sel = /<select id="ram-op"[\s\S]*?<\/select>/.exec(html)[0];
+	assert.ok(sel.indexOf('value="batch-delete"') > sel.indexOf('value="make-selectable"'));
+	// the batch delete fields and the delete-package option exist
+	assert.match(html, /id="ram-del-aid"/);
+	assert.match(html, /id="ram-del-target"/);
+	assert.match(html, /id="ram-del-package"/);
+	assert.match(html, /'Batch reinstall app \(per card\)': /);
+	assert.match(html, /'Batch delete \(per card\)': /);
+	assert.match(html, /'Deleted': /);
+	assert.match(html, /'Reinstalled': /);
+});
+
+test('ramBatchStart sends the kind-specific body (v3.29.0)', async () => {
+	// the delete kind: the AID and the target
+	clearEls();
+	setEl('ram-op', 'batch-delete');
+	setEl('ram-del-aid', 'f0414c4641610101');
+	setEl('ram-del-target', 'package');
+	app.fetched = [];
+	await app.ramBatchStart();
+	assert.deepStrictEqual(app.bodies['/api/ram-batch/start'],
+		{ kind: 'delete', aid: 'F0414C4641610101', target: 'package', ram_format: 'auto' });
+	// a short/odd AID is refused before anything is sent
+	clearEls();
+	setEl('ram-op', 'batch-delete');
+	setEl('ram-del-aid', 'F041');
+	setEl('ram-del-target', 'app');
+	app.fetched = [];
+	app.alerts = [];
+	await app.ramBatchStart();
+	assert.deepStrictEqual(app.fetched, []);
+	assert.match(app.alerts.join(' '), /5-16 bytes/);
+	// the reinstall kind: the install-app fields, no .cap
+	clearEls();
+	setEl('ram-op', 'batch-reinstall');
+	setEl('ram-app-loadfile', 'f0414c46416101');
+	setEl('ram-app-module', 'f0414c4641610101');
+	setEl('ram-app-instance', '');
+	setEl('rc-priv', '00');
+	setEl('rc-toolkit-enable', '');
+	setEl('ram-make-sel', '');
+	app.fetched = [];
+	await app.ramBatchStart();
+	const body = app.bodies['/api/ram-batch/start'];
+	assert.strictEqual(body.kind, 'reinstall-app');
+	assert.strictEqual(body.loadfile_aid, 'F0414C46416101');
+	assert.strictEqual(body.module_aid, 'F0414C4641610101');
+	assert.strictEqual(body.install_params, 'C900');
+	// the cap kind carries the delete-package flag (the shared field builder)
+	assert.match(extractFunc(html, 'ramInstallCapFields'),
+		/delete_package: !!\(document\.getElementById\('ram-del-package'\) \|\| \{\}\)\.checked/);
+});
+
+test('the batch panel labels follow the run kind (v3.29.0)', () => {
+	clearEls();
+	setEl('ram-op', 'batch-delete');
+	setEl('ram-batch-panel', '');
+	setEl('ram-batch-start', '');
+	setEl('ram-batch-stop', '');
+	setEl('ram-batch-state', '');
+	setEl('ram-batch-notice', '');
+	setEl('ram-batch-counts', '');
+	setEl('ram-batch-attempts', '');
+	setEl('ram-batch-clear', '');
+	setEl('ram-batch-spin', '');
+	app.setLast({ kind: 'delete', active: true, phase: 'installing', attempts: [],
+		counts: { installed: 2, failed: 0, skipped: 0 }, attempts_total: 2,
+		current: { iccid: '8970119000004600098' } });
+	app.ramBatchRender();
+	assert.match(els['ram-batch-state'].textContent, /Deleting\.\.\. 8970119000004600098/);
+	assert.match(els['ram-batch-counts'].textContent, /Deleted: 2/);
+	app.setLast({ kind: 'reinstall-app', active: true, phase: 'waiting_card',
+		attempts: [], counts: {}, attempts_total: 0 });
+	app.ramBatchRender();
+	assert.match(els['ram-batch-counts'].textContent, /Reinstalled: 0/);
+});
+
+test('the attempts render the per-step tail for short chains (v3.29.0)', () => {
+	const out = app.ramBatchAttemptsHtml([
+		{ iccid: '8970119000004600098', result: 'installed',
+			steps: [{ name: 'DELETE (application)', sw: '6101', ok: true },
+				{ name: 'INSTALL [for install]', sw: '6101', ok: true }] },
+		{ iccid: '8970119000004600106', result: 'installed',
+			steps: [{ name: 'DELETE (application)', sw: '6A88', ok: true, not_found: true },
+				{ name: 'INSTALL [for install]', sw: '6101', ok: true }] },
+	]);
+	assert.match(out, /DELETE \(application\) 6101 · INSTALL \[for install\] 6101/);
+	assert.match(out, /DELETE \(application\) 6A88 \(not found\)/);
+	// a long LOAD chain keeps no tail (the failing-step detail covers it)
+	assert.strictEqual(app.ramBatchStepsText({ steps: [{}, {}, {}, {}], reason: '' }), '');
 });
 
 test('the stop and clear calls hit their endpoints', async () => {

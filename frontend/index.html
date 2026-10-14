@@ -700,10 +700,14 @@
 					<select id="ram-op" onchange="ramOpChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="explore" data-l10n="Explore Card (all GP data)">Explore Card (all GP data)</option>
 						<option value="install-cap" data-l10n="Install Package (.cap file)">Install Package (.cap file)</option>
-						<option value="batch" data-l10n="Batch install (.cap file, per card)">Batch install (.cap file, per card)</option>
 						<option value="compat" data-l10n="CAP compatibility test">CAP compatibility test</option>
 						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
+						<optgroup label="Batch (per card)" data-l10n="Batch (per card)">
+							<option value="batch" data-l10n="Batch install (.cap file, per card)">Batch install (.cap file, per card)</option>
+							<option value="batch-reinstall" data-l10n="Batch reinstall app (per card)">Batch reinstall app (per card)</option>
+							<option value="batch-delete" data-l10n="Batch delete (per card)">Batch delete (per card)</option>
+						</optgroup>
 					</select>
 				</div>
 				<div class="flex-1">
@@ -729,6 +733,10 @@
 					<div id="ram-cap-body"></div>
 				</fieldset>
 			</div>
+			<label id="ram-del-package-row" class="hidden flex items-center gap-2 mb-3 text-sm text-gray-700 dark:text-slate-300">
+				<input type="checkbox" id="ram-del-package" class="rounded border-gray-300 dark:border-slate-600">
+				<span data-l10n="Delete the package before installing (with its applications)">Delete the package before installing (with its applications)</span>
+			</label>
 			<div id="ram-compat-rows" class="hidden mb-3">
 				<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3" data-l10n-title="Runs the load only as far as the block that completes the CAP's Import component: the card checks the import list there, so its answer says whether the card can satisfy it.  Nothing is installed and nothing is committed - the link gate is the real install's business.  Lines are AID=version (rewrites an import) or +AID=version (appends a synthetic import, to query the card for a package the CAP does not use).">
 					<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Import versions to test">Import versions to test</legend>
@@ -741,6 +749,16 @@
 				</fieldset>
 				<label class="block mb-1 mt-2 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="LOAD block size (1..240, default 240)">LOAD block size (1..240, default 240)</label>
 				<input id="ram-compat-block" type="number" min="1" max="240" class="w-32 font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="240">
+			</div>
+			<div id="ram-delete-rows" class="hidden mb-3">
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="AID (hex)">AID (hex)</label>
+				<input id="ram-del-aid" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="F0414C4641610101" maxlength="32">
+				<label class="block mb-1 mt-2 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Target">Target</label>
+				<select id="ram-del-target" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+					<option value="app" data-l10n="Application (instance only)">Application (instance only)</option>
+					<option value="package" data-l10n="Package (with its applications)">Package (with its applications)</option>
+				</select>
+				<div class="text-xs text-gray-400 dark:text-slate-500 mt-1" data-l10n="A package delete cascades (the load file with its modules and installed applications, P2=80).">A package delete cascades (the load file with its modules and installed applications, P2=80).</div>
 			</div>
 			<div id="ram-install-params" class="hidden mb-3">
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="SD AID (empty = ISD)">SD AID (empty = ISD)</label>
@@ -1910,7 +1928,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.28.8';
+const SIMPLE_VERSION = '3.29.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10110,14 +10128,22 @@ function ramApplyCard(idx) {
 	spPresetWarningRender();
 }
 
+// The three per-card batch operations (v3.29.0): the preset, keyset and
+// counter resolve from each card's own preset, so the preset selector, the
+// Execute button and the preset-mismatch banner do not apply.
+function ramIsBatchOp(op) {
+	return op === 'batch' || op === 'batch-reinstall' || op === 'batch-delete';
+}
+
 function ramOpChanged() {
 	const op = document.getElementById('ram-op').value;
 	if (_ramOpLast !== null && op !== _ramOpLast) ramClearResults();
 	_ramOpLast = op;
-	const isBatch = op === 'batch';
-	const isCap = op === 'install-cap' || isBatch;
+	const isBatch = ramIsBatchOp(op);
+	const isCap = op === 'install-cap' || op === 'batch';
 	const isCompat = op === 'compat';
-	const isApp = op === 'install-app' || op === 'make-selectable';
+	const isApp = op === 'install-app' || op === 'make-selectable' || op === 'batch-reinstall';
+	const isDelete = op === 'batch-delete';
 	const setHidden = (id, hidden) => {
 		const el = document.getElementById(id);
 		if (el) el.classList.toggle('hidden', hidden);
@@ -10126,6 +10152,8 @@ function ramOpChanged() {
 	setHidden('ram-cap-rows', !(isCap || isCompat));
 	setHidden('ram-compat-rows', !isCompat);
 	setHidden('ram-app-rows', !isApp);
+	setHidden('ram-delete-rows', !isDelete);
+	setHidden('ram-del-package-row', !isCap);
 	// The batch resolves the preset per card (by ICCID): its selector and the
 	// single-card Execute button do not apply, and the batch panel takes over.
 	setHidden('ram-preset-cell', isBatch);
@@ -10164,7 +10192,7 @@ const RAM_BATCH_FETCH_STALE_MS = 10000;
 function ramBatchPanelVisible() {
 	const op = document.getElementById('ram-op');
 	return isViewVisible('tab-scp80') && isViewVisible('scp80-sub-ram')
-		&& !!op && op.value === 'batch';
+		&& !!op && ramIsBatchOp(op.value);
 }
 
 async function ramBatchFetch() {
@@ -10218,6 +10246,13 @@ function ramBatchRender() {
 		_ramBatchLast || {}, _ramBatchSummary || {});
 	const active = !!st.active;
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
+	// The success labels follow the operation (v3.29.0): the counts bucket is
+	// 'installed' for every kind - "the operation succeeded".
+	const kind = st.kind || 'install-cap';
+	const okLabel = kind === 'delete' ? t('Deleted')
+		: (kind === 'reinstall-app' ? t('Reinstalled') : t('Installed'));
+	const actLabel = kind === 'delete' ? t('Deleting...')
+		: (kind === 'reinstall-app' ? t('Reinstalling...') : t('Installing...'));
 	const startBtn = document.getElementById('ram-batch-start');
 	if (startBtn) startBtn.classList.toggle('hidden', active);
 	const stopBtn = document.getElementById('ram-batch-stop');
@@ -10240,7 +10275,7 @@ function ramBatchRender() {
 				: (phase === 'finished' ? t('Batch finished') : '');
 		} else if (phase === 'installing') {
 			const cur = st.current || {};
-			stateEl.textContent = t('Installing...') + ' ' + (cur.iccid || '')
+			stateEl.textContent = actLabel + ' ' + (cur.iccid || '')
 				+ (cur.preset ? ' \u2014 ' + cur.preset : '');
 		} else if (phase === 'stopping') {
 			stateEl.textContent = t('Stopping after the current card...');
@@ -10256,7 +10291,7 @@ function ramBatchRender() {
 	const counts = document.getElementById('ram-batch-counts');
 	if (counts) {
 		const c = st.counts || {};
-		let text = t('Installed') + ': ' + (c.installed || 0)
+		let text = okLabel + ': ' + (c.installed || 0)
 			+ ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
 			+ ' \u00b7 ' + t('Skipped') + ': ' + (c.skipped || 0);
 		if (st.attempts_total) text += ' \u00b7 ' + st.attempts_total + ' ' + t('attempts');
@@ -10276,6 +10311,17 @@ function ramBatchRender() {
 	}
 }
 
+// The per-step verdict tail of an attempt (v3.29.0): e.g.
+// "DELETE (application) 6101 · INSTALL [for install] 6101".  Only short chains
+// are rendered (the delete/reinstall kinds) - a full LOAD chain's tail would
+// be noise; anything else keeps the skip reason.
+function ramBatchStepsText(a) {
+	const steps = (a && a.steps) || [];
+	if (!steps.length || steps.length > 3) return (a && a.reason) || '';
+	return steps.map(s => s.name + (s.sw ? ' ' + s.sw : '') +
+		(s.not_found ? ' (' + t('not found') + ')' : '')).join(' \u00b7 ');
+}
+
 function ramBatchAttemptsHtml(attempts) {
 	if (!attempts.length) return '<div class="text-gray-400 dark:text-slate-500">' + esc(t('No cards processed yet.')) + '</div>';
 	let html = '<table class="w-full"><tbody>';
@@ -10288,7 +10334,7 @@ function ramBatchAttemptsHtml(attempts) {
 			: (a.result === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400');
 		const detail = a.result === 'failed'
 			? [a.failed_step, a.por_sw || a.sw || a.error].filter(Boolean).join(' \u2014 ')
-			: (a.reason || '');
+			: ramBatchStepsText(a);
 		html += '<tr class="border-b border-gray-100 dark:border-slate-800">'
 			+ '<td class="py-0.5 pr-2 text-gray-400 dark:text-slate-500 whitespace-nowrap">' + esc(when) + '</td>'
 			+ '<td class="py-0.5 pr-2 font-mono whitespace-nowrap">' + esc(a.iccid || '') + '</td>'
@@ -10321,6 +10367,7 @@ function ramInstallCapFields() {
 	const composed = ramInstallParamsCompose();
 	const body = {
 		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		delete_package: !!(document.getElementById('ram-del-package') || {}).checked,
 		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
 		install_params: composed.install_params,
 		stk_params: composed.stk_params,
@@ -10337,17 +10384,50 @@ function ramInstallCapFields() {
 }
 
 async function ramBatchStart() {
-	if (!capGateOk('ram')) { alert(t('Analyze the CAP file first')); return; }
-	const fileInput = document.getElementById('ram-cap-file');
-	const file = fileInput.files[0];
-	if (!file) { alert(t('Select a .cap file')); return; }
-	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
-	const fields = ramInstallCapFields();
-	if (!fields) return;
+	// The operation selects the batch kind (v3.29.0): the .cap install, the
+	// applet reinstall (no .cap - the package is loaded) or a GP delete.  The
+	// server builds and validates the plan once at Start.
+	const op = document.getElementById('ram-op').value;
+	const clean = id => (document.getElementById(id).value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	let fields;
+	if (op === 'batch-delete') {
+		const aid = clean('ram-del-aid');
+		if (!/^(?:[0-9A-F]{2}){5,16}$/.test(aid)) { alert(t('AID must be 5-16 bytes of hex')); return; }
+		fields = {kind: 'delete', aid: aid,
+			target: document.getElementById('ram-del-target').value || 'app'};
+	} else if (op === 'batch-reinstall') {
+		const loadfile = clean('ram-app-loadfile');
+		const module = clean('ram-app-module');
+		const instance = clean('ram-app-instance');
+		if (!loadfile || !module) { alert(t('Load File AID and Module AID required')); return; }
+		// The privileges and the STK hex are derived from the form, never sent
+		// stale (the same rule the single install-app follows).
+		updateRcPriv();
+		const stkEl = document.getElementById('ram-stk-params');
+		if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
+			updateStkParamsHex();
+		}
+		const composed = ramInstallParamsCompose();
+		fields = {kind: 'reinstall-app', loadfile_aid: loadfile, module_aid: module,
+			instance_aid: instance,
+			privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
+			install_params: composed.install_params, stk_params: composed.stk_params,
+			make_selectable: document.getElementById('ram-make-sel').checked};
+	} else {
+		if (!capGateOk('ram')) { alert(t('Analyze the CAP file first')); return; }
+		const fileInput = document.getElementById('ram-cap-file');
+		const file = fileInput.files[0];
+		if (!file) { alert(t('Select a .cap file')); return; }
+		if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+		fields = ramInstallCapFields();
+		if (!fields) return;
+		fields.kind = 'install-cap';
+		fields.cap_hex = await ramReadFileHex(file);
+	}
+	fields.ram_format = (document.getElementById('ram-format') || {}).value || 'auto';
 	const startBtn = document.getElementById('ram-batch-start');
 	if (startBtn) startBtn.disabled = true;
 	try {
-		fields.cap_hex = await ramReadFileHex(file);
 		_ramBatchLast = await pysimFetchOk('/api/ram-batch/start', fields);
 		_ramBatchSummary = null;
 	} catch (e) {
@@ -12312,6 +12392,12 @@ function ramStepComponents(name, components, blockSize) {
 // not a plain 9000.  With the CAP analysis at hand the line also names the
 // component the block completed (see ramStepComponents).
 function ramStepLine(s, idx, comps, blockSize) {
+	// a delete step that answered 'not found' (6A88/6A82): the object was
+	// already gone - the delete's goal is met, the chain continued (v3.29.0)
+	if (s.delete_not_found) {
+		return '\u2796 ' + t('Step') + ' ' + (idx + 1) + ': ' + s.name + ' \u2014 ' +
+			(s.por_sw ? s.por_sw + ' (' + t('not found') + ')' : t('not found'));
+	}
 	const ok = !s.por_error && (s.por_status === 'por_ok' || s.por_status === 'no_por');
 	let line = (ok ? '\u2705' : '\u274c') + ' ' + t('Step') + ' ' + (idx + 1) + ': ' +
 		s.name + ' \u2014 ';
@@ -14052,7 +14138,7 @@ function spPresetWarningRender() {
 	// The batch resolves the preset per card, so the RAM view's warning does
 	// not apply there (v3.28.0).
 	const ramOp = document.getElementById('ram-op');
-	const batchMode = !!ramOp && ramOp.value === 'batch';
+	const batchMode = !!ramOp && ramIsBatchOp(ramOp.value);
 	show('ram-preset-warning', batchMode ? '' : spPresetWarning(iccid, cards, ramPresetIdx()));
 	show('tar-preset-warning', spPresetWarning(iccid, cards, tarPresetIdx()));
 }
@@ -24442,14 +24528,29 @@ const LANG_RU = {
 	'Close': 'Закрыть',
 	'Installing package': 'Установка пакета',
 	'Batch install (.cap file, per card)': 'Пакетная установка (.cap на множество карт)',
+	'Batch (per card)': 'Пакетные операции (по картам)',
+	'Batch reinstall app (per card)': 'Пакетная переустановка приложения (по картам)',
+	'Batch delete (per card)': 'Пакетное удаление (по картам)',
+	'AID (hex)': 'AID (hex)',
+	'Target': 'Цель',
+	'Application (instance only)': 'Приложение (только экземпляр)',
+	'Package (with its applications)': 'Пакет (с его приложениями)',
+	'A package delete cascades (the load file with its modules and installed applications, P2=80).': 'Удаление пакета каскадное (load-файл с его модулями и установленными приложениями, P2=80).',
+	'Delete the package before installing (with its applications)': 'Удалить пакет перед установкой (с его приложениями)',
+	'AID must be 5-16 bytes of hex': 'AID должен быть 5-16 байт hex',
+	'not found': 'не найдено',
 	'Start batch': 'Запустить пакетную установку',
 	'Stopping...': 'Остановка…',
 	'Batch stopped': 'Пакетная установка остановлена',
 	'Batch finished': 'Пакетная установка завершена',
 	'Installing...': 'Установка…',
+	'Deleting...': 'Удаление…',
+	'Reinstalling...': 'Переустановка…',
 	'Stopping after the current card...': 'Остановка после текущей карты…',
 	'Insert next card. Waiting for a card...': 'Вставьте следующую карту. Ожидание карты…',
 	'Installed': 'Установлено',
+	'Deleted': 'Удалено',
+	'Reinstalled': 'Переустановлено',
 	'Skipped': 'Пропущено',
 	'attempts': 'попыток',
 	'No cards processed yet.': 'Карты ещё не обрабатывались.',
@@ -24794,7 +24895,10 @@ function setHelpAnchor(anchor) {
 function translatePage() {
 	document.querySelectorAll('[data-l10n]').forEach(el => {
 		const key = el.getAttribute('data-l10n');
-		el.textContent = t(key);
+		// an optgroup's label is an attribute: setting its textContent would
+		// not change what the select renders
+		if (el.tagName === 'OPTGROUP') el.label = t(key);
+		else el.textContent = t(key);
 	});
 	// static tooltips (the data-l10n-title attribute; the html test checks
 	// those keys against LANG_RU together with the data-l10n ones)
