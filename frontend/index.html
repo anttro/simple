@@ -1613,6 +1613,7 @@
 			<button id="cards-new-btn" onclick="cardsNew()" class="px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 whitespace-nowrap" data-l10n="Add preset">Add preset</button>
 			<button onclick="cardsExportFile()" class="px-3 py-2 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Export to file">Export to file</button>
 			<button onclick="document.getElementById('cards-file').click()" class="px-3 py-2 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Import from file">Import from file</button>
+			<button onclick="cardsOutfilePick()" class="px-3 py-2 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Import outfile">Import outfile</button>
 		</div>
 		<div id="cards-list" class="overflow-x-auto">
 			<table class="w-full text-sm">
@@ -1628,7 +1629,9 @@
 			</table>
 		</div>
 		<input type="file" id="cards-file" accept=".json,application/json" class="hidden" onchange="cardsImportFile(this)">
+		<input type="file" id="cards-outfile" accept=".out,.txt,text/plain" class="hidden" onchange="cardsOutfileFile(this)">
 		<div id="cards-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
+		<div id="cards-outfile-panel" class="hidden mt-3 p-3 border border-gray-200 dark:border-slate-700 rounded"></div>
 		</div>
 
 		<!-- ===== preset editor ===== -->
@@ -1892,7 +1895,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.26.0';
+const SIMPLE_VERSION = '3.27.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -14155,7 +14158,13 @@ function cardsRebuildSelect() {
 function cardsNormIccid(v) {
 	let s = String(v == null ? '' : v).trim().toUpperCase().replace(/[\s-]/g, '');
 	if (!s) return '';
-	if (/[A-F]/.test(s)) s = decIccid(s);   // raw EF content (nibble-swapped)
+	// The trailing F (or Fs) is the odd-nibble padding: when the rest is
+	// digits only the value is the plain digit form (the vendors' outfiles
+	// print it that way); otherwise it is the raw nibble-swapped EF content.
+	// A raw value never ends in F, so the rule is unambiguous (v3.27.0).
+	const stripped = s.replace(/F+$/, '');
+	if (/[A-F]/.test(stripped)) s = decIccid(s);   // raw EF content (nibble-swapped)
+	else s = stripped;
 	return String(s || '').replace(/\D/g, '').replace(/^0+/, '');
 }
 
@@ -14510,6 +14519,292 @@ function cardsImportFile(input) {
 	const reader = new FileReader();
 	reader.onload = () => cardsImport(reader.result);
 	reader.readAsText(file);
+}
+
+// ===== outfile import (v3.27.0) =====
+// A card vendor's outfile carries many cards (ICCID + KIc/KID keys + optional
+// PIN/PUK/ADM/PSK).  The server parses it (a dry run) and the panel below
+// shows the preview plus the controls: the common name, the 16-byte key
+// algorithm, the TAR table and its one global default keyset - the final call
+// imports with a mode.
+let _cardsOutfile = null;      // {text, file, name, algorithm16, tarKeyset, mode, preview}
+let _cardsOutfileTars = 0;     // the free TAR rows of the panel
+
+function cardsOutfilePick() {
+	const el = document.getElementById('cards-outfile');
+	if (!el) return;
+	el.value = '';
+	el.click();
+}
+
+async function cardsOutfileFile(input) {
+	const file = input && input.files && input.files[0];
+	if (input) input.value = '';
+	if (!file) return;
+	let text = '';
+	try {
+		text = await file.text();
+	} catch (e) {
+		alert(t('Cannot read the file') + ': ' + e.message);
+		return;
+	}
+	_cardsOutfile = { text: text, file: String(file.name || ''),
+		name: String(file.name || '').replace(/\.[^.]+$/, ''),
+		algorithm16: '3des2', tarKeyset: null, mode: 'merge', preview: null };
+	_cardsOutfileTars = 0;
+	cardsOutfileRender();
+	await cardsOutfilePreview();
+}
+
+function cardsOutfileClose() {
+	_cardsOutfile = null;
+	_cardsOutfileTars = 0;
+	const panel = document.getElementById('cards-outfile-panel');
+	if (panel) {
+		panel.innerHTML = '';
+		panel.classList.add('hidden');
+	}
+}
+
+// Read the panel's controls back into the state (called before any re-render).
+function cardsOutfileControls() {
+	const o = _cardsOutfile;
+	if (!o) return;
+	const val = id => { const el = document.getElementById(id); return el ? String(el.value) : ''; };
+	if (document.getElementById('cards-of-name')) o.name = val('cards-of-name').trim();
+	if (document.getElementById('cards-of-algo')) o.algorithm16 = val('cards-of-algo') || '3des2';
+	if (document.getElementById('cards-of-mode')) {
+		o.mode = val('cards-of-mode') === 'replace' ? 'replace' : 'merge';
+	}
+	const ks = parseInt(val('cards-of-keyset'), 10);
+	if (Number.isInteger(ks) && ks > 0) o.tarKeyset = ks;
+}
+
+// The TAR table as the panel shows it: the three role rows (their defaults
+// when a field is empty) plus the free rows - the re-render source for
+// Add/Remove, so a typed value is never lost.
+function cardsOutfileTarsFromDom() {
+	const get = id => {
+		const el = document.getElementById(id);
+		return el ? String(el.value).trim() : '';
+	};
+	const out = CARDS_TAR_ROLES.map((role, i) => ({
+		role: role,
+		tar: get('cards-of-tar-' + i + '-tar').replace(/\s/g, '').toUpperCase(),
+		msl: get('cards-of-tar-' + i + '-msl').replace(/\s/g, '').toUpperCase(),
+		desc: '',
+	}));
+	for (let i = 0; i < _cardsOutfileTars; i++) {
+		const idx = CARDS_TAR_ROLES.length + i;
+		out.push({ tar: get('cards-of-tar-' + idx + '-tar').replace(/\s/g, '').toUpperCase(),
+			msl: get('cards-of-tar-' + idx + '-msl').replace(/\s/g, '').toUpperCase(),
+			desc: get('cards-of-tar-' + idx + '-desc') });
+	}
+	return out;
+}
+
+// The TAR table as the preview sends it: the role defaults fill an emptied
+// field, a fully empty free row is dropped; every entry gets the global
+// default keyset server-side.
+function cardsOutfileTarsFromForm() {
+	const rows = cardsOutfileTarsFromDom();
+	const out = [];
+	for (let i = 0; i < rows.length; i++) {
+		const e = rows[i];
+		if (e.role) {
+			out.push({ role: e.role, tar: e.tar || cardsRoleDefault(e.role),
+				msl: e.msl || CARDS_MSL_DEFAULT, desc: '' });
+		} else if (e.tar || e.msl || e.desc) {
+			out.push(e);
+		}
+	}
+	return out;
+}
+
+function cardsOutfileTarRowHtml(e, i) {
+	const cls = 'border border-gray-300 dark:border-slate-600 text-xs rounded px-1.5 py-0.5 dark:bg-slate-800 font-mono';
+	const role = CARDS_TAR_ROLES[i] || '';
+	let html = '<div class="flex flex-wrap items-center gap-1.5 mb-1">';
+	html += '<input id="cards-of-tar-' + i + '-tar" class="w-24 ' + cls + '" maxlength="6" placeholder="TAR" value="' + escHtml(e.tar || '') + '">';
+	html += '<input id="cards-of-tar-' + i + '-msl" class="w-14 ' + cls + '" maxlength="2" placeholder="MSL" value="' + escHtml(e.msl || '') + '">';
+	if (role) {
+		html += '<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(CARDS_TAR_ROLE_DESC[role] || role) + '</span>';
+	} else {
+		html += '<input id="cards-of-tar-' + i + '-desc" class="flex-1 min-w-24 ' + cls + '" placeholder="' + esc(t('Description (optional)')) + '" value="' + escHtml(e.desc || '') + '">';
+		html += '<button type="button" onclick="cardsOutfileTarRemove(' + i + ')" class="text-red-400 hover:text-red-600 text-xs px-1">\u2715</button>';
+	}
+	return html + '</div>';
+}
+
+function cardsOutfileTarRowsHtml() {
+	const rows = cardsOutfileTarsFromDom();
+	_cardsOutfileTars = Math.max(rows.length - CARDS_TAR_ROLES.length, 0);
+	const shown = CARDS_TAR_ROLES.map((role, i) => ({
+		role: role,
+		tar: rows[i].tar || cardsRoleDefault(role),
+		msl: rows[i].msl || CARDS_MSL_DEFAULT,
+	}));
+	for (let i = 0; i < _cardsOutfileTars; i++) shown.push(rows[CARDS_TAR_ROLES.length + i]);
+	return shown.map((e, i) => cardsOutfileTarRowHtml(e, i)).join('');
+}
+
+function cardsOutfileTarAdd() {
+	const rows = cardsOutfileTarsFromDom();
+	rows.push({ tar: '', msl: '', desc: '' });
+	cardsOutfileTarRender(rows);
+}
+
+function cardsOutfileTarRemove(i) {
+	if (i < CARDS_TAR_ROLES.length) return;
+	const rows = cardsOutfileTarsFromDom();
+	rows.splice(i, 1);
+	cardsOutfileTarRender(rows);
+}
+
+// A local re-render of the TAR rows only (the controls around them keep
+// their values, so the preview is not re-run on every Add/Remove).
+function cardsOutfileTarRender(rows) {
+	const box = document.getElementById('cards-of-tars');
+	if (!box) return;
+	_cardsOutfileTars = Math.max((rows || []).length - CARDS_TAR_ROLES.length, 0);
+	const shown = CARDS_TAR_ROLES.map((role, i) => ({
+		role: role,
+		tar: (rows && rows[i] && rows[i].tar) || cardsRoleDefault(role),
+		msl: (rows && rows[i] && rows[i].msl) || CARDS_MSL_DEFAULT,
+	}));
+	for (let i = 0; i < _cardsOutfileTars; i++) shown.push(rows[CARDS_TAR_ROLES.length + i]);
+	box.innerHTML = shown.map((e, i) => cardsOutfileTarRowHtml(e, i)).join('');
+}
+
+// The keyset numbers the parsed cards carry (the global default's options).
+function cardsOutfileKeysets() {
+	const out = [];
+	(((_cardsOutfile || {}).preview || {}).presets || []).forEach(c => {
+		(c.keysets || []).forEach(ks => {
+			const v = spKeysetKvnOf(ks.kic);
+			if (v !== null && !out.includes(v)) out.push(v);
+		});
+	});
+	return out.sort((a, b) => a - b);
+}
+
+function cardsOutfileResultHtml() {
+	const p = (_cardsOutfile || {}).preview;
+	if (!p) return '<div class="text-xs text-gray-400 dark:text-slate-500">' + esc(t('Parsing...')) + '</div>';
+	const rep = p.report || {};
+	let html = '<div class="mt-2 text-xs text-gray-600 dark:text-slate-400">';
+	if ((rep.columns || []).length) {
+		html += esc(t('Columns')) + ': <span class="font-mono">' + esc(rep.columns.join(' ')) + '</span><br>';
+	}
+	html += esc(t('Cards')) + ': ' + (rep.cards || 0) + ' / ' + esc(t('rows read')) + ': ' + (rep.rows || 0);
+	if ((rep.keysets || []).length) {
+		html += ' &middot; ' + esc(t('Keysets')) + ': <span class="font-mono">' + esc(rep.keysets.join(', ')) + '</span>';
+	}
+	html += '<br>';
+	if (rep.error) {
+		html += '<span class="text-red-600 dark:text-red-400">' + esc(rep.error) + '</span><br>';
+	}
+	if ((rep.skipped || []).length || rep.skipped_more) {
+		html += '<span class="text-amber-600 dark:text-amber-400">' + esc(t('skipped')) + ': ' +
+			esc((rep.skipped || []).join('; ')) +
+			(rep.skipped_more ? ' (+' + rep.skipped_more + ')' : '') + '</span>';
+	}
+	html += '</div>';
+	if ((p.presets || []).length) {
+		html += '<div class="mt-1 max-h-48 overflow-y-auto border border-gray-200 dark:border-slate-700 rounded"><table class="w-full text-xs">';
+		for (const c of p.presets) {
+			const ks = (c.keysets || []).map(k => esc(k.kic || '?') + '/' + esc(k.kid || '?')).join(' ');
+			const codes = [c.pin1 ? 'PIN1' : '', c.puk1 ? 'PUK1' : '',
+				c.adm ? 'ADM' : '', c.pskKey ? 'PSK' : ''].filter(Boolean).join(' ');
+			html += '<tr class="border-b border-gray-100 dark:border-slate-800">' +
+				'<td class="py-0.5 px-2 font-mono">' + esc(c.iccid) + '</td>' +
+				'<td class="py-0.5 px-2 font-mono text-gray-500 dark:text-slate-400">' + ks + '</td>' +
+				'<td class="py-0.5 px-2 text-gray-500 dark:text-slate-400">' + esc(codes) + '</td></tr>';
+		}
+		html += '</table></div>';
+	}
+	return html;
+}
+
+function cardsOutfileRender() {
+	const panel = document.getElementById('cards-outfile-panel');
+	const o = _cardsOutfile;
+	if (!panel || !o) return;
+	const keysets = cardsOutfileKeysets();
+	const selected = keysets.includes(o.tarKeyset) ? o.tarKeyset : (keysets[0] || null);
+	o.tarKeyset = selected;
+	let html = '<div class="flex items-center justify-between mb-2">';
+	html += '<span class="text-sm font-semibold">' + esc(t('outfile import')) +
+		': <span class="font-mono text-xs">' + esc(o.file || '') + '</span></span>';
+	html += '<button type="button" onclick="cardsOutfileClose()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700">' + esc(t('Close')) + '</button>';
+	html += '</div>';
+	html += '<div class="flex flex-wrap items-end gap-3 mb-2">';
+	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Common name')) +
+		'<input id="cards-of-name" class="block mt-0.5 w-48 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800" value="' + escHtml(o.name || '') + '"></label>';
+	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('16-byte keys')) +
+		'<select id="cards-of-algo" onchange="cardsOutfilePreview()" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
+		'<option value="3des2"' + (o.algorithm16 === 'aes' ? '' : ' selected') + '>3DES2</option>' +
+		'<option value="aes"' + (o.algorithm16 === 'aes' ? ' selected' : '') + '>AES</option></select></label>';
+	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Default keyset for the TARs')) +
+		'<select id="cards-of-keyset" onchange="cardsOutfilePreview()" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
+		(keysets.length ? keysets.map(v => '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(t('Keyset') + ' ' + v) + '</option>').join('')
+			: '<option value="">\u2014</option>') +
+		'</select></label>';
+	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Import mode')) +
+		'<select id="cards-of-mode" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
+		'<option value="merge"' + (o.mode === 'replace' ? '' : ' selected') + '>' + esc(t('Merge')) + '</option>' +
+		'<option value="replace"' + (o.mode === 'replace' ? ' selected' : '') + '>' + esc(t('Replace')) + '</option></select></label>';
+	html += '</div>';
+	html += '<div class="text-xs text-gray-600 dark:text-slate-400 mb-1">' + esc(t('TAR table')) + '</div>';
+	html += '<div id="cards-of-tars">' + cardsOutfileTarRowsHtml() + '</div>';
+	html += '<button type="button" onclick="cardsOutfileTarAdd()" class="mb-1 text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('TAR')) + '</button>';
+	html += cardsOutfileResultHtml();
+	html += '<div class="flex gap-2 mt-2">';
+	html += '<button type="button" id="cards-of-import" onclick="cardsOutfileImport()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40">' + esc(t('Import')) + '</button>';
+	html += '<button type="button" onclick="cardsOutfilePreview()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700">' + esc(t('Refresh preview')) + '</button>';
+	html += '</div>';
+	panel.innerHTML = html;
+	panel.classList.remove('hidden');
+}
+
+async function cardsOutfilePreview() {
+	const o = _cardsOutfile;
+	if (!o) return;
+	cardsOutfileControls();
+	const body = {
+		text: o.text, name: o.name, algorithm16: o.algorithm16,
+		tars: cardsOutfileTarsFromForm(),
+	};
+	if (o.tarKeyset) body.tar_keyset = o.tarKeyset;
+	try {
+		o.preview = await pysimFetchOk('/api/presets/import-outfile', body);
+	} catch (e) {
+		o.preview = { report: { error: e.message } };
+	}
+	cardsOutfileRender();
+}
+
+async function cardsOutfileImport() {
+	const o = _cardsOutfile;
+	if (!o) return;
+	cardsOutfileControls();
+	const btn = document.getElementById('cards-of-import');
+	if (btn) btn.disabled = true;
+	const body = {
+		text: o.text, name: o.name, algorithm16: o.algorithm16,
+		tars: cardsOutfileTarsFromForm(), mode: o.mode,
+	};
+	if (o.tarKeyset) body.tar_keyset = o.tarKeyset;
+	try {
+		const res = await pysimFetchOk('/api/presets/import-outfile', body);
+		await cardsFetch();
+		ioStatus('cards-io', 'Imported ' + res.added + ' cards'
+			+ (res.skipped ? ' (' + res.skipped + ' skipped)' : '') + '.');
+		cardsOutfileClose();
+	} catch (e) {
+		alert('Import error: ' + e.message);
+		if (btn) btn.disabled = false;
+	}
 }
 
 // ===== pysim sub-tabs =====
@@ -22975,6 +23270,21 @@ const LANG_RU = {
 	'Add': 'Добавить',
 	'Export to file': 'Экспорт в файл',
 	'Import from file': 'Импорт из файла',
+	'Import outfile': 'Импорт outfile',
+	'Cannot read the file': 'Не удалось прочитать файл',
+	'Parsing...': 'Разбор…',
+	'Columns': 'Колонки',
+	'rows read': 'прочитано строк',
+	'Keysets': 'Keysets',
+	'outfile import': 'Импорт outfile',
+	'Common name': 'Общее имя',
+	'16-byte keys': '16-байтные ключи',
+	'Default keyset for the TARs': 'Keyset по умолчанию для TAR',
+	'Import mode': 'Режим импорта',
+	'Merge': 'Дополнить',
+	'Replace': 'Заменить',
+	'TAR table': 'Таблица TAR',
+	'Refresh preview': 'Обновить предпросмотр',
 	'Name': 'Имя',
 	'ICCID': 'ICCID',
 	'Cntr': 'Сч',
@@ -24234,6 +24544,8 @@ function refreshDynamicI18n() {
 	if (isViewVisible('tab-cards')) {
 		cardsRender();
 		cardsSetFormMode();
+		// the outfile preview panel is built with t() strings too (v3.27.0)
+		if (_cardsOutfile) { cardsOutfileControls(); cardsOutfileRender(); }
 		// the editor's dynamic rows carry t() strings (placeholders, titles):
 		// rebuild them from what is typed, not from the defaults
 		if (isViewVisible('cards-editor-view')) {

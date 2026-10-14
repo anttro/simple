@@ -66,6 +66,14 @@ class IccidNormalisationTests(unittest.TestCase):
         self.assertEqual(presets.normalize_iccid('980711090000640090F8'), DIGITS)
         self.assertEqual(presets._swap_nibbles('123'), '21F3')
 
+    def test_the_outfile_digits_f_form_normalises(self):
+        # the vendors' outfiles print the ICCID as digits + an odd-nibble F
+        # pad (v3.27.0) - not the raw EF form (which never ends in F)
+        self.assertEqual(presets.normalize_iccid(DIGITS + 'F'), DIGITS)
+        self.assertEqual(presets.normalize_iccid(DIGITS + 'FF'), DIGITS)
+        self.assertEqual(presets.normalize_iccid(DIGITS.lower() + 'f'), DIGITS)
+        self.assertEqual(presets.normalize_iccid('FFFF'), '')
+
 
 class CounterTests(unittest.TestCase):
     def test_counter_hex_is_the_fixed_width_protocol_form(self):

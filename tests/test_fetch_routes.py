@@ -903,6 +903,59 @@ class PresetStoreHttpTests(unittest.TestCase):
         status, resp = self._post('/api/presets/import', {'presets': 'nope'})
         self.assertEqual(status, 400, resp)
 
+    def test_the_outfile_import_previews_and_imports(self):
+        text = ('var_out:IMSI ICCID KIC1 KID1\n'
+                '250197700000000 8970119000004600098F 00112233445566778899AABBCCDDEEFF '
+                'FFEEDDCCBBAA99887766554433221100\n')
+        # the dry run parses and saves nothing
+        status, resp = self._post('/api/presets/import-outfile', {'text': text})
+        self.assertEqual(status, 200, resp)
+        self.assertTrue(resp['preview'])
+        self.assertEqual(len(resp['presets']), 1)
+        self.assertEqual(resp['presets'][0]['iccid'], '8970119000004600098')
+        self.assertEqual(self.store.list(), [])
+        # the options: the common name, the 16-byte algorithm, the TAR table
+        # and its global default keyset
+        tars = [{'role': 'isd', 'tar': '000000', 'msl': '16'},
+                {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'},
+                {'tar': 'B00011', 'msl': '0A', 'desc': 'push'}]
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'name': 'Batch 1', 'algorithm16': 'aes',
+            'tars': tars, 'tar_keyset': 1})
+        self.assertEqual(status, 200, resp)
+        p = resp['presets'][0]
+        self.assertEqual(p['name'], 'Batch 1')
+        self.assertEqual(p['keysets'][0]['kic'], '12')   # the AES nibble
+        self.assertEqual(len(p['tars']), 4)
+        self.assertTrue(all(t['keyset'] == 1 for t in p['tars']))
+        # the import itself, then a duplicate ICCID is skipped and reported
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'name': 'Batch 1', 'mode': 'merge'})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 1)
+        self.assertFalse(resp['preview'])
+        self.assertEqual(len(self.store.list()), 1)
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'name': 'Batch 1', 'mode': 'merge'})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['added'], 0)
+        self.assertEqual(resp['skipped'], 1)
+        self.assertTrue(resp['errors'])
+        # bad input: no text, a file without the column line, a malformed TAR
+        # table and an out-of-range keyset number
+        status, resp = self._post('/api/presets/import-outfile', {})
+        self.assertEqual(status, 400, resp)
+        status, resp = self._post('/api/presets/import-outfile', {'text': 'banner only'})
+        self.assertEqual(status, 200, resp)
+        self.assertIn('column-name line', resp['report']['error'])
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'tars': [{'tar': 'ZZ', 'msl': '16'}]})
+        self.assertEqual(status, 400, resp)
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'tar_keyset': 99})
+        self.assertEqual(status, 400, resp)
+
     def test_the_counter_an_operation_accepted_is_persisted(self):
         p = self.store.add(self._preset(iccid='8970119000004600098'))
         patches = [

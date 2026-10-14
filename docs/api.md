@@ -36,6 +36,7 @@ a 3.x PWA).
 | `/api/presets/update` | POST | Update a preset (`{id, fields}`; the counter may be raised) |
 | `/api/presets/delete` | POST | Delete a preset (`{id}`) |
 | `/api/presets/import` | POST | Import presets (`{presets: [...], mode: merge\|replace}`) |
+| `/api/presets/import-outfile` | POST | Import a card vendor's **outfile** (`{text, name?, algorithm16?, tars?, tar_keyset?, mode?}`; without `mode` a dry-run preview) |
 | `/api/tar-probe` | POST | Probe the card's registered OTA applications (one secured packet per TAR, TS 101 220 Annex D) |
 | `/api/counter-probe` | POST | Bounded counter sync: probe increasing counter values (start+1, +2, +4, …) with a read-only command until the card accepts one (ceiling/attempt-capped), then persist accepted+1 |
 | `/api/esim/chip` | GET | eUICC chip details (EID, EUICCInfo1/2, configured addresses) |
@@ -278,8 +279,9 @@ import also accepts presets exported by the older localStorage-based builds.
 - `GET /api/presets` — `{"path": "…", "count": 2, "version": 5, "presets": [{…}]}`
   (card-free: it answers while a long card operation runs).
 - `POST /api/presets` — body = the preset fields (`keysets` included); returns
-  `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced or raw EF
-  hex are normalised to one form) is refused with
+  `{"ok": true, "preset": {…}}`.  A duplicate ICCID (digits, spaced digits,
+  digits with the odd-nibble F pad, or raw EF hex — all normalised to one
+  form) is refused with
   `400 {"error": "card with this ICCID already exists: …"}`.
 - `POST /api/presets/update` — `{"id": "…", "fields": {…}}` (partial update;
   a plain `{id, name, …}` body works too, `keysets` replaces the list and
@@ -290,6 +292,70 @@ import also accepts presets exported by the older localStorage-based builds.
 - `POST /api/presets/import` — `{"presets": […], "mode": "merge"}` (or
   `"replace"`) → `{"ok": true, "added": N, "skipped": M, "errors": […]}`;
   invalid entries and duplicates are skipped and reported, never fatal.
+
+### `POST /api/presets/import-outfile`
+
+Import many cards at once from a card vendor's **outfile** (v3.27.0).  An
+outfile is the vendor personalization tool's plain-text dump: a banner and a
+configuration header (customer, batch, profile, …) followed by the actual
+data.  The data starts at a **column-name line** — whitespace-separated
+tokens that include `ICCID` (the first token may carry a `var_out:`-style
+prefix) — and continues with one whitespace-separated row per card;
+everything before the column line and every column the presets do not use is
+ignored.
+
+Without a `mode` the call is a **dry run**: the parsed presets and the report
+come back for the preview (nothing is stored).  With `mode: "merge"` /
+`"replace"` the same parse runs and the presets are imported through the
+store (`replace` wipes the store first, like `/api/presets/import`).
+
+```json
+{"text": "…", "name": "Batch 0002", "algorithm16": "3des2",
+ "tars": [{"role": "isd", "tar": "000000", "msl": "16", "desc": ""}, …],
+ "tar_keyset": 1, "mode": "merge"}
+```
+
+- `text` (required) — the outfile contents.  A file without a column line
+  answers `{"ok": true, "preview": true, "presets": [], "report": {"error":
+  "no column-name line found - …"}}` (a preview, not a `400`: the panel
+  shows the message).
+- `name` — one common name applied to every imported card; empty falls back
+  to the card's ICCID.
+- `algorithm16` — the algorithm nibble for a **16-byte** key: `"3des2"`
+  (default, KIc/KID nibble `5`) or `"aes"` (nibble `2`).  The key size alone
+  decides the others: 8 bytes → DES (`1`), 24 bytes → 3DES3 (`9`); any other
+  size skips that keyset with a report line.
+- `tars` — the TAR table every imported card gets (defaults to the three role
+  entries with their spec TARs and MSL 16).  A malformed table (a non-3-byte
+  TAR, a non-1-byte MSL, a duplicate) is refused with `400`.
+- `tar_keyset` — one **global default keyset** (1–15) written into every TAR
+  entry of every imported card.  Without it the card's first keyset is used
+  (a multi-keyset card would otherwise fail the store's "a non-zero MSL needs
+  a default keyset" rule).
+
+Recognised columns (case-insensitive): `ICCID` (the digits + odd-nibble F
+pad, the plain digits, spaced digits or the raw nibble-swapped EF hex all
+normalise to the same value), `PIN1`/`PIN2`, `PUK1`/`PUK2` (4–8 digits; an
+invalid value is dropped and reported, the card is kept), `ADM` (the ASCII
+string, hex-encoded — `3632333239463337` → `62329F37`), `PSK` (the SCP81 key,
+exactly 32 hex chars) and `KICn`/`KIDn` — one keyset per numbered pair, up to
+15.  The **KIc/KID bytes are never in the file**: the keyset number is the
+column number (`KIC2` → keyset 2) and the algorithm nibble follows the key
+size, both bytes carrying the same number (TS 102 225 §A.2).  A `PSKID` /
+`PSK_ID` column names the PSK identity; without one the card's ICCID is used
+(the identity the card sends in the ClientKeyExchange is ICCID-like).  `IMSI*`,
+`EKI` and `KIKn` (the key-management key, unused) are ignored.
+
+The response carries the parsed presets (a dry run) or the import result
+(`added`/`skipped`/`errors`) plus the `report`:
+
+```json
+{"ok": true, "preview": false, "added": 5, "skipped": 0, "errors": [],
+ "report": {"columns": ["IMSI", "ICCID", "KIC1", …], "header_lines": 11,
+            "rows": 5, "cards": 5, "keysets": ["KIC1/KID1", …], "tars": 3,
+            "skipped": ["line 4: keyset 2 has an unsupported key size (10 bytes)"],
+            "skipped_more": 0}}
+```
 
 ### `POST /api/counter-probe`
 

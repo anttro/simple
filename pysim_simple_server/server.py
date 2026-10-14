@@ -23,6 +23,7 @@ from pysim_simple_server import esim
 from pysim_simple_server import capmem
 from pysim_simple_server import testscript
 from pysim_simple_server import presets
+from pysim_simple_server import outfile
 from pysim_simple_server import test_scripts
 from pysim_simple_server import test_suites
 from pysim_simple_server import events
@@ -36,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.26.0'
+VERSION = '3.27.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -10842,6 +10843,64 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._preset_store_error(e)
                 return
             resp['ok'] = True
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/presets/import-outfile':
+            # Card vendors' outfile import (v3.27.0): without `mode` this is a
+            # dry run - the parsed presets and the report come back for the
+            # preview (the UI picks the common name, the 16-byte algorithm,
+            # the TAR table and its global default keyset first); with `mode`
+            # the same parse runs and the presets are imported.
+            body = self._read_body()
+            self._log_req(body)
+            store = self._preset_store_or_503()
+            if store is None:
+                return
+            text = body.get('text')
+            if not isinstance(text, str) or not text.strip():
+                resp = {'error': 'text is required (the outfile contents)'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            tar_keyset = body.get('tar_keyset')
+            if tar_keyset in (None, ''):
+                tar_keyset = None
+            else:
+                try:
+                    tar_keyset = int(tar_keyset)
+                except (TypeError, ValueError):
+                    tar_keyset = -1
+                if not 1 <= tar_keyset <= presets.KVN_MAX:
+                    resp = {'error': 'tar_keyset must be 1-%02X' % presets.KVN_MAX}
+                    self._send_json(resp, 400)
+                    self._log_resp(resp)
+                    return
+            try:
+                parsed = outfile.parse_outfile(
+                    text,
+                    name=str(body.get('name') or ''),
+                    algorithm16=str(body.get('algorithm16') or '3des2'),
+                    tars=body.get('tars'),
+                    tar_keyset=tar_keyset)
+            except ValueError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            mode = body.get('mode')
+            if mode not in ('merge', 'replace'):
+                resp = {'ok': True, 'preview': True,
+                        'presets': parsed['presets'], 'report': parsed['report']}
+                self._send_json(resp)
+                self._log_resp(resp)
+                return
+            try:
+                result = store.import_presets(parsed['presets'], mode)
+            except OSError as e:
+                self._preset_store_error(e)
+                return
+            resp = {'ok': True, 'preview': False, 'report': parsed['report']}
+            resp.update(result)
             self._send_json(resp)
             self._log_resp(resp)
         else:

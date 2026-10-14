@@ -132,16 +132,24 @@ def _swap_nibbles(s):
 
 def normalize_iccid(value):
     """ICCID -> plain digits, accepting every stored form (the PWA's
-    ``cardsNormIccid``): digits, spaced digits, or the raw nibble-swapped EF
-    hex - the swap applies only when the value carries A-F, because a raw
-    value without hex letters is indistinguishable from digits.  Empty string
+    ``cardsNormIccid``): digits, spaced digits, the digits with the odd-nibble
+    F padding, or the raw nibble-swapped EF hex.
+
+    The trailing F (or Fs) is the odd-nibble padding: when the rest is digits
+    only, the value is the plain digit form (the card vendors' outfiles print
+    it that way); otherwise - the rest carries A-F - it is the raw form and
+    the swap applies.  A raw EF value never ends in F (its pad nibble lands in
+    the high half of the last byte), so the rule is unambiguous.  Empty string
     means "no ICCID"."""
     s = re.sub(r'[\s-]', '', str(value or '')).upper()
     if not s:
         return ''
-    if re.search(r'[A-F]', s):
+    stripped = re.sub(r'F+$', '', s)
+    if re.search(r'[A-F]', stripped):
         s = _swap_nibbles(re.sub(r'[^0-9A-F]', '', s))
         s = re.sub(r'F+$', '', s)
+    else:
+        s = stripped
     return re.sub(r'^0+', '', re.sub(r'\D', '', s))
 
 

@@ -73,6 +73,15 @@ test('cardsNormIccid accepts digits, separators and raw EF hex', () => {
 	assert.strictEqual(cardsNormIccid(null), '');
 });
 
+test('cardsNormIccid accepts the outfile digits+F form (v3.27.0)', () => {
+	// the vendors' outfiles print the ICCID as digits + an odd-nibble F pad -
+	// not the raw EF form (which never ends in F)
+	assert.strictEqual(cardsNormIccid(DIGITS + 'F'), DIGITS);
+	assert.strictEqual(cardsNormIccid(DIGITS + 'FF'), DIGITS);
+	assert.strictEqual(cardsNormIccid(DIGITS + 'f'), DIGITS);
+	assert.strictEqual(cardsNormIccid('FFFF'), '');
+});
+
 test('cardsFindByIccid matches regardless of the stored form', () => {
 	globalThis.cards = [
 		{ name: 'A', iccid: '1111111111111111111' },
