@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.28.5'
+VERSION = '3.28.6'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1350,8 +1350,16 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
     # retrieved from this exchange (TS 31.115 4.2/4.4, v3.25.7).
     data, sw = _envelope_get_response(scc, data, sw)
     if handle_proactive and sw.startswith('91'):
+        # 91xx is the CAT success state (a proactive command is pending), not
+        # an error: run the chain, then report the exchange as successful.
+        # The GET RESPONSE above may have delivered the response packet (the
+        # PoR) in the very same answer - keep those bytes.  The old
+        # `data, sw = '', '9000'` dropped a delivered PoR whenever the card
+        # signalled a proactive command at the same time (live 2026-10-14: a
+        # DELETE answered 6113, the GET RESPONSE delivered the PoR with 9130
+        # and the operation reported 'no PoR' although the card returned one).
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
-        data, sw = '', '9000'
+        sw = '9000'
     # Late-PoR fallback: only after the last segment of a packet (a
     # concatenated download cannot have produced its PoR before the card got
     # every part, and polling mid-packet made spurious STATUS exchanges).

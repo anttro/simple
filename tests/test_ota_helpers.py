@@ -512,6 +512,23 @@ class TestEnvelopeGetResponse(unittest.TestCase):
         self.assertEqual(scc._tp.sent[1], '00c0000000')
         self.assertEqual((data, sw), ('AABB', '9000'))
 
+    def test_a_por_delivered_with_a_91xx_answer_survives_the_chain(self):
+        # v3.28.6: 91xx is the CAT success state (a proactive command is
+        # pending), not an error - and the GET RESPONSE may deliver the
+        # response packet (the PoR) in the very same answer.  The chain runs;
+        # the delivered bytes must reach the caller (the old branch cleared
+        # them: live 2026-10-14, a DELETE answered 6113, the GET RESPONSE
+        # delivered the PoR with 9130 and the operation reported no PoR).
+        import pysim_simple_server.server as srv
+        por = '027100000e0a00000000000000140000016101'
+        scc = self._scc([('', '6113'), (por, '9130')])
+        with mock.patch.object(srv, '_handle_proactive_chain') as chain:
+            data, sw = srv._send_envelope('00', scc, handle_proactive=True)
+        self.assertEqual(scc._tp.sent[1], '00c0000013')
+        self.assertEqual((data, sw), (por, '9000'))
+        self.assertTrue(chain.called)
+        self.assertEqual(chain.call_args[0][1], '9130')
+
 
 class TestDecodePor(unittest.TestCase):
     def test_plaintext_no_cc_synthetic(self):
