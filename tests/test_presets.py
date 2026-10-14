@@ -28,8 +28,20 @@ def keyset(**kw):
     return ks
 
 
+# The three role entries with their default keyset (v3.26.0) - the base for
+# the multi-keyset fixtures, where no auto-fill happens.
+ROLE_TARS = [{'role': role, 'tar': tar, 'msl': '16', 'keyset': 1}
+             for role, tar in (('isd', '000000'), ('uiccRfm', 'B00000'),
+                               ('usimRfm', 'B00001'))]
+
+
 def preset(**kw):
     p = {'name': 'C', 'keysets': [keyset()]}
+    if 'tars' not in kw:
+        # v3.26.0: the TARs carry their default keyset - the fixtures name
+        # keyset 1, so a multi-keyset preset still validates (a single-keyset
+        # one would be auto-filled anyway).
+        p['tars'] = [dict(t) for t in ROLE_TARS]
     p.update(kw)
     return p
 
@@ -174,6 +186,54 @@ class StoreCrudTests(unittest.TestCase):
         self.assertEqual(self.store.find_keyset(p['id'], 2)['cntr'], '0000000005')
         self.assertIsNone(self.store.find_keyset(p['id'], 3))
 
+    def test_a_tar_keyset_is_mandatory_for_a_nonzero_msl(self):
+        # v3.26.0: the counters are keyset-linked, so any non-zero MSL needs a
+        # default keyset; MSL 00 may omit it (the packet is built keyless) and
+        # may still carry one (some cards reject the '00/00' KIc/KID form)
+        two = [keyset(), keyset(kic='29', kid='29')]
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.add(preset(keysets=two, tars=ROLE_TARS + [
+                {'tar': 'B00011', 'msl': '16', 'desc': 'push'}]))
+        self.assertIn('needs a default keyset', str(ctx.exception))
+        p = self.store.add(preset(keysets=two, tars=ROLE_TARS + [
+            {'tar': 'B00011', 'msl': '00', 'desc': 'push'}]))
+        self.assertIsNone(p['tars'][3]['keyset'])
+        p = self.store.add(preset(keysets=two, tars=ROLE_TARS + [
+            {'tar': 'B00011', 'msl': '00', 'keyset': 1}]))
+        self.assertEqual(p['tars'][3]['keyset'], 1)
+
+    def test_a_tar_keyset_must_exist_in_the_preset(self):
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.add(preset(keysets=[keyset(), keyset(kic='29', kid='29')],
+                                  tars=ROLE_TARS + [
+                                      {'tar': 'B00011', 'msl': '16', 'keyset': 3}]))
+        self.assertIn('does not define', str(ctx.exception))
+
+    def test_a_single_keyset_fills_the_tar_defaults(self):
+        # v3.26.0: one keyset in the preset sets every TAR's default keyset
+        p = self.store.add(preset(tars=[{'tar': 'B00011', 'msl': '16'},
+                                        {'tar': 'B00012', 'msl': '00'}]))
+        self.assertTrue(all(t['keyset'] == 1 for t in p['tars']))
+        # several keysets leave an MSL 00 entry alone...
+        p = self.store.add(preset(keysets=[keyset(), keyset(kic='29', kid='29')],
+                                  tars=ROLE_TARS + [
+                                      {'tar': 'B00011', 'msl': '00'}]))
+        self.assertIsNone(p['tars'][3]['keyset'])
+        # ...and a non-zero MSL must name one explicitly
+        p = self.store.add(preset(keysets=[keyset(), keyset(kic='29', kid='29')],
+                                  tars=ROLE_TARS + [
+                                      {'tar': 'B00011', 'msl': '16', 'keyset': 2}]))
+        self.assertEqual(p['tars'][3]['keyset'], 2)
+
+    def test_tar_keyset_string_forms_and_the_helper(self):
+        p = self.store.add(preset(keysets=[keyset(), keyset(kic='29', kid='29')],
+                                  tars=ROLE_TARS + [
+                                      {'tar': 'B00011', 'msl': '16', 'keyset': '02'},
+                                      {'tar': 'B00012', 'msl': '16', 'keyset': '2'}]))
+        self.assertEqual([t['keyset'] for t in p['tars']], [1, 1, 1, 2, 2])
+        self.assertEqual(presets.tar_keyset(p, 'B00011'), 2)
+        self.assertIsNone(presets.tar_keyset(p, 'B00099'))
+
     def test_validation_requires_at_least_one_keyset(self):
         with self.assertRaises(presets.PresetError) as ctx:
             self.store.add(preset(keysets=[]))
@@ -271,11 +331,19 @@ class StoreCrudTests(unittest.TestCase):
         self.assertEqual(up['id'], p['id'])
         self.assertEqual(up['name'], 'Renamed')
         self.assertEqual(up['keysets'][0]['kic'], '15')
-        # the keysets are replaceable as a whole (the Cards tab edit path)
-        up = self.store.update(p['id'], {'keysets': [keyset(kic='29', kid='29',
+        # replacing the keysets with another number must re-point the TARs'
+        # default keysets in the same update (the Cards-form edit path)
+        with self.assertRaises(presets.PresetError) as ctx:
+            self.store.update(p['id'], {'keysets': [keyset(kic='29', kid='29',
                                                            cntr='0000000009')]})
+        self.assertIn('does not define', str(ctx.exception))
+        tars = [dict(t, keyset=2) for t in up['tars']]
+        up = self.store.update(p['id'], {'keysets': [keyset(kic='29', kid='29',
+                                                            cntr='0000000009')],
+                                         'tars': tars})
         self.assertEqual(presets.keyset_kvn(up['keysets'][0]), 2)
         self.assertEqual(up['keysets'][0]['cntr'], '0000000009')
+        self.assertTrue(all(t['keyset'] == 2 for t in up['tars']))
         self.assertIsNone(self.store.update('nope', {'name': 'x'}))
 
     def test_the_counter_must_be_hex_and_at_most_ten_digits(self):

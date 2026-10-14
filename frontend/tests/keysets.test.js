@@ -23,8 +23,9 @@ function extractFunc(src, name) {
 
 let code = '';
 for (const fn of ['spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'spCounterTracked', 'spPresetIdx', 'ramPresetIdx',
-	'tarPresetIdx', 'spKeysetSync', 'ramRender', 'esc', 'escHtml']) {
+	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'spCounterTracked', 'spPresetIdx', 'ramPresetIdx',
+	'tarPresetIdx', 'spKeysetSync', 'ramRender', 'esc', 'escHtml',
+	'cardsTarList', 'cardsTarEntry', 'cardsRoleTar']) {
 	code += extractFunc(html, fn) + '\n';
 }
 code += 'function t(s){return s;}\n';
@@ -91,20 +92,23 @@ test('spKeysetCheck enforces the keyset-number rules', () => {
 	assert.match(spKeysetCheck(PRESET, '15', 'ZZ'), /KID/);
 });
 
-test('spKeysetOptionsHtml lists the keysets and marks an undefined number', () => {
-	const html1 = spKeysetOptionsHtml(PRESET, '15', '15');
-	assert.match(html1, /value="1" selected/);
-	assert.match(html1, /value="2"/);
-	assert.ok(html1.indexOf('0000000005') > 0, 'the counters are shown');
-	// a version the preset does not define is offered but marked
-	const html2 = spKeysetOptionsHtml(PRESET, '35', '35');
-	assert.match(html2, /value="3" selected/);
-	assert.match(html2, /not defined in the preset/);
-	// a preset without keysets: the form's version shows as undefined
-	const html3 = spKeysetOptionsHtml({ keysets: [] }, '15', '15');
-	assert.match(html3, /not defined in the preset/);
-	// no keyset number in the form and no keysets at all
-	assert.match(spKeysetOptionsHtml({}, '', ''), /no keyset/);
+test('spTarKeysetGuard follows the TAR default keyset (v3.26.0)', () => {
+	const preset = Object.assign({}, PRESET, { tars: [
+		{ role: 'isd', tar: '000000', msl: '16', keyset: 1 },
+		{ role: 'uiccRfm', tar: 'B00000', msl: '16', keyset: 2 },
+		{ role: 'usimRfm', tar: 'B00001', msl: '00' },
+		{ tar: 'B00011', msl: '16', keyset: 3 }] });
+	assert.strictEqual(spTarKeysetGuard(preset, '000000'), '');
+	assert.strictEqual(spTarKeysetGuard(preset, 'B00001'), '');   // MSL 00: keyless is fine
+	// a TAR naming a keyset the preset does not define
+	assert.match(spTarKeysetGuard(preset, 'B00011'), /is not defined in the preset/);
+	// a security TAR without a default keyset
+	const noKeyset = Object.assign({}, PRESET, { tars: [
+		{ role: 'isd', tar: '000000', msl: '16' }] });
+	assert.match(spTarKeysetGuard(noKeyset, '000000'), /needs a default keyset/);
+	// a TAR outside the preset is the server's business; no preset: nothing
+	assert.strictEqual(spTarKeysetGuard(preset, 'B00099'), '');
+	assert.strictEqual(spTarKeysetGuard(null, '000000'), '');
 });
 
 test('the Cards form wires the keyset editor', () => {
@@ -117,9 +121,14 @@ test('the Cards form wires the keyset editor', () => {
 	// the keyset rows are built with the KIc/KID/key/counter inputs
 	assert.match(html, /cards-ks-' \+ i \+ '-kic-key/);
 	assert.match(html, /cards-ks-' \+ i \+ '-cntr/);
-	// the selectors exist in both SCP80 views
-	assert.match(html, /id="sp-keyset-sel" onchange="spKeysetChanged\(\)"/);
-	assert.match(html, /id="ram-keyset-sel" onchange="ramKeysetChanged\(\)"/);
+	// v3.26.0: the keyset selectors are gone - the SCP80 TAR select drives
+	// the keyset, the RAM operations use the preset's ISD entry, and the TAR
+	// table gained a keyset column
+	assert.match(html, /id="sp-tar" onchange="spTarChanged\(\)"/);
+	assert.ok(!html.includes('id="sp-keyset-sel"'));
+	assert.ok(!html.includes('id="ram-keyset-sel"'));
+	assert.ok(!html.includes('id="tar-keyset-sel"'));
+	assert.match(html, /id="cards-tr-' \+ i \+ '-keyset"/);
 	// the packet actions run the guard
 	assert.ok(html.includes('const ksErr = spKeysetGuard();'));
 	assert.ok(html.includes('const ksErr = ramKeysetGuard();'));
@@ -136,14 +145,9 @@ test('spCounterTracked follows SPI1 b5b4 (TS 102 225 5.1.1)', () => {
 	assert.strictEqual(spCounterTracked('zz'), false);
 });
 
-test('ramRender rebuilds the keyset selector from the remembered preset', () => {
-	// regression: the auto-selection runs before the RAM select has options, so
-	// its keyset list was built with no preset and stayed on "not defined"
+test('ramRender keeps the remembered preset (v3.26.0: no keyset selector)', () => {
 	const els = {
 		'ram-card-sel': { value: '', innerHTML: '', appendChild() {} },
-		'ram-keyset-sel': { value: '', innerHTML: '' },
-		'sp-keyset-sel': { value: '', innerHTML: '' },
-		'tar-keyset-sel': { value: '', innerHTML: '' },
 		'sp-kic-hex': { value: '25' },
 		'sp-kid-hex': { value: '25' },
 	};
@@ -160,9 +164,6 @@ test('ramRender rebuilds the keyset selector from the remembered preset', () => 
 	ramRender();
 	assert.strictEqual(els['ram-card-sel'].value, '0',
 		'the preset select keeps the remembered card');
-	assert.match(els['ram-keyset-sel'].innerHTML, /value="2" selected/);
-	assert.ok(!els['ram-keyset-sel'].innerHTML.includes('not defined'),
-		'the keyset selector must not show a stale "not defined" entry');
 });
 
 test('the RAM and TAR views rebuild their keyset lists when their preset is known', () => {
@@ -179,44 +180,32 @@ test('the RAM and TAR views rebuild their keyset lists when their preset is know
 	assert.ok(html.includes("if (name === 'tar') { tarRender(); tarProbeRender(); }"));
 });
 
-test('the keyset selector is disabled and cleared while no preset is selected', () => {
+test('the TAR selector waits for a preset and lists its entries', () => {
 	const els = {
-		'sp-keyset-sel': { value: '', innerHTML: '' },
-		'ram-keyset-sel': { value: '', innerHTML: '' },
-		'tar-keyset-sel': { value: '', innerHTML: '' },
+		'sp-tar': { value: '', disabled: false, innerHTML: '', options: [] },
 		'sp-card-sel': { value: '' },
-		'ram-card-sel': { value: '' },
-		'tar-card-sel': { value: '' },
-		'sp-kic-hex': { value: '' },
-		'sp-kid-hex': { value: '' },
 	};
 	globalThis.document = { getElementById: id => els[id] || null };
 	globalThis.cards = [];
-	spKeysetSync();
-	for (const id of ['sp-keyset-sel', 'ram-keyset-sel', 'tar-keyset-sel']) {
-		assert.strictEqual(els[id].disabled, true, id + ' must be disabled');
-		assert.match(els[id].innerHTML, /select a card preset/);
-		assert.ok(!els[id].innerHTML.includes('not defined'), id);
-	}
-	// a selected preset enables the selector and lists its keysets
-	globalThis.cards = [{ name: 'EP', keysets: [
-		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }] }];
+	spTarRender();
+	assert.strictEqual(els['sp-tar'].disabled, true, 'no preset: the selector waits');
+	assert.match(els['sp-tar'].innerHTML, /select a card preset/);
+	// a selected preset enables the selector and lists its TARs with their
+	// MSL and default keyset
+	globalThis.cards = [{ name: 'EP', tars: [
+		{ role: 'isd', tar: '000000', msl: '16', keyset: 1 },
+		{ tar: 'AF4D02', msl: '0A', desc: 'My applet' }] }];
 	els['sp-card-sel'].value = '0';
-	els['ram-card-sel'].value = '0';
-	els['tar-card-sel'].value = '0';
-	els['sp-kic-hex'].value = '15';
-	els['sp-kid-hex'].value = '15';
-	spKeysetSync();
-	for (const id of ['sp-keyset-sel', 'ram-keyset-sel', 'tar-keyset-sel']) {
-		assert.strictEqual(els[id].disabled, false, id + ' must be enabled');
-		assert.match(els[id].innerHTML, /value="1" selected/);
-	}
+	spTarRender();
+	assert.strictEqual(els['sp-tar'].disabled, false);
+	assert.match(els['sp-tar'].innerHTML, /value="000000"[^>]*>000000 \u00b7 ISD \u00b7 MSL 16 \u00b7 Keyset 1</);
+	assert.match(els['sp-tar'].innerHTML, /value="AF4D02"[^>]*>AF4D02 \u00b7 My applet \u00b7 MSL 0A</);
 });
 
-test('clearing the preset selection clears the keyset selectors', () => {
+test('clearing the preset selection resets the TAR selector', () => {
 	const at = html.indexOf('function cardsApply(');
 	assert.ok(at > 0);
 	const body = html.slice(at, at + 600);
-	assert.ok(body.includes('spKeysetSync();'),
-		'cardsApply must sync the keyset selectors when no preset is selected');
+	assert.ok(body.includes('spTarRender(null);'),
+		'cardsApply must reset the TAR selector when no preset is selected');
 });

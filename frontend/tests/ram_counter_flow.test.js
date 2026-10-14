@@ -35,14 +35,20 @@ for (const fn of ['berLenStr', 'ramDeleteApdu', 'ramIncrementCntr', 'ramSaveCntr
 	'ramCntrLowBox', 'ramCntrLowClear',
 	'escHtml', 'esc',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'cardsRoleTar', 'cardsTarEntry', 'cardsTarList', 'cardsRoleDefault', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
-	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard',
+	'ramPresetIdx', 'spKeysetGuard',
 	'ramKeysetGuard',
 ]) {
 	code += extractFunc(html, fn) + '\n';
 }
 code = 'var _cardsKeysetCount = 0;\n' + code;
+// the role defaults the TAR helpers read (v3.26.0)
+for (const c of ['CARDS_TAR_DEFAULTS', 'CARDS_TAR_ROLES', 'CARDS_MSL_DEFAULT']) {
+	const m = new RegExp('const\\s+' + c + '\\s*=\\s*([^;]+);').exec(html);
+	if (!m) throw new Error('const ' + c + ' not found');
+	code = 'var ' + c + ' = ' + m[1] + ';\n' + code;
+}
 eval(code);
 
 function fakeEnv(por, success) {

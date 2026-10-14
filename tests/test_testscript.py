@@ -25,11 +25,12 @@ def _resolver(name):
     return {n.upper(): c for c, n in S.PROACTIVE_TYPE_NAMES.items()}.get(name.upper())
 
 
-def preset_tars(isd='000000', msl='16'):
-    """The three mandatory role entries of a card preset's TAR table."""
-    return [{'role': 'isd', 'tar': isd, 'msl': msl, 'desc': ''},
-            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': ''},
-            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': ''}]
+def preset_tars(isd='000000', msl='16', keyset=1):
+    """The three mandatory role entries of a card preset's TAR table (v3.26.0:
+    each carries its default keyset - the fixtures name keyset 1)."""
+    return [{'role': 'isd', 'tar': isd, 'msl': msl, 'desc': '', 'keyset': keyset},
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'desc': '', 'keyset': keyset},
+            {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'desc': '', 'keyset': keyset}]
 
 
 class TestValidation(unittest.TestCase):
@@ -1974,7 +1975,8 @@ class TestSuiteRunner(SuiteRunnerTestCase):
         preset = {'id': 'p1',
                   'keysets': [{'kic': '15', 'kid': '15', 'kicKey': '00' * 16,
                                'kidKey': '00' * 16, 'cntr': '0000000010'}],
-                  'tars': [{'role': 'isd', 'tar': 'B00000', 'msl': '16'}]}
+                  'tars': [{'role': 'isd', 'tar': 'B00000', 'msl': '16',
+                            'keyset': 1}]}
         members = [({'script_id': 'a' * 32, 'role': 'member', 'on_fail': 'stop'}, script),
                    ({'script_id': 'b' * 32, 'role': 'member', 'on_fail': 'stop'}, script)]
         with mock.patch.object(S, '_build_secured_packet',

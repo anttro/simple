@@ -69,7 +69,7 @@ from pathlib import Path
 
 DEFAULT_DIR = '.pysim-simple-server'
 DEFAULT_FILENAME = 'card_presets.json'
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # The fields a preset carries: the localStorage shape plus the id.  The OTA key
 # material lives in `keysets` - the b8..b5 nibble of KIc/KID numbers them,
@@ -88,7 +88,12 @@ DIGIT_FIELDS = ('pin1', 'puk1', 'pin2', 'puk2')
 KEYSET_HEX_FIELDS = ('kic', 'kid', 'kicKey', 'kidKey', 'cntr')
 # The TAR table: the three mandatory role entries (their values are pre-settled
 # in the Cards form) and free entries with an optional description.  Every
-# entry carries the TAR and its MSL (Minimum SPI1, one hex byte).
+# entry carries the TAR, its MSL (Minimum SPI1, one hex byte) and its **default
+# keyset** (v3.26.0): the keyset every operation addressed to that TAR uses.
+# The keyset is mandatory for any non-zero MSL (the counters are keyset-linked,
+# TS 102 225 A.1) and may be omitted only for MSL 00 - where setting one is
+# still allowed, to pass its KIc/KID in the packet (some cards reject the
+# no-security '00/00' form even when SPI declares no security).
 TAR_ROLES = ('isd', 'uiccRfm', 'usimRfm')
 TAR_ROLE_DEFAULTS = {
     'isd': {'tar': '000000', 'msl': '16'},
@@ -192,6 +197,13 @@ def tar_msl(preset, tar_hex):
     """The MSL (Minimum SPI1) of a TAR, or '' when the preset has no such
     entry or no MSL for it."""
     return str((tar_entry(preset, tar_hex) or {}).get('msl') or '')
+
+
+def tar_keyset(preset, tar_hex):
+    """The default keyset number (int 1-15) of a TAR, or None when the preset
+    has no such entry or the entry carries no keyset (allowed for an MSL 00
+    entry - the packet is then built keyless; v3.26.0)."""
+    return (tar_entry(preset, tar_hex) or {}).get('keyset') or None
 
 
 class PresetError(Exception):
@@ -306,6 +318,14 @@ class PresetStore:
                 raw = [{k: fields.get(k) for k in LEGACY_KEY_FIELDS}]
         out['keysets'] = [self._normalise_keyset(ks) for ks in raw
                           if isinstance(ks, dict)]
+        # v3.26.0: a preset with a single keyset fills every TAR entry that has
+        # no default keyset with it - the TARs' keysets drive the operations.
+        nums = [keyset_kvn(ks) for ks in out['keysets']]
+        nums = [n for n in nums if n]
+        if len(nums) == 1:
+            for t in out['tars']:
+                if not t.get('keyset'):
+                    t['keyset'] = nums[0]
         pid = str(fields.get('id') or '').strip().lower()
         out['id'] = pid or uuid.uuid4().hex
         return out
@@ -328,6 +348,7 @@ class PresetStore:
                     'tar': re.sub(r'\s', '', str(t.get('tar') or '')).upper(),
                     'msl': re.sub(r'\s', '', str(t.get('msl') or '')).upper(),
                     'desc': str(t.get('desc') or '').strip(),
+                    'keyset': self._normalise_keyset_ref(t.get('keyset')),
                 })
         else:
             msl = re.sub(r'\s', '', str(fields.get('spi1') or '')).upper()
@@ -338,6 +359,7 @@ class PresetStore:
                     'tar': re.sub(r'\s', '', str(fields.get(src) or '')).upper(),
                     'msl': msl,
                     'desc': '',
+                    'keyset': None,
                 })
         out = []
         for role in TAR_ROLES:
@@ -346,15 +368,36 @@ class PresetStore:
             out.append({'role': role,
                         'tar': (cur or {}).get('tar') or d['tar'],
                         'msl': (cur or {}).get('msl') or d['msl'],
-                        'desc': ''})
+                        'desc': '',
+                        'keyset': (cur or {}).get('keyset')})
         for e in entries:
             if e['role']:
                 continue
-            if not (e['tar'] or e['msl'] or e['desc']):
+            if not (e['tar'] or e['msl'] or e['desc'] or e.get('keyset')):
                 continue        # a blank editor row
             # free entries carry no `role`: the three roles are the fixed ones
-            out.append({'tar': e['tar'], 'msl': e['msl'], 'desc': e['desc']})
+            out.append({'tar': e['tar'], 'msl': e['msl'], 'desc': e['desc'],
+                        'keyset': e.get('keyset')})
         return out
+
+    @staticmethod
+    def _normalise_keyset_ref(v):
+        """A TAR's default keyset number (int 1-15) or None.  Accepts an int
+        and the decimal ('1'..'15') or hex-ish ('01'..'0F') string forms; an
+        unusable value becomes None - the validation reports a missing keyset
+        where one is mandatory (v3.26.0)."""
+        if v is None or v == '':
+            return None
+        s = str(v).strip().upper()
+        if re.fullmatch(r'[0-9]{1,2}', s):
+            n = int(s, 10)
+            if 1 <= n <= KVN_MAX:
+                return n
+        if re.fullmatch(r'[0-9A-F]{1,2}', s):
+            n = int(s, 16)
+            if 1 <= n <= KVN_MAX:
+                return n
+        return None
 
     def _normalise_keyset(self, ks):
         """One keyset, cleaned.  The counter is kept as typed here and
@@ -402,6 +445,15 @@ class PresetStore:
                                   'byte, TS 102 226 8.2.1.3.2.4)' % t['tar'])
             if not re.fullmatch(r'[0-9A-F]{2}', t['msl']):
                 raise PresetError('MSL must be one hex byte: %r' % t['msl'])
+            if t.get('keyset'):
+                if not any(keyset_kvn(ks) == t['keyset'] for ks in p['keysets']):
+                    raise PresetError('TAR %s names keyset %02X, which this '
+                                      'preset does not define'
+                                      % (t['tar'], t['keyset']))
+            elif t['msl'] != '00':
+                raise PresetError('TAR %s needs a default keyset (its MSL %s '
+                                  'requires security) - set it in the Cards tab'
+                                  % (t['tar'], t['msl']))
             if t['tar'] in seen_tars:
                 raise PresetError('duplicate TAR %s in this preset' % t['tar'])
             seen_tars.add(t['tar'])

@@ -34,12 +34,12 @@ for (const fn of ['cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'spPresetCounterValue', 'spCntrPlaceholder', 'spCntrEffective', 'spCntrAhead',
 	'spCntrAdjust',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
 	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply',
-	'spKeysetChanged', 'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard',
-	'spTarListRender',
+	'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard',
 	'ramKeysetGuard',
+	'esc',
 ]) {
 	code += extractFunc(html, fn) + '\n';
 }
@@ -61,9 +61,22 @@ globalThis.t = s => s;
 function fakeEnv(selValue, selId, presetCntr) {
 	const els = {};
 	for (const id of ['sp-spi1', 'sp-spi2-hex', 'sp-kic-idx', 'sp-kic-alg',
-		'sp-kid-idx', 'sp-kid-alg', 'sp-tar', 'sp-cntr', 'sp-kic-key', 'sp-kid-key']) {
+		'sp-kid-idx', 'sp-kid-alg', 'sp-cntr', 'sp-kic-key', 'sp-kid-key']) {
 		els[id] = { value: '' };
 	}
+	// the TAR is a select (v3.26.0): the stub models the surface the renderer
+	// touches - setting innerHTML parses the option values and selectedIndex
+	// moves the value, like a real <select>
+	els['sp-tar'] = {
+		value: '', disabled: false, options: [], _sel: 0, _html: '',
+		set innerHTML(v) {
+			this._html = v;
+			this.options = Array.from(v.matchAll(/value="([^"]*)"/g), m => ({ value: m[1] }));
+		},
+		get innerHTML() { return this._html; },
+		set selectedIndex(i) { this._sel = i; if (this.options[i]) this.value = this.options[i].value; },
+		get selectedIndex() { return this._sel; },
+	};
 	// the combined key bytes the server reads (updateSpKic maintains them in
 	// the real form): the fake preset's keyset resolves to kvn 1
 	els['sp-kic-hex'] = { value: '15' };
@@ -114,14 +127,16 @@ test('spRefreshFromPreset for the RAM selector targets the ISD TAR', () => {
 	assert.strictEqual(env.els['sp-tar'].value, '000000');
 });
 
-test('the pre-send refresh keeps a hand-edited packet TAR (v3.6.21)', () => {
+test('the pre-send refresh keeps the selected packet TAR', () => {
+	// v3.26.0: the TAR is a preset selector - the pre-send refresh must keep
+	// the operator's selection (a TAR outside the preset is not offered)
 	const env = fakeEnv('0', 'sp-card-sel', '0000000020');
-	env.els['sp-tar'].value = 'AF4D01';   // e.g. a push/link trigger target
+	env.els['sp-tar'].value = 'B00000';   // the UICC RFM entry of the preset
 	assert.strictEqual(spRefreshFromPreset('sp-card-sel', true), '0000000020');
-	assert.strictEqual(env.els['sp-tar'].value, 'AF4D01', 'the typed TAR must survive the send');
+	assert.strictEqual(env.els['sp-tar'].value, 'B00000', 'the selected TAR must survive the send');
 	assert.strictEqual(env.els['sp-cntr'].value, '', 'the counter field stays an override');
 	assert.match(env.els['sp-cntr'].placeholder, /0000000020/);
-	// an explicit preset apply (or a pack) still sets the TAR
+	// an explicit preset apply (or a pack) selects the operation's TAR
 	cardsApplyFields(0);
 	assert.strictEqual(env.els['sp-tar'].value, 'B00000');
 });

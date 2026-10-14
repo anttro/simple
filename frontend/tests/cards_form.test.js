@@ -35,13 +35,13 @@ for (const fn of ['cardsFormValues', 'cardsClearForm', 'cardsEdit',
 	'spCntrAhead', 'spCntrLocalSync', 'ramSaveCntr',
 	'cardsApplyFields', 'cardsApply', 'ramApplyCard',
 	'cardsScp80Complete', 'cardsScp81Complete', 'cardsAdmPresent',
-	'spTarKeyForPack', 'spPresetTar', 'spTarListRender', 'packToSp',
+	'spTarKeyForPack', 'spPresetTar', 'packToSp',
 	'esc', 'escHtml',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
+	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'cardsKeysetRowHtml', 'cardsKeysetRowsRender',
 	'cardsKeysetAdd', 'cardsKeysetRemove', 'cardsKeysetKvnUpdate',
-	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
-	'ramKeysetChanged', 'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
+	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 
+	'ramPresetIdx', 'tarPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
 	'cardsTarList', 'cardsRoleDefault', 'cardsRoleTar',
 	'cardsTarEntry', 'cardsTarMsl', 'cardsTarText', 'spMslWarningText',
 	'cardsTarRowHtml', 'cardsTarRowsRender', 'cardsTarAdd', 'cardsTarRemove',
@@ -73,12 +73,11 @@ const CARD_IDS = ['cards-name','cards-iccid','cards-release','cards-pin1','cards
 	// the TAR table rows: 0-2 are the fixed role rows, 3+ the free rows
 	'cards-tr-0-tar','cards-tr-0-msl','cards-tr-1-tar','cards-tr-1-msl',
 	'cards-tr-2-tar','cards-tr-2-msl',
-	'cards-tr-3-tar','cards-tr-3-msl','cards-tr-3-desc',
-	'cards-tr-4-tar','cards-tr-4-msl','cards-tr-4-desc'];
+	'cards-tr-3-tar','cards-tr-3-msl','cards-tr-3-desc','cards-tr-3-keyset',
+	'cards-tr-4-tar','cards-tr-4-msl','cards-tr-4-desc','cards-tr-4-keyset'];
 const SP_IDS = ['sp-card-sel','sp-tar','sp-spi1','sp-spi2','sp-spi2-sm','sp-spi2-hex',
 	'sp-kic-idx','sp-kic-alg','sp-kic-hex','sp-kid-idx','sp-kid-alg','sp-kid-hex',
-	'sp-cntr','sp-kic-key','sp-kid-key','sp-apdu','sp-result','sp-spi1-hex','sp-tar-list',
-	'sp-keyset-sel','ram-keyset-sel'];
+	'sp-cntr','sp-kic-key','sp-kid-key','sp-apdu','sp-result','sp-spi1-hex'];
 const CHAIN_IDS = ['chain-sim-preview','chain-usim-preview','chain-ram-preview',
 	'ber-result','hota-preview'];
 
@@ -91,10 +90,10 @@ function ksRow(els, i, ks) {
 }
 
 function tarRow(els, i, e) {
-	for (const field of ['tar', 'msl', 'desc']) {
+	for (const field of ['tar', 'msl', 'desc', 'keyset']) {
 		const id = 'cards-tr-' + i + '-' + field;
 		if (!els[id]) els[id] = fakeEl();
-		els[id].value = e[field] || '';
+		els[id].value = (e[field] === undefined || e[field] === null) ? '' : String(e[field]);
 	}
 }
 
@@ -106,6 +105,34 @@ function presetFixture(extra) {
 			{ role: 'uiccRfm', tar: 'B00000', msl: '16' },
 			{ role: 'usimRfm', tar: 'B00001', msl: '16' }],
 	}, extra || {});
+}
+
+// A <select>-like fake (the TAR selector): setting innerHTML parses the option
+// values (and the selected one) and selectedIndex moves the value, like a real
+// element.  The accessors need defineProperties - Object.assign would flatten
+// them into data properties.
+function selectEl() {
+	const el = fakeEl();
+	el.options = [];
+	el._sel = 0;
+	el._html = '';
+	el.disabled = false;
+	Object.defineProperties(el, {
+		innerHTML: {
+			get() { return this._html; },
+			set(v) {
+				this._html = v;
+				this.options = Array.from(v.matchAll(/value="([^"]*)"/g), m => ({ value: m[1] }));
+				const sel = v.match(/<option value="([^"]*)" selected/);
+				if (sel) this.value = sel[1];
+			},
+		},
+		selectedIndex: {
+			get() { return this._sel; },
+			set(i) { this._sel = i; if (this.options[i]) this.value = this.options[i].value; },
+		},
+	});
+	return el;
 }
 
 function fakeEl() {
@@ -134,6 +161,7 @@ let apiCalls = [];
 function setup() {
 	const els = {};
 	for (const id of CARD_IDS.concat(SP_IDS, CHAIN_IDS)) els[id] = fakeEl();
+	els['sp-tar'] = selectEl();   // the TAR selector (v3.26.0)
 	globalThis.document = { getElementById: id => els[id] || null, querySelectorAll: () => [] };
 	globalThis.cards = [];
 	globalThis._cardsEditIdx = null;
@@ -257,9 +285,9 @@ test('clearing the card form keeps the role TAR/MSL defaults', () => {
 	assert.match(els['cards-tars'].innerHTML, /cards-tr-2-tar"[^>]*value="B00001"/);
 	// ... and the table reads back as the three role entries
 	assert.deepStrictEqual(cardsTarsFromForm(), [
-		{ role: 'isd', tar: '000000', msl: '16', desc: '' },
-		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '' },
-		{ role: 'usimRfm', tar: 'B00001', msl: '16', desc: '' },
+		{ role: 'isd', tar: '000000', msl: '16', desc: '', keyset: null },
+		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '', keyset: null },
+		{ role: 'usimRfm', tar: 'B00001', msl: '16', desc: '', keyset: null },
 	]);
 });
 
@@ -312,10 +340,10 @@ test('the form values carry the codes and the TAR table', () => {
 	_cardsTarCount = 1;
 	const v = cardsFormValues();
 	assert.deepStrictEqual(v.tars, [
-		{ role: 'isd', tar: '000001', msl: '0A', desc: '' },
-		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '' },
-		{ role: 'usimRfm', tar: 'B00003', msl: '1A', desc: '' },
-		{ tar: 'AF4D02', msl: '0A', desc: 'My applet' },
+		{ role: 'isd', tar: '000001', msl: '0A', desc: '', keyset: null },
+		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '', keyset: null },
+		{ role: 'usimRfm', tar: 'B00003', msl: '1A', desc: '', keyset: null },
+		{ tar: 'AF4D02', msl: '0A', desc: 'My applet', keyset: null },
 	]);
 	assert.strictEqual(v.pin1, '1234');
 	assert.strictEqual(v.puk1, '12345678');
@@ -342,6 +370,11 @@ test('saving a preset posts the form with the pre-settled TAR table', async () =
 	els['cards-name'].value = 'New card';
 	ksRow(els, 0, { kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' });
 	globalThis._cardsKeysetCount = 1;
+	// the editor's render preselects the only keyset on every TAR row
+	// (v3.26.0); the fake DOM is static, so the test does it explicitly
+	tarRow(els, 0, { keyset: 1 });
+	tarRow(els, 1, { keyset: 1 });
+	tarRow(els, 2, { keyset: 1 });
 	// the role fields are pre-settled by the markup; the test's fake elements
 	// start empty - the defaults fill in
 	els['cards-adm'].value = 'aa bb';
@@ -352,9 +385,9 @@ test('saving a preset posts the form with the pre-settled TAR table', async () =
 	assert.deepStrictEqual(apiCalls[0].body.keysets, [
 		{ kic: '15', kid: '15', kicKey: 'AA', kidKey: 'BB', cntr: '0000000001' }]);
 	assert.deepStrictEqual(apiCalls[0].body.tars, [
-		{ role: 'isd', tar: '000000', msl: '16', desc: '' },
-		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '' },
-		{ role: 'usimRfm', tar: 'B00001', msl: '16', desc: '' },
+		{ role: 'isd', tar: '000000', msl: '16', desc: '', keyset: 1 },
+		{ role: 'uiccRfm', tar: 'B00000', msl: '16', desc: '', keyset: 1 },
+		{ role: 'usimRfm', tar: 'B00001', msl: '16', desc: '', keyset: 1 },
 	]);
 	assert.strictEqual(apiCalls[0].body.adm, 'AABB');
 });
@@ -457,11 +490,14 @@ test('applying a preset uses the TAR of the current operation and seeds the SPI1
 	cardsApply(0);
 	assert.strictEqual(els['sp-tar'].value, 'B0000D');
 	assert.strictEqual(els['sp-spi1'].value, '1A');
-	// an empty stored TAR -> spec default
+	// a preset without TAR entries (hand-made; the store fills the three
+	// roles): the selector has no options and the SPI1 falls back to the
+	// default MSL
 	globalThis.cards = [{ name: 'D', keysets: [], tars: [] }];
 	globalThis._spTarKey = 'isd';
 	cardsApply(0);
-	assert.strictEqual(els['sp-tar'].value, '000000');
+	assert.strictEqual(els['sp-tar'].value, '');
+	assert.match(els['sp-tar'].innerHTML, /no TAR in the preset/);
 	assert.strictEqual(els['sp-spi1'].value, '16');
 });
 
@@ -494,15 +530,18 @@ test('spPresetTar reads the selected preset and falls back to the spec defaults'
 	assert.strictEqual(spPresetTar('uiccRfm'), 'B00000');
 });
 
-test('the TAR field suggestions come from the preset table', () => {
+test('the TAR selector lists the preset table', () => {
+	// v3.26.0: the TAR is a select of the preset's entries (role label or
+	// description, MSL and default keyset in the option text)
 	const els = setup();
-	spTarListRender(presetFixture({ tars: [
-		{ role: 'isd', tar: '000000', msl: '16' },
+	spTarRender(presetFixture({ tars: [
+		{ role: 'isd', tar: '000000', msl: '16', keyset: 1 },
 		{ tar: 'AF4D02', msl: '0A', desc: 'My applet' }] }));
-	assert.match(els['sp-tar-list'].innerHTML, /value="000000"[^>]*label="ISD \(MSL 16\)"/);
-	assert.match(els['sp-tar-list'].innerHTML, /value="AF4D02"[^>]*label="My applet \(MSL 0A\)"/);
-	spTarListRender(null);
-	assert.strictEqual(els['sp-tar-list'].innerHTML, '');
+	assert.match(els['sp-tar'].innerHTML, /value="000000"[^>]*>000000 \u00b7 ISD \u00b7 MSL 16 \u00b7 Keyset 1</);
+	assert.match(els['sp-tar'].innerHTML, /value="AF4D02"[^>]*>AF4D02 \u00b7 My applet \u00b7 MSL 0A</);
+	spTarRender(null);
+	assert.match(els['sp-tar'].innerHTML, /select a card preset/);
+	assert.strictEqual(els['sp-tar'].disabled, true);
 });
 
 test('packing a chain selects the TAR of its target', () => {
@@ -533,17 +572,18 @@ test('packing a chain selects the TAR of its target', () => {
 	assert.strictEqual(els['sp-apdu'].value, 'AA0100');
 });
 
-test('packing without a selected preset uses the spec default TAR', () => {
+test('packing without a selected preset keeps the role for the next apply', () => {
+	// v3.26.0: the TAR options come from the preset - without one the selector
+	// stays on its placeholder and the role is applied when a preset arrives
 	const els = setup();
 	els['chain-sim-preview'].value = 'A0A4000002';
 	packToSp('chain-sim-preview');
+	assert.strictEqual(globalThis._spTarKey, 'uiccRfm');
+	assert.strictEqual(els['sp-tar'].value, '', 'no preset -> no TAR options yet');
+	globalThis.cards = [presetFixture()];
+	els['sp-card-sel'].value = '0';
+	cardsApply(0);
 	assert.strictEqual(els['sp-tar'].value, 'B00000');
-	els['chain-usim-preview'].value = '00A4000002';
-	packToSp('chain-usim-preview');
-	assert.strictEqual(els['sp-tar'].value, 'B00001');
-	els['chain-ram-preview'].value = '80E29000';
-	packToSp('chain-ram-preview');
-	assert.strictEqual(els['sp-tar'].value, '000000');
 });
 
 test('the TAR row values are left-aligned like the headers', () => {
@@ -586,7 +626,8 @@ test('the TAR table renders the role rows and adds/removes free rows', () => {
 	assert.strictEqual(_cardsTarCount, 2);
 	// the new row renders empty
 	tarRow(els, 4, { tar: '', msl: '', desc: '' });
-	assert.deepStrictEqual(cardsFreeTarsFromForm(), [{ tar: 'AF4D02', msl: '0A', desc: 'two' }]);
+	assert.deepStrictEqual(cardsFreeTarsFromForm(),
+		[{ tar: 'AF4D02', msl: '0A', desc: 'two', keyset: null }]);
 	// the role rows are never removable
 	cardsTarRemove(0);
 	assert.strictEqual(_cardsTarCount, 2);

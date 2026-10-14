@@ -30,9 +30,9 @@ const FNS = ['berLenStr', 'buildApdu', 'escHtml', 'esc', 'chainInit', 'chainRamB
 	'spCntrLow', 'ramCntrLowHtml', 'ramCntrLowPresetIdx', 'ramCntrLowView', 'ramShowCntrLow',
 	'ramCntrLowBox', 'ramCntrLowClear',
 	'spKeysetKvnOf', 'spKeysetList', 'spKeysetFor', 'spKeysetCheck',
-	'spKeysetOptionsHtml', 'spPresetIdx', 'tarPresetIdx',
-	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 'spKeysetChanged',
-	'ramKeysetChanged', 'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
+	'spTarOptionsHtml', 'spTarRender', 'spSpi1Seed', 'spTarKeysetGuard', 'cardsTarKeysetCell', 'cardsTarKeysetFromForm', 'cardsTarKeysetRefresh', 'cardsTarRowsRender', 'cardsTarRowHtml', 'cardsTarsFromTable', 'cardsFreeTarsFromForm', 'spPresetIdx', 'tarPresetIdx',
+	'cardsKeysetsFromForm', 'spKeysetSync', 'spKeysetApply', 
+	'ramPresetIdx', 'spKeysetGuard', 'ramKeysetGuard',
 	'ramCardIdxAfterRemove', 'ramClearResults', 'ramHideProgress', 'ramOpChanged', 'ramRender', 'ramApplyCard', 'ramExecute', 'decodePrivileges', 'ramActionBtn', 'ramCapToolkitMode', 'ramOpProgressText',
 	'jcAidNorm', 'jcAidName', 'jcAidSuffix', 'jcAidHtml'];
 let code = '';
@@ -1038,13 +1038,12 @@ test('every SCP80/RAM flow checks the low counter and stops', () => {
 	assert.ok(go.includes('cardsEdit('), go);
 	assert.ok(go.includes("getElementById('cards-ks-' + row + '-cntr')"), go);
 	// the notice's sync probe posts to the bounded server endpoint with the
-	// preset, the keyset the failed operation used and its SPI/TAR
+	// preset, the operation's TAR (v3.26.0: the RAM view uses the ISD entry,
+	// the server resolves the keyset) and its SPI
 	const sync = extractFunc(html, 'ramSyncCounter');
 	assert.ok(sync.includes("'/api/counter-probe'"), sync);
-	assert.ok(sync.includes("own = view === 'sp'"), sync);
-	assert.ok(sync.includes('kvnOf(own)'), sync);
-	assert.ok(sync.includes('kvnOf(other)'), sync);
-	assert.ok(sync.includes('spKeysetSync()'), 'the keyset labels must refresh');
+	assert.ok(sync.includes("view === 'ram' ? cardsRoleTar(preset, 'isd')"), sync);
+	assert.ok(sync.includes('spKeysetSync()'), 'the availability must refresh');
 	assert.ok(sync.includes('spCntrPlaceholder()'),
 		'the stored value must refresh the field placeholder (the field stays an override)');
 	assert.ok(sync.includes("ramListingSpi2('40')"),
@@ -1372,9 +1371,13 @@ test('getRamSpParams reads the computed SPI2 byte, not the base select', () => {
 	assert.ok(/spi2: document\.getElementById\('sp-spi2-hex'\)/.test(fn), fn);
 });
 
-test('getRamSpParams normalises the packet TAR to three bytes', () => {
+test('getRamSpParams sends the preset ISD TAR and no keyset fields (v3.26.0)', () => {
+	// the server resolves the keyset from the preset's ISD TAR entry - the
+	// PWA sends only the preset id, the ISD TAR, SPI and the counter override
 	const fn = extractFunc(html, 'getRamSpParams');
-	assert.ok(/tar:[\s\S]*?padEnd\(6, '0'\)\.slice\(0, 6\),/.test(fn), fn);
+	assert.ok(fn.includes("tar: preset ? cardsRoleTar(preset, 'isd') : ''"), fn);
+	assert.ok(!fn.includes('kic:'), 'the keyset fields are resolved server-side');
+	assert.ok(!fn.includes('kicKey:'), 'the keys travel from the preset store');
 });
 
 test('ramListingSpi2 requests the SMS-submit PoR for the listing queries', () => {

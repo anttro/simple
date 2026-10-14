@@ -341,28 +341,30 @@ first attempt instead of hammering the card.
 ### `POST /api/tar-probe`
 
 Probe which OTA applications the card has registered: one **secured packet per
-TAR** (the standard allocations of TS 101 220 V18.3.0 Annex D, Table D.1 unless
-a `tars` list is given), each carrying a harmless C-APDU (`SELECT MF` by
-default), with the preset's keyset.  Each checked TAR uses **its own MSL** when
-the preset carries the entry, otherwise the request's `spi1`; a TAR that
-resolves to neither is refused with a hint **before any packet is sent**.  The
-resolved SPI1 must carry a counter check (b5b4 ≠ 00) and ask for a PoR.
-Every accepted packet consumes a counter, which is persisted into the keyset
-like any other operation, so the probe is refused when the SPI1 has no counter
-check or the named preset does not define the keyset number.  A missing
-`cntr` is seeded from that keyset (v3.20.0; an explicit value wins but never
-lowers the stored counter).  The delivered SMS carries the OTA CPI IE by
+TAR of the named preset** (v3.26.0 — the probe checks the preset's TAR list
+only; a `tars` list may select a subset, and a TAR outside the preset is
+refused with `400`), each carrying a harmless C-APDU (`SELECT MF` by default).
+Each row uses **its own MSL** (the request's `spi1` is only a fallback for a
+TAR the preset does not carry) and **its own default keyset** — the keyset
+resolved from that TAR's entry, so the request does not carry KIc/KID/keys and
+the probe's keyset selector is gone.  A TAR whose MSL requires security
+(non-zero) without a default keyset, or one naming an undefined keyset, is
+refused with a hint **before any packet is sent**.  The resolved SPI1 must
+carry a counter check (b5b4 ≠ 00) and ask for a PoR.  Every accepted packet
+consumes a counter, which is persisted into that row's keyset like any other
+operation (each keyset has its own counter, TS 102 225 A.1); an explicit
+`cntr` seeds the first row only.  The delivered SMS carries the OTA CPI IE by
 default (`includeCpi`, as in `/api/send-ota`).
 
 ```json
-{"preset_id": "…", "kic": "25", "kid": "25", "kicKey": "…", "kidKey": "…",
- "cntr": "0000000187", "apdu": "00A40000023F00", "tars": ["000000", "B00000"]}
+{"preset_id": "…", "spi1": "16", "apdu": "00A40000023F00",
+ "tars": ["000000", "B00000"]}
 ```
 
 **Response:** `{"success": true, "registered": N, "total": M,
  "final_cntr": "…", "kvn": 2, "spi1": "16", "spi2": "01",
- "results": [{"tar": "000000", "label": "Issuer Security Domain (compact)",
-              "spi1": "16", "verdict": "registered", "sw": "9000",
+ "results": [{"tar": "000000", "label": "ISD", "spi1": "16", "kvn": 2,
+              "verdict": "registered", "sw": "9000",
               "por_status": "por_ok",
               "por_sw": "6D00", "por_data": ""}], "steps": [...]}`
 

@@ -36,7 +36,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.25.8'
+VERSION = '3.26.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1700,6 +1700,54 @@ def _preset_keyset_check(server, preset_id, kic, kid):
     return None
 
 
+def _preset_tar_keyset(server, preset_id, tar):
+    """The default keyset number of a TAR in the named preset (v3.26.0), or
+    None (no preset, no such TAR entry, or an MSL 00 entry without one)."""
+    preset = _preset_by_id(server, preset_id)
+    if preset is None:
+        return None
+    return presets.tar_keyset(preset, tar)
+
+
+def _preset_keyset_by_kvn(preset, kvn):
+    """The preset's keyset dict with number `kvn`, or None."""
+    return next((ks for ks in _preset_keysets(preset)
+                 if presets.keyset_kvn(ks) == kvn), None)
+
+
+def _resolve_operation_keyset(server, body, tar):
+    """Fill an operation's keyset fields from the preset's default keyset for
+    `tar` (v3.26.0).
+
+    An explicit KIc/KID in the request is an API override and stays as it is;
+    otherwise the TAR's default keyset supplies kic/kid/kicKey/kidKey.  A TAR
+    whose MSL requires security must have one - the operation refuses instead
+    of sending a keyless packet the card would reject (or, worse, process as
+    no-security).  Returns ``(kvn, error)``."""
+    explicit_kic = str((body or {}).get('kic') or '').strip().upper()
+    explicit_kid = str((body or {}).get('kid') or '').strip().upper()
+    if explicit_kic or explicit_kid:
+        return (_kvn_of(explicit_kic, explicit_kid)[0] or None), None
+    preset = _preset_by_id(server, (body or {}).get('preset_id'))
+    if preset is None:
+        return None, None
+    kvn = presets.tar_keyset(preset, tar)
+    if not kvn:
+        msl = presets.tar_msl(preset, tar)
+        if msl and msl != '00':
+            return None, ('TAR %s needs a default keyset (its MSL %s requires '
+                          'security) - set it in the Cards tab' % (tar, msl))
+        return None, None
+    keyset = _preset_keyset_by_kvn(preset, kvn)
+    if keyset is None:
+        return None, ('keyset %02X is not defined in preset %s - add it in the '
+                      'Cards tab' % (kvn, preset.get('name') or
+                                     (body or {}).get('preset_id')))
+    for field in ('kic', 'kid', 'kicKey', 'kidKey'):
+        body[field] = str(keyset.get(field) or '').strip()
+    return kvn, None
+
+
 def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
     """Persist the counter an operation accepted into the server-side preset
     store (v3.8.0), into the keyset it used (each keyset has its own dedicated
@@ -1916,6 +1964,7 @@ def _counter_probe_params(preset, body):
     keysets = _preset_keysets(preset)
     if not keysets:
         raise ValueError('the preset defines no keyset')
+    tar = str(body.get('tar') or presets.role_tar(preset, 'isd') or '').strip().upper()
     want = body.get('kvn')
     if want not in (None, ''):
         try:
@@ -1926,7 +1975,13 @@ def _counter_probe_params(preset, body):
         if keyset is None:
             raise ValueError('keyset %d is not defined in the preset' % want)
     else:
-        keyset = keysets[0]
+        # v3.26.0: the TAR's default keyset, else the first - the probe is a
+        # repair tool and keeps working for a legacy preset without TAR keysets.
+        tar_kvn = presets.tar_keyset(preset, tar)
+        keyset = (next((k for k in keysets if presets.keyset_kvn(k) == tar_kvn), None)
+                  if tar_kvn else None)
+        if keyset is None:
+            keyset = keysets[0]
     kic = str(keyset.get('kic') or '').strip().upper()
     kid = str(keyset.get('kid') or '').strip().upper()
     kic_key = str(keyset.get('kicKey') or '').strip()
@@ -1953,7 +2008,6 @@ def _counter_probe_params(preset, body):
     except (TypeError, ValueError):
         raise ValueError('invalid attempt budget')
     max_attempts = max(1, min(64, max_attempts))
-    tar = str(body.get('tar') or presets.role_tar(preset, 'isd') or '').strip().upper()
     spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'), prefer_msl=True)
     if not _counter_tracked(spi1):
         raise ValueError('the probe needs a counter check - SPI1 %s has none '
@@ -6133,26 +6187,6 @@ _CARD_FREE_GET = frozenset([
     '/api/scp81/log', '/api/bip/log',
 ])
 
-# TAR values allocated by ETSI (TS 101 220 V18.3.0 Annex D, Table D.1): the
-# TAR probe sends one harmless command to each and reports the card's answer.
-# 'B00200' is not an application - it is the start of the RFU range, kept as a
-# control (a card must not answer it).
-TAR_PROBE_TARS = [
-    ('000000', 'Issuer Security Domain (compact)'),
-    ('B20100', 'Issuer Security Domain (expanded)'),
-    ('B00000', 'UICC shared file system RFM (compact)'),
-    ('B00001', 'ADF RFM (compact)'),
-    ('B00010', 'SIM file system RFM (compact)'),
-    ('B00120', 'UICC shared file system RFM (expanded)'),
-    ('B00130', 'SIM file system RFM (expanded)'),
-    ('B00140', 'ADF RFM (expanded)'),
-    ('B20000', 'USAT interpreter'),
-    ('B20200', 'Multiplexing application'),
-    ('B20201', 'Controlling Authority Security Domain'),
-    ('B20202', 'OMA BCAST audience measurement'),
-    ('B20203', 'OMA DM LWM2M application'),
-    ('B00200', 'RFU (control)'),
-]
 TAR_PROBE_DEFAULT_APDU = '00A40000023F00'   # SELECT MF: harmless, applet-visible
 
 # The TARs the tool treats as remote-management targets: the preset's role
@@ -6447,6 +6481,24 @@ def _test_preset_error(script, preset):
             if not _keyset_complete(ks):
                 return ('step %d: keyset %d is incomplete (KIc, KID, both '
                         'keys and a counter)' % (i + 1, want))
+        else:
+            # v3.26.0: the step's TAR picks its default keyset - it must exist
+            # and be complete; a TAR whose MSL requires security must have one.
+            tar = p.get('tar') or presets.role_tar(preset, 'isd')
+            tar_kvn = presets.tar_keyset(preset, tar)
+            if tar_kvn:
+                ks = next((k for k in keysets if presets.keyset_kvn(k) == tar_kvn), None)
+                if ks is None:
+                    return ('step %d: keyset %d (the default of TAR %s) is not '
+                            'defined in the preset' % (i + 1, tar_kvn, tar))
+                if not _keyset_complete(ks):
+                    return ('step %d: keyset %d (the default of TAR %s) is '
+                            'incomplete (KIc, KID, both keys and a counter)'
+                            % (i + 1, tar_kvn, tar))
+            elif (presets.tar_msl(preset, tar) or '') not in ('', '00'):
+                return ('step %d: TAR %s needs a default keyset (its MSL %s '
+                        'requires security) - set it in the Cards tab'
+                        % (i + 1, tar, presets.tar_msl(preset, tar)))
         tar = p.get('tar') or presets.role_tar(preset, 'isd')
         if not tar:
             return 'step %d: no TAR (neither in the step nor in the preset)' % (i + 1)
@@ -6781,8 +6833,10 @@ def _test_run_scp80(server, step, ctx):
     preset = ctx['preset']
     p = step['params']
     # The keyset: a step may name a keyset number (`kvn`), otherwise the
-    # preset's first keyset is used (each keyset has its own keys and counter -
-    # TS 102 225 Annex A.1).
+    # default keyset of the step's TAR is used (v3.26.0; each keyset has its
+    # own keys and counter - TS 102 225 Annex A.1).  A TAR whose MSL requires
+    # security must have one - the counters are keyset-linked; an MSL 00 step
+    # falls back to the preset's first keyset.
     keysets = _preset_keysets(preset)
     keyset = None
     if p.get('kvn') is not None:
@@ -6792,7 +6846,22 @@ def _test_run_scp80(server, step, ctx):
             raise testscript.ScriptError('keyset %d is not defined in the '
                                          'selected card preset' % want)
     elif keysets:
-        keyset = keysets[0]
+        tar = str(p.get('tar') or presets.role_tar(preset, 'isd') or '').strip().upper()
+        tar_kvn = presets.tar_keyset(preset, tar)
+        if tar_kvn:
+            keyset = next((ks for ks in keysets
+                           if presets.keyset_kvn(ks) == tar_kvn), None)
+            if keyset is None:
+                raise testscript.ScriptError(
+                    'keyset %d (the default of TAR %s) is not defined in the '
+                    'selected card preset' % (tar_kvn, tar))
+        else:
+            msl = presets.tar_msl(preset, tar)
+            if msl and msl != '00':
+                raise testscript.ScriptError(
+                    'TAR %s needs a default keyset (its MSL %s requires '
+                    'security) - set it in the Cards tab' % (tar, msl))
+            keyset = keysets[0]
     kic = p.get('kic') or (keyset or {}).get('kic') or ''
     kid = p.get('kid') or (keyset or {}).get('kid') or ''
     kic_key = p.get('kicKey') or (keyset or {}).get('kicKey') or ''
@@ -8043,6 +8112,23 @@ class PysimHandler(BaseHTTPRequestHandler):
         err = _preset_keyset_check(self.server, body.get('preset_id'), kic, kid)
         return (kvn or None), err
 
+    def _op_keyset(self, body, tar=None):
+        """v3.26.0: resolve an operation's keyset from the preset's TAR table
+        (the RAM operations default to the ISD role's TAR), then run the
+        KIc/KID checks.  An explicit request KIc/KID stays an API override.
+        Returns ``(kvn, kic, kid, error)`` with the effective values."""
+        t = str(tar if tar is not None else (body.get('tar') or '')).strip().upper()
+        if not t and body.get('preset_id'):
+            preset = _preset_by_id(self.server, body.get('preset_id'))
+            t = presets.role_tar(preset, 'isd') if preset else ''
+        _kvn, err = _resolve_operation_keyset(self.server, body, t)
+        if err:
+            return None, '', '', err
+        kic = str(body.get('kic') or '').strip().upper()
+        kid = str(body.get('kid') or '').strip().upper()
+        kvn, err = self._keyset_guard(body, kic, kid)
+        return kvn, kic, kid, err
+
     def _log_req(self, body=None):
         if self.server.log_requests:
             if body is not None:
@@ -9216,11 +9302,15 @@ class PysimHandler(BaseHTTPRequestHandler):
             # deliberately ask for more security than the TAR's minimum), with
             # a warning below the TAR's MSL; without one it is derived from the
             # MSL of the packet's TAR (TS 102 226 8.2.1.3.2.4 - the card checks
-            # the MSL before the security processing).
+            # the MSL before the security processing).  An APDU send without a
+            # TAR uses the preset's ISD role entry (v3.26.0).
             try:
-                spi1, spi_warn = _spi1_for_tar(
-                    _preset_by_id(self.server, body.get('preset_id')),
-                    str(body.get('tar') or '').strip().upper(), body.get('spi1'))
+                preset_ref = _preset_by_id(self.server, body.get('preset_id'))
+                tar_ref = str(body.get('tar') or '').strip().upper()
+                if not tar_ref and apdu and preset_ref:
+                    tar_ref = presets.role_tar(preset_ref, 'isd')
+                spi1, spi_warn = _spi1_for_tar(preset_ref, tar_ref,
+                                               body.get('spi1'))
             except ValueError as e:
                 resp = {'error': str(e)}
                 self._send_json(resp, 400)
@@ -9245,9 +9335,15 @@ class PysimHandler(BaseHTTPRequestHandler):
                     # RAM operation: SCP80-wrap the raw GP command.  The packet
                     # may exceed one SMS (pySim refuses that), so use our own
                     # encoder and let _send_secured_packet segment it.
-                    kic = body.get('kic', '25')
-                    kid = body.get('kid', '25')
                     tar = body.get('tar', '000000')
+                    # The keyset: the preset's default for the packet's TAR
+                    # (v3.26.0) unless the request names KIc/KID itself.
+                    kvn, kic, kid, keyset_err = self._op_keyset(body, tar)
+                    if keyset_err:
+                        resp = {'error': keyset_err}
+                        self._send_json(resp, 400)
+                        self._log_resp(resp)
+                        return
                     kic_key = body.get('kicKey', '')
                     kid_key = body.get('kidKey', '')
                     # The counter: an explicit `cntr` wins; otherwise the
@@ -9494,26 +9590,26 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._log_resp(err)
                     return
                 spi2 = body.get('spi2', '01')
-                kic = body.get('kic', '25')
-                kid = body.get('kid', '25')
                 cntr = body.get('cntr', '00000000')
-                kic_key = body.get('kicKey', '')
-                kid_key = body.get('kidKey', '')
                 sd_aid = body.get('sd_aid', '').replace(' ', '')
                 install_params_hex = body.get('install_params', '').replace(' ', '')
                 stk_params_hex = body.get('stk_params', '').replace(' ', '')
                 make_selectable = body.get('make_selectable', True)
                 privileges_hex = body.get('privileges', '').replace(' ', '') or '00'
 
-                # The keyset number must be consistent and defined in the preset
-                # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
-                # before the format probe consumes a counter.
-                kvn, keyset_err = self._keyset_guard(body, kic, kid)
+                # The keyset: the preset's default for the operation's TAR (the
+                # ISD role entry; v3.26.0) unless the request names KIc/KID
+                # itself - then the number must be consistent and defined in
+                # the preset (TS 102 225 A.2 / the "keyset must exist" rule),
+                # checked before the format probe consumes a counter.
+                kvn, kic, kid, keyset_err = self._op_keyset(body)
                 if keyset_err:
                     err = {'success': False, 'error': keyset_err}
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+                kic_key = body.get('kicKey', '')
+                kid_key = body.get('kidKey', '')
 
                 # The counter: explicit `cntr` wins, else the preset's value
                 # for this keyset (the server owns the counters, v3.20.0).
@@ -9707,19 +9803,23 @@ class PysimHandler(BaseHTTPRequestHandler):
                     return
                 sp_state = {
                     'spi1': spi1, 'spi2': body.get('spi2', '01'),
-                    'kic': body.get('kic', '25'), 'kid': body.get('kid', '25'),
                     'tar': tar, 'cntr': body.get('cntr', '00000000'),
-                    'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
                     'include_cpi': body.get('includeCpi', True)}
-                # The keyset number must be consistent and defined in the preset
+                # The keyset: the preset's default for the operation's TAR
+                # (v3.26.0) unless the request names KIc/KID itself - then the
+                # number must be consistent and defined in the preset
                 # (TS 102 225 A.2 / the "keyset must exist" rule) - checked
                 # before the format probe consumes a counter.
-                kvn, keyset_err = self._keyset_guard(body, sp_state['kic'], sp_state['kid'])
+                kvn, kic, kid, keyset_err = self._op_keyset(body, tar)
                 if keyset_err:
                     err = {'success': False, 'error': keyset_err}
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+                sp_state['kic'] = kic
+                sp_state['kid'] = kid
+                sp_state['kic_key'] = body.get('kicKey', '')
+                sp_state['kid_key'] = body.get('kidKey', '')
                 # The counter: explicit `cntr` wins, else the preset's value
                 # for this keyset (the server owns the counters, v3.20.0).
                 sp_state['cntr'] = _preset_counter_seed(self.server, body, kvn) or sp_state['cntr']
@@ -9832,18 +9932,19 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._log_resp(err)
                     return
                 spi2 = body.get('spi2', '01')
-                kic = body.get('kic', '25')
-                kid = body.get('kid', '25')
                 cntr = body.get('cntr', '00000000')
-                kic_key = body.get('kicKey', '')
-                kid_key = body.get('kidKey', '')
                 steps = []
-                kvn, keyset_err = self._keyset_guard(body, kic, kid)
+                # The keyset: the preset's default for the operation's TAR
+                # (the ISD role entry; v3.26.0) unless the request names
+                # KIc/KID itself.
+                kvn, kic, kid, keyset_err = self._op_keyset(body)
                 if keyset_err:
                     err = {'success': False, 'error': keyset_err}
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
+                kic_key = body.get('kicKey', '')
+                kid_key = body.get('kidKey', '')
                 # The counter: explicit `cntr` wins, else the preset's value
                 # for this keyset (the server owns the counters, v3.20.0).
                 cntr = _preset_counter_seed(self.server, body, kvn) or cntr
@@ -10487,40 +10588,59 @@ class PysimHandler(BaseHTTPRequestHandler):
                 return
             body = self._read_body()
             self._log_req(body)
-            kic = body.get('kic', '')
-            kid = body.get('kid', '')
-            kvn, keyset_err = self._keyset_guard(body, kic, kid)
-            if keyset_err:
-                err = {'success': False, 'error': keyset_err}
+            # v3.26.0: the probe checks the preset's TAR list only - no
+            # arbitrary TARs - and each row uses its TAR's default keyset.
+            if not body.get('preset_id'):
+                err = {'success': False,
+                       'error': 'preset_id is required - the probe checks the '
+                                'preset TAR list'}
+                self._send_json(err, 400)
+                self._log_resp(err)
+                return
+            preset = _preset_by_id(self.server, body.get('preset_id'))
+            if not preset:
+                err = {'success': False, 'error': 'unknown preset'}
                 self._send_json(err, 400)
                 self._log_resp(err)
                 return
             # The probe sends real secured packets: it needs a counter check
-            # (every accepted packet advances and is persisted) and a PoR.  Each
-            # TAR uses its own MSL when the preset carries it; the caller's SPI1
-            # is the fallback for the arbitrary TARs the checklist probes.
+            # (every accepted packet advances and is persisted) and a PoR.
+            # Each TAR uses its own MSL and its own default keyset.
             spi1_base = str(body.get('spi1') or '').strip().upper()
             spi2 = str(body.get('spi2') or '01').strip().upper()
-            preset = _preset_by_id(self.server, body.get('preset_id'))
             apdu = (body.get('apdu') or TAR_PROBE_DEFAULT_APDU).replace(' ', '').upper()
-            labels = {tar: label for tar, label in TAR_PROBE_TARS}
+            role_label = {'isd': 'ISD', 'uiccRfm': 'UICC RFM', 'usimRfm': 'ADF RFM'}
+            by_tar = {}
+            for t in (preset.get('tars') or []):
+                tar = str(t.get('tar') or '').strip().upper()
+                if tar:
+                    by_tar[tar] = t
             wanted = body.get('tars')
             if isinstance(wanted, list) and wanted:
                 entries = []
                 for t in wanted:
                     tar = str(t).replace(' ', '').upper()
-                    entries.append((tar, labels.get(tar, '')))
+                    e = by_tar.get(tar)
+                    if e is None:
+                        err = {'success': False,
+                               'error': 'TAR %s is not in the preset - the probe '
+                                        'checks the preset TAR list only' % tar}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                    entries.append((tar, e))
             else:
-                entries = list(TAR_PROBE_TARS)
-            # Resolve every TAR's SPI1 before the first packet is sent: a
-            # missing MSL must refuse the whole probe, not leave it half-run.
+                entries = [(tar, e) for tar, e in by_tar.items()]
+            # Resolve every TAR's SPI1 and keyset before the first packet is
+            # sent: a missing MSL or keyset must refuse the whole probe, not
+            # leave it half-run.
             resolved = []
-            for tar, label in entries:
+            for tar, e in entries:
                 try:
                     tar_spi1, _ = _spi1_for_tar(preset, tar, spi1_base,
                                                 prefer_msl=True)
-                except ValueError as e:
-                    err = {'success': False, 'error': str(e)}
+                except ValueError as exc:
+                    err = {'success': False, 'error': str(exc)}
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
@@ -10532,31 +10652,67 @@ class PysimHandler(BaseHTTPRequestHandler):
                     self._send_json(err, 400)
                     self._log_resp(err)
                     return
-                resolved.append((tar, label, tar_spi1))
+                row_kvn = e.get('keyset')
+                row_ks = None
+                if row_kvn:
+                    row_ks = _preset_keyset_by_kvn(preset, row_kvn)
+                    if row_ks is None:
+                        err = {'success': False,
+                               'error': 'keyset %02X (TAR %s) is not defined in '
+                                        'the preset' % (row_kvn, tar)}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                else:
+                    msl = str(e.get('msl') or '')
+                    if msl and msl != '00':
+                        err = {'success': False,
+                               'error': 'TAR %s needs a default keyset (its MSL '
+                                        '%s requires security) - set it in the '
+                                        'Cards tab' % (tar, msl)}
+                        self._send_json(err, 400)
+                        self._log_resp(err)
+                        return
+                label = (str(e.get('desc') or '').strip()
+                         or role_label.get(e.get('role') or '', ''))
+                resolved.append((tar, label, tar_spi1, row_kvn, row_ks))
+            explicit_cntr = str(body.get('cntr') or '').strip().upper()
             state = {'steps': [], 'encode_error': None, 'failure': {},
-                     # the counter: explicit `cntr` wins, else the preset's
-                     # value for this keyset (the server owns the counters,
-                     # v3.20.0)
-                     'cntr': _preset_counter_seed(self.server, body, kvn) or '00000000',
-                     'preset_id': body.get('preset_id'), 'kvn': kvn}
-            sp = {'spi1': spi1_base, 'spi2': spi2, 'kic': kic, 'kid': kid, 'tar': '000000',
-                  'kic_key': body.get('kicKey', ''), 'kid_key': body.get('kidKey', ''),
+                     'cntr': '00000000', 'preset_id': body.get('preset_id'),
+                     'kvn': None}
+            sp = {'spi1': spi1_base, 'spi2': spi2, 'kic': '00', 'kid': '00',
+                  'tar': '000000', 'kic_key': '', 'kid_key': '',
                   'include_cpi': body.get('includeCpi', True)}
-            sys.stderr.write('TAR-PROBE: %d TAR(s), APDU %s, SPI %s/%s, kvn=%s\n'
-                             % (len(entries), apdu, spi1_base or '-', spi2, kvn))
+            sys.stderr.write('TAR-PROBE: %d TAR(s), APDU %s, SPI %s/%s\n'
+                             % (len(entries), apdu, spi1_base or '-', spi2))
             _ram_progress_begin('tar-probe', len(entries))
             try:
-                for index, (tar, _label, tar_spi1) in enumerate(resolved):
+                for index, (tar, _label, tar_spi1, row_kvn, row_ks) in enumerate(resolved):
                     _ram_progress_step(index, 'TAR ' + tar)
                     sp['tar'] = tar
                     sp['spi1'] = tar_spi1
+                    sp['kic'] = str((row_ks or {}).get('kic') or '00')
+                    sp['kid'] = str((row_ks or {}).get('kid') or '00')
+                    sp['kic_key'] = str((row_ks or {}).get('kicKey') or '')
+                    sp['kid_key'] = str((row_ks or {}).get('kidKey') or '')
+                    state['kvn'] = row_kvn
+                    # Each keyset has its own counter (TS 102 225 A.1): seed
+                    # the row's from the store (an explicit `cntr` override
+                    # applies to the first row only).
+                    if index == 0 and explicit_cntr:
+                        state['cntr'] = explicit_cntr
+                    else:
+                        state['cntr'] = (_preset_counter_seed(
+                            self.server, {'preset_id': body.get('preset_id')},
+                            row_kvn) or '00000000')
                     _ram_send_gp_apdu(self.server, scc, sp, state, 'TAR ' + tar, apdu)
             finally:
                 _ram_progress_end()
             results = []
-            for (tar, label, tar_spi1), step in zip(resolved, state['steps']):
+            for (tar, label, tar_spi1, row_kvn, _ks), step in zip(resolved, state['steps']):
                 results.append({
                     'tar': tar, 'label': label, 'spi1': tar_spi1,
+                    'kvn': row_kvn,
                     'verdict': _tar_probe_verdict(step),
                     'sw': step.get('sw'), 'por_status': step.get('por_status'),
                     'por_sw': step.get('por_sw'), 'por_data': step.get('por_data'),
@@ -10565,7 +10721,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             registered = sum(1 for r in results if r['verdict'] == 'registered')
             resp = {'success': True, 'results': results, 'steps': state['steps'],
                     'registered': registered, 'total': len(results),
-                    'final_cntr': state['cntr'], 'kvn': kvn,
+                    'final_cntr': state['cntr'],
+                    'kvn': resolved[0][3] if resolved else None,
                     'spi1': spi1_base, 'spi2': spi2, 'apdu': apdu}
             self._send_json(resp)
             self._log_resp(resp)

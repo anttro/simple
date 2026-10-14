@@ -582,21 +582,6 @@ class CntrLowGuardHttpTests(unittest.TestCase):
         self.assertNotIn('suggested_cntr', resp)
 
 
-class TarProbeListTests(unittest.TestCase):
-    """The PWA's TAR checklist must match the server's TAR_PROBE_TARS - the
-    panel is pre-populated client-side, the server's list is the API fallback,
-    and both must describe the same allocations (TS 101 220 Annex D)."""
-
-    def test_the_pwa_and_the_server_share_the_standard_tar_list(self):
-        from pysim_simple_server import server as srv
-        html = (ROOT / 'frontend' / 'index.html').read_text(encoding='utf-8')
-        block = html[html.index('const TAR_PROBE_TARS = ['):]
-        block = block[:block.index('\n];')]
-        pwa = re.findall(r"tar:\s*'([0-9A-F]{6})',\s*label:\s*'([^']*)'", block)
-        self.assertEqual(pwa, list(srv.TAR_PROBE_TARS))
-        self.assertTrue(pwa, 'the PWA list must not be empty')
-
-
 class PresetStoreHttpTests(unittest.TestCase):
     """The card preset endpoints (v3.8.0): the PWA's Cards tab talks to the
     server store instead of localStorage, and the counter an operation
@@ -655,7 +640,18 @@ class PresetStoreHttpTests(unittest.TestCase):
 
     def _preset(self, **kw):
         p = {'name': 'C', 'keysets': [self._keyset()]}
+        if 'tars' not in kw:
+            # v3.26.0: the TARs name their default keyset
+            p['tars'] = [{'role': r, 'tar': t, 'msl': '16'}
+                         for r, t in (('isd', '000000'), ('uiccRfm', 'B00000'),
+                                      ('usimRfm', 'B00001'))]
         p.update(kw)
+        if 'tars' not in kw and len(p.get('keysets') or []) > 1:
+            # a multi-keyset fixture must name its TAR keysets (a single-keyset
+            # one is auto-filled by the store): point them at the first keyset
+            kvn = int(str((p['keysets'][0] or {}).get('kic') or '10'), 16) >> 4
+            for t in p['tars']:
+                t['keyset'] = kvn
         return p
 
     def test_the_get_route_is_card_free_and_reports_the_store(self):
@@ -1136,6 +1132,55 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(self.store.find_keyset(p['id'], 2)['cntr'], '0000000006')
         self.assertEqual(self.store.find_keyset(p['id'], 1)['cntr'], '0000000001')
 
+    def test_an_operation_uses_the_tar_default_keyset(self):
+        # v3.26.0: without explicit KIc/KID the RAM-style APDU send resolves
+        # the keyset from the preset's TAR table (the ISD role entry)
+        p = self.store.add(self._preset(iccid='8970119000004600098', keysets=[
+            self._keyset(kic='25', kid='25', kicKey='CC' * 16, kidKey='DD' * 16,
+                         cntr='0000000005')]))
+        built = []
+        patches = [
+            mock.patch.object(self.srv, '_build_secured_packet',
+                              side_effect=lambda *a, **k: (built.append(a) or ('00' * 30, {}))),
+            mock.patch.object(self.srv, '_send_secured_packet', lambda *a, **k: {
+                'success': True, 'sw': '9000', 'bytes': 34, 'segments': 1,
+                'response_data': '027100000000'}),
+            mock.patch.object(self.srv, '_decode_por', lambda *a, **k: {
+                'response_status': 'por_ok', 'tar': '000000', 'cntr': '0000000005',
+                'pcntr': 0, 'rpl': 11, 'rhl': 10, 'raw': '',
+                'decoded': {'number_of_commands': 1, 'last_status_word': '9000',
+                            'last_response_data': ''}}),
+        ]
+        self.server.app = object()
+        for patch in patches:
+            patch.start()
+        try:
+            status, resp = self._post('/api/send-ota', {
+                'apdu': '00A40000023F00', 'spi2': '01', 'preset_id': p['id']})
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+        self.assertEqual(status, 200, resp)
+        args = built[0]
+        self.assertEqual((args[2], args[3]), ('25', '25'))   # the TAR keyset's KIc/KID
+        self.assertEqual(args[5], '0000000005')              # ... and its counter
+        self.assertEqual(resp['final_cntr'], '0000000006')
+        self.assertEqual(self.store.find_keyset(p['id'], 2)['cntr'], '0000000006')
+
+    def test_a_security_tar_without_a_keyset_refuses_the_operation(self):
+        # a legacy (v5) preset loads leniently; an operation addressed to a
+        # security TAR without a default keyset refuses instead of sending a
+        # keyless packet the card would reject (v3.26.0)
+        p = self.store.add(self._preset(keysets=[self._keyset(),
+                                                 self._keyset(kic='29', kid='29')]))
+        # simulate the legacy file: the ISD TAR carries no default keyset
+        self.store._presets[0]['tars'][0]['keyset'] = None
+        self.server.app = object()
+        status, resp = self._post('/api/send-ota', {
+            'apdu': '00A40000023F00', 'spi2': '01', 'preset_id': p['id']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('needs a default keyset', resp['error'])
+
     def test_a_ram_install_refuses_an_undefined_key_version(self):
         p = self.store.add(self._preset(iccid='8970119000004600098'))
         status, resp = self._post('/api/ram-install', {
@@ -1200,8 +1245,15 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(sent[0].lower(), '0d00010000b0000000000000010000a40000023f00')
 
     def test_the_tar_probe_classifies_each_tar(self):
-        p = self.store.add(self._preset(iccid='8970119000004600098', keysets=[
-            self._keyset(kic='25', kid='25', kicKey='AA', kidKey='BB', cntr='0000000005')]))
+        # v3.26.0: the probe checks the preset's TAR list only and each row
+        # uses its TAR's default keyset (a single-keyset preset auto-fills it)
+        p = self.store.add(self._preset(iccid='8970119000004600098',
+            tars=[{'role': 'isd', 'tar': '000000', 'msl': '16'},
+                  {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                  {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'},
+                  {'tar': 'B00200', 'msl': '16', 'desc': 'Vendor'}],
+            keysets=[self._keyset(kic='25', kid='25', kicKey='AA', kidKey='BB',
+                                  cntr='0000000005')]))
         seen = []
 
         def fake_step(server, scc, sp, state, name, apdu, silent=False):
@@ -1222,8 +1274,7 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.server.app = object()      # the probe only checks truthiness
         with mock.patch.object(self.srv, '_ram_send_gp_apdu', fake_step):
             status, resp = self._post('/api/tar-probe', {
-                'preset_id': p['id'], 'spi1': '16', 'kic': '25', 'kid': '25',
-                'kicKey': 'AA', 'kidKey': 'BB', 'cntr': '0000000005',
+                'preset_id': p['id'], 'spi1': '16',
                 'tars': ['000000', 'B00000', 'B00001', 'B00200']})
         self.assertEqual(status, 200, resp)
         self.assertEqual(seen, ['000000', 'B00000', 'B00001', 'B00200'])
@@ -1233,19 +1284,32 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(resp['registered'], 2)
         self.assertEqual(resp['total'], 4)
         self.assertEqual(resp['kvn'], 2)
-        self.assertEqual(resp['results'][0]['label'], 'Issuer Security Domain (compact)')
+        self.assertEqual([r['kvn'] for r in resp['results']], [2, 2, 2, 2])
+        self.assertEqual(resp['results'][0]['label'], 'ISD')
+        self.assertEqual(resp['results'][3]['label'], 'Vendor')
         self.assertEqual(resp['results'][0]['por_sw'], '6D00')
 
-    def test_the_tar_probe_needs_a_counter_check_and_a_defined_keyset(self):
+    def test_the_tar_probe_refuses_what_it_cannot_probe(self):
         self.server.app = object()
-        status, resp = self._post('/api/tar-probe', {'spi1': '00', 'kic': '15', 'kid': '15'})
+        # a preset is required - the probe checks its TAR list
+        status, resp = self._post('/api/tar-probe', {'spi1': '16'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('preset_id', resp['error'])
+        p = self.store.add(self._preset(iccid='8970119000004600098'))
+        # a TAR outside the preset is refused (no arbitrary TARs)
+        status, resp = self._post('/api/tar-probe',
+                                  {'preset_id': p['id'], 'spi1': '16',
+                                   'tars': ['B0FFFF']})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('not in the preset', resp['error'])
+        # an MSL 00 TAR has no counter check: the probe refuses it
+        p00 = self.store.add(self._preset(iccid='8970119000004600010',
+            tars=[{'role': 'isd', 'tar': '000000', 'msl': '00'},
+                  {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                  {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16'}]))
+        status, resp = self._post('/api/tar-probe', {'preset_id': p00['id']})
         self.assertEqual(status, 400, resp)
         self.assertIn('counter check', resp['error'])
-        p = self.store.add(self._preset(iccid='8970119000004600098'))
-        status, resp = self._post('/api/tar-probe',
-                                  {'preset_id': p['id'], 'kic': '35', 'kid': '35'})
-        self.assertEqual(status, 400, resp)
-        self.assertIn('not defined', resp['error'])
 
     def test_a_store_write_failure_answers_a_json_500(self):
         with mock.patch.object(self.store, 'add', side_effect=OSError('read-only file system')):

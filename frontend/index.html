@@ -528,8 +528,6 @@
 				<select id="sp-card-sel" onchange="cardsApply(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 					<option value="" data-l10n="— Select card —">— Select card —</option>
 				</select>
-				<label class="block mt-2 mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-				<select id="sp-keyset-sel" onchange="spKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
 		</div>
 		<div id="sp-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
@@ -650,9 +648,8 @@
 
 		<div class="flex gap-2 mb-3">
 <div class="flex-1">
-				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300">TAR (3 bytes)</label>
-				<input id="sp-tar" oninput="spInvalidate()" list="sp-tar-list" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="B00001" maxlength="6" value="B00001">
-				<datalist id="sp-tar-list"></datalist>
+				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="TAR (from the preset)">TAR (from the preset)</label>
+				<select id="sp-tar" onchange="spTarChanged()" class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800"></select>
 			</div>
 			<div class="flex-1">
 				<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300">Counter (5 bytes)</label>
@@ -697,10 +694,6 @@
 					<select id="ram-card-sel" onchange="ramApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="" data-l10n="— Select card —">— Select card —</option>
 					</select>
-				</div>
-				<div class="flex-1">
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-					<select id="ram-keyset-sel" onchange="ramKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
 				</div>
 				<div class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Operation">Operation</label>
@@ -934,26 +927,17 @@
 						<option value="" data-l10n="— Select card —">— Select card —</option>
 					</select>
 				</div>
-				<div class="flex-1">
-					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Keyset">Keyset</label>
-					<select id="tar-keyset-sel" onchange="tarKeysetChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
-				</div>
 			</div>
 			<div id="tar-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
 			<div class="mb-1 flex items-center justify-between">
-				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1">TARs to probe — TS 101 220 V18.3.0 Annex D, Table D.1</span>
+				<span class="text-xs text-gray-600 dark:text-slate-400" data-l10n="TARs to probe (the preset's TAR list)">TARs to probe (the preset's TAR list)</span>
 				<span class="flex gap-1">
 					<button type="button" onclick="tarProbeSelectAll(true)" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Select all">Select all</button>
 					<button type="button" onclick="tarProbeSelectAll(false)" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700" data-l10n="Select none">Select none</button>
 				</span>
 			</div>
 			<div id="tar-list" class="mb-2 border border-gray-200 dark:border-slate-700 rounded p-2 max-h-64 overflow-y-auto"></div>
-			<div class="flex gap-2 items-center mb-3">
-				<input id="tar-custom" class="w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="6" placeholder="AABBCC">
-				<input id="tar-custom-note" class="flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="description (optional)">
-				<button type="button" onclick="tarProbeAddCustom()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 whitespace-nowrap" data-l10n="Add TAR">Add TAR</button>
-			</div>
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Probe APDU (hex)">Probe APDU (hex)</label>
 			<input id="tar-apdu" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800 font-mono mb-3" value="00A40000023F00">
 			<button data-needs="card" data-needs-keyset="tar" onclick="tarExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
@@ -1719,6 +1703,7 @@
 				<thead><tr>
 					<th class="w-28 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="TAR">TAR</th>
 					<th class="w-20 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="MSL">MSL</th>
+					<th class="w-36 text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Keyset">Keyset</th>
 					<th class="text-left py-1 px-2 border-b border-gray-200 dark:border-slate-700" data-l10n="Description">Description</th>
 					<th class="w-12 border-b border-gray-200 dark:border-slate-700"></th>
 				</tr></thead>
@@ -1907,7 +1892,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.25.8';
+const SIMPLE_VERSION = '3.26.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -5032,18 +5017,69 @@ function spPresetTar(role) {
 	return cardsRoleTar(c, role);
 }
 
-// The TAR field's suggestions: the preset's TAR table, each entry labelled
-// with its description (or its role) and MSL - free text stays possible.
-function spTarListRender(preset) {
-	const list = document.getElementById('sp-tar-list');
-	if (!list) return;
+// The SCP80 TAR selector (v3.26.0): the preset's TAR table - the role entries
+// labelled by their role, the free rows by their description - each with its
+// MSL and default keyset.  A change applies the TAR's keyset to the form and
+// seeds the SPI1 from its MSL.
+function spTarOptionsHtml(preset) {
 	const roleLabel = { isd: 'ISD', uiccRfm: 'UICC RFM', usimRfm: 'ADF RFM' };
-	list.innerHTML = cardsTarList(preset).map(e => {
+	const list = cardsTarList(preset);
+	if (!list.length) return '<option value="">' + esc(t('— no TAR in the preset —')) + '</option>';
+	return list.map(e => {
+		const bits = [e.tar || ''];
 		const label = e.desc || roleLabel[e.role] || '';
-		const text = label + (e.msl ? (label ? ' ' : '') + '(MSL ' + e.msl + ')' : '');
-		return '<option value="' + esc(e.tar || '') + '"' +
-			(text ? ' label="' + esc(text) + '"' : '') + '></option>';
+		if (label) bits.push(label);
+		if (e.msl) bits.push('MSL ' + e.msl);
+		if (e.keyset) bits.push(t('Keyset') + ' ' + e.keyset);
+		return '<option value="' + esc(e.tar || '') + '">' + esc(bits.join(' \u00b7 ')) + '</option>';
 	}).join('');
+}
+
+// Render the SCP80 TAR select from a preset (the view's current one when not
+// given); the previous selection is kept when the new list carries it.
+function spTarRender(preset) {
+	const sel = document.getElementById('sp-tar');
+	if (!sel) return;
+	if (preset === undefined) {
+		const idx = spPresetIdx();
+		preset = idx >= 0 ? cards[idx] : null;
+	}
+	const prev = sel.value;
+	sel.disabled = !preset;
+	sel.innerHTML = preset ? spTarOptionsHtml(preset)
+		: '<option value="">' + esc(t('— select a card preset —')) + '</option>';
+	if (prev && Array.prototype.some.call(sel.options, o => o.value === prev)) sel.value = prev;
+	else if (sel.options.length) sel.selectedIndex = 0;
+}
+
+// Seed the SPI1 field from a TAR's MSL (the option is added when the selector
+// does not carry it - the MSL is the card's Minimum SPI1, TS 102 226
+// 8.2.1.3.2.4).
+function spSpi1Seed(msl) {
+	const spi1Sel = document.getElementById('sp-spi1');
+	if (!spi1Sel || !msl) return;
+	if (spi1Sel.options && typeof Option === 'function' &&
+	    !Array.prototype.some.call(spi1Sel.options, o => o.value === msl)) {
+		spi1Sel.appendChild(new Option(msl + ' \u2014 MSL', msl));
+	}
+	spi1Sel.value = msl;
+}
+
+// A TAR selection applies its preset entry's default keyset (KIc/KID and the
+// keys; the counter override is cleared) and seeds the SPI1 from its MSL.
+function spTarChanged() {
+	const sel = document.getElementById('sp-tar');
+	const idx = spPresetIdx();
+	const preset = idx >= 0 ? cards[idx] : null;
+	const entry = preset ? cardsTarEntry(preset, sel ? sel.value : '') : null;
+	if (entry) {
+		const ks = entry.keyset ? spKeysetFor(preset, entry.keyset) : null;
+		if (ks) spKeysetApply(ks);
+		if (entry.msl) spSpi1Seed(entry.msl);
+	}
+	spInvalidate();
+	updateSp();
+	spKeysetSync();
 }
 
 function packToSp(sourceId) {
@@ -5055,7 +5091,10 @@ function packToSp(sourceId) {
 	const key = spTarKeyForPack(sourceId);
 	if (key) {
 		_spTarKey = key;
-		document.getElementById('sp-tar').value = spPresetTar(key);
+		spTarRender();
+		const sel = document.getElementById('sp-tar');
+		const tar = spPresetTar(key);
+		if (sel && Array.prototype.some.call(sel.options, o => o.value === tar)) sel.value = tar;
 	}
 	_spRamFormat = sourceId === 'chain-ram-preview' ? 'auto' : null;
 }
@@ -10436,8 +10475,10 @@ function scriptsCapFileChanged() {
 // Collect SP params from the SP form (populated by ramApplyCard -> cardsApply)
 function getRamSpParams(selId) {
 	// `preset_id` names the server-side preset the operation belongs to: the
-	// server persists the counter it consumes there (v3.8.0).  `selId` picks
-	// the view's preset selector (RAM by default, the TAR probe its own).
+	// server persists the counter it consumes there (v3.8.0) and resolves the
+	// keyset from the preset's ISD TAR entry (v3.26.0 - the RAM keyset
+	// selector is gone).  `selId` picks the view's preset selector (RAM by
+	// default, the TAR probe its own).
 	const sel = document.getElementById(selId || 'ram-card-sel');
 	const idx = sel ? parseInt(sel.value, 10) : NaN;
 	const preset = (!isNaN(idx) && cards[idx]) ? cards[idx] : null;
@@ -10445,11 +10486,7 @@ function getRamSpParams(selId) {
 		preset_id: (preset && preset.id) || '',
 		spi1: document.getElementById('sp-spi1').value,
 		spi2: document.getElementById('sp-spi2-hex').value,
-		kic: document.getElementById('sp-kic-hex').value,
-		kid: document.getElementById('sp-kid-hex').value,
-		tar: (document.getElementById('sp-tar').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().padEnd(6, '0').slice(0, 6),
-		kicKey: (document.getElementById('sp-kic-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
-		kidKey: (document.getElementById('sp-kid-key').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		tar: preset ? cardsRoleTar(preset, 'isd') : '',
 		ram_format: (document.getElementById('ram-format') || {}).value || 'auto',
 	};
 	// Override only when typed; empty = the server seeds the counter from the
@@ -11928,10 +11965,8 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	const ksErr = ramKeysetGuard();
 	if (ksErr) { alert(ksErr); return; }
 	const sp = getRamSpParams();
-	if (!sp.kicKey || !sp.kidKey) {
-		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
-		return;
-	}
+	// v3.26.0: the keyset fields no longer travel - the server resolves the
+	// keyset (and its keys) from the preset's ISD TAR entry
 	const label = withCascade ? t('Delete') + ' (' + t('cascade') + ')' : t('Delete');
 	if (!confirm(label + ' — ' + t('AID:') + ' ' + aid + '?')) return;
 	const apdu = ramDeleteApdu(aid, withCascade);
@@ -12494,59 +12529,27 @@ async function ramInstallApp(sp, op) {
 }
 
 // ===== TAR probe (v3.8.0) =====
-// One secured packet per TAR from the preset's keyset, classified by the
-// card's ENVELOPE verdict and the application's PoR.  The standard TAR list
-// lives on the server (TS 101 220 V18.3.0 Annex D, Table D.1) and is used when
-// the list field is empty.  Each packet the card accepts consumes a counter,
-// which the server persists into the keyset (one per accepted TAR).
+// One secured packet per TAR of the selected preset, classified by the card's
+// ENVELOPE verdict and the application's PoR.  v3.26.0: the probe checks the
+// preset's TAR list only - each row uses its TAR's MSL and default keyset, and
+// every packet the card accepts consumes a counter, which the server persists
+// into that keyset (one per accepted TAR).
 
-// TAR values allocated by ETSI (TS 101 220 V18.3.0 Annex D, Table D.1) with
-// the document each allocation comes from.  Kept in sync with the server's
-// TAR_PROBE_TARS by a test; custom TARs live in localStorage (best effort).
-const TAR_PROBE_TARS = [
-	{ tar: '000000', label: 'Issuer Security Domain (compact)', doc: 'TS 102 226' },
-	{ tar: 'B20100', label: 'Issuer Security Domain (expanded)', doc: 'TS 102 226' },
-	{ tar: 'B00000', label: 'UICC shared file system RFM (compact)', doc: 'TS 102 226' },
-	{ tar: 'B00001', label: 'ADF RFM (compact)', doc: 'TS 131 116' },
-	{ tar: 'B00010', label: 'SIM file system RFM (compact)', doc: 'TS 131 116' },
-	{ tar: 'B00120', label: 'UICC shared file system RFM (expanded)', doc: 'TS 102 226' },
-	{ tar: 'B00130', label: 'SIM file system RFM (expanded)', doc: 'TS 131 116' },
-	{ tar: 'B00140', label: 'ADF RFM (expanded)', doc: 'TS 131 116' },
-	{ tar: 'B20000', label: 'USAT interpreter', doc: 'TS 131 114' },
-	{ tar: 'B20200', label: 'Multiplexing application', doc: 'TS 102 225' },
-	{ tar: 'B20201', label: 'Controlling Authority Security Domain', doc: 'GP Amendment A' },
-	{ tar: 'B20202', label: 'OMA BCAST audience measurement', doc: 'OMA' },
-	{ tar: 'B20203', label: 'OMA DM LWM2M application', doc: 'OMA' },
-	{ tar: 'B00200', label: 'RFU (control)', doc: '' },
-];
-const TAR_PROBE_STORAGE = 'simple_tar_probe';
-
-// The custom TARs added by the user (best effort: losing them is harmless).
-function tarProbeCustomLoad() {
-	try {
-		const d = JSON.parse(localStorage.getItem(TAR_PROBE_STORAGE) || '[]');
-		if (!Array.isArray(d)) return [];
-		return d.filter(e => e && /^[0-9A-F]{6}$/.test(String(e.tar || '').toUpperCase()))
-			.map(e => ({ tar: String(e.tar).toUpperCase(), label: String(e.label || ''), custom: true }));
-	} catch (e) {
-		return [];
-	}
-}
-
-function tarProbeCustomSave(list) {
-	try {
-		localStorage.setItem(TAR_PROBE_STORAGE, JSON.stringify(
-			(list || []).map(e => ({ tar: e.tar, label: e.label || '' }))));
-	} catch (e) { /* best effort */ }
-}
-
-// The standard rows plus the custom ones.
+// The probe's rows: the selected preset's TAR list (the role entries labelled
+// by their role, the free rows by their description; the tooltip carries the
+// MSL and the default keyset).  There is no custom-TAR input anymore.
 function tarProbeAllRows() {
-	return TAR_PROBE_TARS.concat(tarProbeCustomLoad());
+	const idx = tarPresetIdx();
+	const preset = idx >= 0 ? cards[idx] : null;
+	const roleLabel = { isd: 'ISD', uiccRfm: 'UICC RFM', usimRfm: 'ADF RFM' };
+	return cardsTarList(preset).map(e => ({
+		tar: String(e.tar || '').toUpperCase(),
+		label: e.desc || roleLabel[e.role] || '',
+		doc: e.msl ? 'MSL ' + e.msl + (e.keyset ? ' \u00b7 ' + t('Keyset') + ' ' + e.keyset : '') : '',
+	}));
 }
 
-// The checklist rows (pure): a checkbox per TAR, checked by default, the spec
-// document in the tooltip and a remove button on custom rows.
+// The checklist rows (pure): a checkbox per TAR, checked by default.
 function tarProbeRowsHtml(rows) {
 	return (rows || []).map(r => {
 		const title = r.doc ? ' title="' + esc(r.doc) + '"' : '';
@@ -12554,9 +12557,6 @@ function tarProbeRowsHtml(rows) {
 			'<input type="checkbox" class="rounded border-gray-300 dark:border-slate-600" value="' + esc(r.tar) + '" checked>' +
 			'<span class="font-mono text-xs">' + esc(r.tar) + '</span>' +
 			'<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(r.label || '') + '</span>' +
-			(r.custom
-				? '<button type="button" onclick="tarProbeRemoveCustom(\'' + esc(r.tar) + '\')" class="ml-auto px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-red-100 dark:hover:bg-red-900/40" title="' + esc(t('Remove TAR')) + '">\u2715</button>'
-				: '') +
 			'</label>';
 	}).join('');
 }
@@ -12570,32 +12570,18 @@ function tarProbeChecked() {
 
 function tarProbeRender() {
 	const box = document.getElementById('tar-list');
-	if (box) box.innerHTML = tarProbeRowsHtml(tarProbeAllRows());
+	if (!box) return;
+	const rows = tarProbeAllRows();
+	if (!rows.length) {
+		box.innerHTML = '<span class="text-xs text-gray-400 dark:text-slate-500">' +
+			esc(t('Select a card preset with TARs first')) + '</span>';
+		return;
+	}
+	box.innerHTML = tarProbeRowsHtml(rows);
 }
 
 function tarProbeSelectAll(on) {
 	document.querySelectorAll('#tar-list input[type="checkbox"]').forEach(cb => { cb.checked = !!on; });
-}
-
-function tarProbeAddCustom() {
-	const el = document.getElementById('tar-custom');
-	const noteEl = document.getElementById('tar-custom-note');
-	const tar = (el && el.value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	if (!/^[0-9A-F]{6}$/.test(tar)) { alert(t('A TAR is three hex bytes, e.g. B00001')); return; }
-	const custom = tarProbeCustomLoad();
-	if (!custom.some(e => e.tar === tar)) {
-		custom.push({ tar: tar, label: (noteEl && noteEl.value || '').trim(), custom: true });
-		tarProbeCustomSave(custom);
-	}
-	if (el) el.value = '';
-	if (noteEl) noteEl.value = '';
-	tarProbeRender();
-}
-
-function tarProbeRemoveCustom(tar) {
-	const want = String(tar || '').toUpperCase();
-	tarProbeCustomSave(tarProbeCustomLoad().filter(e => e.tar !== want));
-	tarProbeRender();
 }
 
 function tarProbeVerdictLabel(verdict) {
@@ -12694,30 +12680,15 @@ function tarPresetIdx() {
 }
 
 function tarApplyCard(idx) {
-	// copy the selected preset into the shared SP form fields (the probe reads
-	// kic/kid/keys/counter from there, like the RAM view does)
+	// v3.26.0: the probe reads its rows from the selected preset (each TAR
+	// carries its own keyset); the shared SP form fields are only the SPI1
+	// fallback - the ISD stays the form default for the other views.
 	const i = parseInt(idx, 10);
 	if (!isNaN(i) && cards[i]) _ramCardIdx = i;
-	_spTarKey = 'isd';   // the probe's checklist TARs are per-row; the ISD is the form default
+	_spTarKey = 'isd';
 	cardsApply(idx);
+	tarProbeRender();
 	spPresetWarningRender();
-}
-
-function tarKeysetChanged() {
-	const sel = document.getElementById('tar-keyset-sel');
-	if (!sel) return;
-	const kvn = parseInt(sel.value, 10);
-	const idx = tarPresetIdx();
-	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
-	if (ks) spKeysetApply(ks);
-	spKeysetSync();
-}
-
-function tarKeysetGuard() {
-	const idx = tarPresetIdx();
-	const kic = (document.getElementById('sp-kic-hex') || {}).value;
-	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
 }
 
 async function tarExecute() {
@@ -12725,15 +12696,13 @@ async function tarExecute() {
 	if (!tars.length) { alert(t('Select at least one TAR')); return; }
 	const cardIdx = parseInt(document.getElementById('tar-card-sel').value, 10);
 	if (!isNaN(cardIdx) && cards[cardIdx]) _ramCardIdx = cardIdx;
-	spRefreshFromPreset('tar-card-sel');
-	const ksErr = tarKeysetGuard();
-	if (ksErr) { alert(ksErr); return; }
-	const sp = getRamSpParams('tar-card-sel');
-	if (!sp.kicKey || !sp.kidKey) {
-		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
-		return;
-	}
-	await tarProbe(sp, tars);
+	const idx = tarPresetIdx();
+	const preset = idx >= 0 ? cards[idx] : null;
+	if (!preset) { alert(t('Select a card preset')); return; }
+	// v3.26.0: the probe checks the preset's TARs and resolves each row's
+	// keyset server-side; only the preset and the (fallback) SPI1 travel.
+	const spi1 = (document.getElementById('sp-spi1') || {}).value || '';
+	await tarProbe({ preset_id: preset.id, spi1: spi1 }, tars);
 }
 
 // Measured NV footprint of an install operation: the server reads GET DATA
@@ -12838,21 +12807,14 @@ async function ramSyncCounter(presetIdx, view) {
 	const preset = (Number.isInteger(i) && i >= 0 && cards[i]) ? cards[i] : null;
 	const box = ramCntrLowBox(view === 'sp' ? 'sp' : 'ram');
 	if (!preset) { alert(t('No card preset selected')); return; }
-	// The keyset the failed operation used: the originating view's selector
-	// first, the other view's as the fallback (both hold the keyset number as
-	// their option value).
-	const kvnOf = id => {
-		const sel = document.getElementById(id);
-		const v = sel && sel.value !== '' ? parseInt(sel.value, 10) : NaN;
-		return Number.isInteger(v) && v > 0 ? v : null;
-	};
-	const own = view === 'sp' ? 'sp-keyset-sel' : 'ram-keyset-sel';
-	const other = own === 'ram-keyset-sel' ? 'sp-keyset-sel' : 'ram-keyset-sel';
 	const val = id => (document.getElementById(id) || {}).value || '';
 	const body = { preset_id: preset.id };
-	const kvn = kvnOf(own) || kvnOf(other);
-	if (kvn) body.kvn = kvn;
-	const tar = val('sp-tar').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	// v3.26.0: the keyset follows the operation's TAR - the RAM operations are
+	// addressed to the ISD role entry, a plain send to its selected TAR (the
+	// server resolves it; an explicit `kvn` override stays possible through
+	// the API).
+	const tar = view === 'ram' ? cardsRoleTar(preset, 'isd')
+		: val('sp-tar').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	if (tar) body.tar = tar;
 	if (val('sp-spi1')) body.spi1 = val('sp-spi1');
 	// The probe needs a PoR: use the transport the failed operation used - the
@@ -13011,10 +12973,8 @@ async function ramExecute() {
 	// changed in the Cards tab after the RAM form was filled.
 	spRefreshFromPreset('ram-card-sel');
 	const sp = getRamSpParams();
-	if (!sp.kicKey || !sp.kidKey) {
-		alert(t('Select a card preset with keys first (RAM subtab → Card preset)'));
-		return;
-	}
+	// v3.26.0: the keyset fields no longer travel - the server resolves the
+	// keyset (and its keys) from the preset's ISD TAR entry
 	try {
 		if (op === 'explore') await ramExplore(sp);
 		else if (op === 'install-cap') await ramInstallCap(sp);
@@ -13543,28 +13503,6 @@ function spKeysetCheck(preset, kicHex, kidHex) {
 	return '';
 }
 
-// The <option> list of a keyset selector: the preset's keysets, plus the key
-// version currently in the form when the preset does not define it.
-function spKeysetOptionsHtml(preset, kicHex, kidHex) {
-	const kvn = spKeysetKvnOf(kicHex) || spKeysetKvnOf(kidHex) || 0;
-	let html = '';
-	let found = false;
-	spKeysetList(preset).forEach(ks => {
-		const v = spKeysetKvnOf(ks.kic);
-		if (v === null) return;
-		if (v === kvn) found = true;
-		html += '<option value="' + v + '"' + (v === kvn ? ' selected' : '') + '>' +
-			'Keyset ' + v + ' \u2014 ' + esc(ks.kic || '??') + '/' + esc(ks.kid || '??') +
-			' \u2014 ' + esc(t('counter')) + ' ' + esc(ks.cntr || '') + '</option>';
-	});
-	if (kvn && !found) {
-		html += '<option value="' + kvn + '" selected>Keyset ' + kvn + ' \u2014 ' +
-			esc(t('not defined in the preset')) + '</option>';
-	}
-	if (!html) html = '<option value="">' + esc(t('\u2014 no keyset \u2014')) + '</option>';
-	return html;
-}
-
 // ===== Keyset editor (Cards form) =====
 let _cardsKeysetCount = 0;
 
@@ -13595,12 +13533,20 @@ function cardsKeysetRowsRender(keysets) {
 function cardsKeysetAdd() {
 	cardsKeysetRowsRender(cardsKeysetsFromForm().concat([
 		{ kic: '', kid: '', kicKey: '', kidKey: '', cntr: '' }]));
+	cardsTarKeysetRefresh();
 }
 
 function cardsKeysetRemove(i) {
 	const rows = cardsKeysetsFromForm();
 	rows.splice(i, 1);
 	cardsKeysetRowsRender(rows);
+	cardsTarKeysetRefresh();
+}
+
+// Refresh the TAR table's keyset selects after the keyset table changed (the
+// TAR rows' own values are read from the DOM first, so nothing is lost).
+function cardsTarKeysetRefresh() {
+	cardsTarRowsRender(cardsTarsFromTable());
 }
 
 function cardsKeysetKvnUpdate(i) {
@@ -13614,6 +13560,9 @@ function cardsKeysetKvnUpdate(i) {
 	el.classList.toggle('text-red-500', !!bad);
 	el.title = bad ? t('KIc and KID must carry the same keyset number (TS 102 225 A.2)')
 		: t('Keyset number (b8..b5 of KIc/KID)');
+	// The TAR table's keyset selects follow the numbers as they are typed
+	// (v3.26.0) - a re-render keeps every field's value (read from the DOM).
+	cardsTarKeysetRefresh();
 }
 
 // The keyset rows as preset entries (empty rows are dropped).
@@ -13648,11 +13597,42 @@ const CARDS_TAR_ROLE_DESC = {
 	usimRfm: 'ADF FS RFM compact format',
 };
 
+// The keyset cell (v3.26.0): a select of the form's current keysets, the only
+// one preselected when the form carries exactly one, and an amber marker when
+// a TAR whose MSL requires security has none (the server refuses to save such
+// a TAR; the marker shows it before the save).
+function cardsTarKeysetCell(e, i) {
+	const keysets = cardsKeysetsFromForm();
+	const kvn = e.keyset ? Number(e.keyset) : null;
+	const msl = String(e.msl || '').toUpperCase();
+	const auto = (!kvn && keysets.length === 1) ? spKeysetKvnOf(keysets[0].kic) : null;
+	const sel = kvn || auto;
+	const warn = !sel && msl && msl !== '00';
+	let html = '<td class="py-1 px-2"><div class="flex items-center gap-1">';
+	html += '<select id="cards-tr-' + i + '-keyset" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800" title="' + esc(t('The keyset packets to this TAR use - a non-zero MSL requires one')) + '">' +
+		'<option value=""' + (sel ? '' : ' selected') + '>' + esc(t('— none —')) + '</option>';
+	keysets.forEach(ks => {
+		const v = spKeysetKvnOf(ks.kic);
+		if (v === null) return;
+		html += '<option value="' + v + '"' + (v === sel ? ' selected' : '') + '>' +
+			esc(t('Keyset') + ' ' + v + ' \u2014 ' + (ks.kic || '??') + '/' + (ks.kid || '??')) + '</option>';
+	});
+	html += '</select>';
+	if (warn) {
+		html += '<span class="text-amber-500" title="' +
+			esc(t('This TAR needs a default keyset (its MSL requires security) - set it in the Cards tab')) +
+			'">\u26a0</span>';
+	}
+	html += '</div></td>';
+	return html;
+}
+
 function cardsTarRowHtml(e, i) {
 	const cls = 'border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono';
 	const role = CARDS_TAR_ROLES[i] || '';
 	let cells = '<td class="py-1 px-2"><input id="cards-tr-' + i + '-tar" class="w-full ' + cls + '" maxlength="6" placeholder="TAR" value="' + esc(e.tar || '') + '"></td>' +
-		'<td class="py-1 px-2"><input id="cards-tr-' + i + '-msl" class="w-full ' + cls + '" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>';
+		'<td class="py-1 px-2"><input id="cards-tr-' + i + '-msl" class="w-full ' + cls + '" maxlength="2" placeholder="MSL" value="' + esc(e.msl || '') + '" title="' + esc(t('MSL (Minimum SPI1, one hex byte)')) + '"></td>' +
+		cardsTarKeysetCell(e, i);
 	if (role) {
 		cells += '<td class="py-1 px-2 text-xs text-gray-600 dark:text-slate-400">' + esc(CARDS_TAR_ROLE_DESC[role] || '') + '</td>' +
 			'<td class="py-1 px-2"></td>';
@@ -13673,7 +13653,7 @@ function cardsTarRowsRender(entries) {
 	const list = entries || [];
 	const roles = CARDS_TAR_ROLES.map(role => {
 		const e = list.find(x => x.role === role) || {};
-		return { tar: e.tar || '', msl: e.msl || '' };
+		return { tar: e.tar || '', msl: e.msl || '', keyset: e.keyset || null };
 	});
 	const free = list.filter(e => !e.role);
 	_cardsTarCount = free.length;
@@ -13682,7 +13662,7 @@ function cardsTarRowsRender(entries) {
 }
 
 function cardsTarAdd() {
-	cardsTarRowsRender(cardsTarsFromTable().concat([{ tar: '', msl: '', desc: '' }]));
+	cardsTarRowsRender(cardsTarsFromTable().concat([{ tar: '', msl: '', desc: '', keyset: null }]));
 }
 
 // `i` is the table row index; the role rows are fixed and never removed.
@@ -13703,11 +13683,19 @@ function cardsFreeTarsFromForm() {
 			return el ? String(el.value).trim() : '';
 		};
 		const e = { tar: get('tar').replace(/\s/g, '').toUpperCase(),
-			msl: get('msl').replace(/\s/g, '').toUpperCase(), desc: get('desc') };
-		if (!e.tar && !e.msl && !e.desc) continue;
+			msl: get('msl').replace(/\s/g, '').toUpperCase(), desc: get('desc'),
+			keyset: cardsTarKeysetFromForm(idx) };
+		if (!e.tar && !e.msl && !e.desc && !e.keyset) continue;
 		out.push(e);
 	}
 	return out;
+}
+
+// The keyset select of a TAR row as a number (null for none).
+function cardsTarKeysetFromForm(idx) {
+	const el = document.getElementById('cards-tr-' + idx + '-keyset');
+	const v = el && el.value ? parseInt(el.value, 10) : NaN;
+	return (Number.isInteger(v) && v > 0) ? v : null;
 }
 
 // The TAR table exactly as displayed: the role rows as typed (an emptied field
@@ -13721,7 +13709,8 @@ function cardsTarsFromTable() {
 		};
 		return { role: role,
 			tar: get('tar').replace(/\s/g, '').toUpperCase(),
-			msl: get('msl').replace(/\s/g, '').toUpperCase(), desc: '' };
+			msl: get('msl').replace(/\s/g, '').toUpperCase(), desc: '',
+			keyset: cardsTarKeysetFromForm(i) };
 	});
 	return out.concat(cardsFreeTarsFromForm());
 }
@@ -13732,45 +13721,24 @@ function cardsTarsFromTable() {
 function cardsTarsFromForm() {
 	return cardsTarsFromTable().map(e => e.role
 		? { role: e.role, tar: e.tar || cardsRoleDefault(e.role),
-		    msl: e.msl || CARDS_MSL_DEFAULT, desc: '' }
+		    msl: e.msl || CARDS_MSL_DEFAULT, desc: '', keyset: e.keyset || null }
 		: e);
 }
 
-// The role rows back to their pre-settled defaults (TAR + MSL 16) and no free
-// rows.
+// The role rows back to their pre-settled defaults (TAR + MSL 16, no keyset)
+// and no free rows.
 function cardsTarsReset() {
 	cardsTarRowsRender(CARDS_TAR_ROLES.map(role => ({
-		role: role, tar: cardsRoleDefault(role), msl: CARDS_MSL_DEFAULT, desc: '' })));
+		role: role, tar: cardsRoleDefault(role), msl: CARDS_MSL_DEFAULT, desc: '',
+		keyset: null })));
 }
 
-// ===== Keyset selectors (SCP80 / RAM) =====
-// The selector follows the KIc/KID bytes: a keyset of the selected preset that
-// matches their keyset number is selected; a number the preset does not define
-// shows as "not defined" (and the packet actions refuse it).
+// ===== Keyset resolution (SCP80 / RAM / TAR probe) =====
+// v3.26.0: the keyset selectors are gone - each TAR carries its default keyset
+// in the preset, the SCP80 TAR select applies it to the form and the RAM
+// operations use the ISD role entry (the server resolves the same rule).  Only
+// the start buttons' availability refresh remains here.
 function spKeysetSync() {
-	const kic = (document.getElementById('sp-kic-hex') || {}).value;
-	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	// A keyset only exists inside a card preset: with no preset selected the
-	// selector is disabled and cleared, so a stale "not defined in the preset"
-	// entry can never linger.
-	const sync = (selId, idxFn) => {
-		const sel = document.getElementById(selId);
-		if (!sel) return;
-		const idx = idxFn();
-		const preset = idx >= 0 ? cards[idx] : null;
-		if (!preset) {
-			sel.disabled = true;
-			sel.innerHTML = '<option value="">' + esc(t('\u2014 select a card preset \u2014')) + '</option>';
-			return;
-		}
-		sel.disabled = false;
-		sel.innerHTML = spKeysetOptionsHtml(preset, kic, kid);
-	};
-	sync('sp-keyset-sel', spPresetIdx);
-	sync('ram-keyset-sel', ramPresetIdx);
-	sync('tar-keyset-sel', tarPresetIdx);
-	// The start buttons follow the same state: they wait for a preset and a
-	// keyset defined in it.
 	pysimApplyAvailability();
 }
 
@@ -13795,26 +13763,6 @@ function spKeysetApply(ks) {
 	spCntrPlaceholder();
 	spInvalidate();
 	updateSp();
-}
-
-function spKeysetChanged() {
-	const sel = document.getElementById('sp-keyset-sel');
-	if (!sel) return;
-	const kvn = parseInt(sel.value, 10);
-	const idx = spPresetIdx();
-	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
-	if (ks) spKeysetApply(ks);
-	spKeysetSync();
-}
-
-function ramKeysetChanged() {
-	const sel = document.getElementById('ram-keyset-sel');
-	if (!sel) return;
-	const kvn = parseInt(sel.value, 10);
-	const idx = ramPresetIdx();
-	const ks = (idx >= 0 && !isNaN(kvn)) ? spKeysetFor(cards[idx], kvn) : null;
-	if (ks) spKeysetApply(ks);
-	spKeysetSync();
 }
 
 // A warning for the SCP80/RAM views when the equipped card and the selected
@@ -13869,30 +13817,64 @@ function ramPresetIdx() {
 // '' when the SCP80 form may build a packet, else the reason.  With a preset
 // selected the keyset number must be one of its keysets; without one only the
 // byte rules apply (hand-entered keys stay possible, a workbench flow).
+// The click-time guard (v3.26.0): the operation's TAR must have a usable
+// default keyset in the preset - a TAR whose MSL requires security needs one
+// (the counters are keyset-linked; MSL 00 may go keyless) - and the form's
+// KIc/KID must stay consistent with it (the fields remain hand-editable).
+function spTarKeysetGuard(preset, tar) {
+	if (!preset) return '';
+	const entry = cardsTarEntry(preset, tar);
+	if (!entry) return '';
+	if (entry.keyset) {
+		if (!spKeysetFor(preset, entry.keyset)) {
+			return t('Keyset') + ' ' + entry.keyset + ' ' + t('is not defined in the preset');
+		}
+		return '';
+	}
+	const msl = String(entry.msl || '');
+	if (msl && msl !== '00') {
+		return t('TAR') + ' ' + entry.tar + ': ' +
+			t('needs a default keyset (its MSL requires security) - set it in the Cards tab');
+	}
+	return '';
+}
+
 function spKeysetGuard() {
 	const idx = spPresetIdx();
+	if (idx < 0) return '';
+	const preset = cards[idx];
+	const sel = document.getElementById('sp-tar');
+	const tarErr = spTarKeysetGuard(preset, sel ? sel.value : '');
+	if (tarErr) return tarErr;
 	const kic = (document.getElementById('sp-kic-hex') || {}).value;
 	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+	return spKeysetCheck(preset, kic, kid);
 }
 
 function ramKeysetGuard() {
 	const idx = ramPresetIdx();
+	if (idx < 0) return '';
+	const preset = cards[idx];
+	// The RAM operations are addressed to the ISD TAR (v3.26.0)
+	const tarErr = spTarKeysetGuard(preset, cardsRoleTar(preset, 'isd'));
+	if (tarErr) return tarErr;
 	const kic = (document.getElementById('sp-kic-hex') || {}).value;
 	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	return spKeysetCheck(idx >= 0 ? cards[idx] : null, kic, kid);
+	return spKeysetCheck(preset, kic, kid);
 }
 
 // Whether a view's start button may run: its preset must be selected and the
-// form's keyset number one of that preset's keysets (the click-time guards keep
-// the byte-level checks).  '00'/'00' (no security) with a preset selected stays
-// allowed - it is a deliberate form choice.
+// operation TAR's keyset usable (the click-time guards keep the byte-level
+// checks).  '00'/'00' (no security) with a preset selected stays allowed - it
+// is a deliberate form choice.
 function spKeysetStartReady(view) {
-	const idx = view === 'ram' ? ramPresetIdx() : (view === 'tar' ? tarPresetIdx() : spPresetIdx());
-	if (idx < 0) return false;
-	const kic = (document.getElementById('sp-kic-hex') || {}).value;
-	const kid = (document.getElementById('sp-kid-hex') || {}).value;
-	return spKeysetCheck(cards[idx], kic, kid) === '';
+	if (view === 'ram') {
+		if (ramPresetIdx() < 0) return false;
+		return ramKeysetGuard() === '';
+	}
+	if (view === 'tar') return tarPresetIdx() >= 0;
+	if (spPresetIdx() < 0) return false;
+	return spKeysetGuard() === '';
 }
 
 function cardsFormValues() {
@@ -14257,40 +14239,22 @@ function cardsApplyFields(idx, keepTar, keepCntr) {
 	const c = cards[parseInt(idx)];
 	if (!c) return false;
 	// The TAR of the current operation (ISD for RAM/GP, the RFM TAR for the RFM
-	// chains) and its MSL: a preset apply seeds the SPI1 from the MSL - the
-	// card's Minimum SPI1 (TS 102 226 8.2.1.3.2.4).  keepTar leaves the packet
-	// TAR alone (the plain send may target a manually entered TAR): its SPI1 is
-	// the operator's value too.
+	// chains) and its MSL + default keyset (v3.26.0): a preset apply selects
+	// the TAR in the selector and applies its keyset to the form, seeding the
+	// SPI1 from its MSL - the card's Minimum SPI1 (TS 102 226 8.2.1.3.2.4).
+	// keepTar leaves the packet TAR (and its keyset) alone: the plain send
+	// keeps the operator's selection.
+	spTarRender(c);
 	if (!keepTar) {
 		const roleTar = cardsRoleTar(c, _spTarKey);
-		document.getElementById('sp-tar').value = roleTar;
-		const msl = cardsTarMsl(c, roleTar) || CARDS_MSL_DEFAULT;
-		const spi1Sel = document.getElementById('sp-spi1');
-		if (spi1Sel) {
-			if (spi1Sel.options && typeof Option === 'function' &&
-			    !Array.prototype.some.call(spi1Sel.options, o => o.value === msl)) {
-				spi1Sel.appendChild(new Option(msl + ' \u2014 MSL', msl));
-			}
-			spi1Sel.value = msl;
+		const sel = document.getElementById('sp-tar');
+		if (sel && Array.prototype.some.call(sel.options, o => o.value === roleTar)) {
+			sel.value = roleTar;
 		}
-	}
-	// The keyset: keep the keyset number the form carries when this preset
-	// defines it, otherwise start from the preset's first keyset.
-	const kicNow = (document.getElementById('sp-kic-hex') || {}).value;
-	const kidNow = (document.getElementById('sp-kid-hex') || {}).value;
-	const kvnNow = spKeysetKvnOf(kicNow) || spKeysetKvnOf(kidNow) || 0;
-	const ks = (kvnNow && spKeysetFor(c, kvnNow)) || spKeysetList(c)[0] || null;
-	if (ks) {
-		const kicByte = parseInt(ks.kic, 16);
-		document.getElementById('sp-kic-idx').value = ((kicByte >> 4) & 0x0F).toString(16).toUpperCase();
-		document.getElementById('sp-kic-alg').value = (kicByte & 0x0F).toString(16).padStart(2, '0');
-		updateSpKic();
-		const kidByte = parseInt(ks.kid, 16);
-		document.getElementById('sp-kid-idx').value = ((kidByte >> 4) & 0x0F).toString(16).toUpperCase();
-		document.getElementById('sp-kid-alg').value = (kidByte & 0x0F).toString(16).padStart(2, '0');
-		updateSpKid();
-		document.getElementById('sp-kic-key').value = ks.kicKey || '';
-		document.getElementById('sp-kid-key').value = ks.kidKey || '';
+		const entry = cardsTarEntry(c, sel ? sel.value : roleTar);
+		spSpi1Seed((entry && entry.msl) || CARDS_MSL_DEFAULT);
+		const ks = (entry && entry.keyset) ? spKeysetFor(c, entry.keyset) : null;
+		if (ks) spKeysetApply(ks);
 	}
 	// The counter field is an override: applying a preset clears it (empty =
 	// auto, the server seeds from the store); the pre-send refresh keeps a
@@ -14301,8 +14265,6 @@ function cardsApplyFields(idx, keepTar, keepCntr) {
 		if (cntrEl) cntrEl.value = '';
 	}
 	spCntrPlaceholder();
-	if (!keepTar) document.getElementById('sp-tar').value = cardsRoleTar(c, _spTarKey);
-	spTarListRender(c);
 	spInvalidate();
 	updateSp();
 	spKeysetSync();
@@ -14317,7 +14279,7 @@ function cardsApply(idx, keepTar, keepCntr) {
 		// warning must not outlive the selection it described.
 		spKeysetSync();
 		spPresetWarningRender();
-		spTarListRender(null);
+		spTarRender(null);
 		return;
 	}
 	_genSpBuild();
@@ -23972,6 +23934,15 @@ const LANG_RU = {
 	'TARs (MSL)': 'TAR (MSL)',
 	'Each TAR carries its MSL (Minimum SPI1) — the card checks it before the security processing (TS 102 226 8.2.1.3.2.4); the packet SPI1 is derived from it.': 'У каждого TAR есть MSL (минимальный SPI1) — карта проверяет его до обработки защиты (TS 102 226 8.2.1.3.2.4); из него выводится SPI1 пакета.',
 	'More TARs — each with its MSL and an optional description': 'Дополнительные TAR — у каждого свой MSL и необязательное описание',
+	'TAR (from the preset)': 'TAR (из пресета)',
+	'TARs to probe (the preset\'s TAR list)': 'TAR для проверки (список TAR пресета)',
+	'— no TAR in the preset —': '— в пресете нет TAR —',
+	'— none —': '— нет —',
+	'Select a card preset': 'Выберите пресет карты',
+	'Select a card preset with TARs first': 'Сначала выберите пресет карты с TAR',
+	'The keyset packets to this TAR use - a non-zero MSL requires one': 'Keyset, который используют пакеты к этому TAR — при MSL не 00 он обязателен',
+	'This TAR needs a default keyset (its MSL requires security) - set it in the Cards tab': 'Этому TAR нужен keyset по умолчанию (его MSL требует защиты) — задайте его на вкладке «Карты»',
+	'needs a default keyset (its MSL requires security) - set it in the Cards tab': 'нужен keyset по умолчанию (его MSL требует защиты) — задайте его на вкладке «Карты»',
 	'Add TAR': 'Добавить TAR',
 	'Remove TAR': 'Удалить TAR',
 	'Description (optional)': 'Описание (необязательно)',
