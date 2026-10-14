@@ -272,7 +272,7 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
             # Byte pairs, exactly like /api/verify-adm: an odd length is a half
             # byte and the verifier would always refuse the stored value
             # (v3.28.3).
-            if re.fullmatch(r'(?:[0-9A-F]{2}){2,8}', adm):
+            if re.fullmatch(presets.ADM_PATTERN, adm):
                 entry['adm'] = adm
             else:
                 skip('line %d: ADM is not 4-16 hex digits in byte pairs - dropped'

@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.28.3'
+VERSION = '3.28.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -9088,7 +9088,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             self._log_req(_redact_psk_fields(body))
             adm = re.sub(r'\s', '', str(body.get('adm') or '')).upper()
-            if not re.fullmatch(r'(?:[0-9A-F]{2}){2,8}', adm):
+            if not re.fullmatch(presets.ADM_PATTERN, adm):
                 resp = {'ok': False, 'error': 'adm must be 4-16 hex digits'}
                 self._send_json(resp, 400)
                 self._log_resp(resp)

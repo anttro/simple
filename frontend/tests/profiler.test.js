@@ -22,7 +22,7 @@ function extractFunc(src, name, asyncFn) {
 }
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
-	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'fcpDosFromFci', 'fcpDoName', 'profilerRenderFciDosEditor', 'profilerFciDoRowHtml', 'profilerFciDosDiffHtml', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
+	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'fcpDosFromFci', 'fcpDoName', 'profilerRenderFciDosEditor', 'profilerFciDoRowHtml', 'profilerFciDosDiffHtml', 'profilerUpdateRuleFciMode', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
 	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
@@ -1435,6 +1435,45 @@ test('the custom-FCI editor renders the data object rows', () => {
 	assert.ok(html.includes('value="custom"\' + (fciMode === \'custom\''), 'the editor option');
 	assert.ok(html.includes('data-l10n="Custom (per data object)"'), 'the scan dialog option');
 	delete global.t;
+});
+
+test('switching a rule to Custom seeds the data objects from its FCI (v3.28.4)', () => {
+	const FCI = '621A82054221000F0583026F4F8A01058B032F06028802004B8801B0';
+	global.profilerRenderEditor = () => {};
+	// a captured FCI with an empty list: the objects are seeded
+	global.profilerDraft = { rules: [{ fciMode: 'exact', fciHex: FCI, fciDos: undefined }] };
+	profilerUpdateRuleFciMode(0, 'custom');
+	assert.strictEqual(global.profilerDraft.rules[0].fciMode, 'custom');
+	const seeded = global.profilerDraft.rules[0].fciDos;
+	assert.ok(Array.isArray(seeded) && seeded.length >= 5, JSON.stringify(seeded));
+	assert.deepStrictEqual(seeded[0], { key: '82', mode: 'value', value: '4221000F05' });
+	// an existing list is kept as it is
+	const existing = [{ key: '82', mode: 'present' }];
+	global.profilerDraft = { rules: [{ fciMode: 'exact', fciHex: FCI, fciDos: existing }] };
+	profilerUpdateRuleFciMode(0, 'custom');
+	assert.strictEqual(global.profilerDraft.rules[0].fciDos, existing);
+	// no captured FCI: the list stays empty (rows are added by hand)
+	global.profilerDraft = { rules: [{ fciMode: 'exact', fciHex: null, fciDos: undefined }] };
+	profilerUpdateRuleFciMode(0, 'custom');
+	assert.ok(!(global.profilerDraft.rules[0].fciDos || []).length);
+	// switching away does not touch the list
+	global.profilerDraft = { rules: [{ fciMode: 'custom', fciHex: FCI, fciDos: undefined }] };
+	profilerUpdateRuleFciMode(0, 'exact');
+	assert.ok(!(global.profilerDraft.rules[0].fciDos || []).length);
+	delete global.profilerRenderEditor;
+	delete global.profilerDraft;
+});
+
+test('the raw-FCI field is exact-mode-only (v3.28.4)', () => {
+	// the custom mode shows its own editor: the raw FCI is only the source for
+	// the data objects, never the expectation
+	assert.ok(/if \(fciMode === 'exact'\) \{\n\t\thtml \+= '<div class="mb-2 flex gap-3 items-start">'/.test(html),
+		'the FCI hex field must be gated to the exact mode');
+	assert.ok(!/fciMode === 'exact' \|\| fciMode === 'custom'/.test(html),
+		'the custom mode must not render the exact-mode FCI field');
+	// the auto-seed lives in the mode updater
+	assert.ok(/if \(value === 'custom' && !\(r\.fciDos \|\| \[\]\)\.length && r\.fciHex\)/.test(html),
+		'the Custom switch must seed the data objects');
 });
 
 test('the custom FCI report block marks the expectations', () => {

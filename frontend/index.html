@@ -1910,7 +1910,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.28.3';
+const SIMPLE_VERSION = '3.28.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -20336,7 +20336,7 @@ function profilerRenderRule(i, r) {
 			'<input type="number" value="' + (r.numRecords === null ? '' : r.numRecords) + '" oninput="profilerUpdateRule(' + i + ',\'numRecords\',this.value===\'\'?null:parseInt(this.value))" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="—"></div>';
 	}
 	html += '</div>';
-	if (fciMode === 'exact' || fciMode === 'custom') {
+	if (fciMode === 'exact') {
 		html += '<div class="mb-2 flex gap-3 items-start">';
 		html += '<div class="flex-1 min-w-0"><label class="block text-xs text-gray-600 dark:text-slate-400 mb-0.5">' + esc(t('FCI hex (raw SELECT response)')) + '</label>' +
 			'<textarea oninput="profilerFciInput(' + i + ',this.value)" rows="4" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 dark:bg-slate-800" placeholder="62...">' + escHtml(r.fciHex || '') + '</textarea></div>';
@@ -20344,6 +20344,10 @@ function profilerRenderRule(i, r) {
 			'<div id="profiler-fci-preview-' + i + '" class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(r.fciHex || '') + '</div></div>';
 		html += '</div>';
 	}
+	// Custom mode (v3.28.4): the raw FCI is only the *source* for the data
+	// objects (the check compares the objects, never the raw bytes), so its
+	// field is exact-mode-only and the object list is seeded automatically when
+	// the rule is switched to Custom.
 	if (fciMode === 'custom') {
 		html += profilerRenderFciDosEditor(i, r);
 	}
@@ -20756,7 +20760,16 @@ function profilerUpdateRuleFileType(i, value) {
 
 function profilerUpdateRuleFciMode(i, value) {
 	if (!profilerDraft) return;
-	profilerDraft.rules[i].fciMode = value;
+	const r = profilerDraft.rules[i];
+	r.fciMode = value;
+	// Custom mode has no raw-FCI field: seed the data objects from the rule's
+	// captured FCI when the list is still empty (the same all-'value' seeding
+	// a profile created from a card or a snapshot gets, v3.25.8).  A rule
+	// without a captured FCI starts empty - rows are added by hand.
+	if (value === 'custom' && !(r.fciDos || []).length && r.fciHex) {
+		const dos = fcpDosFromFci(r.fciHex);
+		if (dos.length) r.fciDos = dos;
+	}
 	profilerRenderEditor();
 }
 

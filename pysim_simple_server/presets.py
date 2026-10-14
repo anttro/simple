@@ -103,6 +103,10 @@ TAR_ROLE_DEFAULTS = {
 COUNTER_BITS = 40      # the SCP80 counter is 5 bytes (TS 31.115)
 COUNTER_WIDTH = 10     # ... shown as 10 hex digits
 KVN_MAX = 0x0F         # keyset number '00' is reserved: no key set, no counter
+# The ADM's shape: 4-16 hex digits in byte pairs (the verifier pads it with 'f'
+# to the 8 CHV bytes, so an odd length or a longer value can never verify).
+# Shared by /api/verify-adm and the outfile import so the two cannot drift.
+ADM_PATTERN = r'(?:[0-9A-F]{2}){2,8}'
 
 
 def default_path():

@@ -9,6 +9,7 @@ without silently destroying it.
 
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -608,6 +609,25 @@ class StoreInfoTests(unittest.TestCase):
     def test_default_path_is_the_home_dot_directory(self):
         self.assertEqual(presets.default_path().name, 'card_presets.json')
         self.assertEqual(presets.default_path().parent.name, '.pysim-simple-server')
+
+
+class AdmPatternTests(unittest.TestCase):
+    """The ADM's shared shape (v3.28.3 review): one constant, used by both the
+    outfile import and /api/verify-adm - two literals would drift and an
+    imported ADM could silently become unverifiable."""
+
+    def test_the_pattern_is_byte_pairs_of_4_to_16_digits(self):
+        for ok in ('1234', '3632333239463337', 'CFA3DD9C6B7F0F8C', '1a2b'):
+            self.assertIsNotNone(re.fullmatch(presets.ADM_PATTERN, ok.upper()), ok)
+        for bad in ('123', '12345', 'AB' * 9, 'ZZZZ', ''):
+            self.assertIsNone(re.fullmatch(presets.ADM_PATTERN, bad), bad)
+
+    def test_both_users_reference_the_constant(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        for rel in ('pysim_simple_server/outfile.py', 'pysim_simple_server/server.py'):
+            src = (root / rel).read_text(encoding='utf-8')
+            self.assertIn('presets.ADM_PATTERN', src)
+            self.assertNotIn(r"'(?:[0-9A-F]{2}){2,8}'", src)
 
 
 if __name__ == '__main__':
