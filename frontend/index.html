@@ -1928,7 +1928,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.29.1';
+const SIMPLE_VERSION = '3.29.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -15101,8 +15101,11 @@ function cardsOutfileRender() {
 	html += '<div id="cards-of-tars">' + cardsOutfileTarRowsHtml() + '</div>';
 	html += '<button type="button" onclick="cardsOutfileTarAdd()" class="mb-1 text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300">+ ' + esc(t('TAR')) + '</button>';
 	html += cardsOutfileResultHtml();
+	// A structurally invalid file cannot be imported (v3.29.2): the server
+	// refuses it, so the button stays disabled while the report has an error.
+	const fileErr = !!(o.preview && o.preview.report && o.preview.report.error);
 	html += '<div class="flex gap-2 mt-2">';
-	html += '<button type="button" id="cards-of-import" onclick="cardsOutfileImport()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40">' + esc(t('Import')) + '</button>';
+	html += '<button type="button" id="cards-of-import"' + (fileErr ? ' disabled' : '') + ' onclick="cardsOutfileImport()" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40">' + esc(t('Import')) + '</button>';
 	html += '<button type="button" onclick="cardsOutfilePreview()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700">' + esc(t('Refresh preview')) + '</button>';
 	html += '</div>';
 	panel.innerHTML = html;
@@ -15129,6 +15132,11 @@ async function cardsOutfileImport() {
 	const o = _cardsOutfile;
 	if (!o) return;
 	cardsOutfileControls();
+	// A structurally invalid file is refused by the server (v3.29.2)
+	if (o.preview && o.preview.report && o.preview.report.error) {
+		alert(t('The file is invalid - fix it and refresh the preview'));
+		return;
+	}
 	// Replace wipes the whole store - the destructive choice asks first
 	if (o.mode === 'replace' && !confirm(t('Replace mode wipes the whole preset store. Continue?'))) return;
 	const btn = document.getElementById('cards-of-import');
@@ -23638,6 +23646,7 @@ const LANG_RU = {
 	'Common name': 'Общее имя',
 	'16-byte keys': '16-байтные ключи',
 	'This TAR needs a keyset (its MSL requires security)': 'Этому TAR нужен keyset (его MSL требует защиты)',
+	'The file is invalid - fix it and refresh the preview': 'Файл некорректен — исправьте его и обновите предпросмотр',
 	'Import mode': 'Режим импорта',
 	'Merge': 'Дополнить',
 	'Replace': 'Заменить',

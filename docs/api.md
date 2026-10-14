@@ -324,7 +324,13 @@ into a preview.
 - `text` (required) — the outfile contents.  A file without a column line
   answers `{"ok": true, "preview": true, "presets": [], "report": {"error":
   "no column-name line found - …"}}` (a preview, not a `400`: the panel
-  shows the message).
+  shows the message).  The same report error covers a structurally invalid
+  file (v3.29.2): a data row whose token count differs from the header's column
+  count (the format is positional, so an empty value drops its token - including
+  in the middle, which would otherwise shift the columns), or a
+  `KICn`/`KIDn` pair declared in the header without a usable hex value in some
+  row.  An import (`mode`) of such a file answers `400` with that error - it is
+  never partially imported.
 - `name` — one common name applied to every imported card; empty falls back
   to the card's ICCID.
 - `algorithm16` — the algorithm nibble for a **16-byte** key: `"3des2"`

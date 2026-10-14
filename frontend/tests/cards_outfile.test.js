@@ -310,6 +310,22 @@ test('a declined replace confirmation aborts the import', async () => {
 	assert.strictEqual(app.calls.length, 1);
 });
 
+test('the Import button is disabled while the report has a file error (v3.29.2)', () => {
+	clearEls();
+	setEl('cards-outfile-panel', '');
+	app.state = { text: TEXT, file: 'bad.out', name: 'x', algorithm16: '3des2', mode: 'merge',
+		preview: { presets: [], report: { error: 'line 2 has 2 values, the header declares 3 columns - the file is invalid' } } };
+	app.tars = 0;
+	app.cardsOutfileRender();
+	assert.match(els['cards-outfile-panel'].innerHTML, /id="cards-of-import" disabled/);
+	assert.match(els['cards-outfile-panel'].innerHTML, /the header declares 3 columns/);
+	// a valid report keeps it enabled
+	app.state.preview = { presets: [{ iccid: '8970119000004600098', keysets: [{ kic: '15', kid: '15' }] }],
+		report: { columns: ['ICCID', 'KIC1', 'KID1'], rows: 1, cards: 1 } };
+	app.cardsOutfileRender();
+	assert.match(els['cards-outfile-panel'].innerHTML, /id="cards-of-import" onclick/);
+});
+
 test('a row keeps its chosen keyset through the DOM round-trip', () => {
 	clearEls();
 	app.state = { text: TEXT, name: 'x', algorithm16: '3des2', mode: 'merge',

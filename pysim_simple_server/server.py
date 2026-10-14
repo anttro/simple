@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.29.1'
+VERSION = '3.29.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -11358,6 +11358,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                 resp = {'ok': True, 'preview': True,
                         'presets': parsed['presets'], 'report': parsed['report']}
                 self._send_json(resp)
+                self._log_resp(resp)
+                return
+            if parsed['report'].get('error'):
+                # A structurally invalid file (v3.29.2) is never partially
+                # imported - the preview shows the error, the import refuses.
+                resp = {'error': parsed['report']['error']}
+                self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
             try:

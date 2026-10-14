@@ -966,6 +966,19 @@ class PresetStoreHttpTests(unittest.TestCase):
             'text': text, 'tars': [{'tar': '000000', 'msl': '16', 'keyset': 99}]})
         self.assertEqual(status, 400, resp)
         self.assertIn('keyset', resp['error'])
+        # an invalid file (a row with a missing value, v3.29.2): the preview
+        # shows the error, the import refuses it - never a partial import
+        bad = ('ICCID KIC1 KID1\n' + '8970119000004600098F 00112233445566778899AABBCCDDEEFF\n')
+        status, resp = self._post('/api/presets/import-outfile', {'text': bad})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual(resp['presets'], [])
+        self.assertIn('the header declares 3 columns', resp['report']['error'])
+        before = len(self.store.list())
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': bad, 'mode': 'merge'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('the file is invalid', resp['error'])
+        self.assertEqual(len(self.store.list()), before)
         # a non-list TAR table is the caller's error, never a silent fallback
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tars': 'nope'})

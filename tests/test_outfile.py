@@ -244,19 +244,41 @@ class OptionTests(unittest.TestCase):
         self.assertNotIn('pskKey', res['presets'][0])
         self.assertTrue(any('PSK is not 16 bytes' in s for s in res['report']['skipped']))
 
-    def test_short_rows_and_bad_optional_codes_are_reported(self):
-        # a row shorter than the *used* columns (the keyset) is skipped
+    def test_a_row_with_a_missing_or_extra_value_is_a_file_error(self):
+        """The file is positional: an empty value drops its token, so a token
+        count other than the header's column count means an empty (or extra)
+        value - the whole file is refused (v3.29.2)."""
+        # a missing trailing value
         text = ('ICCID KIC1 KID1\n' + DIGITS_F + ' ' + K16A + '\n')
         res = outfile.parse_outfile(text)
         self.assertEqual(res['presets'], [])
-        self.assertTrue(any('too few columns' in s for s in res['report']['skipped']))
-        # a missing optional column is simply absent, the card kept
+        self.assertIn('line 2 has 2 values, the header declares 3 columns',
+                      res['report']['error'])
+        # ...a missing middle value (which used to shift the columns silently)
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + '\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'], [])
+        self.assertIn('the file is invalid', res['report']['error'])
+        # ...and an extra value
+        text = ('ICCID KIC1 KID1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' EXTRA\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'], [])
+        self.assertIn('4 values', res['report']['error'])
+        # a declared keyset without a usable value is a file error too
+        text = ('ICCID KIC1 KID1 KIC2 KID2\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' - ' + K16C + '\n')
+        res = outfile.parse_outfile(text)
+        self.assertEqual(res['presets'], [])
+        self.assertIn('keyset 2 has no usable KIC/KID value', res['report']['error'])
+        # a valid file keeps parsing (an exact count everywhere)
         text = ('ICCID KIC1 KID1 PIN1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
-                ' 1234\n')
+                ' 1234 3632333239463337\n')
         res = outfile.parse_outfile(text)
         self.assertEqual(len(res['presets']), 1)
         self.assertEqual(res['presets'][0]['pin1'], '1234')
-        self.assertNotIn('adm', res['presets'][0])
+        self.assertEqual(res['presets'][0]['adm'], '3632333239463337')
+
+    def test_bad_optional_codes_are_reported_per_row(self):
         # the ADM column is the key's hex value, stored as-is (v3.28.2): the
         # length varies, and the value is never ASCII-decoded
         text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
@@ -314,9 +336,9 @@ class OptionTests(unittest.TestCase):
         res = outfile.parse_outfile(text)
         self.assertNotIn('puk1', res['presets'][0])
         self.assertTrue(any("PUK1 'abcd'" in s for s in res['report']['skipped']))
-        # ...while a column absent from a short row stays silent (not present)
+        # ...while an *empty* PUK1 token cannot exist in a whitespace-separated
+        # row: the count would change, which is a file error (v3.29.2)
         text = ('ICCID KIC1 KID1 PIN1 PUK1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' 1234\n')
         res = outfile.parse_outfile(text)
-        self.assertEqual(res['presets'][0]['pin1'], '1234')
-        self.assertNotIn('puk1', res['presets'][0])
-        self.assertEqual([s for s in res['report']['skipped'] if 'PUK1' in s], [])
+        self.assertEqual(res['presets'], [])
+        self.assertIn('the file is invalid', res['report']['error'])

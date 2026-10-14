@@ -208,7 +208,6 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
     report['keysets'] = ['KIC%d/KID%d' % (n, n) for n in pairs]
     tars_base = normalise_tars(tars, tar_keyset)
     report['tars'] = len(tars_base)
-    used_max = max([idx['ICCID']] + [i for pair in pairs.values() for i in pair])
 
     def skip(msg):
         if len(report['skipped']) < SKIP_REPORT_MAX:
@@ -224,9 +223,15 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
         toks = str(line).split()
         if not toks:
             continue
-        if len(toks) <= used_max:
-            skip('line %d: too few columns' % row_no)
-            continue
+        # The file is positional: an empty value drops its token, so a row whose
+        # token count differs from the header's column count carries an empty
+        # (or extra) value somewhere.  The file is invalid then - it is never
+        # partially imported (v3.29.2).
+        if len(toks) != len(columns):
+            report['error'] = ('line %d has %d values, the header declares %d '
+                               'columns - the file is invalid'
+                               % (row_no, len(toks), len(columns)))
+            return {'presets': [], 'report': report}
         report['rows'] += 1
         iccid = presets.normalize_iccid(toks[idx['ICCID']]) if idx['ICCID'] >= 0 else ''
         if not iccid:
@@ -237,8 +242,11 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
             kic_key = _hex_value(toks[ki])
             kid_key = _hex_value(toks[di])
             if not kic_key or not kid_key:
-                skip('line %d: keyset %d has no KIC/KID' % (row_no, n))
-                continue
+                # The header declares this keyset: every row must carry a usable
+                # value for it (v3.29.2)
+                report['error'] = ('line %d: keyset %d has no usable KIC/KID '
+                                   'value - the file is invalid' % (row_no, n))
+                return {'presets': [], 'report': report}
             if len(kic_key) != len(kid_key):
                 skip('line %d: keyset %d KIC/KID sizes differ' % (row_no, n))
                 continue
