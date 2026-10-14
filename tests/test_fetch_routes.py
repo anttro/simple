@@ -955,6 +955,11 @@ class PresetStoreHttpTests(unittest.TestCase):
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tar_keyset': 99})
         self.assertEqual(status, 400, resp)
+        # a non-list TAR table is the caller's error, never a silent fallback
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'tars': 'nope'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('tars', resp['error'])
         # a misspelled algorithm or mode is refused, never silently defaulted
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'algorithm16': 'aes-256'})

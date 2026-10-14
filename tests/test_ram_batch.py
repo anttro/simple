@@ -57,8 +57,12 @@ def _preset(iccid, name='Card', keyset=1):
             'tars': [tar]}
 
 
-def _fake_server(iccid, store, connected=True, session=1):
-    return SimpleNamespace(iccid=iccid, card_presets=store, connected=connected,
+def _fake_server(iccid, store, session=1):
+    """A server-shaped object carrying only the attributes the real server
+    object has.  The connection state is the module global `_CARD_CONNECTED`
+    (v3.28.0 review: a fake `connected` attribute here hid a bug - the worker
+    read it and never saw a card)."""
+    return SimpleNamespace(iccid=iccid, card_presets=store,
                            card_session=session, scc=object())
 
 
@@ -220,10 +224,11 @@ class BatchCardTests(unittest.TestCase):
         preset = _preset('8970119000004600098', 'Alfa')
         srv._RAM_BATCH = st
         srv._server_ref = _fake_server('8970119000004600098', _FakeStore([preset]),
-                                       connected=True, session=7)
+                                       session=7)
         calls = []
-        with mock.patch.object(srv, '_ram_install_run',
-                               lambda *a, **k: calls.append(1) or {'success': True}):
+        with mock.patch.object(srv, '_CARD_CONNECTED', True), \
+                mock.patch.object(srv, '_ram_install_run',
+                                  lambda *a, **k: calls.append(1) or {'success': True}):
             t = threading.Thread(target=srv._ram_batch_worker, args=(st,), daemon=True)
             t.start()
             for _ in range(60):
@@ -260,6 +265,17 @@ class RamInstallPlanTests(unittest.TestCase):
                 srv._ram_install_plan({'cap_hex': 'AA', 'load_block_size': 'x'})
             with self.assertRaises(ValueError):
                 srv._ram_install_plan({'cap_hex': ''})
+
+
+class BatchWorkerSourceTests(unittest.TestCase):
+    def test_the_worker_reads_the_module_connection_state(self):
+        """The server object has no `connected` attribute - the worker must
+        read `_CARD_CONNECTED`, the global the rest of the server uses
+        (v3.28.0 review)."""
+        import inspect
+        src = inspect.getsource(srv._ram_batch_worker)
+        self.assertIn('_CARD_CONNECTED', src)
+        self.assertNotIn("'connected'", src)
 
 
 class BatchLifecycleTests(unittest.TestCase):

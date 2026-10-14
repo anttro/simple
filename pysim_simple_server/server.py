@@ -2561,7 +2561,7 @@ def _ram_batch_new_state(plan):
             'started': time.time(), 'stopped': None, 'plan': plan,
             'session': None, 'seen': {}, 'attempts': [], 'attempts_total': 0,
             'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
-            'current': None, 'notice': '', 'thread': None}
+            'current': None, 'notice': ''}
 
 
 def _ram_batch_record(state, rec):
@@ -2699,8 +2699,10 @@ def _ram_batch_worker(state):
                     break
             server = _server_ref
             session = getattr(server, 'card_session', 0) if server is not None else None
-            connected = bool(server is not None
-                             and getattr(server, 'connected', False))
+            # The connection state is the module global the whole server uses
+            # (_apply_equipped_card / _handle_card_disconnect); the server
+            # object itself has no `connected` attribute (v3.28.0 review).
+            connected = bool(server is not None and _CARD_CONNECTED)
             with _RAM_BATCH_LOCK:
                 if state['stop']:
                     break
@@ -2726,7 +2728,6 @@ def _ram_batch_worker(state):
             state['current'] = None
             state['phase'] = 'stopped' if state['stop'] else 'finished'
             state['stopped'] = time.time()
-            state['thread'] = None
             phase, total = state['phase'], state['attempts_total']
         sys.stderr.write('RAM-BATCH: %s after %d attempts\n' % (phase, total))
 
@@ -2745,10 +2746,8 @@ def _ram_batch_start(server, body):
     state = _ram_batch_new_state(plan)
     with _RAM_BATCH_LOCK:
         _RAM_BATCH = state
-    thread = threading.Thread(target=_ram_batch_worker, args=(state,),
-                              name='ram-batch', daemon=True)
-    state['thread'] = thread
-    thread.start()
+    threading.Thread(target=_ram_batch_worker, args=(state,),
+                     name='ram-batch', daemon=True).start()
     sys.stderr.write('RAM-BATCH: started (%d APDUs, loadfile_aid=%s)\n'
                      % (len(plan['seq']), plan['loadfile_aid']))
     return state
@@ -11208,6 +11207,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 400)
                 self._log_resp(resp)
                 return
+            tars = body.get('tars')
+            if tars is not None and not isinstance(tars, list):
+                resp = {'error': 'tars must be a list of TAR entries'}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             tar_keyset = body.get('tar_keyset')
             if tar_keyset in (None, ''):
                 tar_keyset = None
@@ -11245,7 +11250,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     text,
                     name=str(body.get('name') or ''),
                     algorithm16=algorithm16,
-                    tars=body.get('tars'),
+                    tars=tars,
                     tar_keyset=tar_keyset)
             except ValueError as e:
                 resp = {'error': str(e)}
