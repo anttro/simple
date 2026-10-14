@@ -262,6 +262,22 @@ class OptionTests(unittest.TestCase):
         self.assertNotIn('adm', res['presets'][0])
         self.assertTrue(any('ADM is not 4-16 hex digits' in s
                             for s in res['report']['skipped']))
+        # an odd length is a half byte: /api/verify-adm would always refuse the
+        # stored value, so it is dropped at import time (v3.28.3)
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' 12345\n')
+        res = outfile.parse_outfile(text)
+        self.assertNotIn('adm', res['presets'][0])
+        self.assertTrue(any('ADM is not 4-16 hex digits in byte pairs' in s
+                            for s in res['report']['skipped']))
+        # ...and so is a value over the 16-digit limit (the verifier pads to 8
+        # CHV bytes, a longer value would overflow)
+        text = ('ICCID KIC1 KID1 ADM\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' ' + 'AB' * 9 + '\n')
+        res = outfile.parse_outfile(text)
+        self.assertNotIn('adm', res['presets'][0])
+        self.assertTrue(any('ADM is not 4-16 hex digits in byte pairs' in s
+                            for s in res['report']['skipped']))
         # a present but invalid PIN is dropped, the card kept
         text = ('ICCID KIC1 KID1 PIN1\n' + DIGITS_F + ' ' + K16A + ' ' + K16B + ' 12\n')
         res = outfile.parse_outfile(text)

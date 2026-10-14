@@ -8,9 +8,9 @@ prefix) - and continues with one whitespace-separated row per card.  The
 header and every column the presets do not use are ignored.
 
 Recognised columns (case-insensitive): ``ICCID``, ``PIN1``/``PIN2``,
-``PUK1``/``PUK2``, ``ADM`` (the key's hex value - the length varies, e.g. 8 or
-16 hex digits; this is the form the preset store and ``/api/verify-adm`` use,
-where pySim pads it with 'f' to the 8 CHV bytes), ``PSK`` (the SCP81 key, 16 bytes; an
+``PUK1``/``PUK2``, ``ADM`` (the key's hex value - 4-16 hex digits in **byte
+pairs**, the rule ``/api/verify-adm`` applies; this is the form the preset store
+uses, where pySim pads it with 'f' to the 8 CHV bytes), ``PSK`` (the SCP81 key, 16 bytes; an
 optional ``PSKID``/``PSK_ID`` column names its identity, defaulting to the
 card's ICCID) and ``KICn``/``KIDn`` - one keyset per numbered pair, up to 15.
 Everything else (``IMSI*``, ``EKI``, ``KIKn`` - the key-management key, no
@@ -269,10 +269,14 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
             # The ADM column carries the key's hex value itself (the length
             # varies) - the form the preset store and /api/verify-adm use.
             adm = re.sub(r'[^0-9A-Fa-f]', '', str(toks[i])).upper()
-            if re.fullmatch(r'[0-9A-F]{4,16}', adm):
+            # Byte pairs, exactly like /api/verify-adm: an odd length is a half
+            # byte and the verifier would always refuse the stored value
+            # (v3.28.3).
+            if re.fullmatch(r'(?:[0-9A-F]{2}){2,8}', adm):
                 entry['adm'] = adm
             else:
-                skip('line %d: ADM is not 4-16 hex digits - dropped' % row_no)
+                skip('line %d: ADM is not 4-16 hex digits in byte pairs - dropped'
+                     % row_no)
         i = idx['PSK']
         if 0 <= i < len(toks) and toks[i]:
             psk = _hex_value(toks[i])
