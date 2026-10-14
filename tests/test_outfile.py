@@ -195,6 +195,30 @@ class OptionTests(unittest.TestCase):
         self.assertTrue(all(t['keyset'] == 2 for t in p['tars']))
         self.assertEqual(res['report']['tars'], 4)
 
+    def test_the_per_row_keysets_win(self):
+        """A TAR entry's own keyset (chosen in the preview) is used; the global
+        default fills the entries without one, then the card's first keyset
+        (v3.29.1)."""
+        text = ('ICCID KIC1 KID1 KIC2 KID2\n' + DIGITS_F + ' ' + K16A + ' ' + K16B +
+                ' ' + K16C + ' ' + K16A + '\n')
+        tars = [{'role': 'isd', 'tar': '000000', 'msl': '16', 'keyset': 2},
+                {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16'},
+                {'tar': 'B00011', 'msl': '1A', 'desc': 'push', 'keyset': 1}]
+        res = outfile.parse_outfile(text, tars=tars)
+        got = [(t['tar'], t['keyset']) for t in res['presets'][0]['tars']]
+        self.assertEqual(got[0], ('000000', 2))          # its own keyset
+        self.assertEqual(got[-1], ('B00011', 1))         # its own keyset
+        self.assertEqual(got[1], ('B00000', 1))          # the card's first keyset
+        # the global default fills the entries without one; an entry's own
+        # keyset still wins over it
+        res = outfile.parse_outfile(text, tars=tars, tar_keyset=2)
+        self.assertEqual([t['keyset'] for t in res['presets'][0]['tars']], [2, 2, 1])
+        # an unusable keyset is the caller's error
+        with self.assertRaises(ValueError):
+            outfile.parse_outfile(text, tars=[{'tar': '000000', 'msl': '16', 'keyset': 99}])
+        with self.assertRaises(ValueError):
+            outfile.parse_outfile(text, tars=[{'tar': '000000', 'msl': '16', 'keyset': 'x'}])
+
     def test_a_malformed_tar_table_raises(self):
         with self.assertRaises(ValueError):
             outfile.parse_outfile(alfa_text(), tars=[{'tar': 'ZZ', 'msl': '16'}])

@@ -955,6 +955,17 @@ class PresetStoreHttpTests(unittest.TestCase):
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tar_keyset': 99})
         self.assertEqual(status, 400, resp)
+        # the per-row keysets travel in `tars` (v3.29.1)
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16', 'keyset': 2},
+                                   {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '16', 'keyset': 1},
+                                   {'role': 'usimRfm', 'tar': 'B00001', 'msl': '16', 'keyset': 1}]})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual([t['keyset'] for t in resp['presets'][0]['tars']], [2, 1, 1])
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'tars': [{'tar': '000000', 'msl': '16', 'keyset': 99}]})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('keyset', resp['error'])
         # a non-list TAR table is the caller's error, never a silent fallback
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tars': 'nope'})

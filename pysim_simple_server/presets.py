@@ -218,6 +218,25 @@ def tar_keyset(preset, tar_hex):
     return (tar_entry(preset, tar_hex) or {}).get('keyset') or None
 
 
+def normalise_keyset_ref(v):
+    """A TAR's default keyset number (int 1-15) or None.  Accepts an int and
+    the decimal ('1'..'15') or hex-ish ('01'..'0F') string forms; an unusable
+    value becomes None - the validation reports a missing keyset where one is
+    mandatory.  Shared by the store and the outfile import (v3.29.1)."""
+    if v is None or v == '':
+        return None
+    s = str(v).strip().upper()
+    if re.fullmatch(r'[0-9]{1,2}', s):
+        n = int(s, 10)
+        if 1 <= n <= KVN_MAX:
+            return n
+    if re.fullmatch(r'[0-9A-F]{1,2}', s):
+        n = int(s, 16)
+        if 1 <= n <= KVN_MAX:
+            return n
+    return None
+
+
 class PresetError(Exception):
     """A refused mutation (validation, duplicate ICCID, ...)."""
 
@@ -360,7 +379,7 @@ class PresetStore:
                     'tar': re.sub(r'\s', '', str(t.get('tar') or '')).upper(),
                     'msl': re.sub(r'\s', '', str(t.get('msl') or '')).upper(),
                     'desc': str(t.get('desc') or '').strip(),
-                    'keyset': self._normalise_keyset_ref(t.get('keyset')),
+                    'keyset': normalise_keyset_ref(t.get('keyset')),
                 })
         else:
             msl = re.sub(r'\s', '', str(fields.get('spi1') or '')).upper()
@@ -391,25 +410,6 @@ class PresetStore:
             out.append({'tar': e['tar'], 'msl': e['msl'], 'desc': e['desc'],
                         'keyset': e.get('keyset')})
         return out
-
-    @staticmethod
-    def _normalise_keyset_ref(v):
-        """A TAR's default keyset number (int 1-15) or None.  Accepts an int
-        and the decimal ('1'..'15') or hex-ish ('01'..'0F') string forms; an
-        unusable value becomes None - the validation reports a missing keyset
-        where one is mandatory (v3.26.0)."""
-        if v is None or v == '':
-            return None
-        s = str(v).strip().upper()
-        if re.fullmatch(r'[0-9]{1,2}', s):
-            n = int(s, 10)
-            if 1 <= n <= KVN_MAX:
-                return n
-        if re.fullmatch(r'[0-9A-F]{1,2}', s):
-            n = int(s, 16)
-            if 1 <= n <= KVN_MAX:
-                return n
-        return None
 
     def _normalise_keyset(self, ks):
         """One keyset, cleaned.  The counter is kept as typed here and

@@ -31,7 +31,7 @@ const ASYNC_FNS = ['cardsOutfileFile', 'cardsOutfilePreview', 'cardsOutfileImpor
 let code = '';
 for (const fn of ['cardsOutfileTarsFromDom', 'cardsOutfileTarsFromForm',
 	'cardsOutfileTarRowHtml', 'cardsOutfileTarRowsHtml', 'cardsOutfileTarAdd',
-	'cardsOutfileTarRemove', 'cardsOutfileTarRender', 'cardsOutfileKeysets',
+	'cardsOutfileTarRemove', 'cardsOutfileTarRender', 'cardsOutfileKeysetOptions',
 	'cardsOutfileResultHtml', 'cardsOutfileControls', 'cardsOutfileClose',
 	'cardsOutfileRender', 'cardsOutfileFile', 'cardsOutfilePreview',
 	'cardsOutfileImport', 'esc', 'escHtml', 'cardsRoleDefault', 'spKeysetKvnOf']) {
@@ -71,7 +71,7 @@ const app = new Function('els', `
 	sandbox.cardsOutfileTarAdd = cardsOutfileTarAdd;
 	sandbox.cardsOutfileTarRemove = cardsOutfileTarRemove;
 	sandbox.cardsOutfileTarRender = cardsOutfileTarRender;
-	sandbox.cardsOutfileKeysets = cardsOutfileKeysets;
+	sandbox.cardsOutfileKeysetOptions = cardsOutfileKeysetOptions;
 	sandbox.cardsOutfileResultHtml = cardsOutfileResultHtml;
 	sandbox.cardsOutfileControls = cardsOutfileControls;
 	sandbox.cardsOutfileClose = cardsOutfileClose;
@@ -107,9 +107,11 @@ test('the preview and the import both post the outfile endpoint', () => {
 	assert.match(preview, /'\/api\/presets\/import-outfile'/);
 	assert.match(imp, /'\/api\/presets\/import-outfile'/);
 	assert.match(imp, /mode: o\.mode/);
-	// the keyset is only sent when one was resolved
-	assert.match(preview, /if \(o\.tarKeyset\) body\.tar_keyset = o\.tarKeyset;/);
-	assert.match(imp, /if \(o\.tarKeyset\) body\.tar_keyset = o\.tarKeyset;/);
+	// the keysets travel per TAR row (v3.29.1): no global tar_keyset
+	assert.ok(!preview.includes('tar_keyset'), 'the preview must not send a global keyset');
+	assert.ok(!imp.includes('tar_keyset'), 'the import must not send a global keyset');
+	assert.match(preview, /tars: cardsOutfileTarsFromForm\(\)/);
+	assert.match(imp, /tars: cardsOutfileTarsFromForm\(\), mode: o\.mode/);
 });
 
 test('the 16-byte algorithm values match the server map', () => {
@@ -159,20 +161,33 @@ test('the TAR rows render the role ids and the free rows with a remove button', 
 	assert.match(rows2, /id="cards-of-tar-3-tar"/);
 	assert.match(rows2, /id="cards-of-tar-3-desc"/);
 	assert.match(rows2, /onclick="cardsOutfileTarRemove\(3\)"/);
+	// every row has a keyset select, fed by the parsed keysets (v3.29.1)
+	assert.match(rows2, /id="cards-of-tar-0-keyset"/);
+	assert.match(rows2, /id="cards-of-tar-3-keyset"/);
+	app.state.preview = { presets: [{ keysets: [{ kic: '15', kid: '15' }, { kic: '25', kid: '25' }] }] };
+	const rows3 = app.cardsOutfileTarRowsHtml();
+	assert.match(rows3, /<option value="1" selected>Keyset 1 — 15\/15<\/option>/);
+	assert.match(rows3, /<option value="2">Keyset 2 — 25\/25<\/option>/);
+	// a non-zero MSL without a keyset gets the amber marker
+	app.state.preview = { presets: [] };
+	const rows4 = app.cardsOutfileTarRowsHtml();
+	assert.match(rows4, /This TAR needs a keyset/);
 });
 
-test('cardsOutfileKeysets collects the parsed keyset numbers', () => {
+test('cardsOutfileKeysetOptions collects the parsed keysets with their bytes', () => {
 	clearEls();
 	app.state = {
-		text: TEXT, name: 'x', algorithm16: '3des2', tarKeyset: null, mode: 'merge',
+		text: TEXT, name: 'x', algorithm16: '3des2', mode: 'merge',
 		preview: { presets: [
-			{ keysets: [{ kic: '25' }, { kic: '15' }] },
-			{ keysets: [{ kic: '15' }, { kic: '31' }] },
+			{ keysets: [{ kic: '25', kid: '25' }, { kic: '15', kid: '15' }] },
+			{ keysets: [{ kic: '15', kid: '15' }, { kic: '31', kid: '31' }] },
 		] },
 	};
-	assert.deepStrictEqual(app.cardsOutfileKeysets(), [1, 2, 3]);
+	assert.deepStrictEqual(app.cardsOutfileKeysetOptions(),
+		[{ v: 1, kic: '15', kid: '15' }, { v: 2, kic: '25', kid: '25' },
+			{ v: 3, kic: '31', kid: '31' }]);
 	app.state.preview = { presets: [] };
-	assert.deepStrictEqual(app.cardsOutfileKeysets(), []);
+	assert.deepStrictEqual(app.cardsOutfileKeysetOptions(), []);
 });
 
 test('cardsOutfileResultHtml renders the report and the parsed cards', () => {
@@ -203,16 +218,14 @@ test('cardsOutfileResultHtml renders the report and the parsed cards', () => {
 
 test('cardsOutfileControls reads the panel controls back into the state', () => {
 	clearEls();
-	app.state = { text: TEXT, name: 'old', algorithm16: '3des2', tarKeyset: null, mode: 'merge', preview: null };
+	app.state = { text: TEXT, name: 'old', algorithm16: '3des2', mode: 'merge', preview: null };
 	setEl('cards-of-name', '  Batch 7  ');
 	setEl('cards-of-algo', 'aes');
 	setEl('cards-of-mode', 'replace');
-	setEl('cards-of-keyset', '2');
 	app.cardsOutfileControls();
 	assert.strictEqual(app.state.name, 'Batch 7');
 	assert.strictEqual(app.state.algorithm16, 'aes');
 	assert.strictEqual(app.state.mode, 'replace');
-	assert.strictEqual(app.state.tarKeyset, 2);
 });
 
 test('picking a file previews it with the file name and the TAR defaults', async () => {
@@ -231,9 +244,12 @@ test('picking a file previews it with the file name and the TAR defaults', async
 	assert.strictEqual(body.name, 'batch');           // the file base name
 	assert.strictEqual(body.algorithm16, '3des2');
 	assert.strictEqual(body.mode, undefined);          // the preview is a dry run
-	assert.strictEqual(body.tar_keyset, undefined);    // none resolved yet
+	assert.strictEqual(body.tar_keyset, undefined);    // the keysets are per row now
 	assert.strictEqual(body.tars.length, 3);
-	assert.strictEqual(app.state.tarKeyset, 1);        // the first parsed keyset
+	// the rows' keyset selects are filled from the parsed keysets (the first one
+	// is the default)
+	assert.match(els['cards-outfile-panel'].innerHTML, /id="cards-of-tar-0-keyset"/);
+	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="1" selected>Keyset 1 — 15\/15<\/option>/);
 	assert.match(els['cards-outfile-panel'].innerHTML, /8970119000004600098/);
 });
 
@@ -259,11 +275,13 @@ test('the import posts the chosen mode and refreshes the list', async () => {
 	setEl('cards-of-mode', 'replace');
 	setEl('cards-of-name', 'Batch 7');
 	app.state = { text: TEXT, file: 'batch.out', name: 'Batch 7', algorithm16: '3des2',
-		tarKeyset: 2, mode: 'merge', preview: { presets: [], report: {} } };
+		mode: 'merge', preview: { presets: [], report: {} } };
+	setEl('cards-of-tar-0-keyset', '2');               // the ISD row's chosen keyset
 	await app.cardsOutfileImport();
 	assert.strictEqual(app.calls.length, 1);
 	assert.strictEqual(app.calls[0].body.mode, 'replace');
-	assert.strictEqual(app.calls[0].body.tar_keyset, 2);
+	assert.strictEqual(app.calls[0].body.tar_keyset, undefined);   // per row, not global
+	assert.strictEqual(app.calls[0].body.tars[0].keyset, 2);
 	assert.strictEqual(app.calls[0].body.name, 'Batch 7');
 	assert.strictEqual(app.fetched, 1);
 	assert.deepStrictEqual(app.io, [['cards-io', 'Imported 2 cards (1 skipped).']]);
@@ -292,22 +310,22 @@ test('a declined replace confirmation aborts the import', async () => {
 	assert.strictEqual(app.calls.length, 1);
 });
 
-test('a chosen keyset survives an empty (failed) preview', () => {
+test('a row keeps its chosen keyset through the DOM round-trip', () => {
 	clearEls();
-	setEl('cards-outfile-panel', '');
-	app.state = { text: TEXT, file: 'a.out', name: 'x', algorithm16: '3des2',
-		tarKeyset: 2, mode: 'merge',
-		preview: { presets: [{ iccid: '8970119000004600098', keysets: [{ kic: '15' }, { kic: '25' }] }], report: {} } };
-	app.cardsOutfileRender();
-	assert.strictEqual(app.state.tarKeyset, 2);
-	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="2" selected>/);
-	// a failed re-preview has no keysets - the choice must not be dropped
-	app.state.preview = { report: { error: 'TAR must be three hex bytes: ZZ' } };
-	app.cardsOutfileRender();
-	assert.strictEqual(app.state.tarKeyset, 2);
-	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="2" selected>/);
-	// a keyset the new preview does not define falls back to its first one
-	app.state.preview = { presets: [{ iccid: '8970119000004600098', keysets: [{ kic: '15' }] }], report: {} };
-	app.cardsOutfileRender();
-	assert.strictEqual(app.state.tarKeyset, 1);
+	app.state = { text: TEXT, name: 'x', algorithm16: '3des2', mode: 'merge',
+		preview: { presets: [{ keysets: [{ kic: '15', kid: '15' }, { kic: '25', kid: '25' }] }] } };
+	app.tars = 0;
+	setEl('cards-of-tar-0-keyset', '2');          // the user picked keyset 2 for the ISD row
+	setEl('cards-of-tar-1-keyset', '');
+	const tars = app.cardsOutfileTarsFromForm();
+	assert.strictEqual(tars[0].keyset, 2);
+	assert.strictEqual(tars[1].keyset, null);
+	// a free row carries its own keyset too
+	app.tars = 1;
+	setEl('cards-of-tar-3-tar', 'b00011');
+	setEl('cards-of-tar-3-msl', '1a');
+	setEl('cards-of-tar-3-keyset', '1');
+	const tars2 = app.cardsOutfileTarsFromForm();
+	assert.strictEqual(tars2.length, 4);
+	assert.strictEqual(tars2[3].keyset, 1);
 });

@@ -336,10 +336,14 @@ into a preview.
 - `tars` — the TAR table every imported card gets (defaults to the three role
   entries with their spec TARs and MSL 16).  A malformed table (a non-3-byte
   TAR, a non-1-byte MSL, a duplicate) is refused with `400`.
-- `tar_keyset` — one **global default keyset** (1–15) written into every TAR
-  entry of every imported card.  Without it the card's first keyset is used
-  (a multi-keyset card would otherwise fail the store's "a non-zero MSL needs
-  a default keyset" rule).
+- `tars` entries may carry their own `keyset` (1–15 — the preview's per-row
+  choice, v3.29.1): it wins; the entries without one fall back to
+  `tar_keyset`, and without that to the card's first keyset (a multi-keyset
+  card would otherwise fail the store's "a non-zero MSL needs a default
+  keyset" rule).  A keyset outside 1–15 is refused with `400`.
+- `tar_keyset` — an optional **global default keyset** (1–15) for the TAR
+  entries that do not name one (the API's shorthand; the PWA sends per-row
+  keysets instead).
 
 Recognised columns (case-insensitive): `ICCID` (the digits + odd-nibble F
 pad, the plain digits, spaced digits or the raw nibble-swapped EF hex all

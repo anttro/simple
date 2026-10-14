@@ -1928,7 +1928,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.29.0';
+const SIMPLE_VERSION = '3.29.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -14856,7 +14856,7 @@ function cardsImportFile(input) {
 // shows the preview plus the controls: the common name, the 16-byte key
 // algorithm, the TAR table and its one global default keyset - the final call
 // imports with a mode.
-let _cardsOutfile = null;      // {text, file, name, algorithm16, tarKeyset, mode, preview}
+let _cardsOutfile = null;      // {text, file, name, algorithm16, mode, preview}
 let _cardsOutfileTars = 0;     // the free TAR rows of the panel
 
 function cardsOutfilePick() {
@@ -14879,7 +14879,7 @@ async function cardsOutfileFile(input) {
 	}
 	_cardsOutfile = { text: text, file: String(file.name || ''),
 		name: String(file.name || '').replace(/\.[^.]+$/, ''),
-		algorithm16: '3des2', tarKeyset: null, mode: 'merge', preview: null };
+		algorithm16: '3des2', mode: 'merge', preview: null };
 	_cardsOutfileTars = 0;
 	cardsOutfileRender();
 	await cardsOutfilePreview();
@@ -14905,8 +14905,6 @@ function cardsOutfileControls() {
 	if (document.getElementById('cards-of-mode')) {
 		o.mode = val('cards-of-mode') === 'replace' ? 'replace' : 'merge';
 	}
-	const ks = parseInt(val('cards-of-keyset'), 10);
-	if (Number.isInteger(ks) && ks > 0) o.tarKeyset = ks;
 }
 
 // The TAR table as the panel shows it: the three role rows (their defaults
@@ -14917,17 +14915,21 @@ function cardsOutfileTarsFromDom() {
 		const el = document.getElementById(id);
 		return el ? String(el.value).trim() : '';
 	};
+	const ks = i => {
+		const v = parseInt(get('cards-of-tar-' + i + '-keyset'), 10);
+		return Number.isInteger(v) && v > 0 ? v : null;
+	};
 	const out = CARDS_TAR_ROLES.map((role, i) => ({
 		role: role,
 		tar: get('cards-of-tar-' + i + '-tar').replace(/\s/g, '').toUpperCase(),
 		msl: get('cards-of-tar-' + i + '-msl').replace(/\s/g, '').toUpperCase(),
-		desc: '',
+		desc: '', keyset: ks(i),
 	}));
 	for (let i = 0; i < _cardsOutfileTars; i++) {
 		const idx = CARDS_TAR_ROLES.length + i;
 		out.push({ tar: get('cards-of-tar-' + idx + '-tar').replace(/\s/g, '').toUpperCase(),
 			msl: get('cards-of-tar-' + idx + '-msl').replace(/\s/g, '').toUpperCase(),
-			desc: get('cards-of-tar-' + idx + '-desc') });
+			desc: get('cards-of-tar-' + idx + '-desc'), keyset: ks(idx) });
 	}
 	return out;
 }
@@ -14942,7 +14944,7 @@ function cardsOutfileTarsFromForm() {
 		const e = rows[i];
 		if (e.role) {
 			out.push({ role: e.role, tar: e.tar || cardsRoleDefault(e.role),
-				msl: e.msl || CARDS_MSL_DEFAULT, desc: '' });
+				msl: e.msl || CARDS_MSL_DEFAULT, desc: '', keyset: e.keyset || null });
 		} else if (e.tar || e.msl || e.desc) {
 			out.push(e);
 		}
@@ -14953,9 +14955,24 @@ function cardsOutfileTarsFromForm() {
 function cardsOutfileTarRowHtml(e, i) {
 	const cls = 'border border-gray-300 dark:border-slate-600 text-xs rounded px-1.5 py-0.5 dark:bg-slate-800 font-mono';
 	const role = CARDS_TAR_ROLES[i] || '';
+	// The keyset this TAR's packets use: one select per row, like the preset
+	// editor (v3.29.1); it defaults to the first parsed keyset, and a non-zero
+	// MSL without one gets the amber marker.
+	const opts = cardsOutfileKeysetOptions();
+	const sel = e.keyset ? Number(e.keyset) : (opts.length ? opts[0].v : null);
+	const msl = String(e.msl || '').toUpperCase();
 	let html = '<div class="flex flex-wrap items-center gap-1.5 mb-1">';
 	html += '<input id="cards-of-tar-' + i + '-tar" class="w-24 ' + cls + '" maxlength="6" placeholder="TAR" value="' + escHtml(e.tar || '') + '">';
 	html += '<input id="cards-of-tar-' + i + '-msl" class="w-14 ' + cls + '" maxlength="2" placeholder="MSL" value="' + escHtml(e.msl || '') + '">';
+	html += '<select id="cards-of-tar-' + i + '-keyset" class="' + cls + '" title="' + esc(t('The keyset packets to this TAR use - a non-zero MSL requires one')) + '">' +
+		'<option value=""' + (sel ? '' : ' selected') + '>' + esc(t('— none —')) + '</option>' +
+		opts.map(o => '<option value="' + o.v + '"' + (o.v === sel ? ' selected' : '') + '>' +
+			esc(t('Keyset') + ' ' + o.v + ' \u2014 ' + o.kic + '/' + o.kid) + '</option>').join('') +
+		'</select>';
+	if (!sel && msl && msl !== '00') {
+		html += '<span class="text-amber-500" title="' +
+			esc(t('This TAR needs a keyset (its MSL requires security)')) + '">\u26a0</span>';
+	}
 	if (role) {
 		html += '<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(CARDS_TAR_ROLE_DESC[role] || role) + '</span>';
 	} else {
@@ -15006,15 +15023,19 @@ function cardsOutfileTarRender(rows) {
 }
 
 // The keyset numbers the parsed cards carry (the global default's options).
-function cardsOutfileKeysets() {
-	const out = [];
+// The parsed keysets as the TAR rows' options: the union across the parsed
+// cards, with their KIc/KID bytes for the labels (v3.29.1).
+function cardsOutfileKeysetOptions() {
+	const seen = {};
 	(((_cardsOutfile || {}).preview || {}).presets || []).forEach(c => {
 		(c.keysets || []).forEach(ks => {
 			const v = spKeysetKvnOf(ks.kic);
-			if (v !== null && !out.includes(v)) out.push(v);
+			if (v !== null && !seen[v]) {
+				seen[v] = { v: v, kic: ks.kic || '??', kid: ks.kid || '??' };
+			}
 		});
 	});
-	return out.sort((a, b) => a - b);
+	return Object.keys(seen).map(k => seen[k]).sort((a, b) => a.v - b.v);
 }
 
 function cardsOutfileResultHtml() {
@@ -15059,15 +15080,6 @@ function cardsOutfileRender() {
 	const panel = document.getElementById('cards-outfile-panel');
 	const o = _cardsOutfile;
 	if (!panel || !o) return;
-	const keysets = cardsOutfileKeysets();
-	// An empty or failed preview must not drop a chosen keyset: the value is
-	// only re-selected against a list that has keysets, and the option list is
-	// the preview's keysets plus a remembered value (so it stays visible).
-	if (keysets.length && !keysets.includes(o.tarKeyset)) o.tarKeyset = keysets[0];
-	const options = keysets.slice();
-	if (o.tarKeyset && !options.includes(o.tarKeyset)) options.push(o.tarKeyset);
-	options.sort((a, b) => a - b);
-	const selected = o.tarKeyset;
 	let html = '<div class="flex items-center justify-between mb-2">';
 	html += '<span class="text-sm font-semibold">' + esc(t('outfile import')) +
 		': <span class="font-mono text-xs">' + esc(o.file || '') + '</span></span>';
@@ -15080,11 +15092,6 @@ function cardsOutfileRender() {
 		'<select id="cards-of-algo" onchange="cardsOutfilePreview()" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
 		'<option value="3des2"' + (o.algorithm16 === 'aes' ? '' : ' selected') + '>3DES2</option>' +
 		'<option value="aes"' + (o.algorithm16 === 'aes' ? ' selected' : '') + '>AES</option></select></label>';
-	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Default keyset for the TARs')) +
-		'<select id="cards-of-keyset" onchange="cardsOutfilePreview()" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
-		(options.length ? options.map(v => '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(t('Keyset') + ' ' + v) + '</option>').join('')
-			: '<option value="">\u2014</option>') +
-		'</select></label>';
 	html += '<label class="text-xs text-gray-600 dark:text-slate-400">' + esc(t('Import mode')) +
 		'<select id="cards-of-mode" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
 		'<option value="merge"' + (o.mode === 'replace' ? '' : ' selected') + '>' + esc(t('Merge')) + '</option>' +
@@ -15110,7 +15117,6 @@ async function cardsOutfilePreview() {
 		text: o.text, name: o.name, algorithm16: o.algorithm16,
 		tars: cardsOutfileTarsFromForm(),
 	};
-	if (o.tarKeyset) body.tar_keyset = o.tarKeyset;
 	try {
 		o.preview = await pysimFetchOk('/api/presets/import-outfile', body);
 	} catch (e) {
@@ -15131,7 +15137,6 @@ async function cardsOutfileImport() {
 		text: o.text, name: o.name, algorithm16: o.algorithm16,
 		tars: cardsOutfileTarsFromForm(), mode: o.mode,
 	};
-	if (o.tarKeyset) body.tar_keyset = o.tarKeyset;
 	try {
 		const res = await pysimFetchOk('/api/presets/import-outfile', body);
 		await cardsFetch();
@@ -23632,7 +23637,7 @@ const LANG_RU = {
 	'outfile import': 'Импорт outfile',
 	'Common name': 'Общее имя',
 	'16-byte keys': '16-байтные ключи',
-	'Default keyset for the TARs': 'Keyset по умолчанию для TAR',
+	'This TAR needs a keyset (its MSL requires security)': 'Этому TAR нужен keyset (его MSL требует защиты)',
 	'Import mode': 'Режим импорта',
 	'Merge': 'Дополнить',
 	'Replace': 'Заменить',

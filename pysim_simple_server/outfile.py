@@ -150,10 +150,18 @@ def normalise_tars(tars, tar_keyset=None):
             raise ValueError('TAR must be three hex bytes: %r' % tar)
         if not re.fullmatch(r'[0-9A-F]{2}', msl):
             raise ValueError('MSL must be one hex byte: %r' % msl)
+        ks_raw = t.get('keyset')
+        if ks_raw in (None, ''):
+            keyset = None
+        else:
+            keyset = presets.normalise_keyset_ref(ks_raw)
+            if keyset is None:
+                raise ValueError('keyset must be 1-%02X: %r'
+                                 % (presets.KVN_MAX, ks_raw))
         out.append({'role': role if role in presets.TAR_ROLES else '',
                     'tar': tar, 'msl': msl,
                     'desc': str(t.get('desc') or '').strip(),
-                    'keyset': tar_keyset or None})
+                    'keyset': keyset or (tar_keyset or None)})
     seen = set()
     for t in out:
         if t['tar'] in seen:
@@ -248,8 +256,11 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
         # Every TAR gets the caller's global default keyset; without one the
         # card's first keyset is used (a multi-keyset card would otherwise
         # fail the store's "a non-zero MSL needs a default keyset" rule).
+        # A per-entry keyset (chosen in the preview) wins; the caller's global
+        # default - else the card's first keyset - fills the rest.
         card_keyset = tar_keyset or presets.keyset_kvn(keysets[0])
-        card_tars = [dict(t, keyset=card_keyset) for t in tars_base]
+        card_tars = [dict(t, keyset=t.get('keyset') or card_keyset)
+                     for t in tars_base]
         entry = {'name': str(name or '').strip() or iccid, 'iccid': iccid,
                  'keysets': keysets, 'tars': card_tars}
         for field, col in (('pin1', 'PIN1'), ('pin2', 'PIN2'),
