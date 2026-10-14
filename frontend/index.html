@@ -1910,7 +1910,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.28.7';
+const SIMPLE_VERSION = '3.28.8';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10267,7 +10267,13 @@ function ramBatchRender() {
 		counts.textContent = text;
 	}
 	const box = document.getElementById('ram-batch-attempts');
-	if (box) box.innerHTML = ramBatchAttemptsHtml(st.attempts || []);
+	if (box) {
+		// Replacing the box's content resets its scroll: the render now runs on
+		// every 2 s poll, so keep the reader's position (v3.28.8).
+		const prevScroll = box.scrollTop;
+		box.innerHTML = ramBatchAttemptsHtml(st.attempts || []);
+		if (prevScroll) box.scrollTop = prevScroll;
+	}
 }
 
 function ramBatchAttemptsHtml(attempts) {

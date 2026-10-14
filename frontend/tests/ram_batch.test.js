@@ -45,6 +45,13 @@ function setEl(id, value) {
 			contains(c) { return !!els[id].classes[c]; },
 		},
 	};
+	if (id === 'ram-batch-attempts') {
+		// like a browser: replacing the content resets the scroll position
+		Object.defineProperty(els[id], 'innerHTML', {
+			get() { return this._html || ''; },
+			set(v) { this._html = v; this.scrollTop = 0; },
+		});
+	}
 	return els[id];
 }
 function clearEls() {
@@ -300,6 +307,27 @@ test('a hung detailed fetch does not freeze the counts (v3.28.7)', async () => {
 	await new Promise(r => setImmediate(r));
 	assert.match(els['ram-batch-counts'].textContent, /Installed: 31/);
 	app.hangs = false;
+});
+
+test('the attempts table keeps its scroll position across a poll render (v3.28.8)', () => {
+	clearEls();
+	setEl('ram-op', 'batch');
+	setEl('ram-batch-panel', '');
+	setEl('ram-batch-start', '');
+	setEl('ram-batch-stop', '');
+	setEl('ram-batch-clear', '');
+	setEl('ram-batch-spin', '');
+	setEl('ram-batch-state', '');
+	setEl('ram-batch-notice', '');
+	setEl('ram-batch-counts', '');
+	setEl('ram-batch-attempts', '');
+	app.setLast({ active: true, phase: 'waiting_card', attempts: [
+		{ ts: 1, iccid: '8970119000004600098', preset: 'p', result: 'installed', duration_ms: 1 }],
+		counts: { installed: 1, failed: 0, skipped: 0 }, attempts_total: 1 });
+	app.ramBatchRender();
+	els['ram-batch-attempts'].scrollTop = 120;     // the reader scrolled back
+	app.ramBatchRender();                          // the next 2 s poll render
+	assert.strictEqual(els['ram-batch-attempts'].scrollTop, 120);
 });
 
 test('a stale fetch guard is released so the report recovers (v3.28.7)', async () => {
