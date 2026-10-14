@@ -207,7 +207,8 @@ test('updateStkParamsHex names the rejection reason', () => {
 });
 
 test('the install body composes the C9/quota prefix', () => {
-	const fn = extractFunc(html, 'ramInstallCap');
+	// v3.28.0: the shared field builder (the single install and the batch)
+	const fn = extractFunc(html, 'ramInstallCapFields');
 	assert.ok(/const composed = ramInstallParamsCompose\(\)/.test(fn), fn);
 	assert.ok(/install_params: composed\.install_params/.test(fn), fn);
 	assert.ok(/stk_params: composed\.stk_params/.test(fn), fn);

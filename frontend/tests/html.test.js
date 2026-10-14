@@ -591,8 +591,10 @@ test('every tab-content lives inside the max-w-7xl page container', () => {
 });
 
 test('the RAM form shows Card preset and Operation in one row', () => {
-    const row = /<div class="mb-3 flex gap-2 items-end">\s*<div class="flex-1">\s*<label[^>]*data-l10n="Card preset"[\s\S]*?id="ram-card-sel"[\s\S]*?data-l10n="Operation"[\s\S]*?id="ram-op"[\s\S]*?data-l10n="Execute"/.exec(html);
+    const row = /<div class="mb-3 flex gap-2 items-end">\s*<div id="ram-preset-cell" class="flex-1">\s*<label[^>]*data-l10n="Card preset"[\s\S]*?id="ram-card-sel"[\s\S]*?data-l10n="Operation"[\s\S]*?id="ram-op"[\s\S]*?data-l10n="Execute"/.exec(html);
     assert.ok(row, 'Card preset + Operation + Execute must share one row');
+    // the batch mode hides the preset cell and Execute (per-card resolution)
+    assert.match(html, /setHidden\('ram-preset-cell', isBatch\)/);
 });
 
 test('the RAM operation modal is wide enough for the step lines', () => {

@@ -689,7 +689,7 @@
 			<p class="text-xs text-gray-500 dark:text-slate-400 mb-3" data-l10n="RAM operations perform atomic GlobalPlatform commands over SCP80. Card keys are taken from the saved preset.">RAM operations perform atomic GlobalPlatform commands over SCP80. Card keys are taken from the saved preset.</p>
 
 			<div class="mb-3 flex gap-2 items-end">
-				<div class="flex-1">
+				<div id="ram-preset-cell" class="flex-1">
 					<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Card preset">Card preset</label>
 					<select id="ram-card-sel" onchange="ramApplyCard(this.value)" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="" data-l10n="— Select card —">— Select card —</option>
@@ -700,6 +700,7 @@
 					<select id="ram-op" onchange="ramOpChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						<option value="explore" data-l10n="Explore Card (all GP data)">Explore Card (all GP data)</option>
 						<option value="install-cap" data-l10n="Install Package (.cap file)">Install Package (.cap file)</option>
+						<option value="batch" data-l10n="Batch install (.cap file, per card)">Batch install (.cap file, per card)</option>
 						<option value="compat" data-l10n="CAP compatibility test">CAP compatibility test</option>
 						<option value="install-app" data-l10n="INSTALL [for install] (loaded package)">INSTALL [for install] (loaded package)</option>
 						<option value="make-selectable" data-l10n="INSTALL [for make selectable]">INSTALL [for make selectable]</option>
@@ -714,7 +715,7 @@
 						<option value="expanded-ae" data-l10n="Expanded (AE 80, indefinite length)">Expanded (AE 80, indefinite length)</option>
 					</select>
 				</div>
-				<button data-needs="card" data-needs-keyset="ram" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+				<button id="ram-exec-btn" data-needs="card" data-needs-keyset="ram" data-cap-gate="ram" onclick="ramExecute()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
 			</div>
 			<div id="ram-preset-warning" class="hidden mb-3 px-3 py-2 rounded border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-700 dark:text-amber-300"></div>
 
@@ -910,6 +911,19 @@
 					<div class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
 					<span id="ram-progress-text" data-l10n="Working...">Working...</span>
 				</div>
+			</div>
+
+			<div id="ram-batch-panel" class="hidden mb-3 border border-gray-200 dark:border-slate-700 rounded p-3">
+				<div class="flex flex-wrap items-center gap-2 mb-2">
+					<button type="button" id="ram-batch-start" data-needs="server" data-cap-gate="ram" onclick="ramBatchStart()" class="px-5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start batch">Start batch</button>
+					<button type="button" id="ram-batch-stop" onclick="ramBatchStop()" class="hidden px-5 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Stop">Stop</button>
+					<button type="button" id="ram-batch-clear" onclick="ramBatchClear()" class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Clear">Clear</button>
+					<span id="ram-batch-state" class="text-sm font-medium text-gray-700 dark:text-slate-300"></span>
+				</div>
+				<div id="ram-batch-notice" class="hidden mb-2 px-3 py-2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-sm text-blue-700 dark:text-blue-300"></div>
+				<div id="ram-batch-counts" class="text-xs text-gray-500 dark:text-slate-400 mb-2"></div>
+				<div id="ram-batch-attempts" class="max-h-64 overflow-y-auto text-xs"></div>
+				<div class="text-xs text-gray-400 dark:text-slate-500 mt-2" data-l10n="The preset, keyset and counter come from each card's own preset (matched by ICCID).  A card is attempted once per run: re-equipping it reports it as already processed - restart the batch to retry.  Stop finishes the current card first.">The preset, keyset and counter come from each card's own preset (matched by ICCID).  A card is attempted once per run: re-equipping it reports it as already processed - restart the batch to retry.  Stop finishes the current card first.</div>
 			</div>
 
 			<div id="ram-result" class="mt-2 text-base font-semibold font-mono hidden"></div>
@@ -1895,7 +1909,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.27.0';
+const SIMPLE_VERSION = '3.28.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10099,7 +10113,8 @@ function ramOpChanged() {
 	const op = document.getElementById('ram-op').value;
 	if (_ramOpLast !== null && op !== _ramOpLast) ramClearResults();
 	_ramOpLast = op;
-	const isCap = op === 'install-cap';
+	const isBatch = op === 'batch';
+	const isCap = op === 'install-cap' || isBatch;
 	const isCompat = op === 'compat';
 	const isApp = op === 'install-app' || op === 'make-selectable';
 	const setHidden = (id, hidden) => {
@@ -10110,6 +10125,13 @@ function ramOpChanged() {
 	setHidden('ram-cap-rows', !(isCap || isCompat));
 	setHidden('ram-compat-rows', !isCompat);
 	setHidden('ram-app-rows', !isApp);
+	// The batch resolves the preset per card (by ICCID): its selector and the
+	// single-card Execute button do not apply, and the batch panel takes over.
+	setHidden('ram-preset-cell', isBatch);
+	setHidden('ram-preset-warning', isBatch);
+	setHidden('ram-exec-btn', isBatch);
+	setHidden('ram-batch-panel', !isBatch);
+	if (isBatch) ramBatchFetch();
 	// The Execute button's .cap gate applies to the install-cap and compat ops.
 	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }
@@ -10122,6 +10144,217 @@ function ramShowProgress(text) {
 
 function ramHideProgress() {
 	document.getElementById('ram-progress').classList.add('hidden');
+}
+
+// ===== batch CAP install (v3.28.0) =====
+// The bulk workflow: the server owns the loop (a worker installs on every card
+// that gets equipped, using each card's own preset) and this panel is a thin
+// view over /api/ram-batch/status.  The live headline comes from the 2 s
+// /api/status poll (the batch summary + the RAM progress); the detailed status
+// (the attempts list) is fetched only when the summary says it changed.
+let _ramBatchLast = null;        // the last detailed /api/ram-batch/status
+let _ramBatchFetching = false;
+let _ramBatchSummary = null;     // /api/status.ram_batch
+let _ramBatchProgress = null;    // /api/status.ram_progress
+
+function ramBatchPanelVisible() {
+	const op = document.getElementById('ram-op');
+	return isViewVisible('tab-scp80') && isViewVisible('scp80-sub-ram')
+		&& !!op && op.value === 'batch';
+}
+
+async function ramBatchFetch() {
+	if (_ramBatchFetching) return;
+	_ramBatchFetching = true;
+	try {
+		_ramBatchLast = await pysimFetch('/api/ram-batch/status');
+	} catch (e) { /* the next poll retries */ }
+	_ramBatchFetching = false;
+	ramBatchRender();
+}
+
+// Called from the 2 s status poll: the summary drives the headline, a change
+// in the attempts count (or the active flag) refreshes the detailed view.
+function ramBatchApplyStatus(status) {
+	if (!status) return;
+	_ramBatchSummary = status.ram_batch || null;
+	_ramBatchProgress = status.ram_progress || null;
+	if (!ramBatchPanelVisible()) return;
+	const total = _ramBatchSummary ? (_ramBatchSummary.attempts_total || 0) : 0;
+	const active = _ramBatchSummary ? !!_ramBatchSummary.active : false;
+	if (!_ramBatchLast || (_ramBatchLast.attempts_total || 0) !== total
+			|| !!_ramBatchLast.active !== active) {
+		ramBatchFetch();
+		return;
+	}
+	ramBatchRender();
+}
+
+function ramBatchRender() {
+	const panel = document.getElementById('ram-batch-panel');
+	if (!panel) return;
+	if (!ramBatchPanelVisible()) {
+		panel.classList.add('hidden');
+		return;
+	}
+	panel.classList.remove('hidden');
+	// The summary (the 2 s status poll) is fresher than the last detailed
+	// fetch: it carries the phase/current/notice/counts, the attempts list
+	// comes from the detailed status.
+	const st = Object.assign({ active: false, phase: 'idle', attempts: [], counts: {} },
+		_ramBatchLast || {}, _ramBatchSummary || {});
+	const active = !!st.active;
+	const phase = st.phase || (active ? 'waiting_card' : 'idle');
+	const startBtn = document.getElementById('ram-batch-start');
+	if (startBtn) startBtn.classList.toggle('hidden', active);
+	const stopBtn = document.getElementById('ram-batch-stop');
+	if (stopBtn) {
+		stopBtn.classList.toggle('hidden', !active);
+		stopBtn.textContent = phase === 'stopping' ? t('Stopping...') : t('Stop');
+		stopBtn.disabled = phase === 'stopping';
+	}
+	const stateEl = document.getElementById('ram-batch-state');
+	if (stateEl) {
+		if (!active) {
+			stateEl.textContent = phase === 'stopped' ? t('Batch stopped')
+				: (phase === 'finished' ? t('Batch finished') : '');
+		} else if (phase === 'installing') {
+			const cur = st.current || {};
+			stateEl.textContent = t('Installing...') + ' ' + (cur.iccid || '')
+				+ (cur.preset ? ' \u2014 ' + cur.preset : '');
+		} else if (phase === 'stopping') {
+			stateEl.textContent = t('Stopping after the current card...');
+		} else {
+			stateEl.textContent = t('Waiting for a card...');
+		}
+	}
+	const notice = document.getElementById('ram-batch-notice');
+	if (notice) {
+		notice.textContent = st.notice || '';
+		notice.classList.toggle('hidden', !st.notice);
+	}
+	const counts = document.getElementById('ram-batch-counts');
+	if (counts) {
+		const c = st.counts || {};
+		let text = t('Installed') + ': ' + (c.installed || 0)
+			+ ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
+			+ ' \u00b7 ' + t('Skipped') + ': ' + (c.skipped || 0);
+		if (st.attempts_total) text += ' \u00b7 ' + st.attempts_total + ' ' + t('attempts');
+		if (active && _ramBatchProgress && _ramBatchProgress.active && _ramBatchProgress.name) {
+			// the step name already carries its index for the LOAD steps
+			text += ' \u00b7 ' + _ramBatchProgress.name;
+		}
+		counts.textContent = text;
+	}
+	const box = document.getElementById('ram-batch-attempts');
+	if (box) box.innerHTML = ramBatchAttemptsHtml(st.attempts || []);
+}
+
+function ramBatchAttemptsHtml(attempts) {
+	if (!attempts.length) return '<div class="text-gray-400 dark:text-slate-500">' + esc(t('No cards processed yet.')) + '</div>';
+	let html = '<table class="w-full"><tbody>';
+	for (let i = attempts.length - 1; i >= 0; i--) {
+		const a = attempts[i];
+		const when = a.ts ? new Date(a.ts * 1000).toLocaleTimeString() : '';
+		const verdict = a.result === 'installed' ? t('OK')
+			: (a.result === 'failed' ? t('Failed') : t('Skipped'));
+		const tone = a.result === 'installed' ? 'text-emerald-600 dark:text-emerald-400'
+			: (a.result === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400');
+		const detail = a.result === 'failed'
+			? [a.failed_step, a.por_sw || a.sw].filter(Boolean).join(' \u2014 ')
+			: (a.reason || '');
+		html += '<tr class="border-b border-gray-100 dark:border-slate-800">'
+			+ '<td class="py-0.5 pr-2 text-gray-400 dark:text-slate-500 whitespace-nowrap">' + esc(when) + '</td>'
+			+ '<td class="py-0.5 pr-2 font-mono whitespace-nowrap">' + esc(a.iccid || '') + '</td>'
+			+ '<td class="py-0.5 pr-2">' + esc(a.preset || '') + '</td>'
+			+ '<td class="py-0.5 pr-2 font-medium whitespace-nowrap ' + tone + '">' + esc(verdict) + '</td>'
+			+ '<td class="py-0.5 pr-2 text-gray-500 dark:text-slate-400">' + esc(detail) + '</td>'
+			+ '<td class="py-0.5 text-gray-400 dark:text-slate-500 whitespace-nowrap text-right">'
+			+ (a.duration_ms ? (a.duration_ms / 1000).toFixed(1) + ' s' : '') + '</td>'
+			+ '</tr>';
+	}
+	return html + '</tbody></table>';
+}
+
+// The .cap + install parameters shared by the single install and the batch:
+// everything except the per-card preset/keyset/counter fields, which the
+// server resolves from each card's own preset.  Returns null after alerting
+// when a value is unusable (the caller stops before opening a modal).
+function ramInstallCapFields() {
+	// The STK hex is regenerated on every toolkit field edit; recompute it
+	// once more at send time unless the user pasted a custom hex directly
+	// (dataset.manual), so the sent parameters always match the fields.
+	const stkEl = document.getElementById('ram-stk-params');
+	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
+		updateStkParamsHex();
+	}
+	// The privileges are an aggregate of the checkboxes: derive them now, so a
+	// value restored by the browser or left from an earlier experiment can
+	// never be sent silently.
+	updateRcPriv();
+	const composed = ramInstallParamsCompose();
+	const body = {
+		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
+		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
+		install_params: composed.install_params,
+		stk_params: composed.stk_params,
+		make_selectable: document.getElementById('ram-make-sel').checked,
+		ram_format: (document.getElementById('ram-format') || {}).value || 'auto',
+	};
+	const loadSize = (document.getElementById('ram-load-size').value || '').trim();
+	if (loadSize !== '') {
+		const n = parseInt(loadSize, 10);
+		if (!(n >= 1 && n <= 240)) { alert(t('LOAD block size must be 1..240')); return null; }
+		body.load_block_size = n;
+	}
+	return body;
+}
+
+async function ramBatchStart() {
+	if (!capGateOk('ram')) { alert(t('Analyze the CAP file first')); return; }
+	const fileInput = document.getElementById('ram-cap-file');
+	const file = fileInput.files[0];
+	if (!file) { alert(t('Select a .cap file')); return; }
+	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+	const fields = ramInstallCapFields();
+	if (!fields) return;
+	const startBtn = document.getElementById('ram-batch-start');
+	if (startBtn) startBtn.disabled = true;
+	try {
+		fields.cap_hex = await ramReadFileHex(file);
+		_ramBatchLast = await pysimFetchOk('/api/ram-batch/start', fields);
+		_ramBatchSummary = null;
+	} catch (e) {
+		alert(t('Error') + ': ' + e.message);
+	} finally {
+		if (startBtn) startBtn.disabled = false;
+		if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
+		ramBatchRender();
+	}
+}
+
+async function ramBatchStop() {
+	const stopBtn = document.getElementById('ram-batch-stop');
+	if (stopBtn) stopBtn.disabled = true;
+	try {
+		_ramBatchLast = await pysimFetchOk('/api/ram-batch/stop', {});
+		_ramBatchSummary = null;    // the poll refreshes it; the fresh detail wins
+	} catch (e) {
+		alert(t('Error') + ': ' + e.message);
+	} finally {
+		ramBatchRender();
+	}
+}
+
+async function ramBatchClear() {
+	try {
+		await pysimFetchOk('/api/ram-batch/clear', {});
+		_ramBatchLast = null;
+		_ramBatchSummary = null;
+		ramBatchFetch();
+	} catch (e) {
+		alert(t('Error') + ': ' + e.message);
+	}
 }
 
 // ===== RAM operation modal (v3.6.34) =====
@@ -12441,6 +12674,10 @@ async function ramInstallCap(sp) {
 	const file = fileInput.files[0];
 	if (!file) { alert(t('Select a .cap file')); return; }
 	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+	// The parameters are validated before the modal opens (an unusable block
+	// size must not leave a modal whose Close is disabled).
+	const fields = ramInstallCapFields();
+	if (!fields) return;
 
 	const capPkg = (_capAnalysis.ram.memory && _capAnalysis.ram.memory.package_aid) || '';
 	ramOpModalBegin(t('Installing package') + (capPkg ? ' \u2014 ' + capPkg : ''));
@@ -12448,36 +12685,12 @@ async function ramInstallCap(sp) {
 	const capHex = await ramReadFileHex(file);
 	ramOpModalStatus(t('Sending to server for install...'));
 
-	// The STK hex is regenerated on every toolkit field edit; recompute it
-	// once more at send time unless the user pasted a custom hex directly
-	// (dataset.manual), so the sent parameters always match the fields.
-	const stkEl = document.getElementById('ram-stk-params');
-	if (document.getElementById('rc-toolkit-enable').checked && !(stkEl.dataset && stkEl.dataset.manual)) {
-		updateStkParamsHex();
-	}
-	// The privileges are an aggregate of the checkboxes: derive them now, so a
-	// value restored by the browser or left from an earlier experiment can
-	// never be sent silently.
-	updateRcPriv();
-
-	const composed = ramInstallParamsCompose();
-	const body = {
+	const body = Object.assign({
 		cap_hex: capHex,
 		preset_id: sp.preset_id,
-		sd_aid: (document.getElementById('ram-sd-aid').value || '').replace(/[^0-9a-fA-F]/g, ''),
-		privileges: (document.getElementById('rc-priv').value || '00').replace(/[^0-9a-fA-F]/g, ''),
-		install_params: composed.install_params,
-		stk_params: composed.stk_params,
-		make_selectable: document.getElementById('ram-make-sel').checked,
 		spi1: sp.spi1, spi2: '01', kic: sp.kic, kid: sp.kid,
 		tar: sp.tar, cntr: sp.cntr, kicKey: sp.kicKey, kidKey: sp.kidKey,
-	};
-	const loadSize = (document.getElementById('ram-load-size').value || '').trim();
-	if (loadSize !== '') {
-		const n = parseInt(loadSize, 10);
-		if (!(n >= 1 && n <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
-		body.load_block_size = n;
-	}
+	}, fields);
 
 	const data = await pysimFetch('/api/ram-install', body);
 
@@ -13810,7 +14023,11 @@ function spPresetWarningRender() {
 		el.classList.toggle('hidden', !text);
 	};
 	show('sp-preset-warning', spPresetWarning(iccid, cards, spPresetIdx()));
-	show('ram-preset-warning', spPresetWarning(iccid, cards, ramPresetIdx()));
+	// The batch resolves the preset per card, so the RAM view's warning does
+	// not apply there (v3.28.0).
+	const ramOp = document.getElementById('ram-op');
+	const batchMode = !!ramOp && ramOp.value === 'batch';
+	show('ram-preset-warning', batchMode ? '' : spPresetWarning(iccid, cards, ramPresetIdx()));
 	show('tar-preset-warning', spPresetWarning(iccid, cards, tarPresetIdx()));
 }
 
@@ -17130,7 +17347,10 @@ function pysimStartBackendPoll() {
 	_pysimCardSession = null;
 	_pysimStatusTimer = setInterval(async () => {
 		try {
-			pysimCardStateUpdate(await pysimFetch('/api/status'));
+			const status = await pysimFetch('/api/status');
+			// The batch panel's live headline rides this poll (v3.28.0).
+			ramBatchApplyStatus(status);
+			pysimCardStateUpdate(status);
 		} catch (e) {
 			pysimSetServerAvailable(false);
 		}
@@ -24182,6 +24402,19 @@ const LANG_RU = {
 	'Loading...': 'Загрузка...',
 	'Close': 'Закрыть',
 	'Installing package': 'Установка пакета',
+	'Batch install (.cap file, per card)': 'Пакетная установка (.cap, по картам)',
+	'Start batch': 'Запустить пакетную установку',
+	'Stopping...': 'Остановка…',
+	'Batch stopped': 'Пакетная установка остановлена',
+	'Batch finished': 'Пакетная установка завершена',
+	'Installing...': 'Установка…',
+	'Stopping after the current card...': 'Остановка после текущей карты…',
+	'Waiting for a card...': 'Ожидание карты…',
+	'Installed': 'Установлено',
+	'Skipped': 'Пропущено',
+	'attempts': 'попыток',
+	'No cards processed yet.': 'Карты ещё не обрабатывались.',
+	'The preset, keyset and counter come from each card\'s own preset (matched by ICCID).  A card is attempted once per run: re-equipping it reports it as already processed - restart the batch to retry.  Stop finishes the current card first.': 'Пресет, keyset и счётчик берутся из пресета каждой карты (совпадение по ICCID).  Карта обрабатывается один раз за запуск: повторная установка карты отмечается как уже обработанная — для повтора перезапустите пакетную установку.  «Остановить» завершает текущую карту.',
 	'Do not close or reload this window while the operation is running.': 'Не закрывайте и не перезагружайте окно, пока операция выполняется.',
 	'Working...': 'Выполняется...',
 	'APDU hex': 'APDU (hex)',

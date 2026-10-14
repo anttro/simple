@@ -79,5 +79,6 @@ test('both SCP80 views carry the warning banner', () => {
 	// the preset selection
 	assert.ok(html.includes('spPresetWarningRender();'));
 	assert.ok(html.includes("show('sp-preset-warning', spPresetWarning(iccid, cards, spPresetIdx()));"));
-	assert.ok(html.includes("show('ram-preset-warning', spPresetWarning(iccid, cards, ramPresetIdx()));"));
+	// the batch resolves the preset per card: the RAM banner is suppressed there
+	assert.ok(html.includes("batchMode ? '' : spPresetWarning(iccid, cards, ramPresetIdx())"));
 });

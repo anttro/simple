@@ -57,12 +57,19 @@ test('updateRcPriv aggregates the checked privilege boxes', () => {
 });
 
 test('the install derives the privileges at send time', () => {
-	const fn = extractFunc(html, 'ramInstallCap');
+	// v3.28.0: the shared field builder (the single install and the batch) does
+	// the derivation before it returns the body
+	const fn = extractFunc(html, 'ramInstallCapFields');
 	const iPriv = fn.indexOf('updateRcPriv();');
 	const iBody = fn.indexOf('const body = {');
-	assert.ok(iPriv >= 0, 'ramInstallCap must call updateRcPriv()');
-	assert.ok(iBody >= 0, 'ramInstallCap body not found');
+	assert.ok(iPriv >= 0, 'ramInstallCapFields must call updateRcPriv()');
+	assert.ok(iBody >= 0, 'ramInstallCapFields body not found');
 	assert.ok(iPriv < iBody, 'the privileges must be derived before the request body');
+	// both callers go through it
+	assert.ok(/ramInstallCapFields\(\)/.test(extractFunc(html, 'ramInstallCap')),
+		'ramInstallCap must use the shared field builder');
+	assert.ok(/ramInstallCapFields\(\)/.test(extractFunc(html, 'ramBatchStart')),
+		'ramBatchStart must use the shared field builder');
 });
 
 test('the form resets the restored grants on load', () => {

@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.27.0'
+VERSION = '3.28.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -1752,6 +1752,31 @@ def _resolve_operation_keyset(server, body, tar):
     return kvn, None
 
 
+def _op_keyset_resolve(server, body, tar=None):
+    """Resolve an operation's keyset: the preset's TAR table supplies it
+    (v3.26.0 - the RAM operations default to the ISD role's TAR), then the
+    KIc/KID checks run: the numbers must agree (TS 102 225 A.2 - the card
+    rejects a mismatch) and a named preset must define the number ("the keyset
+    must exist").  An explicit request KIc/KID stays an API override.
+    Returns ``(kvn, kic, kid, error)`` with the effective values; kvn is None
+    when the packet carries no number ('00'/'00' = no security, legal per
+    A.2).  Shared by the HTTP handlers and the batch worker."""
+    t = str(tar if tar is not None else (body.get('tar') or '')).strip().upper()
+    if not t and body.get('preset_id'):
+        preset = _preset_by_id(server, body.get('preset_id'))
+        t = presets.role_tar(preset, 'isd') if preset else ''
+    _kvn, err = _resolve_operation_keyset(server, body, t)
+    if err:
+        return None, '', '', err
+    kic = str(body.get('kic') or '').strip().upper()
+    kid = str(body.get('kid') or '').strip().upper()
+    kvn, err = _kvn_of(kic, kid)
+    if err:
+        return None, '', '', err
+    err = _preset_keyset_check(server, body.get('preset_id'), kic, kid)
+    return kvn, kic, kid, err
+
+
 def _preset_counter_persist(server, preset_id, cntr, source, kvn=None):
     """Persist the counter an operation accepted into the server-side preset
     store (v3.8.0), into the keyset it used (each keyset has its own dedicated
@@ -2363,6 +2388,420 @@ def _ram_nv_fields(nv_before, nv_after):
         return {}
     delta = (nv_before - nv_after) if (nv_before is not None and nv_after is not None) else None
     return {'nv_before': nv_before, 'nv_after': nv_after, 'nv_delta': delta}
+
+
+def _ram_install_plan(body):
+    """The card-independent part of a CAP install: parse the .cap, build the
+    INSTALL [for load] -> LOAD xN -> INSTALL [for install] chain and read the
+    transport knobs.  Nothing here touches the card, so the batch builds the
+    plan once and reuses it for every card.  Raises ValueError with the
+    caller's message (the endpoint and the batch answer 400)."""
+    cap_hex = str(body.get('cap_hex') or '').replace(' ', '')
+    if not cap_hex:
+        raise ValueError('No cap_hex provided')
+    loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
+
+    # LOAD block size: the default 240-byte payload fits the GP limit; an
+    # explicit override is capped to it (SCP80 concatenates the secured packet
+    # over up to MAX_ENVELOPE_SEGMENTS SMs, so a block no longer has to fit
+    # into a single SMS).
+    block_size_req = body.get('load_block_size')
+    if block_size_req in (None, ''):
+        block_size_req = None
+    else:
+        try:
+            block_size_req = int(block_size_req)
+        except (TypeError, ValueError):
+            block_size_req = -1
+        if not 1 <= block_size_req <= 240:
+            raise ValueError('load_block_size must be 1..240')
+    block_size = block_size_req or 240
+
+    # The install parameters are composed per the spec: an EF-form STK part
+    # shares one System Specific Parameters EF with the quotas (TS 102 226
+    # 8.2.1.3.2.1; v3.20.0) - an invalid combination is refused before
+    # anything is sent.
+    seq = _cap_apdu_sequence(
+        loadfile_aid, module_aid, loadfile_data,
+        sd_aid=str(body.get('sd_aid') or '').replace(' ', ''),
+        privileges=str(body.get('privileges') or '').replace(' ', '') or '00',
+        install_params=str(body.get('install_params') or '').replace(' ', ''),
+        stk_params=str(body.get('stk_params') or '').replace(' ', ''),
+        make_selectable=body.get('make_selectable', True),
+        block_size=block_size,
+        nv_quota=body.get('nv_quota'),
+        volatile_quota=body.get('volatile_quota'))
+    return {'loadfile_aid': loadfile_aid, 'module_aid': module_aid, 'seq': seq,
+            'block_size': block_size, 'block_size_req': block_size_req,
+            'spi2': str(body.get('spi2') or '01'),
+            'include_cpi': body.get('includeCpi', True),
+            'ram_format': _ram_normalize_format(body.get('ram_format'))}
+
+
+def _ram_install_run(server, body, plan, scc):
+    """Run one CAP install chain on `scc` - the caller holds the card lock.
+
+    The per-card part: the preset's ISD TAR supplies the keyset (v3.26.0) and
+    the counter is seeded from the store (v3.20.0).  Raises ValueError for a
+    request error (the endpoint and the batch answer 400 / record the skip); a
+    chain failure comes back as ``{'success': False, ...}``.  Returns the
+    response dict.  Shared by /api/ram-install and the batch worker."""
+    preset = _preset_by_id(server, body.get('preset_id'))
+    tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
+              or '000000').strip().upper()
+    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'), prefer_msl=True)
+    kvn, kic, kid, keyset_err = _op_keyset_resolve(server, body, tar)
+    if keyset_err:
+        raise ValueError(keyset_err)
+    kic_key = body.get('kicKey', '')
+    kid_key = body.get('kidKey', '')
+
+    # The counter: explicit `cntr` wins, else the preset's value for this
+    # keyset (the server owns the counters, v3.20.0).
+    cntr = _preset_counter_seed(server, body, kvn) or body.get('cntr', '00000000')
+
+    steps = []
+    state = {'steps': steps, 'encode_error': None, 'failure': {},
+             'cntr': cntr, 'preset_id': body.get('preset_id'), 'kvn': kvn}
+    sp_state = {'spi1': spi1, 'spi2': plan['spi2'], 'kic': kic, 'kid': kid,
+                'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
+                'include_cpi': plan['include_cpi']}
+    seq = plan['seq']
+    sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % plan['block_size'])
+
+    # Live progress for the PWA's operation modal (the request holds _CARD_LOCK
+    # until the chain is done; /api/status carries this)
+    _ram_progress_begin('install-cap', len(seq) + 1)
+    nv_before = None
+    nv_after = None
+    try:
+        # RAM command format: detected per operation (a read-only probe step)
+        # unless the caller pinned compact/expanded.
+        ram_format = plan['ram_format']
+        if ram_format == 'auto':
+            _ram_progress_step(0, 'FORMAT CHECK')
+            ram_format = _ram_detect_format(server, scc, sp_state, state)
+        sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
+            len(seq), len(seq) - 2, ram_format, plan['loadfile_aid']))
+        # NV footprint: free non-volatile memory before the chain (best effort
+        # - a card without FF21 skips it).
+        nv_before = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV before')
+
+        for apdu_idx, gp_apdu in enumerate(seq):
+            if apdu_idx == 0:
+                step_name = 'INSTALL [for load]'
+            elif apdu_idx == len(seq) - 1:
+                step_name = 'INSTALL [for install]'
+            else:
+                step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
+            _ram_progress_step(apdu_idx + 1, step_name)
+            if not _ram_send_gp_apdu(server, scc, sp_state, state, step_name,
+                                     _ram_format_apdu(gp_apdu, ram_format)):
+                # What the failed attempt consumed (a rejected load may keep or
+                # discard its partial file - the delta tells which).
+                nv_after = _ram_read_ff21(server, scc, sp_state, state,
+                                          ram_format, 'NV after')
+                resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
+                        'error': (state['encode_error'] or state['failure'].get('error')
+                                  or ('%s failed' % step_name)),
+                        'final_cntr': state['cntr'], 'ram_format': ram_format,
+                        'load_file_aid': plan['loadfile_aid'],
+                        'module_aid': plan['module_aid'],
+                        'load_block_size': plan['block_size'],
+                        'load_block_size_requested': plan['block_size_req'],
+                        'load_block_size_auto': not plan['block_size_req']}
+                resp.update(_ram_nv_fields(nv_before, nv_after))
+                failed_rec = steps[-1] if steps else {}
+                resp.update(_cntr_low_fields(failed_rec.get('por_status')))
+                if resp.get('cntr_low'):
+                    sys.stderr.write('RAM-INSTALL: low counter - the packet '
+                                     'counter is not above the card\'s\n')
+                return resp
+        # NV footprint: what the successful chain consumed.
+        nv_after = _ram_read_ff21(server, scc, sp_state, state, ram_format, 'NV after')
+    finally:
+        _ram_progress_end()
+
+    resp = {'success': True, 'steps': steps, 'load_file_aid': plan['loadfile_aid'],
+            'module_aid': plan['module_aid'], 'final_cntr': state['cntr'],
+            'ram_format': ram_format, 'load_block_size': plan['block_size'],
+            'load_block_size_requested': plan['block_size_req'],
+            'load_block_size_auto': not plan['block_size_req']}
+    resp.update(_ram_nv_fields(nv_before, nv_after))
+    sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
+        plan['loadfile_aid'], plan['module_aid'], state['cntr']))
+    return resp
+
+
+# ===== batch CAP install (v3.28.0) =====
+# The bulk workflow: one worker thread owns a CAP install plan and applies it
+# to every card that gets equipped, resolving the keys from that card's own
+# preset (matched by ICCID).  A card the run already attempted - any outcome -
+# is reported, never installed again; restarting the batch (Stop, then Start)
+# is the deliberate retry.  The PWA is a thin panel over
+# /api/ram-batch/status; the state lives in memory, so a server restart ends a
+# run (the report goes with it).
+
+_RAM_BATCH = None               # the current (or last finished) batch state
+_RAM_BATCH_LOCK = threading.RLock()
+_RAM_BATCH_POLL = 0.5           # the worker's card-state poll interval
+_RAM_BATCH_ATTEMPTS_MAX = 500   # the report keeps the last N attempts
+
+
+def _ram_batch_active():
+    """True while a batch runs (the test-runner guard asks)."""
+    with _RAM_BATCH_LOCK:
+        return bool(_RAM_BATCH and _RAM_BATCH.get('active'))
+
+
+def _ram_batch_new_state(plan):
+    """A fresh run's state.  The plan holds everything card independent; the
+    per-card preset/keyset/counter are resolved at each card."""
+    return {'active': True, 'phase': 'waiting_card', 'stop': False,
+            'started': time.time(), 'stopped': None, 'plan': plan,
+            'session': None, 'seen': {}, 'attempts': [], 'attempts_total': 0,
+            'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
+            'current': None, 'notice': '', 'thread': None}
+
+
+def _ram_batch_record(state, rec):
+    """Record one attempt: the report keeps the last _RAM_BATCH_ATTEMPTS_MAX
+    entries (the total keeps counting), the counts update and the notice names
+    the outcome for the panel's headline."""
+    with _RAM_BATCH_LOCK:
+        rec.setdefault('ts', time.time())
+        state['attempts'].append(rec)
+        if len(state['attempts']) > _RAM_BATCH_ATTEMPTS_MAX:
+            del state['attempts'][:-_RAM_BATCH_ATTEMPTS_MAX]
+        state['attempts_total'] += 1
+        result = rec.get('result')
+        if result in state['counts']:
+            state['counts'][result] += 1
+        who = rec.get('iccid') or 'the card'
+        if result == 'installed':
+            state['notice'] = 'Card %s installed.' % who
+        elif result == 'failed':
+            step = rec.get('failed_step') or ''
+            sw = rec.get('por_sw') or rec.get('sw') or ''
+            state['notice'] = ('Card %s failed%s%s.' % (
+                who, (' at ' + step) if step else '', (' (' + sw + ')') if sw else ''))
+        else:
+            state['notice'] = 'Card %s skipped: %s.' % (who, rec.get('reason') or '')
+    detail = rec.get('reason') or rec.get('failed_step') or ''
+    sys.stderr.write('RAM-BATCH: %s%s%s\n' % (
+        result, (' ' + who) if rec.get('iccid') else '', (' - ' + detail) if detail else ''))
+
+
+def _ram_batch_failure_fields(result):
+    """The failing step's name and status words for the batch report (the panel
+    shows e.g. 'LOAD (3/7) - 6A80'): the remote SW (`por_sw`) is the card's own
+    answer, `sw` the transport status."""
+    steps = result.get('steps') or []
+    idx = result.get('failed_step')
+    rec = steps[idx - 1] if isinstance(idx, int) and 0 < idx <= len(steps) \
+        else (steps[-1] if steps else {})
+    return {'failed_step': rec.get('name') or '',
+            'por_sw': rec.get('por_sw') or '',
+            'por_status': rec.get('por_status') or '',
+            'por_error': rec.get('por_error') or '',
+            'sw': rec.get('sw') or ''}
+
+
+def _ram_batch_handle_card(state, server):
+    """One equipped card: match the preset by ICCID, check its ISD TAR keyset
+    and run the install under the card lock.  A card already attempted in this
+    run (any outcome) is reported, never re-installed."""
+    iccid = presets.normalize_iccid(getattr(server, 'iccid', None) or '')
+    if not iccid:
+        _ram_batch_record(state, {'result': 'skipped',
+                                  'reason': 'no ICCID readable'})
+        return
+    with _RAM_BATCH_LOCK:
+        if iccid in state['seen']:
+            _ram_batch_record(state, {'iccid': iccid, 'result': 'skipped',
+                                      'reason': 'already processed in this batch (%s)'
+                                                % state['seen'][iccid]})
+            return
+    store = getattr(server, 'card_presets', None)
+    preset = store.find_by_iccid(iccid) if store is not None else None
+    if preset is None:
+        with _RAM_BATCH_LOCK:
+            state['seen'][iccid] = 'no preset'
+        _ram_batch_record(state, {'iccid': iccid, 'result': 'skipped',
+                                  'reason': 'no preset matches this ICCID'})
+        return
+    name = preset.get('name') or ''
+    body = {'preset_id': preset.get('id') or '',
+            'tar': presets.role_tar(preset, 'isd')}
+    with _RAM_BATCH_LOCK:
+        state['seen'][iccid] = 'pending'
+        state['current'] = {'iccid': iccid, 'preset': name, 'started': time.time()}
+        state['phase'] = 'installing'
+    started = time.time()
+    result = None
+    error = None
+    try:
+        with _CARD_LOCK:
+            result = _ram_install_run(server, body, state['plan'], server.scc)
+    except Exception as e:
+        # A refused keyset, a lost card, a transport error: the card's outcome
+        # is a failure - the batch never retries it.
+        error = str(e)
+    finally:
+        with _RAM_BATCH_LOCK:
+            state['current'] = None
+            if not state['stop']:
+                state['phase'] = 'waiting_card'
+    duration = int((time.time() - started) * 1000)
+    if result is not None and result.get('success'):
+        outcome = 'installed'
+        rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+               'duration_ms': duration, 'final_cntr': result.get('final_cntr'),
+               'load_file_aid': result.get('load_file_aid'),
+               'module_aid': result.get('module_aid'),
+               'nv_delta': result.get('nv_delta')}
+    elif result is not None:
+        outcome = 'failed'
+        rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+               'duration_ms': duration, 'final_cntr': result.get('final_cntr'),
+               'cntr_low': bool(result.get('cntr_low')),
+               'error': result.get('error') or ''}
+        rec.update(_ram_batch_failure_fields(result))
+    else:
+        outcome = 'skipped'
+        rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+               'duration_ms': duration,
+               'reason': error or 'the install could not start'}
+    with _RAM_BATCH_LOCK:
+        state['seen'][iccid] = outcome
+    _ram_batch_record(state, rec)
+
+
+def _ram_batch_worker(state):
+    """The batch loop: wait for an equipped card (a new card session), install
+    the plan on it with the card's own preset, record the attempt, repeat until
+    the stop flag is set - a running install always finishes first."""
+    try:
+        while True:
+            with _RAM_BATCH_LOCK:
+                if state['stop']:
+                    break
+            server = _server_ref
+            session = getattr(server, 'card_session', 0) if server is not None else None
+            connected = bool(server is not None
+                             and getattr(server, 'connected', False))
+            with _RAM_BATCH_LOCK:
+                if state['stop']:
+                    break
+                fresh = connected and session != state['session']
+                if fresh:
+                    state['session'] = session
+                elif state['phase'] != 'installing':
+                    state['phase'] = 'waiting_card'
+            if not fresh:
+                time.sleep(_RAM_BATCH_POLL)
+                continue
+            try:
+                _ram_batch_handle_card(state, server)
+            except Exception as e:
+                # An unattended bulk run must survive a surprise: the card is
+                # recorded and the loop keeps waiting for the next one.
+                sys.stderr.write('RAM-BATCH: card handling error: %s\n' % e)
+                _ram_batch_record(state, {'result': 'skipped',
+                                          'reason': 'unexpected error: %s' % e})
+    finally:
+        with _RAM_BATCH_LOCK:
+            state['active'] = False
+            state['current'] = None
+            state['phase'] = 'stopped' if state['stop'] else 'finished'
+            state['stopped'] = time.time()
+            state['thread'] = None
+            phase, total = state['phase'], state['attempts_total']
+        sys.stderr.write('RAM-BATCH: %s after %d attempts\n' % (phase, total))
+
+
+def _ram_batch_start(server, body):
+    """Validate the CAP/parameters (the plan is card independent, so it is built
+    once) and spawn the worker.  Raises ValueError (400) for a bad request and
+    RuntimeError (409) when another batch or a test run is active."""
+    global _RAM_BATCH
+    with _RAM_BATCH_LOCK:
+        if _RAM_BATCH and _RAM_BATCH.get('active'):
+            raise RuntimeError('a batch is already running - stop it first')
+        if _TEST_RUNNING:
+            raise RuntimeError('a test run is active - stop it first')
+    plan = _ram_install_plan(body)
+    state = _ram_batch_new_state(plan)
+    with _RAM_BATCH_LOCK:
+        _RAM_BATCH = state
+    thread = threading.Thread(target=_ram_batch_worker, args=(state,),
+                              name='ram-batch', daemon=True)
+    state['thread'] = thread
+    thread.start()
+    sys.stderr.write('RAM-BATCH: started (%d APDUs, loadfile_aid=%s)\n'
+                     % (len(plan['seq']), plan['loadfile_aid']))
+    return state
+
+
+def _ram_batch_stop():
+    """Request a stop: a running install finishes first (an interrupted LOAD
+    chain can leave a half-loaded package), then the run ends.  Returns False
+    when no batch is running."""
+    with _RAM_BATCH_LOCK:
+        if _RAM_BATCH is None or not _RAM_BATCH.get('active'):
+            return False
+        _RAM_BATCH['stop'] = True
+        _RAM_BATCH['phase'] = 'stopping'
+    sys.stderr.write('RAM-BATCH: stop requested\n')
+    return True
+
+
+def _ram_batch_clear():
+    """Drop the finished run's report.  Refused while a batch is active."""
+    global _RAM_BATCH
+    with _RAM_BATCH_LOCK:
+        if _RAM_BATCH and _RAM_BATCH.get('active'):
+            return False
+        _RAM_BATCH = None
+    return True
+
+
+def _ram_batch_status():
+    """The panel's status payload (also the summary /api/status carries)."""
+    with _RAM_BATCH_LOCK:
+        if _RAM_BATCH is None:
+            return {'active': False, 'phase': 'idle', 'attempts': [],
+                    'attempts_total': 0, 'current': None, 'notice': '',
+                    'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
+                    'started': None, 'stopped': None, 'progress': None}
+        return {'active': bool(_RAM_BATCH.get('active')),
+                'phase': _RAM_BATCH.get('phase'),
+                'attempts': list(_RAM_BATCH['attempts']),
+                'attempts_total': _RAM_BATCH['attempts_total'],
+                'current': dict(_RAM_BATCH['current']) if _RAM_BATCH.get('current') else None,
+                'notice': _RAM_BATCH.get('notice') or '',
+                'counts': dict(_RAM_BATCH['counts']),
+                'started': _RAM_BATCH.get('started'),
+                'stopped': _RAM_BATCH.get('stopped'),
+                'progress': _ram_progress_payload() if _RAM_BATCH.get('current') else None}
+
+
+def _ram_batch_summary():
+    """The small /api/status summary the panel's headline rides (None when no
+    run exists): the detailed state minus the attempts list, so the PWA can
+    render the phase/counts live and fetch the report only when it changed."""
+    with _RAM_BATCH_LOCK:
+        if _RAM_BATCH is None:
+            return None
+        cur = _RAM_BATCH.get('current')
+        return {'active': bool(_RAM_BATCH.get('active')),
+                'phase': _RAM_BATCH.get('phase'),
+                'current': dict(cur) if cur else None,
+                'notice': _RAM_BATCH.get('notice') or '',
+                'attempts_total': _RAM_BATCH['attempts_total'],
+                'counts': dict(_RAM_BATCH['counts']),
+                'started': _RAM_BATCH.get('started'),
+                'stopped': _RAM_BATCH.get('stopped')}
 
 
 _BAD_FORMAT_NAMES = {
@@ -6181,6 +6620,7 @@ _TEST_BLOCKED_PATHS = frozenset([
 # (see do_GET).  Card-touching GETs are deliberately absent: /api/cardinfo
 # (runs cardinfo on the card) and /api/esim/* (ES10 selection + STORE DATA).
 _CARD_FREE_GET = frozenset([
+    '/api/ram-batch/status',
     '/api/status', '/api/test/status', '/api/version',
     '/api/stk-status', '/api/poll-status', '/api/proactive-log',
     '/api/menu', '/api/events', '/api/terminal-profile',
@@ -6190,6 +6630,11 @@ _CARD_FREE_GET = frozenset([
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
 ])
+
+# POSTs that must answer while the card lock is held: the batch stop only sets
+# a flag (no card I/O), and the panel's Stop must be effective while the batch
+# worker holds the lock for an install.
+_CARD_FREE_POST = frozenset(['/api/ram-batch/stop'])
 
 TAR_PROBE_DEFAULT_APDU = '00A40000023F00'   # SELECT MF: harmless, applet-visible
 
@@ -8103,35 +8548,10 @@ class PysimHandler(BaseHTTPRequestHandler):
         self._log_resp({'suite': suite.get('name'), 'members': len(members),
                         'start_reset': bool(reset_info)})
 
-    def _keyset_guard(self, body, kic, kid):
-        """The keyset-number checks shared by the RAM operations: the KIc/KID
-        numbers must agree (TS 102 225 A.2 - the card rejects a mismatch) and a
-        named preset must define the number ("the keyset must exist").
-        Returns ``(kvn, error)``: kvn is None when the packet carries no number
-        ('00'/'00' = no security, legal per A.2), error an error string
-        the caller answers with 400."""
-        kvn, err = _kvn_of(kic, kid)
-        if err:
-            return None, err
-        err = _preset_keyset_check(self.server, body.get('preset_id'), kic, kid)
-        return (kvn or None), err
-
     def _op_keyset(self, body, tar=None):
-        """v3.26.0: resolve an operation's keyset from the preset's TAR table
-        (the RAM operations default to the ISD role's TAR), then run the
-        KIc/KID checks.  An explicit request KIc/KID stays an API override.
-        Returns ``(kvn, kic, kid, error)`` with the effective values."""
-        t = str(tar if tar is not None else (body.get('tar') or '')).strip().upper()
-        if not t and body.get('preset_id'):
-            preset = _preset_by_id(self.server, body.get('preset_id'))
-            t = presets.role_tar(preset, 'isd') if preset else ''
-        _kvn, err = _resolve_operation_keyset(self.server, body, t)
-        if err:
-            return None, '', '', err
-        kic = str(body.get('kic') or '').strip().upper()
-        kid = str(body.get('kid') or '').strip().upper()
-        kvn, err = self._keyset_guard(body, kic, kid)
-        return kvn, kic, kid, err
+        """The handler-side wrapper of ``_op_keyset_resolve()`` (the batch
+        worker calls the module function directly)."""
+        return _op_keyset_resolve(self.server, body, tar)
 
     def _log_req(self, body=None):
         if self.server.log_requests:
@@ -8237,6 +8657,13 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = _test_state_snapshot()
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/ram-batch/status':
+            # Card-free (it must answer while the batch worker holds the card
+            # lock for an install): the panel polls it live.
+            self._log_req()
+            resp = _ram_batch_status()
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path.startswith('/api/mcc-mnc'):
             self._log_req()
             q = ''
@@ -8307,6 +8734,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 'proactive_seq': _PROACTIVE_ENTRY_ID,
                 'equipping': bool(getattr(self.server, 'equipping', False)),
                 'ram_progress': _ram_progress_payload(),
+                'ram_batch': _ram_batch_summary(),
                 'auto_equip': bool(_AUTO_EQUIP),
                 'card': card.name if card else None,
                 'profile': str(rs.profile) if rs and rs.profile else None,
@@ -8548,6 +8976,10 @@ class PysimHandler(BaseHTTPRequestHandler):
         if _test_request_blocked(self.path):
             self._send_json({'error': 'test script running - card commands are '
                                       'blocked until it finishes'}, 409)
+            return
+        path = self.path.split('?', 1)[0]
+        if path in _CARD_FREE_POST:
+            self._do_POST()
             return
         # Serialize all card access: the background STATUS poll runs in its own
         # thread and must never interleave with a FETCH/TERMINAL RESPONSE pair.
@@ -9571,178 +10003,76 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             try:
-                cap_hex = body.get('cap_hex', '').replace(' ', '')
-                if not cap_hex:
-                    self._send_json({'error': 'No cap_hex provided'}, 400)
-                    return
-
-                # Parse .cap file
-                loadfile_aid, module_aid, loadfile_data = _cap_parse(cap_hex)
-
-                # SCP80 params: the SPI1 comes from the MSL of the packet's
-                # TAR (the operation uses the preset's table); a caller-supplied
-                # value is only the fallback for a TAR the preset does not carry.
-                preset = _preset_by_id(self.server, body.get('preset_id'))
-                tar = str(body.get('tar') or presets.role_tar(preset, 'isd')
-                          or '000000').strip().upper()
-                try:
-                    spi1, _ = _spi1_for_tar(preset, tar, body.get('spi1'),
-                                            prefer_msl=True)
-                except ValueError as e:
-                    err = {'success': False, 'error': str(e)}
-                    self._send_json(err, 400)
-                    self._log_resp(err)
-                    return
-                spi2 = body.get('spi2', '01')
-                cntr = body.get('cntr', '00000000')
-                sd_aid = body.get('sd_aid', '').replace(' ', '')
-                install_params_hex = body.get('install_params', '').replace(' ', '')
-                stk_params_hex = body.get('stk_params', '').replace(' ', '')
-                make_selectable = body.get('make_selectable', True)
-                privileges_hex = body.get('privileges', '').replace(' ', '') or '00'
-
-                # The keyset: the preset's default for the operation's TAR (the
-                # ISD role entry; v3.26.0) unless the request names KIc/KID
-                # itself - then the number must be consistent and defined in
-                # the preset (TS 102 225 A.2 / the "keyset must exist" rule),
-                # checked before the format probe consumes a counter.
-                kvn, kic, kid, keyset_err = self._op_keyset(body)
-                if keyset_err:
-                    err = {'success': False, 'error': keyset_err}
-                    self._send_json(err, 400)
-                    self._log_resp(err)
-                    return
-                kic_key = body.get('kicKey', '')
-                kid_key = body.get('kidKey', '')
-
-                # The counter: explicit `cntr` wins, else the preset's value
-                # for this keyset (the server owns the counters, v3.20.0).
-                cntr = _preset_counter_seed(self.server, body, kvn) or cntr
-
-                # LOAD block size: the default 240-byte payload cannot be sent
-                # over SCP80 (pySim refuses a secured packet above one SMS).
-                # Fit it automatically, or honour an explicit override capped
-                # to what still encodes into a single SMS.
-                block_size_req = body.get('load_block_size')
-                if block_size_req in (None, ''):
-                    block_size_req = None
-                else:
-                    try:
-                        block_size_req = int(block_size_req)
-                    except (TypeError, ValueError):
-                        block_size_req = -1
-                    if not 1 <= block_size_req <= 240:
-                        err = {'success': False,
-                               'error': 'load_block_size must be 1..240'}
-                        self._send_json(err, 400)
-                        self._log_resp(err)
-                        return
-                # The GP LOAD payload limit is 240 bytes per APDU; SCP80
-                # concatenates the secured packet over up to SCP80_MAX_SEGMENTS
-                # SMs, so a block no longer has to fit into a single SMS.
-                block_size = block_size_req or 240
-                sys.stderr.write('RAM-INSTALL: LOAD block size %d bytes\n' % block_size)
-
-                steps = []
-                state = {'steps': steps, 'encode_error': None, 'failure': {},
-                         'cntr': cntr, 'preset_id': body.get('preset_id'),
-                         'kvn': kvn}
-                sp_state = {'spi1': spi1, 'spi2': spi2, 'kic': kic, 'kid': kid,
-                            'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
-                            'include_cpi': body.get('includeCpi', True)}
-
-                # INSTALL [for load] -> LOAD blocks -> INSTALL [for install].
-                # The install parameters are composed per the spec: an
-                # EF-form STK part shares one System Specific Parameters EF
-                # with the quotas (TS 102 226 8.2.1.3.2.1; v3.20.0) - an
-                # invalid combination is refused before anything is sent.
-                try:
-                    seq = _cap_apdu_sequence(
-                        loadfile_aid, module_aid, loadfile_data, sd_aid=sd_aid,
-                        privileges=privileges_hex,
-                        install_params=install_params_hex, stk_params=stk_params_hex,
-                        make_selectable=make_selectable, block_size=block_size,
-                        nv_quota=body.get('nv_quota'),
-                        volatile_quota=body.get('volatile_quota'))
-                except ValueError as e:
-                    err = {'success': False, 'error': str(e)}
-                    self._send_json(err, 400)
-                    self._log_resp(err)
-                    return
-
-                # Live progress for the PWA's operation modal (the request holds
-                # _CARD_LOCK until the chain is done; /api/status carries this)
-                _ram_progress_begin('install-cap', len(seq) + 1)
-                nv_before = None
-                nv_after = None
-                try:
-                    # RAM command format: detected per operation (a read-only
-                    # probe step) unless the caller pinned compact/expanded.
-                    ram_format = _ram_normalize_format(body.get('ram_format'))
-                    if ram_format == 'auto':
-                        _ram_progress_step(0, 'FORMAT CHECK')
-                        ram_format = _ram_detect_format(self.server, scc, sp_state, state)
-                    sys.stderr.write('RAM-INSTALL: %d APDUs (INSTALL / %d x LOAD / INSTALL, %s) loadfile_aid=%s\n' % (
-                        len(seq), len(seq) - 2, ram_format, loadfile_aid))
-                    # NV footprint: free non-volatile memory before the chain
-                    # (best effort - a card without FF21 skips it).
-                    nv_before = _ram_read_ff21(self.server, scc, sp_state, state,
-                                               ram_format, 'NV before')
-
-                    for apdu_idx, gp_apdu in enumerate(seq):
-                        if apdu_idx == 0:
-                            step_name = 'INSTALL [for load]'
-                        elif apdu_idx == len(seq) - 1:
-                            step_name = 'INSTALL [for install]'
-                        else:
-                            step_name = 'LOAD (%d/%d)' % (apdu_idx, len(seq) - 2)
-                        _ram_progress_step(apdu_idx + 1, step_name)
-                        if not _ram_send_gp_apdu(self.server, scc, sp_state, state,
-                                                 step_name,
-                                                 _ram_format_apdu(gp_apdu, ram_format)):
-                            # What the failed attempt consumed (a rejected load
-                            # may keep or discard its partial file - the delta
-                            # tells which).
-                            nv_after = _ram_read_ff21(self.server, scc, sp_state, state,
-                                                      ram_format, 'NV after')
-                            resp = {'success': False, 'steps': steps, 'failed_step': len(steps),
-                                    'error': (state['encode_error'] or state['failure'].get('error')
-                                              or ('%s failed' % step_name)),
-                                    'final_cntr': state['cntr'], 'ram_format': ram_format,
-                                    'load_file_aid': loadfile_aid, 'module_aid': module_aid,
-                                    'load_block_size': block_size,
-                                    'load_block_size_requested': block_size_req,
-                                    'load_block_size_auto': not block_size_req}
-                            resp.update(_ram_nv_fields(nv_before, nv_after))
-                            failed_rec = steps[-1] if steps else {}
-                            resp.update(_cntr_low_fields(failed_rec.get('por_status')))
-                            if resp.get('cntr_low'):
-                                sys.stderr.write('RAM-INSTALL: low counter - the packet '
-                                                 'counter is not above the card\'s\n')
-                            self._send_json(resp)
-                            self._log_resp(resp)
-                            return
-                    # NV footprint: what the successful chain consumed.
-                    nv_after = _ram_read_ff21(self.server, scc, sp_state, state,
-                                              ram_format, 'NV after')
-                finally:
-                    _ram_progress_end()
-
-                resp = {'success': True, 'steps': steps, 'load_file_aid': loadfile_aid,
-                        'module_aid': module_aid, 'final_cntr': state['cntr'],
-                        'ram_format': ram_format, 'load_block_size': block_size,
-                        'load_block_size_requested': block_size_req,
-                        'load_block_size_auto': not block_size_req}
-                resp.update(_ram_nv_fields(nv_before, nv_after))
-                sys.stderr.write('RAM-INSTALL: Complete — loadfile_aid=%s module_aid=%s cntr=%s\n' % (
-                    loadfile_aid, module_aid, state['cntr']))
-                self._send_json(resp)
-                self._log_resp(resp)
+                # The card-independent plan (.cap + the INSTALL/LOAD chain),
+                # then one run on the equipped card - both shared with the
+                # batch worker (v3.28.0).
+                plan = _ram_install_plan(body)
+                resp = _ram_install_run(self.server, body, plan, scc)
+            except ValueError as e:
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 400)
+                self._log_resp(err)
+                return
             except Exception as e:
                 sys.stderr.write('RAM-INSTALL error: %s\n' % e)
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)
+                return
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/ram-batch/start':
+            # Start the bulk install: no card is needed yet - the worker waits
+            # for one and installs on every card that gets equipped, using the
+            # card's own preset (matched by ICCID).
+            body = self._read_body()
+            self._log_req(body)
+            try:
+                _ram_batch_start(self.server, body)
+            except ValueError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            except RuntimeError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            except Exception as e:
+                # A malformed .cap (a zip parse error) and any other bad input
+                # is the caller's: answer 400, never a dropped connection.
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
+            resp = _ram_batch_status()
+            resp['ok'] = True
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/ram-batch/stop':
+            # Sets the flag; card-free so the button works while an install
+            # holds the card lock (_CARD_FREE_POST).
+            self._log_req()
+            if not _ram_batch_stop():
+                resp = {'error': 'no batch is running'}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            resp = _ram_batch_status()
+            resp['ok'] = True
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/ram-batch/clear':
+            self._log_req()
+            if not _ram_batch_clear():
+                resp = {'error': 'a batch is running - stop it first'}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            resp = {'ok': True}
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/ram-install-app':
             # INSTALL [for install] / [for make selectable] for an already
             # loaded package (iterate the final step without re-loading).
@@ -10500,6 +10830,11 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req(body)
             if _TEST_RUNNING:
                 resp = {'error': 'a test script is already running'}
+                self._send_json(resp, 409)
+                self._log_resp(resp)
+                return
+            if _ram_batch_active():
+                resp = {'error': 'a batch install is running - stop it first'}
                 self._send_json(resp, 409)
                 self._log_resp(resp)
                 return

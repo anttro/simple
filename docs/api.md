@@ -46,6 +46,10 @@ a 3.x PWA).
 | `/api/help` | POST | pySim help for a given command |
 | `/api/send-ota` | POST | SCP80 OTA secured packet delivery |
 | `/api/ram-install` | POST | Install a Java Card `.cap` file via SCP80 (INSTALL[for load] → LOAD ×N → INSTALL[for install]) |
+| `/api/ram-batch/start` | POST | Start the **batch CAP install** (v3.28.0): the server installs the same `.cap` on every card that gets equipped, using each card's preset (matched by ICCID) |
+| `/api/ram-batch/status` | GET | The batch state: phase, current card, counts and the attempts report (card-free) |
+| `/api/ram-batch/stop` | POST | Stop the batch — a running install finishes first (card-free, so it works while the install holds the card lock) |
+| `/api/ram-batch/clear` | POST | Drop the finished batch's report (`409` while a batch is active) |
 | `/api/ram-install-app` | POST | Single INSTALL [for install] / [for make selectable] for an already loaded package (no re-load) |
 | `/api/cap-info` | POST | Validate a `.cap` archive and estimate its code/NVRAM/RAM requirements (read-only) |
 | `/api/cap-compat` | POST | CAP compatibility test: LOAD only to the block completing the Import component (nothing committed) |
@@ -1125,6 +1129,68 @@ sets `success: false`, `failed_step` and a detailed `error` such as
 ```
 
 The `steps` array contains one entry per GP command. `final_cntr` is the counter value after all successful steps (use it to update the card preset). The response is not streamed — all steps run server-side before the JSON is returned.
+
+### `POST /api/ram-batch/start`, `GET /api/ram-batch/status`, `POST /api/ram-batch/stop`, `POST /api/ram-batch/clear`
+
+The **batch CAP install** (v3.28.0): one `.cap` and one set of install
+parameters applied to card after card, for bulk provisioning.  The loop runs
+**in the server** (a worker thread), so a page reload or a closed tab does not
+interrupt it; the state lives in memory and a server restart ends the run.
+
+- `POST /api/ram-batch/start` — the body is the `/api/ram-install` payload
+  **without** the per-card fields (`preset_id`, `tar`, `spi1`, `cntr`,
+  `kic`/`kid`/`kicKey`/`kidKey`): the plan is card independent and is built
+  once, so a bad `.cap` or an invalid parameter combination is a `400` at
+  Start, not a per-card failure.  **No card is needed** — the worker waits for
+  one.  `400` for a bad request, `409` when another batch or a test run is
+  active.  The response is the status payload below plus `ok: true`.
+- `GET /api/ram-batch/status` — **card-free** (the panel polls it while an
+  install holds the card lock):
+
+```json
+{"active": true, "phase": "waiting_card",
+ "attempts": [{"ts": 1760000000.0, "iccid": "8970119000004600098",
+               "preset": "Batch 0002", "result": "installed",
+               "duration_ms": 41230, "final_cntr": "0000000005",
+               "load_file_aid": "F0414C46416101",
+               "module_aid": "F0414C4641610101", "nv_delta": 3120}],
+ "attempts_total": 3,
+ "current": null, "notice": "Card 8970119000004600098 installed.",
+ "counts": {"installed": 2, "failed": 1, "skipped": 0},
+ "started": 1760000000.0, "stopped": null, "progress": null}
+```
+
+  `phase` is `idle` (no run), `waiting_card`, `installing`, `stopping`,
+  `stopped` or `finished`.  A failed attempt carries `failed_step` (e.g.
+  `LOAD (3/7)`), `por_sw` (the card's own status word), `por_status`,
+  `por_error` and `sw`; a skipped one carries `reason`.  `current` names the
+  card being installed (`{iccid, preset, started}`) and `progress` mirrors the
+  RAM progress payload while a chain runs.  The report keeps the last 500
+  attempts (`attempts_total` counts them all).
+- `POST /api/ram-batch/stop` — sets the stop flag: a running install finishes
+  first (an interrupted LOAD chain can leave a half-loaded package), then the
+  run ends.  It touches no card state, so it answers while the card lock is
+  held (a `_CARD_FREE_POST` exception); a repeated stop is idempotent, `409`
+  when no run exists.
+- `POST /api/ram-batch/clear` — drops the finished run's report (`409` while a
+  batch is active).
+
+**Per-card resolution.**  Every equipped card's **preset is matched by
+ICCID**; the preset's ISD role TAR supplies the keyset (v3.26.0), the keys and
+the counter seed (v3.20.0) — the same rules as `/api/ram-install`.  A card
+with no readable ICCID, no matching preset or no usable ISD keyset is recorded
+as `skipped` with its reason and the batch keeps waiting.  A card is attempted
+**once per run** (any outcome): re-equipping it is recorded as
+`already processed in this batch (<outcome>)`, never installed again —
+restart the batch to retry it.  Failures never stop the run and are never
+retried automatically.
+
+`/api/status` carries a small summary in `ram_batch` — the detailed state
+**minus the attempts list** (`{active, phase, current, notice,
+attempts_total, counts, started, stopped}`), so the panel's headline (the
+phase, the current card, the counts) rides the existing 2 s status poll; the
+attempts report is fetched from `/api/ram-batch/status` only when
+`attempts_total` (or the active flag) changed.
 
 ### `POST /api/ram-install-app`
 
