@@ -1932,7 +1932,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.30.1';
+const SIMPLE_VERSION = '3.30.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10192,8 +10192,8 @@ let _ramBatchSummary = null;     // /api/status.ram_batch
 let _ramBatchProgress = null;    // /api/status.ram_progress
 let _ramBatchModalShown = false; // the batch status modal is open (v3.30.0)
 let _ramBatchLastKind = null;    // the last seen run kind: a cleared report
-                                 // (kind: null) keeps the modal's title right
-                                 // (v3.30.1)
+                                 // (kind: null) keeps the modal's title and the
+                                 // counts labels on that kind (v3.30.1)
 // A fetch that never settled must not block the report forever (v3.28.7).
 const RAM_BATCH_FETCH_STALE_MS = 10000;
 
@@ -10351,7 +10351,8 @@ function ramBatchRender() {
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
 	// The success labels follow the operation (v3.29.0): the counts bucket is
 	// 'installed' for every kind - "the operation succeeded".  The last seen
-	// kind is remembered for the modal's title (v3.30.1).
+	// kind is remembered for the modal's title and these labels, so a cleared
+	// report keeps the run's kind (v3.30.1).
 	if (st.kind) _ramBatchLastKind = st.kind;
 	const kind = st.kind || _ramBatchLastKind || 'install-cap';
 	const okLabel = kind === 'delete' ? t('Deleted')
@@ -24681,7 +24682,7 @@ const LANG_RU = {
 	'Delete the package before installing (with its applications)': 'Удалить пакет перед установкой (с его приложениями)',
 	'AID must be 5-16 bytes of hex': 'AID должен быть 5-16 байт hex',
 	'not found': 'не найдено',
-	'Start batch': 'Запустить пакетную установку',
+	'Start batch': 'Запустить пакетную операцию',
 	'Stopping...': 'Остановка…',
 	'Batch stopped': 'Пакетная операция остановлена',
 	'Batch finished': 'Пакетная операция завершена',
@@ -24696,7 +24697,7 @@ const LANG_RU = {
 	'Skipped': 'Пропущено',
 	'attempts': 'попыток',
 	'No cards processed yet.': 'Карты ещё не обрабатывались.',
-	'The preset, keyset and counter come from each card\'s own preset (matched by ICCID).  A card is attempted once per run: re-equipping it reports it as already processed - restart the batch to retry.  Stop finishes the current card first.': 'Пресет, keyset и счётчик берутся из пресета каждой карты (совпадение по ICCID).  Карта обрабатывается один раз за запуск: повторная установка карты отмечается как уже обработанная — для повтора перезапустите пакетную установку.  «Остановить» завершает работу после окончания обработки карты.',
+	'The preset, keyset and counter come from each card\'s own preset (matched by ICCID).  A card is attempted once per run: re-equipping it reports it as already processed - restart the batch to retry.  Stop finishes the current card first.': 'Пресет, keyset и счётчик берутся из пресета каждой карты (совпадение по ICCID).  Карта обрабатывается один раз за запуск: повторная установка карты отмечается как уже обработанная — для повтора перезапустите пакетную операцию.  «Остановить» завершает работу после окончания обработки карты.',
 	'Do not close or reload this window while the operation is running.': 'Не закрывайте и не перезагружайте окно, пока операция выполняется.',
 	'Working...': 'Выполняется...',
 	'APDU hex': 'APDU (hex)',

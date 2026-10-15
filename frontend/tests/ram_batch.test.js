@@ -578,10 +578,11 @@ test('a cleared report keeps the run kind in the modal title (v3.30.1)', () => {
 	setModalEls();
 	setPanelEls();
 	app.setSummary(null);
-	app.ramBatchModalOpen();
+	// the state is seeded before the window opens: no reliance on the sandbox
+	// leftovers of the previous test (the modal opens into the run's kind)
 	app.setLast({ kind: 'delete', active: false, phase: 'finished', attempts: [],
 		counts: { installed: 2 }, attempts_total: 2 });
-	app.ramBatchRender();
+	app.ramBatchModalOpen();
 	assert.strictEqual(els['ram-op-title'].textContent, 'Batch delete (per card)');
 	// Clear empties the state (kind: null): the title must not flip to install
 	app.setLast({ kind: null, active: false, phase: 'idle', attempts: [],
