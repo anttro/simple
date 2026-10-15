@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.30.2'
+VERSION = '3.30.3'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -9203,7 +9203,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             elif is_equip:
                 output += ('EQUIP: the shell did not register its command sets - '
                            'see the output above\n')
-            sys.stderr.write("CMD: %s → %s (%dms)\n" % (cmd, status, elapsed))
+            sys.stderr.write("CMD: %s -> %s (%dms)\n" % (cmd, status, elapsed))
             resp = {'output': output, 'stop': bool(stop)}
             self._send_json(resp)
             self._log_resp(resp)
@@ -9221,13 +9221,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                 data, sw = scc.send_apdu_checksw(apdu_hex)
                 elapsed = int((time.time() - t0) * 1000)
                 resp = {'response': data, 'sw': sw}
-                sys.stderr.write("APDU: %s → SW: %s (%dms)\n" % (apdu_hex, sw, elapsed))
+                sys.stderr.write("APDU: %s -> SW: %s (%dms)\n" % (apdu_hex, sw, elapsed))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
                 elapsed = int((time.time() - t0) * 1000)
                 err = {'error': str(e)}
-                sys.stderr.write("APDU: %s → ERROR: %s (%dms)\n" % (apdu_hex, str(e), elapsed))
+                sys.stderr.write("APDU: %s -> ERROR: %s (%dms)\n" % (apdu_hex, str(e), elapsed))
                 self._send_json(err, 500)
                 self._log_resp(err)
         elif self.path == '/api/verify-adm':
@@ -9253,12 +9253,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                     # the ADM is verified for the current card session
                     self.server.adm_session = getattr(self.server, 'card_session', 0)
                     self.server.adm_failed_session = None
-                sys.stderr.write('VERIFY ADM → SW: %s\n' % resp.get('sw'))
+                sys.stderr.write('VERIFY ADM -> SW: %s\n' % resp.get('sw'))
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
                 resp = {'ok': False, 'error': str(e)}
-                sys.stderr.write('VERIFY ADM → ERROR: %s\n' % e)
+                sys.stderr.write('VERIFY ADM -> ERROR: %s\n' % e)
                 self._send_json(resp, 500)
                 self._log_resp(resp)
         elif self.path == '/api/esim/profile':
@@ -10357,7 +10357,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         return
                 block_size = block_size_req or 240
                 boundary, total_blocks = _cap_compat_blocks(loadfile_data, block_size)
-                sys.stderr.write('CAP-COMPAT: %s — the import list ends in LOAD %d/%d '
+                sys.stderr.write('CAP-COMPAT: %s - the import list ends in LOAD %d/%d '
                                  '(block size %d)\n' % (loadfile_aid, boundary,
                                                         total_blocks, block_size))
 
@@ -10430,7 +10430,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                     resp['failed_step'] = len(steps)
                     failed_rec = steps[-1] if steps else {}
                     resp.update(_cntr_low_fields(failed_rec.get('por_status')))
-                sys.stderr.write('CAP-COMPAT: %s — imports %s (LOADS to %d/%d)\n' % (
+                sys.stderr.write('CAP-COMPAT: %s - imports %s (LOADS to %d/%d)\n' % (
                     loadfile_aid, 'OK' if ok else 'REJECTED', boundary, total_blocks))
                 self._send_json(resp)
                 self._log_resp(resp)

@@ -24,7 +24,7 @@ from pySim.exceptions import NoCardError, SwMatchError
 from pysim_simple_server import __main__ as srv_main
 from pysim_simple_server.server import _LineFilter
 
-CARDLESS_LINE = 'INIT: no card in the reader — server ready; insert a card or press Equip'
+CARDLESS_LINE = 'INIT: no card in the reader - server ready; insert a card or press Equip'
 
 
 class LineFilterTest(unittest.TestCase):

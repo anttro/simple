@@ -28,6 +28,37 @@ def _log_stdout(msg):
     os.write(1, ('[%8.3f] %s\n' % (elapsed, msg)).encode())
 
 
+def _guard_console_streams():
+    """Never let a non-encodable character kill the server.
+
+    On Windows the launcher pipes stdout/stderr into PowerShell (see start.bat),
+    so Python encodes with the ANSI code page instead of the wide console API -
+    cp1251 cannot encode the banner's box-drawing rule (U+2500) or the APDU
+    trace arrows (U+2192), and one such character raised UnicodeEncodeError and
+    killed the process.  errors="replace" keeps every message, whatever the code
+    page (a character the code page lacks prints as '?')."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+
+
+def _console_rule(n=70):
+    """The banner rule in the widest character the output stream can encode.
+
+    Under start.bat stdout is a pipe (not a console), so Python encodes with the
+    ANSI code page - cp1251 (Russian Windows) cannot encode the box-drawing
+    U+2500 and falls back to a plain ASCII rule (cp437 has the box-drawing
+    characters and keeps the pretty one)."""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        "\u2500".encode(enc)
+        return "\u2500" * n
+    except (UnicodeEncodeError, LookupError):
+        return "-" * n
+
+
 def _default_web_dir():
     # <repo>/frontend, whether run from source or an editable install.
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend')
@@ -56,6 +87,7 @@ def _build_http_server(host, port, handler):
 
 def main():
     global _server_start
+    _guard_console_streams()
     _server_start = time.time()
     mod = load_pysim_app()
     parser = mod.option_parser
@@ -167,7 +199,7 @@ def main():
                 # Normal cardless start: there was no card in the reader (the
                 # 3s wait timed out). The presence monitor auto-equips once a
                 # card appears; nothing to recover, no traceback.
-                sys.stderr.write('INIT: no card in the reader — server ready; insert a card or press Equip\n')
+                sys.stderr.write('INIT: no card in the reader - server ready; insert a card or press Equip\n')
             except Exception:
                 print("Warning: fast card initialization failed, falling back to pysim init:", file=sys.stderr)
                 traceback.print_exc()
@@ -176,13 +208,13 @@ def main():
                 except NoCardError:
                     # The fallback retried the cardless wait; still a normal
                     # cardless start, not an initialization failure.
-                    sys.stderr.write('INIT: no card in the reader — server ready; insert a card or press Equip\n')
+                    sys.stderr.write('INIT: no card in the reader - server ready; insert a card or press Equip\n')
         else:
             try:
                 sl.wait_for_card(3)
                 rs, card = mod.init_card(sl, opts.skip_card_init)
             except NoCardError:
-                sys.stderr.write('INIT: no card in the reader — server ready; insert a card or press Equip\n')
+                sys.stderr.write('INIT: no card in the reader - server ready; insert a card or press Equip\n')
         _tlog('card_init: %.0fms' % ((time.time() - t_phase) * 1000))
         if card is not None:
             # Fast init builds the card on its own SimCardCommands instance;
@@ -361,11 +393,11 @@ def main():
     # that event triggers auto-equip instead — the desired retry.
     if sl is not None and getattr(sl, '_reader', None) is not None:
         start_card_monitor(str(sl._reader))
-    print("─" * 70)
+    print(_console_rule())
     print("  pysim-simple-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
     print("  Open http://%s:%s in your browser for the SIMple UI (served by this server)."
           % (opts.http_host, opts.http_port))
-    print("─" * 70)
+    print(_console_rule())
     try:
         server.serve_forever()
     except KeyboardInterrupt:
