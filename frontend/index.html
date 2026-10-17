@@ -7598,20 +7598,19 @@ function testSuiteOpen(i) {
 async function testSuiteDelete(i) {
 	const s = testSuites()[i];
 	if (!s) return;
-	// resolve the selection before the await: the list may be reordered while
-	// the confirmation is open (the modal does not block the page), so the
-	// reset below re-checks by id that the selection still points here
-	const wasSelected = _testSuiteIdx === i;
-	const suiteId = s.id;
 	if (!(await pysimConfirm(t('Delete this test suite?')))) return;
 	// a pending debounced name write must not 404 after the delete
 	if (_testSuiteSaveTimer) { clearTimeout(_testSuiteSaveTimer); _testSuiteSaveTimer = null; }
 	try {
 		const resp = await pysimFetch('/api/test/suites/delete', {id: s.id});
 		if (resp.error) throw new Error(resp.error);
+		// The list may have been reordered while the confirmation was open (the
+		// modal does not block the page) and the delete itself shifts every
+		// index after it: re-resolve the selection by id, not by position.
+		const selId = (testCurrentSuite() || {}).id;
 		await testStoresFetch();
-		const cur = testCurrentSuite();
-		if (wasSelected && (!cur || cur.id === suiteId)) _testSuiteIdx = -1;
+		const at = testSuites().findIndex(x => x.id === selId);
+		_testSuiteIdx = at >= 0 ? at : -1;
 		testViewShow('suites');
 	} catch (e) {
 		ioStatus('test-io-status', t('Could not delete the test suite') + ': ' + e.message);

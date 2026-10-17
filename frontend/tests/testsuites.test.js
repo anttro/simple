@@ -191,6 +191,47 @@ test('role rows cannot be moved and the i18n refresh redraws the test views', ()
 	assert.match(i18n, /isViewVisible\('phone-sub-test'\)\) testRender\(\)/);
 });
 
+test('deleting a suite re-resolves the selection by id, not by index', async () => {
+	// The delete shifts every index after it and the list may be reordered
+	// while the confirmation is open (the modal does not block the page).
+	const del = extractFunc(html, 'testSuiteDelete', true);
+	const make = state => new Function('state', `
+		var _testSuiteIdx = state.selIdx;
+		var _testSuiteSaveTimer = null;
+		var testSuites = () => state.suites;
+		var testCurrentSuite = () => state.suites[_testSuiteIdx];
+		var pysimConfirm = async () => {
+			if (state.moveTo !== undefined && state.moveTo !== null) _testSuiteIdx = state.moveTo;
+			return true;
+		};
+		var pysimFetch = async (path, body) => { state.deleted = body.id; return {}; };
+		var testStoresFetch = async () => {
+			state.suites = state.suites.filter(x => x.id !== state.deleted);
+		};
+		var testViewShow = v => { state.view = v; };
+		var ioStatus = (id, msg) => { state.status = msg; };
+		var t = x => x;
+		${del}
+		return { run: testSuiteDelete, idx: () => _testSuiteIdx };
+	`)(state);
+	// deleting the SELECTED suite clears the selection
+	let app = make({ suites: [{id: 'SA'}, {id: 'SB'}, {id: 'SC'}], selIdx: 2 });
+	await app.run(2);
+	assert.strictEqual(app.idx(), -1);
+	// deleting a suite BEFORE the selection keeps it selected (the index shifts)
+	app = make({ suites: [{id: 'SA'}, {id: 'SB'}, {id: 'SC'}], selIdx: 2 });
+	await app.run(0);
+	assert.strictEqual(app.idx(), 1);
+	// a selection made while the dialog was open wins
+	app = make({ suites: [{id: 'SA'}, {id: 'SB'}, {id: 'SC'}], selIdx: 0, moveTo: 1 });
+	await app.run(2);
+	assert.strictEqual(app.idx(), 1);
+	// nothing selected stays nothing selected
+	app = make({ suites: [{id: 'SA'}], selIdx: -1 });
+	await app.run(0);
+	assert.strictEqual(app.idx(), -1);
+});
+
 test('the report keeps an expanded run log open across the live polls', () => {
 	// A live suite run re-renders the member blocks on every poll; replacing
 	// innerHTML creates fresh <details>, so the open state is carried over
