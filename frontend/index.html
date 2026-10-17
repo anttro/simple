@@ -1943,7 +1943,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.30.4';
+const SIMPLE_VERSION = '3.31.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -22553,6 +22553,8 @@ const EF_UST_SERVICES = {1: "Local Phone Book", 2: "Fixed Dialling Numbers (FDN)
 const EF_SST_SERVICES = {1: "CHV1 disable function", 2: "Abbreviated Dialling Numbers (ADN)", 3: "Fixed Dialling Numbers (FDN)", 4: "Short Message Storage (SMS)", 5: "Advice of Charge (AoC)", 6: "Capability Configuration Parameters (CCP)", 7: "PLMN selector", 8: "RFU", 9: "MSISDN", 10: "Extension1", 11: "Extension2", 12: "SMS Parameters", 13: "Last Number Dialled (LND)", 14: "Cell Broadcast Message Identifier", 15: "Group Identifier Level 1", 16: "Group Identifier Level 2", 17: "Service Provider Name", 18: "Service Dialling Numbers (SDN)", 19: "Extension3", 20: "RFU", 21: "VGCS Group Identifier List (EFVGCS and EFVGCSS)", 22: "VBS Group Identifier List (EFVBS and EFVBSS)", 23: "enhanced Multi-Level Precedence and Pre-emption Service", 24: "Automatic Answer for eMLPP", 25: "Data download via SMS-CB", 26: "Data download via SMS-PP", 27: "Menu selection", 28: "Call control", 29: "Proactive SIM", 30: "Cell Broadcast Message Identifier Ranges", 31: "Barred Dialling Numbers (BDN)", 32: "Extension4", 33: "De-personalization Control Keys", 34: "Co-operative Network List", 35: "Short Message Status Reports", 36: "Network's indication of alerting in the MS", 37: "Mobile Originated Short Message control by SIM", 38: "GPRS", 39: "Image (IMG)", 40: "SoLSA (Support of Local Service Area)", 41: "USSD string data object supported in Call Control", 42: "RUN AT COMMAND command", 43: "User controlled PLMN Selector with Access Technology", 44: "Operator controlled PLMN Selector with Access Technology", 45: "HPLMN Selector with Access Technology", 46: "CPBCCH Information", 47: "Investigation Scan", 48: "Extended Capability Configuration Parameters", 49: "MExE", 50: "Reserved and shall be ignored", 51: "PLMN Network Name", 52: "Operator PLMN List", 53: "Mailbox Dialling Numbers", 54: "Message Waiting Indication Status", 55: "Call Forwarding Indication Status", 56: "Service Provider Display Information", 57: "Multimedia Messaging Service (MMS)", 58: "Extension 8", 59: "MMS User Connectivity Parameters"};
 const EF_IST_SERVICES = {1: "P-CSCF address", 2: "Generic Bootstrapping Architecture (GBA)", 3: "HTTP Digest", 4: "GBA-based Local Key Establishment Mechanism", 5: "Support of P-CSCF discovery for IMS Local Break Out", 6: "Short Message Storage (SMS)", 7: "Short Message Status Reports (SMSR)", 8: "Support for SM-over-IP including data download via SMS-PP as defined in TS 31.111 [31]", 9: "Communication Control for IMS by ISIM", 10: "Support of UICC access to IMS", 11: "URI support by UICC", 12: "Media Type support", 13: "IMS call disconnection cause", 14: "URI support for MO SHORT MESSAGE CONTROL", 15: "MCPTT", 16: "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [31]", 17: "From Preferred", 18: "IMS configuration data", 19: "XCAP Configuration Data", 20: "WebRTC URI", 21: "MuD and MiD configuration data", 22: "IMS Data Channel indication"};
 const EF_PHASE_NAMES = {0: "phase 1", 2: "phase 2", 3: "phase 2 and higher"};
+// TS 31.102 §4.4.2.1 EF_PBR primitive tags (the phonebook kinds).
+const EF_PBR_KINDS = { 0xC0: 'EF.ADN', 0xC1: 'EF.IAP', 0xC2: 'EF.EXT1', 0xC3: 'EF.SNE', 0xC4: 'EF.ANR', 0xC5: 'EF.PBC', 0xC6: 'EF.GRP', 0xC7: 'EF.AAS', 0xC8: 'EF.GAS', 0xC9: 'EF.UID', 0xCA: 'EF.EMAIL', 0xCB: 'EF.CCP1', 0xCC: 'EF.PURI' };
 
 // ===== EF content decoders (client-side, offline) =====
 // Decode the contents of common EFs for the file manager, the snapshot view,
@@ -22583,6 +22585,7 @@ const EF_FIELD_LABELS = {
 	lac_range_high: 'LAC range high', show_in_hplmn: 'Show in HPLMN', hide_in_oplmn: 'Hide in OPLMN',
 	location_update_status: 'Location update status', eps_update_status: 'EPS update status',
 	update_status: 'Update status', access_tech: 'Access technology', p_tmsi_signature: 'P-TMSI signature',
+	master: 'Master EF', iap: 'IAP (EF.IAP)', links: 'Links', files: 'Files', note: 'Note',
 };
 
 const EF_GSM7_EXT = { 0x0A: '\n', 0x14: '^', 0x28: '{', 0x29: '}', 0x2F: '\\', 0x3C: '[', 0x3D: '~', 0x3E: ']', 0x40: '|', 0x65: '\u20ac' };
@@ -22618,6 +22621,8 @@ function efRstripFf(b) {
 	return b.subarray(0, end);
 }
 
+// Returns {tag, value, end} - `end` is the index just past the TLV, so a
+// caller can tell a complete walk from a truncated tail (efDecPbr).
 function efTlv(data) {
 	const out = [];
 	let i = 0;
@@ -22631,7 +22636,7 @@ function efTlv(data) {
 			for (let k = 0; k < n; k++) len = (len << 8) | data[i++];
 		}
 		if (i + len > data.length) break;
-		out.push({ tag: tag, value: data.slice(i, i + len) });
+		out.push({ tag: tag, value: data.slice(i, i + len), end: i + len });
 		i += len;
 	}
 	return out;
@@ -23280,6 +23285,77 @@ function efDecSume(b) {
 	return Object.keys(out).length ? out : { raw: efHex(b) };
 }
 
+// TS 31.102 §4.4.2.1 EF_PBR (4F30): the phonebook reference record - a
+// sequence of BER-TLVs describing the phonebook structure (unused trailing
+// bytes are FF).  Three constructed containers: 'A8' type 1 (one record per
+// master-EF record, mapped 1:1), 'A9' type 2 (mapped through the pointers in
+// EF_IAP, in the order of the FIDs after the tag) and 'AA' type 3 (addressed
+// by record identifiers).  Each holds primitive tags whose value length says
+// whether an SFI is present (02 = FID, 03 = FID + SFI).  The first FID after
+// the first 'A8' is the master EF; all linked files inherit its access
+// conditions.  One record covers at most 254 entries - a larger phonebook
+// uses further records, decoded one at a time by the caller.
+function efPbrHex(tag) {
+	return tag.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function efDecPbr(b) {
+	if (efAllFf(b)) return { empty: true };
+	const data = efRstripFf(b);
+	const out = { master: null, iap: null, links: [], files: [] };
+	const notes = [];
+	const tlvs = efTlv(data);
+	// A trailing TLV whose length runs past the record: keep what parsed and
+	// say so instead of throwing (a corrupt/partial PBR must stay readable).
+	if (data.length && (!tlvs.length || tlvs[tlvs.length - 1].end !== data.length)) {
+		notes.push('truncated TLV at the end of the record');
+	}
+	let seenA8 = false;
+	for (const t of tlvs) {
+		if (t.tag !== 0xA8 && t.tag !== 0xA9 && t.tag !== 0xAA) {
+			notes.push('unexpected top-level tag ' + efPbrHex(t.tag));
+			continue;
+		}
+		const link = t.tag === 0xA8 ? 1 : (t.tag === 0xA9 ? 2 : 3);
+		const firstA8 = t.tag === 0xA8 && !seenA8;
+		if (t.tag === 0xA8) seenA8 = true;
+		const inner = efTlv(t.value);
+		const complete = t.value.length === 0
+			|| (inner.length > 0 && inner[inner.length - 1].end === t.value.length);
+		if (t.tag === 0xAA && !complete) {
+			// The spec's tag length may point at a path instead of a primitive
+			// list (TS 31.102 4.4.2.1): keep the raw bytes, never throw.
+			out.links.push({ link: link, tag: 'AA', kind: null, fid: null, sfi: null, raw: efHex(t.value) });
+			notes.push('the AA (type 3) container is not a primitive list - kept raw');
+			continue;
+		}
+		if (!complete) notes.push('truncated TLV inside the ' + efPbrHex(t.tag) + ' container');
+		for (const p of inner) {
+			const kind = EF_PBR_KINDS[p.tag] || null;
+			let fid = null, sfi = null;
+			if (p.value.length === 2) fid = efHex(p.value);
+			else if (p.value.length === 3) {
+				fid = efHex(p.value.subarray(0, 2));
+				sfi = efHex(p.value.subarray(2, 3));
+			}
+			if (!kind || fid === null) {
+				// An unknown or malformed primitive tag is preserved raw.
+				out.links.push({ link: link, tag: efPbrHex(p.tag), kind: kind, fid: fid, sfi: sfi, raw: efHex(p.value) });
+				notes.push('unknown or malformed primitive tag ' + efPbrHex(p.tag)
+					+ ' (' + efHex(p.value) + ') - kept raw');
+				continue;
+			}
+			out.links.push({ link: link, tag: efPbrHex(p.tag), kind: kind, fid: fid, sfi: sfi });
+			if (!out.files.includes(fid)) out.files.push(fid);
+			if (firstA8 && !out.master) out.master = fid;
+			if (p.tag === 0xC1 && !out.iap) out.iap = fid;
+		}
+	}
+	if (!out.links.length) return { raw: efHex(b), note: notes.join('; ') || undefined };
+	if (notes.length) out.note = notes.join('; ');
+	return out;
+}
+
 // ---- registry ----
 
 const EF_DECODERS = [
@@ -23336,6 +23412,7 @@ const EF_DECODERS = [
 	{ name: 'EF.EXT4', fid: '6f4e', fn: efDecExt1 },
 	{ name: 'EF.EXT5', fid: '6f55', fn: efDecExt1 },
 	{ name: 'EF.SUME', fid: '6f54', fn: efDecSume },
+	{ name: 'EF.PBR', fid: '4f30', fn: efDecPbr },
 ];
 
 function efFindDecoder(name, fid) {
@@ -23417,6 +23494,7 @@ function efFlatten(data) {
 			else if (it && it.n !== undefined && it.name !== undefined) rows.push(['Service ' + it.n, String(it.name)]);
 			else if (it && it.mcc !== undefined) rows.push(['PLMN ' + (i + 1), it.mcc + '-' + it.mnc + (it.access_tech ? ' (' + it.access_tech + ')' : '')]);
 			else if (it && it.aid !== undefined) rows.push(['Application ' + (i + 1), (it.label ? it.label + ' \u2014 ' : '') + it.aid + (it.eap ? ' [' + (it.eap.eap_types || []).join(', ') + ']' : '')]);
+			else if (it && it.link !== undefined && it.tag !== undefined) rows.push([label + ' ' + (i + 1), 'Type ' + it.link + ' \u00b7 ' + (it.kind || ('tag ' + it.tag)) + (it.fid ? ' \u2014 ' + it.fid + (it.sfi ? ' (SFI ' + it.sfi + ')' : '') : (it.raw ? ' \u2014 ' + it.raw : ''))]);
 			else rows.push([label + ' ' + (i + 1), JSON.stringify(it)]);
 		});
 	};

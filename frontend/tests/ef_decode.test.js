@@ -29,7 +29,7 @@ const FNS = [
 	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
 	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
-	'efDecExt1', 'efDecSms', 'efDecSume', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
+	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
 	'efDecodeFile', 'efDecodeHex', 'efIsRawOnly', 'efFieldLabel', 'efPrimitive', 'efFlatten',
 	'efDiffData', 'efDataSummary', 'efContentDiff', 'gsm7Decode', 'efRenderFieldsHtml',
 	'pysimFsDecodedHtml', 'profilerRenderReport', 'profilerLabelText', 'profilerResultAspects',
@@ -42,7 +42,7 @@ for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'FCP_ARR_AM_BITS']) {
 	code += html.match(new RegExp('const ' + c + ' = [\\s\\S]*?\\n\\];'))[0].replace('const ', 'var ') + '\n';
 }
-for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_PHASE_NAMES']) {
+for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_PHASE_NAMES', 'EF_PBR_KINDS']) {
 	code += html.match(new RegExp('const ' + c + ' = \\{.*\\};'))[0].replace('const ', 'var ') + '\n';
 }
 code += html.match(/const EF_FIELD_LABELS = \{[\s\S]*?\n\};/)[0].replace('const ', 'var ') + '\n';
@@ -130,6 +130,106 @@ test('EF.SUME decodes the SET UP MENU title and icon TLVs (TS 51.011 10.3.34)', 
 	// UCS2 title: 05 09 80 00 4D 00 65 00 6E 00 75
 	assert.deepStrictEqual(efDecSume(efBytes('050980004D0065006E0075FFFFFFFF')),
 		{ title: 'Menu' });
+});
+
+test('EF.PBR decodes the phonebook structure containers (TS 31.102 4.4.2.1)', () => {
+	// pySim's EF_PBR fixture: A8 { C0 03 4F3A 02, C5 03 4F09 04 }
+	// + AA { CB 03 4F3D 07, C2 03 4F4A 06 } - all with an SFI.
+	const d = efDecPbr(efBytes('A80AC0034F3A02C5034F0904AA0ACB034F3D07C2034F4A06'));
+	assert.strictEqual(d.master, '4F3A');
+	assert.strictEqual(d.iap, null);
+	assert.strictEqual(d.note, undefined);
+	assert.deepStrictEqual(d.links, [
+		{ link: 1, tag: 'C0', kind: 'EF.ADN', fid: '4F3A', sfi: '02' },
+		{ link: 1, tag: 'C5', kind: 'EF.PBC', fid: '4F09', sfi: '04' },
+		{ link: 3, tag: 'CB', kind: 'EF.CCP1', fid: '4F3D', sfi: '07' },
+		{ link: 3, tag: 'C2', kind: 'EF.EXT1', fid: '4F4A', sfi: '06' },
+	]);
+	assert.deepStrictEqual(d.files, ['4F3A', '4F09', '4F3D', '4F4A']);
+});
+
+test('EF.PBR: the no-SFI form and the type-2 (A9) container with EF_IAP', () => {
+	// A8 { C0 02 4F3A (FID only, no SFI), C1 02 4F09 (EF_IAP) }
+	// + A9 { C6 03 4F0B 06, C7 03 4F0C 07 } - the type-2 files are addressed
+	// through the EF_IAP pointers, in the order of the FIDs after 'A9'.
+	const d = efDecPbr(efBytes('A808C0024F3AC1024F09A90AC6034F0B06C7034F0C07'));
+	assert.strictEqual(d.master, '4F3A');
+	assert.strictEqual(d.iap, '4F09');
+	assert.deepStrictEqual(d.links, [
+		{ link: 1, tag: 'C0', kind: 'EF.ADN', fid: '4F3A', sfi: null },
+		{ link: 1, tag: 'C1', kind: 'EF.IAP', fid: '4F09', sfi: null },
+		{ link: 2, tag: 'C6', kind: 'EF.GRP', fid: '4F0B', sfi: '06' },
+		{ link: 2, tag: 'C7', kind: 'EF.AAS', fid: '4F0C', sfi: '07' },
+	]);
+	assert.deepStrictEqual(d.files, ['4F3A', '4F09', '4F0B', '4F0C']);
+	assert.strictEqual(d.note, undefined);
+});
+
+test('EF.PBR: FF padding is not a bogus link; a truncated TLV is a note, not a throw', () => {
+	const padded = efDecPbr(efBytes('A80AC0034F3A02C5034F0904AA0ACB034F3D07C2034F4A06' + 'FF'.repeat(8)));
+	assert.strictEqual(padded.links.length, 4);
+	assert.strictEqual(padded.note, undefined);
+	assert.deepStrictEqual(padded.files, ['4F3A', '4F09', '4F3D', '4F4A']);
+	// a trailing 'C5' tag with no length byte: the parsed links are kept
+	const trunc = efDecPbr(efBytes('A80AC0034F3A02C5034F0904C5'));
+	assert.strictEqual(trunc.master, '4F3A');
+	assert.strictEqual(trunc.links.length, 2);
+	assert.match(trunc.note, /truncated TLV/);
+	// a container whose value runs past the record: the earlier links are kept
+	const bad = efDecPbr(efBytes('A80AC0034F3A02C5034F0904AA0ACB034F3D07'));
+	assert.strictEqual(bad.links.length, 2);
+	assert.match(bad.note, /truncated TLV/);
+});
+
+test('EF.PBR: unknown primitive tags are preserved raw with a note', () => {
+	// A8 { C0 03 4F3A 02 (master), CE 03 4F09 04 (not a phonebook kind) }
+	const d = efDecPbr(efBytes('A80AC0034F3A02CE034F0904'));
+	assert.strictEqual(d.master, '4F3A');
+	assert.deepStrictEqual(d.links, [
+		{ link: 1, tag: 'C0', kind: 'EF.ADN', fid: '4F3A', sfi: '02' },
+		{ link: 1, tag: 'CE', kind: null, fid: '4F09', sfi: '04', raw: '4F0904' },
+	]);
+	assert.deepStrictEqual(d.files, ['4F3A']);
+	assert.match(d.note, /CE/);
+});
+
+test('EF.PBR: the AA non-primitive fallback keeps the raw bytes and notes it', () => {
+	const d = efDecPbr(efBytes('AA03C0FF01'));
+	assert.deepStrictEqual(d.links, [
+		{ link: 3, tag: 'AA', kind: null, fid: null, sfi: null, raw: 'C0FF01' },
+	]);
+	assert.match(d.note, /not a primitive list/);
+	// an all-FF record is the unused marker
+	assert.deepStrictEqual(efDecPbr(efBytes('FFFFFFFF')), { empty: true });
+});
+
+test('EF.PBR matches the shared decode vectors (drift guard with the server parser)', () => {
+	// frontend/tests/pbr_vectors.json is asserted by tests/test_pbr.py too:
+	// the PWA decoder and the server-side PBR parser must agree.
+	const vectors = JSON.parse(fs.readFileSync(path.join(__dirname, 'pbr_vectors.json'), 'utf8'));
+	assert.ok(vectors.cases.length >= 5);
+	for (const c of vectors.cases) {
+		const d = efDecPbr(efBytes(c.records[0]));
+		assert.strictEqual(d.master, c.master, c.name + ': master');
+		assert.deepStrictEqual(d.links, c.links, c.name + ': links');
+		assert.deepStrictEqual(d.files, c.files, c.name + ': files');
+	}
+});
+
+test('EF.PBR is registered by name and FID; efFlatten renders link rows', () => {
+	assert.strictEqual(efFindDecoder('EF.PBR', null).fid, '4f30');
+	assert.strictEqual(efFindDecoder(null, '4f30').name, 'EF.PBR');
+	assert.strictEqual(efFindDecoder('MF/7F10/5F3A/EF.PBR', null).fn, efDecPbr);
+	assert.deepStrictEqual(efFlatten({ master: '4F3A', iap: '4F09', links: [
+		{ link: 1, tag: 'C0', kind: 'EF.ADN', fid: '4F3A', sfi: '02' },
+		{ link: 3, tag: 'AA', kind: null, fid: null, sfi: null, raw: 'C0FF01' },
+	], files: ['4F3A'] }), [
+		['Master EF', '4F3A'],
+		['IAP (EF.IAP)', '4F09'],
+		['Links 1', 'Type 1 \u00b7 EF.ADN \u2014 4F3A (SFI 02)'],
+		['Links 2', 'Type 3 \u00b7 tag AA \u2014 C0FF01'],
+		['Files', '4F3A'],
+	]);
 });
 
 test('ADN-format records: alpha + BCD number + CCP/EXT1', () => {

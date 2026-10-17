@@ -18,7 +18,7 @@ from . import presets
 from . import test_scripts
 from . import test_suites
 from . import testscript
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _read_arr, _netstate_read, _netstate_install, _LineFilter, _test_command_type, migrate_scripts_to_suites
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _read_arr, _read_pbr, _netstate_read, _netstate_install, _LineFilter, _test_command_type, migrate_scripts_to_suites
 
 
 _server_start = 0
@@ -253,6 +253,7 @@ def main():
     iccid = None
     netstate_files = None
     arr_files = None
+    pbr_files = None
     if scc and card is not None and hasattr(scc, '_tp'):
         scc._tp.apdu_tracer = _LoggingApduTracer()
         try:
@@ -275,6 +276,12 @@ def main():
                 if arr_files:
                     sys.stderr.write('INIT: EF.ARR %s\n' % ', '.join(
                         '%s (%d rec)' % (a['fid'], a['num_records']) for a in arr_files))
+                # EF.PBR (the phonebook reference record): same reason - the
+                # startup init never runs _apply_equipped_card.
+                pbr_files = _read_pbr(app)
+                if pbr_files:
+                    sys.stderr.write('INIT: EF.PBR %s\n' % ', '.join(
+                        '%s (%d rec)' % (p['fid'], p['num_records']) for p in pbr_files))
             t_phase = time.time()
             sys.stderr.write('INIT: sending TERMINAL PROFILE %s (CLA=%s)\n' % (opts.terminal_profile, scc.cat_cla))
             sm, el = _send_terminal_profile(scc, opts.terminal_profile)
@@ -364,6 +371,9 @@ def main():
     # EF.ARR cache (v3.24.0): read by the startup init above (a card present
     # at server start); a later equip refreshes it in _apply_equipped_card.
     server.arr = arr_files
+    # EF.PBR cache (TS 31.102 4.4.2.1): read by the startup init above; a
+    # later equip refreshes it in _apply_equipped_card.
+    server.pbr = pbr_files
     # Network state monitor: install the state read during the startup init
     # (right after the ICCID, before the TERMINAL PROFILE).  No readable
     # ICCID means the card is considered unusable - give up.

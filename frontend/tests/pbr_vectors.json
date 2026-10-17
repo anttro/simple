@@ -1,0 +1,303 @@
+{
+ "_comment": "EF.PBR (TS 31.102 4.4.2.1) decode vectors, shared by the PWA decoder (frontend/tests/ef_decode.test.js, efDecPbr) and the server parser (tests/test_pbr.py, _pbr_parse) - the drift guard for the two implementations. 'records' are raw EF_PBR record hex strings (as /api/pbr serves them); 'master' is the first FID of the first 'A8' container (the PWA decoder only - the server parser does not need it); 'links' is the PWA decoder's link list (tag/kind/fid/sfi, plus 'raw' for a preserved unknown tag); 'files' is the referenced FID list in record order, deduplicated by FID - the shape the server parser returns.",
+ "cases": [
+  {
+   "name": "pySim's EF_PBR fixture: type 1 and type 3 containers, every primitive with an SFI",
+   "records": [
+    "A80AC0034F3A02C5034F0904AA0ACB034F3D07C2034F4A06"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": "02"
+    },
+    {
+     "link": 1,
+     "tag": "C5",
+     "kind": "EF.PBC",
+     "fid": "4F09",
+     "sfi": "04"
+    },
+    {
+     "link": 3,
+     "tag": "CB",
+     "kind": "EF.CCP1",
+     "fid": "4F3D",
+     "sfi": "07"
+    },
+    {
+     "link": 3,
+     "tag": "C2",
+     "kind": "EF.EXT1",
+     "fid": "4F4A",
+     "sfi": "06"
+    }
+   ],
+   "files": [
+    "4F3A",
+    "4F09",
+    "4F3D",
+    "4F4A"
+   ]
+  },
+  {
+   "name": "type 2 ('A9') addressed through EF_IAP (a 'C1' inside the 'A8'); FID-only primitives (no SFI)",
+   "records": [
+    "A808C0024F3AC1024F09A90AC6034F0B06C7034F0C07"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": null
+    },
+    {
+     "link": 1,
+     "tag": "C1",
+     "kind": "EF.IAP",
+     "fid": "4F09",
+     "sfi": null
+    },
+    {
+     "link": 2,
+     "tag": "C6",
+     "kind": "EF.GRP",
+     "fid": "4F0B",
+     "sfi": "06"
+    },
+    {
+     "link": 2,
+     "tag": "C7",
+     "kind": "EF.AAS",
+     "fid": "4F0C",
+     "sfi": "07"
+    }
+   ],
+   "files": [
+    "4F3A",
+    "4F09",
+    "4F0B",
+    "4F0C"
+   ]
+  },
+  {
+   "name": "unused trailing bytes are FF: the padding is not a link",
+   "records": [
+    "A80AC0034F3A02C5034F0904AA0ACB034F3D07C2034F4A06FFFFFFFFFFFFFFFF"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": "02"
+    },
+    {
+     "link": 1,
+     "tag": "C5",
+     "kind": "EF.PBC",
+     "fid": "4F09",
+     "sfi": "04"
+    },
+    {
+     "link": 3,
+     "tag": "CB",
+     "kind": "EF.CCP1",
+     "fid": "4F3D",
+     "sfi": "07"
+    },
+    {
+     "link": 3,
+     "tag": "C2",
+     "kind": "EF.EXT1",
+     "fid": "4F4A",
+     "sfi": "06"
+    }
+   ],
+   "files": [
+    "4F3A",
+    "4F09",
+    "4F3D",
+    "4F4A"
+   ]
+  },
+  {
+   "name": "a truncated trailing TLV (a lone 'C5' tag): the links before it are kept",
+   "records": [
+    "A80AC0034F3A02C5034F0904C5"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": "02"
+    },
+    {
+     "link": 1,
+     "tag": "C5",
+     "kind": "EF.PBC",
+     "fid": "4F09",
+     "sfi": "04"
+    }
+   ],
+   "files": [
+    "4F3A",
+    "4F09"
+   ]
+  },
+  {
+   "name": "an unknown primitive tag ('CE') is preserved raw and is not a phonebook file",
+   "records": [
+    "A80AC0034F3A02CE034F0904"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": "02"
+    },
+    {
+     "link": 1,
+     "tag": "CE",
+     "kind": null,
+     "fid": "4F09",
+     "sfi": "04",
+     "raw": "4F0904"
+    }
+   ],
+   "files": [
+    "4F3A"
+   ]
+  },
+  {
+   "name": "TS 31.102 Annex G Table G.2 Rec 1 (every kind tag; the printed A8 length is internally inconsistent - the table lists 10 primitives of 5 bytes = 50 = 0x32 - so the corrected length is used)",
+   "records": [
+    "A832C0034F3A01C5034F0902C6034F2603C4034F1104C4034F1305C4034F1506C3034F1907C9034F2112CA034F5009CC034F5416AA0FC7034F4B14C8034F4C15C2034F4A08"
+   ],
+   "master": "4F3A",
+   "links": [
+    {
+     "link": 1,
+     "tag": "C0",
+     "kind": "EF.ADN",
+     "fid": "4F3A",
+     "sfi": "01"
+    },
+    {
+     "link": 1,
+     "tag": "C5",
+     "kind": "EF.PBC",
+     "fid": "4F09",
+     "sfi": "02"
+    },
+    {
+     "link": 1,
+     "tag": "C6",
+     "kind": "EF.GRP",
+     "fid": "4F26",
+     "sfi": "03"
+    },
+    {
+     "link": 1,
+     "tag": "C4",
+     "kind": "EF.ANR",
+     "fid": "4F11",
+     "sfi": "04"
+    },
+    {
+     "link": 1,
+     "tag": "C4",
+     "kind": "EF.ANR",
+     "fid": "4F13",
+     "sfi": "05"
+    },
+    {
+     "link": 1,
+     "tag": "C4",
+     "kind": "EF.ANR",
+     "fid": "4F15",
+     "sfi": "06"
+    },
+    {
+     "link": 1,
+     "tag": "C3",
+     "kind": "EF.SNE",
+     "fid": "4F19",
+     "sfi": "07"
+    },
+    {
+     "link": 1,
+     "tag": "C9",
+     "kind": "EF.UID",
+     "fid": "4F21",
+     "sfi": "12"
+    },
+    {
+     "link": 1,
+     "tag": "CA",
+     "kind": "EF.EMAIL",
+     "fid": "4F50",
+     "sfi": "09"
+    },
+    {
+     "link": 1,
+     "tag": "CC",
+     "kind": "EF.PURI",
+     "fid": "4F54",
+     "sfi": "16"
+    },
+    {
+     "link": 3,
+     "tag": "C7",
+     "kind": "EF.AAS",
+     "fid": "4F4B",
+     "sfi": "14"
+    },
+    {
+     "link": 3,
+     "tag": "C8",
+     "kind": "EF.GAS",
+     "fid": "4F4C",
+     "sfi": "15"
+    },
+    {
+     "link": 3,
+     "tag": "C2",
+     "kind": "EF.EXT1",
+     "fid": "4F4A",
+     "sfi": "08"
+    }
+   ],
+   "files": [
+    "4F3A",
+    "4F09",
+    "4F26",
+    "4F11",
+    "4F13",
+    "4F15",
+    "4F19",
+    "4F21",
+    "4F50",
+    "4F54",
+    "4F4B",
+    "4F4C",
+    "4F4A"
+   ]
+  }
+ ]
+}

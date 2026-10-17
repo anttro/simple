@@ -25,7 +25,7 @@ a 3.x PWA).
 | `/api/command` | POST | pySim command (equip, status, tree, etc.) |
 | `/api/commands` | GET | List available pySim commands |
 | `/api/cardinfo` | GET | pySim `cardinfo` output |
-| `/api/tree` | POST | File tree browser for given FID/name |
+| `/api/tree` | POST | File tree browser for given FID/name (the DF holding EF_PBR gains the PBR-referenced files) |
 | `/api/select` | POST | Select a file by name or FID |
 | `/api/read` | POST | Read file content |
 | `/api/write` | POST | Write raw hex data to a file |
@@ -80,6 +80,7 @@ a 3.x PWA).
 | `/api/net-state` | GET | Cached network-state monitor (service, location, per-file state) |
 | `/api/net-state-refresh` | POST | Re-read the monitored files (optional `files` list) and return the updated monitor state |
 | `/api/arr` | GET | Cached EF.ARR copies (the FCP '8B' security attribute references): records per ARR file |
+| `/api/pbr` | GET | Cached EF.PBR phonebook reference records (the raw TS 31.102 4.4.2.1 structure) |
 | `/api/mcc-mnc` | GET | Search the optional MCC/MNC operator list (`?q=`; `?random=1&exclude=`) |
 | `/api/proactive-log` | GET | Last 50 proactive commands |
 | `/api/status-poll` | POST | Manual STATUS poll + FETCH if 91XX |
@@ -1457,6 +1458,34 @@ Returns:
 {"exists": true, "name": "MF", "fid": "3F00", "file_type": "df", "children": [{"name": "EF.ICCID", "fid": "2fe2", "isDir": false}]}
 ```
 
+**PBR-derived children**: when the requested node is the DF that holds the
+card's **EF_PBR** (`4F30`, TS 31.102 §4.4.2.1 — `MF/7F10/5F3A`,
+`ADF.USIM/5F3A` or `ADF.USIM-NON-IMSI/5F3A`), the server parses the cached
+PBR records (see `GET /api/pbr`) and appends the phonebook files the PBR
+references as children — the files are not in pySim's model, so they would
+otherwise be invisible:
+
+```json
+{"name": "EF.ADN", "fid": "4F3A", "isDir": false, "pbr": true, "sfi": "02"}
+```
+
+`fid` is uppercase; `pbr: true` marks a PBR-derived node and `sfi` carries
+the file's short file identifier when the PBR declares one (`null`
+otherwise).  A file pySim's model already lists is not added twice, and the
+matching is by the requested node's full normalised path (uppercase, `3F00`
+→ `MF`); a bare DF FID that cannot be told apart (the three PBR copies all
+sit in a DF with FID `5F3A`) injects nothing.  The PWA renders these nodes
+like any other tree node — no frontend change.
+
+Because the PBR files are not in the model, `POST /api/tree`, `/api/select`,
+`/api/read` and `/api/write` **auto-allow the probe** for exactly the FIDs
+the parsed PBR references (the PWA only sets `allow_probe` for its own custom
+files), so the injected nodes can be selected and read without any client
+flag.  The probe stays scoped to those FIDs and the temporary model file is
+detached again after the request.  An explicit `allow_probe: false` does not
+disable it — the server knows the file exists, so a caller cannot make the
+tree's own nodes unselectable (the flag remains the PWA's custom-file switch).
+
 ### `GET /api/events`
 
 Returns the event list captured from the card's SET UP EVENT LIST (an array of
@@ -1597,6 +1626,36 @@ The PWA's file manager resolves the `'8B'` reference of the selected file's
 FCI against this cache and shows the referenced record's access rules as
 indented lines; snapshots resolve the same references from their own
 captured `EF.ARR` copy.
+
+### `GET /api/pbr`
+
+Returns the card's cached **EF.PBR records** — the phonebook reference file
+(`4F30`, TS 31.102 §4.4.2.1), whose BER-TLV structure describes the
+phonebook files (the `'A8'`/`'A9'`/`'AA'` containers and the primitive
+phonebook kinds).  The copies are read once per card session when a card is
+equipped (`MF/7F10/5F3A/4F30`, `ADF.USIM/5F3A/4F30`,
+`ADF.USIM-NON-IMSI/5F3A/4F30`, best effort, at most `PBR_RECORD_LIMIT` = 16
+records each) and served from memory, so this endpoint performs no card I/O;
+a disconnect clears the cache.
+
+```json
+{"ok": true, "session": 12, "pbrs": [
+   {"fid": "4F30", "path": "MF/7F10/5F3A/4F30", "record_len": 32,
+    "num_records": 1, "records": ["A80AC0034F3A02C5034F0904AA0A..."]}]}
+```
+
+`ok` is `false` (with an empty `pbrs`) when the card has no readable PBR.
+The records are served raw: the PWA owns the decoder for the decoded file
+views (`efDecPbr`, TS 31.102 §4.4.2.1 — the containers, the primitive tags,
+the master EF and the EF_IAP reference).  The spec leaves the `'AA'`
+container's "path to the file" form unspecified; a container that does not
+parse as primitive tags is kept raw (the decoder notes it) and its files are
+neither resolved nor injected into the tree — only same-directory FIDs are.  The server keeps a small parser of
+the same structure only to populate the file tree — `/api/tree` appends the
+referenced phonebook files as children of the DF that holds the PBR and
+auto-allows the probe for exactly those FIDs (see the `/api/tree` section).
+The two parsers share the decode vectors in `frontend/tests/pbr_vectors.json`
+(drift-guarded from both suites).
 
 ### `GET /api/proactive-log`
 

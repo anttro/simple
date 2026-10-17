@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.30.4'
+VERSION = '3.31.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -553,6 +553,226 @@ def _arr_refresh_after_write(server, app, fid):
         return False
     server.arr = _read_arr(app)
     return True
+
+
+# EF.PBR (TS 31.102 4.4.2.1): the phonebook reference record - the BER-TLV
+# structure that describes the phonebook files (the 'A8'/'A9'/'AA' containers
+# and the primitive phonebook kinds).  It is read once per card session like
+# EF.ARR; the records are served raw because the PWA owns the single decoder
+# (one record covers at most 254 entries - a larger phonebook uses further
+# records, hence the cap).
+PBR_READ_PATHS = ('MF/7F10/5F3A/4F30', 'ADF.USIM/5F3A/4F30',
+                  'ADF.USIM-NON-IMSI/5F3A/4F30')
+PBR_RECORD_LIMIT = 16
+
+
+def _read_pbr(app):
+    """Best-effort EF.PBR reads (PBR_READ_PATHS): the phonebook structure
+    records.  Returns a list of
+    {'fid','path','record_len','num_records','records'} dicts (records as hex,
+    1-based) or None; never raises."""
+    if not app or not getattr(app, 'rs', None):
+        return None
+    lchan = app.rs.lchan[0]
+    out = []
+    for path in PBR_READ_PATHS:
+        cleanup = None
+        try:
+            _, cleanup = _select_path(lchan, path, app)
+            if _get_file_type(lchan, lchan.selected_file) not in ('linear_fixed', 'cyclic'):
+                continue
+            n = min(lchan.selected_file_num_of_rec() or 1, PBR_RECORD_LIMIT)
+            records = []
+            for i in range(1, n + 1):
+                rv = lchan.read_record(i)
+                data = rv[0] if isinstance(rv, tuple) else rv
+                records.append((data or '').upper())
+            out.append({'fid': path.rsplit('/', 1)[-1].upper(),
+                        'path': path,
+                        'record_len': _fcp_value(lchan, 'selected_file_record_len'),
+                        'num_records': len(records),
+                        'records': records})
+        except Exception:
+            continue
+        finally:
+            if cleanup:
+                try:
+                    cleanup()
+                except Exception:
+                    pass
+    return out or None
+
+
+def _refresh_pbr_cache(server):
+    """Read the EF.PBR records into the session cache (best effort); a failed
+    read clears the previous session's cache."""
+    server.pbr = _read_pbr(getattr(server, 'app', None))
+    if server.pbr:
+        _tlog('equip: EF.PBR ' + ', '.join(
+            '%s (%d rec)' % (p['fid'], p['num_records']) for p in server.pbr))
+
+
+# The EF.PBR primitive tags and the constructed containers (TS 31.102 4.4.2.1);
+# the JS decoder (efDecPbr in the PWA) carries the same tables - the shared
+# fixture frontend/tests/pbr_vectors.json guards the two against drift.
+PBR_KINDS = {
+    'C0': 'EF.ADN', 'C1': 'EF.IAP', 'C2': 'EF.EXT1', 'C3': 'EF.SNE',
+    'C4': 'EF.ANR', 'C5': 'EF.PBC', 'C6': 'EF.GRP', 'C7': 'EF.AAS',
+    'C8': 'EF.GAS', 'C9': 'EF.UID', 'CA': 'EF.EMAIL', 'CB': 'EF.CCP1',
+    'CC': 'EF.PURI',
+}
+PBR_CONTAINERS = {'A8': 1, 'A9': 2, 'AA': 3}
+
+
+def _pbr_tlvs(data):
+    """BER-TLV walk of a hex string: [(tag, value_hex)].  Stops cleanly at a
+    truncated TLV or at the trailing FF padding - never raises."""
+    out = []
+    i = 0
+    n = len(data)
+    while i + 4 <= n:
+        tag = data[i:i + 2]
+        length = int(data[i + 2:i + 4], 16)
+        i += 4
+        if length & 0x80:
+            k = length & 0x7F
+            if k == 0 or i + 2 * k > n:
+                break
+            length = int(data[i:i + 2 * k], 16)
+            i += 2 * k
+        if i + 2 * length > n:
+            break
+        out.append((tag, data[i:i + 2 * length]))
+        i += 2 * length
+    return out
+
+
+def _pbr_parse(records):
+    """Parse EF.PBR records (TS 31.102 4.4.2.1) into the referenced phonebook
+    files: a list of {'fid','kind','link','sfi'} in record order, deduplicated
+    by FID (first occurrence wins).  The containers 'A8'/'A9'/'AA' are link
+    types 1/2/3; a primitive value of 2 bytes is the FID, 3 bytes FID + SFI.
+    Pure and tolerant (FF padding / a truncated TLV are skipped); never
+    raises, [] when nothing parses."""
+    files = []
+    seen = set()
+    for rec in records or []:
+        data = re.sub(r'[^0-9A-Fa-f]', '', rec or '').upper()
+        while len(data) >= 2 and data.endswith('FF'):
+            data = data[:-2]
+        for tag, value in _pbr_tlvs(data):
+            link = PBR_CONTAINERS.get(tag)
+            if link is None:
+                continue
+            for ptag, pval in _pbr_tlvs(value):
+                kind = PBR_KINDS.get(ptag)
+                if not kind:
+                    continue
+                if len(pval) == 4:
+                    fid, sfi = pval, None
+                elif len(pval) == 6:
+                    fid, sfi = pval[:4], pval[4:]
+                else:
+                    continue
+                if fid in seen:
+                    continue
+                seen.add(fid)
+                files.append({'fid': fid, 'kind': kind, 'link': link, 'sfi': sfi})
+    return files
+
+
+def _pbr_norm_path(segments, adf_aids=None):
+    """Normalise a tree path (uppercase segments, 3F00 -> MF) for the PBR
+    path comparison: the cache paths look like 'MF/7F10/5F3A/4F30' and
+    'ADF.USIM/5F3A/4F30'.
+
+    An ADF is rooted at itself, but a tree request carries the whole chain
+    (MF/ADF.USIM/5F3A), so a leading 'MF' before an ADF segment is dropped -
+    otherwise the ADF's DF_PHONEBOOK could never match its cache entry (the
+    two-PBR card case).  The file manager addresses an ADF by name and the
+    Profiler's tree walk by AID, so `adf_aids` ({AID: name}) folds the AID
+    form onto the name form; the cache paths are name-based."""
+    out = []
+    for seg in segments or []:
+        s = str(seg or '').strip().upper()
+        if not s:
+            continue
+        if adf_aids and s in adf_aids:
+            s = adf_aids[s]
+        out.append('MF' if s in ('MF', '3F00') else s)
+    if len(out) > 1 and out[0] == 'MF' and out[1].startswith('ADF.'):
+        out.pop(0)
+    return out
+
+
+def _pbr_files_for_node(server, path):
+    """The parsed PBR files when `path` (normalised) is the DF holding a cached
+    EF.PBR, else None.  A full-path match wins; with several cached PBRs under
+    the same DF FID the path disambiguates, and an ambiguous path is accepted
+    only when a single cached entry exists (the three PBR copies all sit in a
+    DF with FID 5F3A)."""
+    pbrs = getattr(server, 'pbr', None)
+    if not pbrs or not path:
+        return None
+    wanted = '/'.join(path)
+    df_fid = path[-1]
+    exact, by_fid = [], []
+    for p in pbrs:
+        if not isinstance(p, dict):
+            continue
+        ppath = _pbr_norm_path((p.get('path') or '').split('/'))
+        if len(ppath) < 2:
+            continue
+        if '/'.join(ppath[:-1]) == wanted:
+            exact.append(p)
+        elif ppath[-2] == df_fid:
+            by_fid.append(p)
+    if exact:
+        return _pbr_parse(exact[0].get('records'))
+    # The FID-only fallback is for a bare DF request (the caller could not name
+    # the DF): a full path that failed the exact match must never be answered by
+    # another DF's copy (e.g. the ADF's PBR for a MF/7F10/5F3A request).
+    if len(path) == 1 and len(by_fid) == 1:
+        return _pbr_parse(by_fid[0].get('records'))
+    return None
+
+
+def _pbr_known_fid(server, seg):
+    """True when `seg` is a 4-hex FID the cached EF.PBR references.  These
+    files are not in pySim's model, so /api/tree, /api/select, /api/read and
+    /api/write auto-allow the probe for exactly them - that is what makes the
+    server-injected tree nodes clickable without any PWA flag (the PWA only
+    sets allow_probe for its own custom nodes)."""
+    fid = str(seg or '').strip().upper()
+    if not _fid4(fid):
+        return False
+    for p in getattr(server, 'pbr', None) or []:
+        if not isinstance(p, dict):
+            continue
+        for f in _pbr_parse(p.get('records')):
+            if f['fid'] == fid:
+                return True
+    return False
+
+
+def _pbr_inject_children(server, path, children):
+    """Append the EF.PBR-referenced phonebook files to a /api/tree children
+    list when `path` (normalised) is the DF that holds a cached EF.PBR.  A
+    file pySim's model already lists is not added twice.  Returns the number
+    of appended children."""
+    pbr_files = _pbr_files_for_node(server, path)
+    if not pbr_files:
+        return 0
+    known = {str(c.get('fid') or '').upper() for c in children if c.get('fid')}
+    added = 0
+    for pf in pbr_files:
+        if pf['fid'] in known:
+            continue
+        known.add(pf['fid'])
+        children.append({'name': pf['kind'], 'fid': pf['fid'], 'isDir': False,
+                         'pbr': True, 'sfi': pf['sfi']})
+        added += 1
+    return added
 
 
 _MCC_MNC_CACHE = {'path': None, 'data': None}
@@ -5169,6 +5389,7 @@ def _handle_card_disconnect(stale=False):
         _server_ref.sim_menu = None
         _server_ref.iccid = None
         _server_ref.arr = None
+        _server_ref.pbr = None
         _server_ref.net_state = None
         _server_ref.equipping = False
         _server_ref.card_session = getattr(_server_ref, 'card_session', 0) + 1
@@ -5244,6 +5465,7 @@ def _apply_equipped_card(server):
     server.card_session = getattr(server, 'card_session', 0) + 1
     server.iccid = None
     server.arr = None
+    server.pbr = None
     # Read the ICCID before the TERMINAL PROFILE starts a CAT session: the
     # PWA auto-selects the matching card preset (SCP80 views) from it.
     server.iccid = _read_iccid(server.app)
@@ -5256,6 +5478,9 @@ def _apply_equipped_card(server):
         # EF.ARR (FCP '8B' references): read once per card session - the
         # file manager resolves the referenced record's rules from it.
         _refresh_arr_cache(server)
+        # EF.PBR (the phonebook reference record): read once per card session
+        # too; the PWA decodes the raw records.
+        _refresh_pbr_cache(server)
     else:
         server.net_state = None
         _tlog('equip: ICCID not readable - network state skipped')
@@ -6802,7 +7027,7 @@ _CARD_FREE_GET = frozenset([
     '/api/stk-status', '/api/poll-status', '/api/proactive-log',
     '/api/menu', '/api/events', '/api/terminal-profile',
     '/api/pli-qualifiers', '/api/pli-dict', '/api/commands',
-    '/api/net-state', '/api/arr', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
+    '/api/net-state', '/api/arr', '/api/pbr', '/api/mcc-mnc', '/api/presets', '/api/test/scripts',
     '/api/test/suites',
     '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
     '/api/scp81/log', '/api/bip/log',
@@ -8888,6 +9113,17 @@ class PysimHandler(BaseHTTPRequestHandler):
                              'session': getattr(self.server, 'card_session', 0),
                              'arrs': arrs or []})
             self._log_resp({'ok': bool(arrs), 'arrs': len(arrs or [])})
+        elif self.path == '/api/pbr':
+            # EF.PBR session cache (TS 31.102 4.4.2.1): read once per card
+            # session in _refresh_pbr_cache; the PWA decodes the raw records
+            # (the server does not parse the PBR).  Cache-only - served
+            # without the card lock (see _CARD_FREE_GET).
+            self._log_req()
+            pbrs = getattr(self.server, 'pbr', None)
+            self._send_json({'ok': bool(pbrs),
+                             'session': getattr(self.server, 'card_session', 0),
+                             'pbrs': pbrs or []})
+            self._log_resp({'ok': bool(pbrs), 'pbrs': len(pbrs or [])})
         elif self.path == '/api/status':
             self._log_req()
             app = self.server.app
@@ -9478,6 +9714,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_sel = body.get('parent_sel')
             parent_path = body.get('parent_path')
             allow_probe = bool(body.get('allow_probe'))
+            # PBR-referenced files are not in pySim's model (see _pbr_known_fid)
+            if not allow_probe:
+                allow_probe = _pbr_known_fid(self.server, fid if fid else name)
             rs = app.rs
             if not rs:
                 self._send_json({'error': _err('no_card_state', lang)}, 503)
@@ -9530,6 +9769,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_path = body.get('parent_path')
             allow_probe = bool(body.get('allow_probe'))
             mode = body.get('mode', 'raw')
+            # PBR-referenced files are not in pySim's model (see _pbr_known_fid)
+            if not allow_probe:
+                allow_probe = _pbr_known_fid(self.server, fid if fid else name)
             rs = app.rs
             if not rs:
                 self._send_json({'error': _err('no_card_state', lang)}, 503)
@@ -9617,6 +9859,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_path = body.get('parent_path')
             allow_probe = bool(body.get('allow_probe'))
             path = body.get('path')
+            # PBR-referenced files are not in pySim's model (see _pbr_known_fid)
+            if not allow_probe:
+                allow_probe = _pbr_known_fid(self.server, fid if fid else name)
             rs = app.rs
             if not rs:
                 self._send_json({'error': _err('no_card_state', lang)}, 503)
@@ -9687,6 +9932,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_sel = body.get('parent_sel')
             parent_path = body.get('parent_path')
             allow_probe = bool(body.get('allow_probe'))
+            # PBR-referenced files are not in pySim's model (see _pbr_known_fid)
+            if not allow_probe:
+                allow_probe = _pbr_known_fid(self.server, fid if fid else name)
             rs = app.rs
             if not rs:
                 self._send_json({'error': _err('no_card_state', lang)}, 503)
@@ -9710,6 +9958,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                     app.stdout = old_stdout
                     sys.stderr = old_stderr
                 children = _parse_tree_output(output)
+                # EF.PBR (TS 31.102 4.4.2.1): the phonebook files the DF's PBR
+                # references are not in pySim's model, so they are appended to
+                # the tree here - the PWA renders them like any other node (no
+                # frontend change) and the select/read/write handlers
+                # auto-allow the probe for exactly these FIDs (_pbr_known_fid).
+                adf_aids = {}
+                try:
+                    for aid, adf in (rs.mf.applications or {}).items():
+                        if getattr(adf, 'name', None):
+                            adf_aids[str(aid).upper()] = adf.name.upper()
+                except Exception:
+                    adf_aids = {}
+                node_path = _pbr_norm_path(list(parent_path or []) + [fid if fid else name], adf_aids)
+                _pbr_inject_children(self.server, node_path, children)
                 sels = lchan.selected_file.get_selectables() if lchan and lchan.selected_file else {}
                 for child in children:
                     if child['isDir'] and child['name'] in sels:
