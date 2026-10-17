@@ -50,6 +50,9 @@ const app = new Function('els', `
 	var t = k => k;
 	var alert = m => { sandbox.alerts.push(String(m)); };
 	var confirm = m => { sandbox.confirmCalls = (sandbox.confirmCalls || []); sandbox.confirmCalls.push(String(m)); return sandbox.confirmResult; };
+	var pysimAlert = m => alert(m);
+	var pysimConfirm = async m => confirm(m);
+	var pysimPrompt = async () => '';          // not used by the outfile flow
 	var ioStatus = (id, msg) => { sandbox.io.push([id, msg]); };
 	var pysimFetchOk = async (path, body) => {
 		sandbox.calls.push({ path: path, body: body });

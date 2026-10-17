@@ -1922,9 +1922,20 @@
 			<div class="mt-2 w-full bg-gray-200 dark:bg-slate-700 rounded h-1.5">
 				<div id="ram-op-bar" class="bg-blue-600 dark:bg-blue-500 h-1.5 rounded" style="width:0%"></div>
 			</div>
-			<div id="ram-op-batch-info" class="hidden mt-1 text-xs whitespace-pre-line text-gray-500 dark:text-slate-400"></div>
+			<div id="ram-op-batch-info" class="hidden mt-1 text-xs whitespace-pre-wrap text-gray-500 dark:text-slate-400"></div>
 			<div id="ram-op-steps" class="mt-2 text-xs font-mono whitespace-pre-wrap overflow-auto text-gray-700 dark:text-slate-300"></div>
 			<div class="mt-2 text-xs text-amber-600 dark:text-amber-400" id="ram-op-warn" data-l10n="Do not close or reload this window while the operation is running.">Do not close or reload this window while the operation is running.</div>
+		</div>
+	</div>
+
+	<div id="pysim-dialog-modal" role="dialog" aria-modal="true" aria-describedby="pysim-dialog-message" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
+		<div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4 max-h-[85vh] overflow-auto">
+			<div id="pysim-dialog-message" class="text-sm break-words text-gray-700 dark:text-slate-300"></div>
+			<input id="pysim-dialog-input" type="text" class="hidden mt-3 w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
+			<div class="mt-4 flex justify-end gap-2">
+				<button type="button" id="pysim-dialog-cancel" onclick="pysimDialogAnswer(false, event)" class="hidden px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Cancel">Cancel</button>
+				<button type="button" id="pysim-dialog-ok" onclick="pysimDialogAnswer(true, event)" class="px-4 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700" data-l10n="OK">OK</button>
+			</div>
 		</div>
 	</div>
 
@@ -1932,7 +1943,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.30.3';
+const SIMPLE_VERSION = '3.30.4';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -2528,7 +2539,7 @@ async function esimSetProfile(iccid, isdpAid, action) {
 	if (_esimBusy) return;
 	const statusEl = document.getElementById('esim-status');
 	const what = action === 'enable' ? t('Enable') : t('Disable');
-	if (!confirm(what + ' — ' + t('the card will be re-initialized. Continue?'))) return;
+	if (!(await pysimConfirm(what + ' — ' + t('the card will be re-initialized. Continue?')))) return;
 	_esimBusy = true;
 	if (statusEl) statusEl.textContent = t('Switching profile — card re-initializing...');
 	try {
@@ -5372,7 +5383,7 @@ function genSp() {
 	// The packet's keyset number must be defined in the selected preset
 	// (TS 102 225 A.2 / the "keyset must exist" rule).
 	const ksErr = spKeysetGuard();
-	if (ksErr) { alert(ksErr); return; }
+	if (ksErr) { pysimAlert(ksErr); return; }
 	_genSpBuild();
 	spShowSizeInfo();
 }
@@ -7587,14 +7598,20 @@ function testSuiteOpen(i) {
 async function testSuiteDelete(i) {
 	const s = testSuites()[i];
 	if (!s) return;
-	if (!confirm(t('Delete this test suite?'))) return;
+	// resolve the selection before the await: the list may be reordered while
+	// the confirmation is open (the modal does not block the page), so the
+	// reset below re-checks by id that the selection still points here
+	const wasSelected = _testSuiteIdx === i;
+	const suiteId = s.id;
+	if (!(await pysimConfirm(t('Delete this test suite?')))) return;
 	// a pending debounced name write must not 404 after the delete
 	if (_testSuiteSaveTimer) { clearTimeout(_testSuiteSaveTimer); _testSuiteSaveTimer = null; }
 	try {
 		const resp = await pysimFetch('/api/test/suites/delete', {id: s.id});
 		if (resp.error) throw new Error(resp.error);
 		await testStoresFetch();
-		if (_testSuiteIdx === i) _testSuiteIdx = -1;
+		const cur = testCurrentSuite();
+		if (wasSelected && (!cur || cur.id === suiteId)) _testSuiteIdx = -1;
 		testViewShow('suites');
 	} catch (e) {
 		ioStatus('test-io-status', t('Could not delete the test suite') + ': ' + e.message);
@@ -7773,14 +7790,17 @@ async function testSuiteDeleteScript(i) {
 	const s = testCurrentSuite();
 	const e = testSuiteEntry(i);
 	if (!s || !e) return;
-	if (!confirm(t('Delete this test script?'))) return;
+	if (!(await pysimConfirm(t('Delete this test script?')))) return;
 	const script = testScriptById(e.script_id);
 	if (!script) {
 		// The reference is already dangling (the script is gone from the
 		// store): no script endpoint can reach it, so the row's Delete prunes
 		// the member entry - the one member-set change the suite update
-		// accepts (v3.22.0 review) - and saves the suite.
-		s.scripts.splice(i, 1);
+		// accepts (v3.22.0 review) - and saves the suite.  Splice by the
+		// captured entry, not the index: the list may be reordered while the
+		// confirmation is open (the modal does not block the page).
+		const at = s.scripts.indexOf(e);
+		if (at >= 0) s.scripts.splice(at, 1);
 		testSuiteSave(true);
 		testRenderSuiteScripts();
 		return;
@@ -9476,7 +9496,7 @@ async function pysimVerifyAdm(statusEl) {
 		return;
 	}
 	const prompt = pysimAdmRetryPrompt(_pysimAdmAttemptsLeft);
-	if (prompt && !confirm(prompt)) return;
+	if (prompt && !(await pysimConfirm(prompt))) return;
 	_pysimAdmVerifying = true;
 	if (el) el.textContent = t('Verifying ADM...');
 	let verifiedOverride;
@@ -9932,7 +9952,7 @@ function spParams() {
 async function pysimVerifySp() {
 	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 	const resultEl = document.getElementById('sp-verify-result');
-	if (!sp) { alert('No secured packet to verify. Generate a secure packet first.'); return; }
+	if (!sp) { pysimAlert(t('No secured packet to verify. Generate a secure packet first.')); return; }
 	resultEl.classList.remove('hidden');
 	resultEl.textContent = t('Verifying against pySim reference...');
 	try {
@@ -9959,7 +9979,7 @@ async function pysimVerifySp() {
 async function pysimSendOta() {
 	const connectedRow = document.getElementById('pysim-connected-row');
 	if (!connectedRow || connectedRow.classList.contains('hidden')) {
-		alert('Card reader server is not connected');
+		pysimAlert(t('Card reader server is not connected'));
 		return;
 	}
 	// Re-read the preset (counter, keys, SPI) before sending: the Cards tab
@@ -9970,9 +9990,9 @@ async function pysimSendOta() {
 	// is picked or a chain is packed (v3.6.21).
 	spRefreshFromPreset('sp-card-sel', true);
 	const ksErr = spKeysetGuard();
-	if (ksErr) { alert(ksErr); return; }
+	if (ksErr) { pysimAlert(ksErr); return; }
 	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	if (!sp) { alert('No secured packet to send. Generate a secure packet first.'); return; }
+	if (!sp) { pysimAlert(t('No secured packet to send. Generate a secure packet first.')); return; }
 	const sendResultEl = document.getElementById('sp-send-result');
 	const porStatusEl = document.getElementById('sp-por-status');
 	sendResultEl.classList.remove('hidden', 'text-red-600', 'text-green-600');
@@ -10490,7 +10510,7 @@ function ramInstallCapFields() {
 	const loadSize = (document.getElementById('ram-load-size').value || '').trim();
 	if (loadSize !== '') {
 		const n = parseInt(loadSize, 10);
-		if (!(n >= 1 && n <= 240)) { alert(t('LOAD block size must be 1..240')); return null; }
+		if (!(n >= 1 && n <= 240)) { pysimAlert(t('LOAD block size must be 1..240')); return null; }
 		body.load_block_size = n;
 	}
 	return body;
@@ -10505,14 +10525,14 @@ async function ramBatchStart() {
 	let fields;
 	if (op === 'batch-delete') {
 		const aid = clean('ram-del-aid');
-		if (!/^(?:[0-9A-F]{2}){5,16}$/.test(aid)) { alert(t('AID must be 5-16 bytes of hex')); return; }
+		if (!/^(?:[0-9A-F]{2}){5,16}$/.test(aid)) { pysimAlert(t('AID must be 5-16 bytes of hex')); return; }
 		fields = {kind: 'delete', aid: aid,
 			target: document.getElementById('ram-del-target').value || 'app'};
 	} else if (op === 'batch-reinstall') {
 		const loadfile = clean('ram-app-loadfile');
 		const module = clean('ram-app-module');
 		const instance = clean('ram-app-instance');
-		if (!loadfile || !module) { alert(t('Load File AID and Module AID required')); return; }
+		if (!loadfile || !module) { pysimAlert(t('Load File AID and Module AID required')); return; }
 		// The privileges and the STK hex are derived from the form, never sent
 		// stale (the same rule the single install-app follows).
 		updateRcPriv();
@@ -10527,11 +10547,11 @@ async function ramBatchStart() {
 			install_params: composed.install_params, stk_params: composed.stk_params,
 			make_selectable: document.getElementById('ram-make-sel').checked};
 	} else {
-		if (!capGateOk('ram')) { alert(t('Analyze the CAP file first')); return; }
+		if (!capGateOk('ram')) { pysimAlert(t('Analyze the CAP file first')); return; }
 		const fileInput = document.getElementById('ram-cap-file');
 		const file = fileInput.files[0];
-		if (!file) { alert(t('Select a .cap file')); return; }
-		if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+		if (!file) { pysimAlert(t('Select a .cap file')); return; }
+		if (file.size > 48 * 1024) { pysimAlert(t('CAP file exceeds 48 kB limit')); return; }
 		fields = ramInstallCapFields();
 		if (!fields) return;
 		fields.kind = 'install-cap';
@@ -10546,7 +10566,7 @@ async function ramBatchStart() {
 		// the run's status window: the progress on top, the cards below
 		ramBatchModalOpen();
 	} catch (e) {
-		alert(t('Error') + ': ' + e.message);
+		pysimAlert(t('Error') + ': ' + e.message);
 	} finally {
 		if (startBtn) startBtn.disabled = false;
 		if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
@@ -10564,7 +10584,7 @@ async function ramBatchStop() {
 		_ramBatchLast = await pysimFetchOk('/api/ram-batch/stop', {});
 		_ramBatchSummary = null;    // the poll refreshes it; the fresh detail wins
 	} catch (e) {
-		alert(t('Error') + ': ' + e.message);
+		pysimAlert(t('Error') + ': ' + e.message);
 	} finally {
 		ramBatchRender();
 	}
@@ -10577,7 +10597,7 @@ async function ramBatchClear() {
 		_ramBatchSummary = null;
 		ramBatchFetch();
 	} catch (e) {
-		alert(t('Error') + ': ' + e.message);
+		pysimAlert(t('Error') + ': ' + e.message);
 	}
 }
 
@@ -10661,6 +10681,134 @@ function ramOpModalClose() {
 	if (_ramBatchModalShown && ramBatchMergedState().active) return;
 	_ramBatchModalShown = false;
 	document.getElementById('ram-op-modal').classList.add('hidden');
+}
+
+// ===== in-app dialogs (alert / confirm / prompt) =====
+// One shared modal replaces the native browser dialogs, which block the whole
+// page and look foreign inside the app.  The three helpers serialize through
+// ONE promise queue, so overlapping calls appear in order and no message is
+// overwritten.  When the modal is not in the document the native dialog is
+// used instead (tests extract the helpers from index.html without the markup).
+let _pysimDialogQueue = Promise.resolve();
+let _pysimDialogResolve = null;
+let _pysimDialogKind = null;
+let _pysimDialogOpenedAt = 0;
+let _pysimDialogFocusables = [];   // the dialog's controls, in tab order
+
+// performance.now() and an event's timeStamp share the navigation-start
+// origin; Date.now() is the fallback when performance is unavailable.
+function _pysimDialogNow() {
+	return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
+
+function pysimAlert(message) {
+	return _pysimDialogShow({ kind: 'alert', message: message });
+}
+
+function pysimConfirm(message) {
+	return _pysimDialogShow({ kind: 'confirm', message: message });
+}
+
+function pysimPrompt(message, value) {
+	return _pysimDialogShow({ kind: 'prompt', message: message, value: value });
+}
+
+// Queue one dialog after the previous one settled; the chain is kept alive on
+// both outcomes, so a failed dialog can never break the following ones.
+function _pysimDialogShow(opts) {
+	const run = () => _pysimDialogRun(opts);
+	const result = _pysimDialogQueue.then(run, run);
+	_pysimDialogQueue = result.then(() => {}, () => {});
+	return result;
+}
+
+function _pysimDialogRun(opts) {
+	// Every element the dialog drives: if ANY is missing the modal is not
+	// usable - a throw inside the executor would reject the promise (an
+	// unhandled rejection at the non-awaited alert sites).
+	const modal = document.getElementById('pysim-dialog-modal');
+	const messageEl = document.getElementById('pysim-dialog-message');
+	const input = document.getElementById('pysim-dialog-input');
+	const cancelBtn = document.getElementById('pysim-dialog-cancel');
+	const okBtn = document.getElementById('pysim-dialog-ok');
+	// no modal in the document (tests)
+	if (!modal || !messageEl || !input || !cancelBtn || !okBtn) {
+		if (opts.kind === 'alert') { alert(opts.message); return Promise.resolve(); }
+		if (opts.kind === 'confirm') return Promise.resolve(confirm(opts.message));
+		return Promise.resolve(prompt(opts.message, opts.value));
+	}
+	return new Promise(resolve => {
+		const isPrompt = opts.kind === 'prompt';
+		messageEl.textContent = opts.message || '';
+		input.classList.toggle('hidden', !isPrompt);
+		if (isPrompt) input.value = opts.value == null ? '' : opts.value;
+		cancelBtn.classList.toggle('hidden', opts.kind === 'alert');
+		_pysimDialogResolve = resolve;
+		_pysimDialogKind = opts.kind;
+		_pysimDialogOpenedAt = _pysimDialogNow();
+		// the Tab trap's cycle: only the controls this dialog shows
+		_pysimDialogFocusables = (opts.kind === 'alert' ? [] : [cancelBtn])
+			.concat(isPrompt ? [input] : []).concat([okBtn]);
+		modal.classList.remove('hidden');
+		document.addEventListener('keydown', _pysimDialogKeydown, true);
+		const focusEl = isPrompt ? input : okBtn;
+		if (focusEl && focusEl.focus) focusEl.focus();
+		if (isPrompt && input.select) input.select();
+	});
+}
+
+// The button/keyboard answer.  A second call after the dialog resolved is a
+// no-op (the promise must settle exactly once).  A POINTER answer that lands
+// within the grace window of the dialog opening is ignored: the OK/Cancel
+// buttons keep the same screen position, so the second click of a
+// double-click could otherwise answer the NEXT queued dialog (e.g. an alert
+// queued before a destructive confirm).  The window is the platform's
+// double-click threshold.  Keyboard answers are never grace-checked - a
+// deliberate Enter must work immediately (a held key is filtered by the
+// repeat guard) - and a programmatic call without an event is never ignored.
+function pysimDialogAnswer(ok, ev) {
+	if (!_pysimDialogResolve) return;
+	if (ev && ev.type !== 'keydown' && typeof ev.timeStamp === 'number' &&
+		ev.timeStamp > 0 && ev.timeStamp - _pysimDialogOpenedAt < 500) return;
+	const resolve = _pysimDialogResolve;
+	const kind = _pysimDialogKind;
+	const input = document.getElementById('pysim-dialog-input');
+	_pysimDialogResolve = null;
+	_pysimDialogKind = null;
+	document.removeEventListener('keydown', _pysimDialogKeydown, true);
+	document.getElementById('pysim-dialog-modal').classList.add('hidden');
+	if (kind === 'alert') resolve(undefined);
+	else if (kind === 'confirm') resolve(!!ok);
+	else resolve(ok ? (input ? input.value : '') : null);
+}
+
+// Escape cancels, Enter accepts - except when the Cancel button is focused,
+// where Enter must cancel too (Tab then Enter is the obvious keyboard path).
+// Key repeats and IME composition are ignored: a held Enter would otherwise
+// answer a whole queue of dialogs.  The backdrop click is deliberately
+// ignored (a stray click must not dismiss a confirmation).
+function _pysimDialogKeydown(e) {
+	if (e.repeat || e.isComposing) return;
+	if (e.key === 'Tab') {
+		// Keep the focus inside the dialog: Tab/Shift+Tab cycle its controls
+		// (the native confirm blocked the page, the modal must not let a
+		// background control take the focus - Space would activate it).
+		const f = _pysimDialogFocusables;
+		if (!f.length) return;
+		if (e.preventDefault) e.preventDefault();
+		const at = f.indexOf(document.activeElement);
+		const next = at < 0 ? (e.shiftKey ? f.length - 1 : 0)
+			: (at + (e.shiftKey ? -1 : 1) + f.length) % f.length;
+		if (f[next].focus) f[next].focus();
+		return;
+	}
+	if (e.key === 'Escape') { if (e.preventDefault) e.preventDefault(); pysimDialogAnswer(false, e); }
+	else if (e.key === 'Enter') {
+		if (e.preventDefault) e.preventDefault();
+		const cancelBtn = document.getElementById('pysim-dialog-cancel');
+		const onCancel = !!(cancelBtn && document.activeElement === cancelBtn);
+		pysimDialogAnswer(!onCancel, e);
+	}
 }
 
 function ramClearResults() {
@@ -12437,12 +12585,12 @@ async function ramDeleteFromExplorer(aid, withCascade) {
 	// counter.
 	spRefreshFromPreset('ram-card-sel');
 	const ksErr = ramKeysetGuard();
-	if (ksErr) { alert(ksErr); return; }
+	if (ksErr) { pysimAlert(ksErr); return; }
 	const sp = getRamSpParams();
 	// v3.26.0: the keyset fields no longer travel - the server resolves the
 	// keyset (and its keys) from the preset's ISD TAR entry
 	const label = withCascade ? t('Delete') + ' (' + t('cascade') + ')' : t('Delete');
-	if (!confirm(label + ' — ' + t('AID:') + ' ' + aid + '?')) return;
+	if (!(await pysimConfirm(label + ' — ' + t('AID:') + ' ' + aid + '?'))) return;
 	const apdu = ramDeleteApdu(aid, withCascade);
 	if (!apdu) return;
 	ramShowProgress(label + ' ' + aid + '...');
@@ -12840,15 +12988,15 @@ function ramCompatDetailHtml(data, mem) {
 async function ramCompatTest(sp) {
 	const fileInput = document.getElementById('ram-cap-file');
 	const file = fileInput.files[0];
-	if (!file) { alert(t('Select a .cap file')); return; }
-	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+	if (!file) { pysimAlert(t('Select a .cap file')); return; }
+	if (file.size > 48 * 1024) { pysimAlert(t('CAP file exceeds 48 kB limit')); return; }
 	const parsed = ramProbeParse(document.getElementById('ram-probe-versions').value);
-	if (parsed.error) { alert(parsed.error); return; }
+	if (parsed.error) { pysimAlert(parsed.error); return; }
 	const bsRaw = (document.getElementById('ram-compat-block').value || '').trim();
 	let blockSize = null;
 	if (bsRaw !== '') {
 		const bs = parseInt(bsRaw, 10);
-		if (!(bs >= 1 && bs <= 240)) { alert(t('LOAD block size must be 1..240')); return; }
+		if (!(bs >= 1 && bs <= 240)) { pysimAlert(t('LOAD block size must be 1..240')); return; }
 		blockSize = bs;
 	}
 
@@ -12912,8 +13060,8 @@ async function ramCompatTest(sp) {
 async function ramInstallCap(sp) {
 	const fileInput = document.getElementById('ram-cap-file');
 	const file = fileInput.files[0];
-	if (!file) { alert(t('Select a .cap file')); return; }
-	if (file.size > 48 * 1024) { alert(t('CAP file exceeds 48 kB limit')); return; }
+	if (!file) { pysimAlert(t('Select a .cap file')); return; }
+	if (file.size > 48 * 1024) { pysimAlert(t('CAP file exceeds 48 kB limit')); return; }
 	// The parameters are validated before the modal opens (an unusable block
 	// size must not leave a modal whose Close is disabled).
 	const fields = ramInstallCapFields();
@@ -12954,9 +13102,9 @@ async function ramInstallApp(sp, op) {
 	const module = clean('ram-app-module');
 	const instance = clean('ram-app-instance');
 	if (mode === 'make_selectable') {
-		if (!instance) { alert(t('Instance AID required')); return; }
+		if (!instance) { pysimAlert(t('Instance AID required')); return; }
 	} else if (!loadfile || !module) {
-		alert(t('Load File AID and Module AID required'));
+		pysimAlert(t('Load File AID and Module AID required'));
 		return;
 	}
 	// The privileges and the STK hex are derived from the form, never sent
@@ -13088,8 +13236,8 @@ function tarProbeResult(text, ok) {
 
 async function tarProbe(sp, tars) {
 	const apdu = (document.getElementById('tar-apdu').value || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	if (!apdu) { alert(t('Specify the probe APDU')); return; }
-	if (!tars || !tars.length) { alert(t('Select at least one TAR')); return; }
+	if (!apdu) { pysimAlert(t('Specify the probe APDU')); return; }
+	if (!tars || !tars.length) { pysimAlert(t('Select at least one TAR')); return; }
 	const body = {
 		preset_id: sp.preset_id,
 		spi1: sp.spi1, spi2: '01',
@@ -13153,12 +13301,12 @@ function tarApplyCard(idx) {
 
 async function tarExecute() {
 	const tars = tarProbeChecked();
-	if (!tars.length) { alert(t('Select at least one TAR')); return; }
+	if (!tars.length) { pysimAlert(t('Select at least one TAR')); return; }
 	const cardIdx = parseInt(document.getElementById('tar-card-sel').value, 10);
 	if (!isNaN(cardIdx) && cards[cardIdx]) _ramCardIdx = cardIdx;
 	const idx = tarPresetIdx();
 	const preset = idx >= 0 ? cards[idx] : null;
-	if (!preset) { alert(t('Select a card preset')); return; }
+	if (!preset) { pysimAlert(t('Select a card preset')); return; }
 	// v3.26.0: the probe checks the preset's TARs and resolves each row's
 	// keyset server-side; only the preset and the (fallback) SPI1 travel.
 	const spi1 = (document.getElementById('sp-spi1') || {}).value || '';
@@ -13266,7 +13414,7 @@ async function ramSyncCounter(presetIdx, view) {
 	const i = Number(presetIdx);
 	const preset = (Number.isInteger(i) && i >= 0 && cards[i]) ? cards[i] : null;
 	const box = ramCntrLowBox(view === 'sp' ? 'sp' : 'ram');
-	if (!preset) { alert(t('No card preset selected')); return; }
+	if (!preset) { pysimAlert(t('No card preset selected')); return; }
 	const val = id => (document.getElementById(id) || {}).value || '';
 	const body = { preset_id: preset.id };
 	// v3.26.0: the keyset follows the operation's TAR - the RAM operations are
@@ -13423,7 +13571,7 @@ function ramRunCompatTest() {
 async function ramExecute() {
 	const op = document.getElementById('ram-op').value;
 	if (op === 'install-cap' && !capGateOk('ram')) {
-		alert(t('Analyze the CAP file first'));
+		pysimAlert(t('Analyze the CAP file first'));
 		return;
 	}
 	ramClearResults();
@@ -14416,69 +14564,69 @@ function cardsClearForm() {
 
 async function cardsAdd() {
 	const v = cardsFormValues();
-	if (!v.name) { alert(t('Name is required')); return; }
+	if (!v.name) { pysimAlert(t('Name is required')); return; }
 	// The optional card codes: PIN/PUK are 4-8 decimal digits; ADM stays
 	// free-form (hex or ASCII digits)
 	for (const k of ['pin1', 'puk1', 'pin2', 'puk2']) {
 		if (v[k] && !/^[0-9]{4,8}$/.test(v[k])) {
-			alert(t('PIN/PUK codes must be 4-8 decimal digits') + ': ' + k.toUpperCase());
+			pysimAlert(t('PIN/PUK codes must be 4-8 decimal digits') + ': ' + k.toUpperCase());
 			return;
 		}
 	}
 	if (!v.keysets.length) {
-		alert(t('Define at least one keyset (KIc/KID and their keys)'));
+		pysimAlert(t('Define at least one keyset (KIc/KID and their keys)'));
 		return;
 	}
 	for (const ks of v.keysets) {
 		if (!ks.kic || !ks.kid || !ks.kicKey || !ks.kidKey) {
-			alert(t('Each keyset needs KIc, KID and both keys'));
+			pysimAlert(t('Each keyset needs KIc, KID and both keys'));
 			return;
 		}
 		const ksErr = spKeysetCheck(null, ks.kic, ks.kid);
-		if (ksErr) { alert(ksErr); return; }
+		if (ksErr) { pysimAlert(ksErr); return; }
 		if (!spKeysetKvnOf(ks.kic) || !spKeysetKvnOf(ks.kid)) {
-			alert(t('Keyset 00 means "no security" and is not a preset keyset'));
+			pysimAlert(t('Keyset 00 means "no security" and is not a preset keyset'));
 			return;
 		}
 		// The counter is required: 1-10 hex digits - the same rule the server
 		// enforces (whitespace is stripped on both sides)
 		if (!/^[0-9A-F]{1,10}$/.test(ks.cntr.replace(/\s+/g, ''))) {
-			alert(t('Counter must be 1-10 hex digits') + ': ' + (ks.cntr || t('(empty)')));
+			pysimAlert(t('Counter must be 1-10 hex digits') + ': ' + (ks.cntr || t('(empty)')));
 			return;
 		}
 	}
 	const kvns = v.keysets.map(ks => spKeysetKvnOf(ks.kic));
 	if (new Set(kvns).size !== kvns.length) {
-		alert(t('Duplicate keyset number in the keysets'));
+		pysimAlert(t('Duplicate keyset number in the keysets'));
 		return;
 	}
 	// The TAR table: every entry needs a TAR and its MSL, and a TAR appears once
 	for (const e of v.tars) {
 		if (!/^[0-9A-F]{6}$/.test(e.tar)) {
-			alert(t('Every TAR needs three hex bytes') + ': ' + (e.tar || t('(empty)')));
+			pysimAlert(t('Every TAR needs three hex bytes') + ': ' + (e.tar || t('(empty)')));
 			return;
 		}
 		if (!/^[0-9A-F]{2}$/.test(e.msl)) {
-			alert(t('Every TAR needs its MSL (one hex byte)') + ': ' + e.tar);
+			pysimAlert(t('Every TAR needs its MSL (one hex byte)') + ': ' + e.tar);
 			return;
 		}
 	}
 	const tarSeen = new Set();
 	for (const e of v.tars) {
-		if (tarSeen.has(e.tar)) { alert(t('Duplicate TAR in the preset') + ': ' + e.tar); return; }
+		if (tarSeen.has(e.tar)) { pysimAlert(t('Duplicate TAR in the preset') + ': ' + e.tar); return; }
 		tarSeen.add(e.tar);
 	}
 	if ((v.pskKey && !v.pskIdentity) || (!v.pskKey && v.pskIdentity)) {
-		alert(t('PSK identity and PSK key must be set together'));
+		pysimAlert(t('PSK identity and PSK key must be set together'));
 		return;
 	}
 	if (v.pskKey && !/^[0-9A-F]{32}$/.test(v.pskKey)) {
-		alert(t('PSK key must be 32 hex characters'));
+		pysimAlert(t('PSK key must be 32 hex characters'));
 		return;
 	}
 	const dupIdx = cardsFindDuplicateIccid(v.iccid, _cardsEditIdx);
 	if (dupIdx >= 0) {
-		alert(t('Card with this ICCID already exists') + ': ' + (cards[dupIdx].name || ('Card ' + dupIdx)));
+		pysimAlert(t('Card with this ICCID already exists') + ': ' + (cards[dupIdx].name || ('Card ' + dupIdx)));
 		return;
 	}
 	// The server store is the source of truth (v3.8.0): create or update
@@ -14488,7 +14636,7 @@ async function cardsAdd() {
 		if (editing) await pysimFetchOk('/api/presets/update', { id: editing.id, fields: v });
 		else await pysimFetchOk('/api/presets', v);
 	} catch (e) {
-		alert(t('Save error') + ': ' + e.message);
+		pysimAlert(t('Save error') + ': ' + e.message);
 		return;
 	}
 	await cardsFetch();
@@ -14539,7 +14687,7 @@ async function cardsRemove(i) {
 	try {
 		await pysimFetchOk('/api/presets/delete', { id: c.id });
 	} catch (e) {
-		alert(t('Delete error') + ': ' + e.message);
+		pysimAlert(t('Delete error') + ': ' + e.message);
 		return;
 	}
 	_ramCardIdx = ramCardIdxAfterRemove(_ramCardIdx, i);
@@ -14674,7 +14822,7 @@ function cardsIccidFromCard() {
 	// is only enabled while a readable ICCID is known; alert just in case the
 	// state changed between the last poll and the click.
 	const iccid = _pysimCardIccid;
-	if (!iccid) { alert(t('Card equipped but its ICCID is not readable')); return; }
+	if (!iccid) { pysimAlert(t('Card equipped but its ICCID is not readable')); return; }
 	document.getElementById('cards-iccid').value = iccid;
 }
 
@@ -14954,7 +15102,7 @@ async function cardsImport(text) {
 		imported = JSON.parse(text);
 		if (!Array.isArray(imported)) throw new Error('Expected an array');
 	} catch (e) {
-		alert('Import error: ' + e.message);
+		pysimAlert(t('Import error') + ': ' + e.message);
 		return;
 	}
 	try {
@@ -14965,7 +15113,7 @@ async function cardsImport(text) {
 		ioStatus('cards-io', 'Imported ' + res.added + ' cards'
 			+ (res.skipped ? ' (' + res.skipped + ' skipped)' : '') + '.');
 	} catch (e) {
-		alert('Import error: ' + e.message);
+		pysimAlert(t('Import error') + ': ' + e.message);
 	}
 }
 
@@ -15002,7 +15150,7 @@ async function cardsOutfileFile(input) {
 	try {
 		text = await file.text();
 	} catch (e) {
-		alert(t('Cannot read the file') + ': ' + e.message);
+		pysimAlert(t('Cannot read the file') + ': ' + e.message);
 		return;
 	}
 	_cardsOutfile = { text: text, file: String(file.name || ''),
@@ -15262,11 +15410,11 @@ async function cardsOutfileImport() {
 	cardsOutfileControls();
 	// A structurally invalid file is refused by the server (v3.29.2)
 	if (o.preview && o.preview.report && o.preview.report.error) {
-		alert(t('The file is invalid - fix it and refresh the preview'));
+		pysimAlert(t('The file is invalid - fix it and refresh the preview'));
 		return;
 	}
 	// Replace wipes the whole store - the destructive choice asks first
-	if (o.mode === 'replace' && !confirm(t('Replace mode wipes the whole preset store. Continue?'))) return;
+	if (o.mode === 'replace' && !(await pysimConfirm(t('Replace mode wipes the whole preset store. Continue?')))) return;
 	const btn = document.getElementById('cards-of-import');
 	if (btn) btn.disabled = true;
 	const body = {
@@ -15280,7 +15428,7 @@ async function cardsOutfileImport() {
 			+ (res.skipped ? ' (' + res.skipped + ' skipped)' : '') + '.');
 		cardsOutfileClose();
 	} catch (e) {
-		alert('Import error: ' + e.message);
+		pysimAlert(t('Import error') + ': ' + e.message);
 		if (btn) btn.disabled = false;
 	}
 }
@@ -18559,10 +18707,10 @@ function scriptsSave() {
 	scriptsMsg(t('Saved.'), 'text-emerald-600 dark:text-emerald-400');
 }
 
-function scriptsDelete(id) {
+async function scriptsDelete(id) {
 	const s = scripts.find(x => x.id === id);
 	if (!s) return;
-	if (!confirm(t('Delete script') + ' "' + s.name + '"?')) return;
+	if (!(await pysimConfirm(t('Delete script') + ' "' + s.name + '"?'))) return;
 	scripts = scripts.filter(x => x.id !== id);
 	if (_scriptsEditId === id) scriptsCancel();
 	scriptsPersist();
@@ -19410,10 +19558,10 @@ function pysimCustomSubmit() {
 	const nameEl = document.getElementById('pysim-cf-name');
 	const name = nameEl.value.trim();
 	const res = pysimCustomValidate(root, parentPath, fid, name, pysimCustomFiles, pysimCustomEditIndex);
-	if (res.error) { alert(res.error); return; }
+	if (res.error) { pysimAlert(res.error); return; }
 	const parent = pysimCustomParent({path: res.path});
 	if (pysimCustomParentStatus(parent).status === 'not-df') {
-		alert(t('Parent is not a DF:') + ' ' + parent);
+		pysimAlert(t('Parent is not a DF:') + ' ' + parent);
 		return;
 	}
 	if (pysimCustomEditIndex !== null) {
@@ -19457,19 +19605,24 @@ function pysimCustomEditCancel() {
 	document.getElementById('pysim-cf-cancel-btn').classList.add('hidden');
 }
 
-function pysimCustomRemove(i) {
+async function pysimCustomRemove(i) {
+	// The modal no longer blocks the page, so the list may be reordered while
+	// the confirmation is open: mutate by identity (the path), never by index.
 	const c = pysimCustomFiles[i];
 	if (!c) return;
+	const edited = pysimCustomEditIndex === null ? null : pysimCustomFiles[pysimCustomEditIndex];
 	const children = pysimCustomFiles.filter(e => e.path.startsWith(c.path + '/'));
 	if (children.length) {
-		if (!confirm(t('Delete') + ' ' + c.path + ' ' + t('and') + ' ' + children.length + ' ' +
-			t('child file(s)?'))) return;
+		if (!(await pysimConfirm(t('Delete') + ' ' + c.path + ' ' + t('and') + ' ' + children.length + ' ' +
+			t('child file(s)?')))) return;
 	}
-	pysimCustomFiles = pysimCustomFiles.filter((e, j) =>
-		j !== i && !e.path.startsWith(c.path + '/'));
-	if (pysimCustomEditIndex !== null) {
-		if (pysimCustomEditIndex === i) pysimCustomEditCancel();
-		else if (pysimCustomEditIndex > i) pysimCustomEditIndex--;
+	pysimCustomFiles = pysimCustomFiles.filter(e =>
+		e.path !== c.path && !e.path.startsWith(c.path + '/'));
+	if (edited) {
+		// keep the editor pointing at the same entry (or close it if removed)
+		const at = pysimCustomFiles.indexOf(edited);
+		if (at >= 0) pysimCustomEditIndex = at;
+		else pysimCustomEditCancel();
 	}
 	pysimCustomSave();
 	pysimCustomRender();
@@ -19522,7 +19675,7 @@ function pysimCustomImport(text) {
 		pysimCustomRefreshTree();
 		ioStatus('pysim-cf-io', 'Imported ' + added + ' file(s)' + (res.dropped ? ', dropped ' + res.dropped : '') + '.');
 	} catch (e) {
-		alert('Import error: ' + e.message);
+		pysimAlert(t('Import error') + ': ' + e.message);
 	}
 }
 
@@ -19599,7 +19752,7 @@ function snapshotsSave() {
 	try {
 		localStorage.setItem('simple_snapshots', JSON.stringify(snapshots));
 	} catch (e) {
-		alert('Snapshot save failed: ' + e.message);
+		pysimAlert(t('Snapshot save failed') + ': ' + e.message);
 	}
 }
 
@@ -19806,8 +19959,8 @@ function profilerRenderSnapshotList() {
 	el.innerHTML = html;
 }
 
-function profilerNew() {
-	const name = prompt(t('Profile name') + ':', '');
+async function profilerNew() {
+	const name = await pysimPrompt(t('Profile name') + ':', '');
 	if (!name) return;
 	profiles.push({ id: profilerNewId(), name: name, created: new Date().toISOString(), rules: [] });
 	profilerSave();
@@ -20308,7 +20461,7 @@ function profilerImportFile(input) {
 			profilerRenderList();
 			profilerListSwitch('profiles');
 		} catch (e) {
-			alert('Import error: ' + e.message);
+			pysimAlert(t('Import error') + ': ' + e.message);
 		}
 	};
 	reader.readAsText(file);
@@ -20319,10 +20472,14 @@ function profilerExport(i) {
 	downloadJson((p.name || 'profile').replace(/[^a-zA-Z0-9_-]+/g, '_') + '.json', p);
 }
 
-function profilerDelete(i) {
+async function profilerDelete(i) {
+	// identity, not the index: the list can be reordered while the
+	// confirmation is open (the modal does not block the page)
 	const p = profiles[i];
-	if (!confirm(t('Delete profile') + ' "' + p.name + '"?') ) return;
-	profiles.splice(i, 1);
+	if (!p) return;
+	if (!(await pysimConfirm(t('Delete profile') + ' "' + p.name + '"?') )) return;
+	const at = profiles.indexOf(p);
+	if (at >= 0) profiles.splice(at, 1);
 	profilerSave();
 	profilerRenderList();
 }
@@ -20375,7 +20532,7 @@ function snapshotImportFile(input) {
 			profilerRenderSnapshotList();
 			profilerListSwitch('snapshots');
 		} catch (e) {
-			alert('Import error: ' + e.message);
+			pysimAlert(t('Import error') + ': ' + e.message);
 		}
 	};
 	reader.readAsText(file);
@@ -20386,10 +20543,14 @@ function snapshotExport(i) {
 	downloadJson((s.name || 'snapshot').replace(/[^a-zA-Z0-9_-]+/g, '_') + '.json', s);
 }
 
-function snapshotDelete(i) {
+async function snapshotDelete(i) {
+	// identity, not the index: the list can be reordered while the
+	// confirmation is open (the modal does not block the page)
 	const s = snapshots[i];
-	if (!confirm(t('Delete snapshot') + ' "' + s.name + '"?') ) return;
-	snapshots.splice(i, 1);
+	if (!s) return;
+	if (!(await pysimConfirm(t('Delete snapshot') + ' "' + s.name + '"?') )) return;
+	const at = snapshots.indexOf(s);
+	if (at >= 0) snapshots.splice(at, 1);
 	snapshotsSave();
 	profilerRenderSnapshotList();
 }
@@ -21121,7 +21282,7 @@ function profilerSnapshotPickListHtml(actionHtml) {
 
 function profilerCheckSnapshotPick(i) {
 	if (!snapshots.length) {
-		alert(t('No snapshots defined.'));
+		pysimAlert(t('No snapshots defined.'));
 		return;
 	}
 	document.getElementById('snapshot-pick-list').innerHTML = profilerSnapshotPickListHtml(si => 'profilerCheckSnapshot(' + i + ',' + si + ')');
@@ -21130,7 +21291,7 @@ function profilerCheckSnapshotPick(i) {
 
 function profilerFromSnapshot() {
 	if (!snapshots.length) {
-		alert(t('No snapshots defined.'));
+		pysimAlert(t('No snapshots defined.'));
 		return;
 	}
 	document.getElementById('snapshot-pick-list').innerHTML = profilerSnapshotPickListHtml(si => 'profilerScanFromSnapshot(' + si + ')');
@@ -21182,7 +21343,7 @@ function profilerRulesFromSnapshot(master) {
 
 function snapshotCompareOpen() {
 	if (!snapshots.length) {
-		alert(t('No snapshots defined.'));
+		pysimAlert(t('No snapshots defined.'));
 		return;
 	}
 	let opts = '';
@@ -24755,6 +24916,8 @@ const LANG_RU = {
 	'Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory': 'Расширенные ресурсы карты (тег GP FF21, ETSI TS 102 226 8.2.1.7.2): число установленных приложений, свободная энергонезависимая и свободная энергозависимая память',
 	'No secured packet to send. Generate a secure packet first.': 'Нет защищённого пакета для отправки. Сначала соберите пакет.',
 	'No secured packet to verify. Generate a secure packet first.': 'Нет защищённого пакета для проверки. Сначала соберите пакет.',
+	'Import error': 'Ошибка импорта',
+	'Snapshot save failed': 'Не удалось сохранить снимок',
 	'Select': 'Выборка',
 	'event notification to the card?': 'уведомление о событии на карту?',
 	'SCP81 HTTP OTA: the listener picks the key by the PSK identity the card sends in the TLS handshake. Cards without a PSK are ignored by the listener.': 'SCP81 HTTP OTA: слушатель выбирает ключ по PSK identity, которую карта присылает в TLS-рукопожатии. Карты без PSK слушателем игнорируются.',

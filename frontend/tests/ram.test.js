@@ -60,6 +60,11 @@ globalThis.pysimApplyAvailability = () => {};
 eval(code);
 code += 'var _ramCardIdx = null;\nvar _ramOpLast = null;\nvar _ramExplorerData = null;\n';
 eval(code);
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs each test installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 
 const els = {};
 const doc = { getElementById: (id) => { if (!els[id]) els[id] = {value:''}; return els[id]; } };

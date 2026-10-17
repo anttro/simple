@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-function extractFunc(src, name) {
+function extractFunc(src, name, asyncFn) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
 	if (!m) throw new Error('function ' + name + ' not found');
@@ -18,7 +18,7 @@ function extractFunc(src, name) {
 			if (depth === 0) break;
 		}
 	}
-	return src.slice(m.index, i + 1);
+	return (asyncFn ? 'async ' : '') + src.slice(m.index, i + 1);
 }
 
 let code = 'var pysimCustomFiles = [];\nvar pysimCustomEditIndex = null;\nvar _pysimCustomDropped = 0;\nvar pysimFsTreeRoot = null;\n';
@@ -29,11 +29,17 @@ for (const fn of ['pysimCustomNormPath', 'pysimCustomKindForName', 'pysimCustomF
 	'pysimCustomRootChanged', 'pysimCustomParentInput', 'pysimCustomSubmit',
 	'pysimCustomEdit', 'pysimCustomEditCancel', 'pysimCustomRemove', 'pysimCustomRender',
 	'pysimFsNodePath', 'pysimFsFindNodeByPath', 'pysimCustomInject', 'pysimCustomRefreshTree']) {
-	code += extractFunc(html, fn) + '\n';
+	// pysimCustomRemove is async (it awaits the shared confirm dialog)
+	code += extractFunc(html, fn, fn === 'pysimCustomRemove') + '\n';
 }
 code += html.match(/const CUSTOM_ROOTS = \[[^\]]*\];/)[0].replace('const ', 'var ') + '\n';
 code += 'globalThis.esc = s => s;\nglobalThis.t = s => s;\nglobalThis.pysimFsRenderTree = () => {};\n';
 eval(code);
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs setup() installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 
 function fakeEl(id) {
 	const classes = new Set();
@@ -262,17 +268,17 @@ test('editing an entry to another defined path is rejected', () => {
 	assert.strictEqual(pysimCustomEditIndex, 0);
 });
 
-test('deleting a DF cascades to its children only after confirmation', () => {
+test('deleting a DF cascades to its children only after confirmation', async () => {
 	setup([
 		{ path: 'MF/A153', name: 'DF.A1', kind: 'df' },
 		{ path: 'MF/A153/4954', name: 'EF.SPNS', kind: 'ef' },
 		{ path: 'MF/6F46', name: 'EF.SPN', kind: 'ef' },
 	]);
 	globalThis.confirmResult = false;
-	pysimCustomRemove(0);
+	await pysimCustomRemove(0);
 	assert.strictEqual(pysimCustomFiles.length, 3, 'cancelled delete must keep everything');
 	globalThis.confirmResult = true;
-	pysimCustomRemove(0);
+	await pysimCustomRemove(0);
 	assert.deepStrictEqual(pysimCustomFiles.map(c => c.path), ['MF/6F46']);
 });
 

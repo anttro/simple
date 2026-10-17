@@ -60,6 +60,11 @@ code = extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_
 	+ 'globalThis.navReplace = function() {};\n' + code;
 eval(code);
 globalThis.t = s => s;
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs each test installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 
 const CARD_IDS = ['cards-name','cards-iccid','cards-release','cards-pin1','cards-puk1','cards-pin2','cards-puk2','cards-adm',
 	'cards-tars','cards-list-view','cards-editor-view','cards-editor-title','cards-new-btn',

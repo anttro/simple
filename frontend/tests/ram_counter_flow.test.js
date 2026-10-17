@@ -50,6 +50,11 @@ for (const c of ['CARDS_TAR_DEFAULTS', 'CARDS_TAR_ROLES', 'CARDS_MSL_DEFAULT']) 
 	code = 'var ' + c + ' = ' + m[1] + ';\n' + code;
 }
 eval(code);
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs fakeEnv() installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 
 function fakeEnv(por, success) {
 	const els = {};

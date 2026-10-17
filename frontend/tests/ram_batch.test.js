@@ -79,6 +79,9 @@ const app = new Function('els', `
 	var t = k => k;
 	var isViewVisible = () => sandbox.visibility;
 	var alert = m => sandbox.alerts.push(String(m));
+	var pysimAlert = m => alert(m);
+	var pysimConfirm = async () => true;       // not used by the batch flow
+	var pysimPrompt = async () => '';          // not used by the batch flow
 	var pysimFetch = async (p) => {
 		sandbox.fetched.push(p);
 		if (sandbox.hangs) return new Promise(() => {});   // a stalled connection

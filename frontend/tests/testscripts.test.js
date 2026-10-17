@@ -90,6 +90,11 @@ eval('var _testEditStep = null; var _testEditChecks = []; var _testEditStepIndex
 	+ ' var _testScriptDraft = null; var _testRunState = null; var _testSaveTimer = null;'
 	+ ' var _testWriteChains = new WeakMap(); var _testLastPresetIdx = -1;'
 	+ ' var _testRunScriptRef = null; var _testSuiteIdx = -1;');
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs each test installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 function fakeForm(values) {

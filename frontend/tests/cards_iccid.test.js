@@ -39,6 +39,11 @@ for (const fn of ['swapNibbles', 'encIccid', 'decIccid',
 code += extractConst(html, 'CARDS_TAR_DEFAULTS') + extractConst(html, 'CARDS_TAR_ROLES')
 	+ extractConst(html, 'CARDS_MSL_DEFAULT');
 eval(code);
+// The dialog sweep replaced the native alert/confirm with the helpers: route
+// them to the native stubs each test installs on globalThis.
+globalThis.pysimAlert = m => globalThis.alert(m);
+globalThis.pysimConfirm = async m => globalThis.confirm(m);
+globalThis.pysimPrompt = async (m, v) => globalThis.prompt(m, v);
 
 // live-card style raw EF.ICCID content (nibble-swapped digits + 'F' pad)
 const RAW_HEX = '980711090000640090F8';
