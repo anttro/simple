@@ -762,3 +762,16 @@ pysim-simple-server --http-port 8080
 ### Справочник API
 
 Полный справочник endpoints: [docs/api.md](docs/api.md).
+
+## Лицензия
+
+**GPL-2.0-or-later** — см. [LICENSE](LICENSE). Это та же лицензия, что у
+[pySim](https://github.com/osmocom/pysim), библиотеку которого импортирует
+сервер, и у [simtrace-analyser](https://github.com/anttro/simtrace-analyser),
+откуда портированы некоторые клиентские декодеры.
+
+Сам pySim не входит ни в этот репозиторий, ни в релизные артефакты: `setup.sh` /
+`setup.bat` устанавливают его из его upstream git-репозитория.
+
+Встроенные сторонние компоненты (список операторов MCC/MNC и AES/DES-бандлы в
+PWA) сохраняют свои лицензии MIT — см. [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).

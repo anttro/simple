@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pysim-simple-server"
 version = "3.31.0"
 description = "HTTP REST server wrapping pysim for the SIMple PWA"
+license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.8"
 # pysim is a git-only dependency installed explicitly by setup.bat/setup.sh.
 # Declaring it here would make pip resolve its full tree (including the SMPP
@@ -13,6 +14,9 @@ requires-python = ">=3.8"
 
 [project.scripts]
 pysim-simple-server = "pysim_simple_server.__main__:main"
+
+[tool.setuptools]
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES"]
 
 [tool.setuptools.packages.find]
 include = ["pysim_simple_server*"]

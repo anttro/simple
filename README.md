@@ -788,3 +788,17 @@ See [docs/api.md](docs/api.md) for the full endpoint reference.
 | any | newer major | ⚠️ Server newer — update PWA |
 
 The PWA checks the server version on connect via `GET /api/version` and compares the major version (e.g. a 3.x PWA with a 3.x server; a 2.x server is flagged as outdated).
+
+## License
+
+**GPL-2.0-or-later** — see [LICENSE](LICENSE). This is the same license as
+[pySim](https://github.com/osmocom/pysim), whose library the server imports, and
+as [simtrace-analyser](https://github.com/anttro/simtrace-analyser), from which
+some client-side decoders were ported.
+
+pySim itself is not included in this repository or in the release artifacts:
+`setup.sh` / `setup.bat` install it from its upstream git repository.
+
+Bundled third-party components (the MCC/MNC operator list and the AES/DES
+bundles in the PWA) keep their own MIT licenses — see
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).

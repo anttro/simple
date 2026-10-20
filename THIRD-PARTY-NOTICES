@@ -1,0 +1,75 @@
+SIMple / pysim-simple-server — third-party notices
+===============================================================================
+
+This project is licensed under **GPL-2.0-or-later** (see LICENSE), the same
+license as the pySim library it imports and as simtrace-analyser, from which
+some client-side decoders were ported.
+
+Runtime dependency (not included)
+---------------------------------
+pySim — https://github.com/osmocom/pysim — GPL-2.0-or-later.
+
+pySim is NOT included in this repository or in the release artifacts:
+setup.sh / setup.bat install it from its upstream git repository, so its
+source and license are obtained from there.
+
+Bundled third-party components
+------------------------------
+1. MCC/MNC operator list — pysim_simple_server/data/mcc-mnc-list.json
+   Source: https://github.com/pbakondy/mcc-mnc-list
+   License: MIT (Copyright (c) 2016 Peter Bakondy).
+   The full notice, the upstream commit and the retrieval date are in
+   pysim_simple_server/data/mcc-mnc-list.LICENSE.
+
+2. AES implementation — frontend/aes-bundle.js
+   Package: aes-js 3.1.2 (https://github.com/ricmoo/aes-js)
+   License: MIT
+
+   The MIT License (MIT)
+
+   Copyright (c) 2015 Richard Moore
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+3. DES implementation — frontend/des-bundle.js
+   Package: des.js 1.1.0 (https://github.com/indutny/des.js)
+   License: MIT
+
+   This software is licensed under the MIT License.
+
+   Copyright Fedor Indutny, 2015.
+
+   Permission is hereby granted, free of charge, to any person obtaining a
+   copy of this software and associated documentation files (the
+   "Software"), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to permit
+   persons to whom the Software is furnished to do so, subject to the
+   following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+   NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
