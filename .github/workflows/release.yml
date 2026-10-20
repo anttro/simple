@@ -35,9 +35,11 @@ jobs:
           repository: osmocom/pysim
           path: pysim
 
+      # 3.13+ is required by the suite: ssl's TLS-PSK callbacks
+      # (SCP81's PskTlsServer) exist only since Python 3.13.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       # pyscard has no manylinux wheels, so it builds from source on Linux
       # and needs the PC/SC development headers.
