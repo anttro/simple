@@ -30,11 +30,17 @@ The package is built from the tagged source — no git history, no development f
 Git is still required: `setup` installs **pysim** from its upstream repository
 (nothing from pysim or its dependencies is bundled).
 
+**Updates are fast:** `./update.sh` (or `update.bat`) downloads the latest release
+package, replaces the application files in place and re-installs the app into the
+existing `.venv` — pysim and its prerequisites are kept, so nothing is rebuilt.
+`./update.sh --check` reports the current and latest versions, `--version X.Y.Z`
+picks a specific release and `--zip file.zip` updates from a local package.
+
 **2. Clone the repository (for development, or changes not released yet).**
 
 ```sh
-git clone https://github.com/anttro/simple.git
-cd simple
+git clone https://github.com/anttro/simple.git   # or --depth 1: no history,
+cd simple                                        # `git pull` still updates it
 ./setup.sh     # or setup.bat on Windows
 ./start.sh     # or start.bat
 ```
@@ -748,6 +754,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 |--------|-------------|
 | `setup.sh` / `setup.bat` | Creates `.venv/`, installs pysim and the server. Run once after cloning or after unzipping the release package. |
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
+| `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
 
 `start.sh` asks for the first PC/SC reader when `pcscd` is running; otherwise the server still auto-detects a PC/SC reader itself, and with none present pysim falls back to its serial default `/dev/ttyUSB0` (pass `-d <device>` for a serial/FTDI reader). `start.bat` always passes `-p 0` (PC/SC is built into Windows). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
 

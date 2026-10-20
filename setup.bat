@@ -86,4 +86,5 @@ echo.
 
 echo === Setup complete ===
 echo Run start.bat to start the server.
+echo Updating later: update.bat ^(reuses .venv - pysim is not re-installed^).
 pause

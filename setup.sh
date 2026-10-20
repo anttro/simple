@@ -63,3 +63,4 @@ fi
 echo ""
 echo "=== Setup complete ==="
 echo "Run ./start.sh to start the server."
+echo "Updating later: ./update.sh (reuses .venv - pysim is not re-installed)."

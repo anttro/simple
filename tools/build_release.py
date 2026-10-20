@@ -37,8 +37,9 @@ PACKAGE_ENTRIES = (
     'docs',
     'tools',
     'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
+    'update.sh', 'update.bat',
     'pyproject.toml', 'requirements-pysim.txt',
-    'README.md', 'README_RUS.md',
+    'README.md', 'README_RUS.md', 'CHANGELOG.md',
     'LICENSE', 'THIRD-PARTY-NOTICES',
 )
 

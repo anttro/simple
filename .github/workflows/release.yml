@@ -79,9 +79,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          ZIP="dist/simple-${TAG#v}.zip"
+          VER="${TAG#v}"
+          ZIP="dist/simple-$VER.zip"
+          # The release body is the CHANGELOG section of the version; a missing
+          # section falls back to generated notes.
+          if python tools/changelog_section.py "$VER" > /tmp/notes.md 2>/dev/null; then
+            NOTES="--notes-file /tmp/notes.md"
+          else
+            NOTES="--generate-notes"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ZIP" --clobber
           else
-            gh release create "$TAG" "$ZIP" --title "$TAG" --generate-notes
+            gh release create "$TAG" "$ZIP" --title "$TAG" $NOTES
           fi

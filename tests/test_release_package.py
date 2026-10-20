@@ -69,6 +69,8 @@ class ReleasePackageTests(unittest.TestCase):
                   'pysim_simple_server/data/mcc-mnc-list.json',
                   'pysim_simple_server/data/mcc-mnc-list.LICENSE',
                   'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
+                  'update.sh', 'update.bat', 'tools/update.py',
+                  'tools/changelog_section.py', 'CHANGELOG.md',
                   'pyproject.toml', 'requirements-pysim.txt',
                   'README.md', 'README_RUS.md', 'LICENSE', 'THIRD-PARTY-NOTICES',
                   'docs/api.md'):
