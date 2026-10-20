@@ -57,6 +57,12 @@ jobs:
         working-directory: simple
         run: python -m unittest discover -s tests
 
+      # sp.test.js / the AES tests require the npm runtime dependencies
+      # (des.js, aes-js); the build deps come along with them.
+      - name: Install the frontend test dependencies
+        working-directory: simple/frontend
+        run: npm ci --no-audit --no-fund
+
       - name: Frontend suite
         working-directory: simple/frontend
         run: node --test
