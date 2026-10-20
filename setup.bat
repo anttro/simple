@@ -44,11 +44,14 @@ call "%VENV_DIR%\Scripts\activate.bat"
 REM Upgrade pip
 python -m pip install --upgrade pip -q
 
-REM pyscard has precompiled wheels for Python 3.9-3.13.
-REM On Python 3.14 pip builds it from source (requires Microsoft C++ Build Tools).
-echo Note: pyscard ships precompiled wheels for Python 3.9-3.13.
-echo       Python 3.14 will build pyscard from source and require
-echo       Microsoft C++ Build Tools ("Desktop development with C++").
+REM Python 3.13 is strongly recommended: pyscard ships precompiled wheels up
+REM to 3.13, the SCP81 TLS-PSK listener needs 3.13+, and on 3.14 pyscard and
+REM some pysim dependency wheels are unavailable (source builds need MSVC).
+echo Note: Python 3.13 is strongly recommended.
+echo       pyscard has precompiled wheels up to 3.13 and the SCP81 TLS-PSK
+echo       listener needs 3.13+.  On Python 3.14 pyscard and some pysim
+echo       dependency wheels are unavailable; those build from source and
+echo       require Microsoft C++ Build Tools ("Desktop development with C++").
 echo.
 
 REM Install pysim dependencies first, then pysim itself (without the SMPP

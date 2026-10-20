@@ -52,6 +52,14 @@ else
     echo "  Fedora:        sudo dnf install pcsc-lite pcsc-lite-ccid pcsc-lite-devel"
 fi
 
+# The SCP81 TLS-PSK listener uses ssl's PSK callbacks, added in Python 3.13.
+PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
+if [ "${PY_VER%.*}" = "3" ] && [ "$PY_MINOR" -lt 13 ]; then
+    echo "Note: the SCP81 TLS-PSK listener needs Python 3.13+ (this is $PY_VER);"
+    echo "      the rest of the app works normally."
+    echo ""
+fi
+
 echo ""
 echo "=== Setup complete ==="
 echo "Run ./start.sh to start the server."

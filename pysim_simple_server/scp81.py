@@ -18,6 +18,7 @@ DATA records to it.
 
 import socket
 import ssl
+import sys
 import threading
 import time
 
@@ -252,6 +253,11 @@ class PskTlsServer:
         # SSLV3_ALERT_UNEXPECTED_MESSAGE on the post-handshake
         # NewSessionTicket record (verified live 2026-09-15).
         ctx.options |= ssl.OP_NO_TICKET
+        if not hasattr(ctx, 'set_psk_server_callback'):
+            # ssl's TLS-PSK callbacks exist only since Python 3.13.
+            raise RuntimeError(
+                'TLS-PSK requires Python 3.13+ (ssl.SSLContext.set_psk_server_callback '
+                'is missing in %s)' % sys.version.split()[0])
         ctx.set_psk_server_callback(self._psk_cb)
         return ctx
 

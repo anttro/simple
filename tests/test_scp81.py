@@ -5,6 +5,7 @@ terminal's Data available notification (TS 102 223 7.5.10).
 Synthetic PSK only; no live card data.
 """
 
+import inspect
 import socket
 import ssl
 import sys
@@ -80,6 +81,18 @@ class HttpParseTest(unittest.TestCase):
         self.assertTrue(body.startswith(b'64\r\n'))
 
 
+class PskGuardTest(unittest.TestCase):
+    """On Python < 3.13 the listener must explain the requirement, not raise
+    AttributeError (the PSK tests themselves are skipped there)."""
+
+    def test_the_context_names_the_python_requirement(self):
+        src = inspect.getsource(scp81.PskTlsServer._make_context)
+        self.assertIn("hasattr(ctx, 'set_psk_server_callback')", src)
+        self.assertIn('Python 3.13+', src)
+
+
+@unittest.skipUnless(hasattr(ssl.SSLContext, 'set_psk_server_callback'),
+                     'TLS-PSK requires Python 3.13+')
 class PskTlsServerTest(unittest.TestCase):
     def _client_ctx(self, identity=IDENT, psk=PSK):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
