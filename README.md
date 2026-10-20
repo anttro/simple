@@ -19,7 +19,7 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS PWA plus
 
 **1. Download the release package (recommended).** From the
 [Releases](https://github.com/anttro/simple/releases) page take the latest package
-(ZIP), unzip it anywhere and run the setup script once:
+(`simple-<version>.zip`), unzip it anywhere and run the setup script once:
 
 ```sh
 ./setup.sh     # or setup.bat on Windows — creates .venv, installs pysim + server

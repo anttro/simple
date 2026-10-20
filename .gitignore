@@ -6,3 +6,4 @@ dist/
 build/
 AGENTS.md
 simple_lastrun*.log
+dist/

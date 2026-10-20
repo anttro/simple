@@ -18,8 +18,8 @@ SIMple — инструментарий для специалистов по UIC
 **Полная установка (PWA + сервер карт)** — два способа:
 
 **1. Скачать релизный пакет (рекомендуется).** На странице
-[Releases](https://github.com/anttro/simple/releases) возьмите последний пакет (ZIP),
-распакуйте в любое место и один раз запустите setup:
+[Releases](https://github.com/anttro/simple/releases) возьмите последний пакет
+(`simple-<version>.zip`), распакуйте в любое место и один раз запустите setup:
 
 ```sh
 ./setup.sh     # или setup.bat в Windows — создаёт .venv, ставит pysim + сервер

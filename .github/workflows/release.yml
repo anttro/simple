@@ -1,0 +1,74 @@
+name: release
+
+# Builds the release package from the tagged source and publishes it.
+# The package is a snapshot of the tree without the development-only files
+# (tools/build_release.py); pysim is not bundled - setup installs it from
+# upstream.  Trigger: push a v* tag (or run manually for an existing tag).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to package and publish (e.g. v3.31.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          path: simple
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # The Python tests expect a pysim checkout as a sibling of the repo
+      # (tests/*.py prepend <repo>/../pysim to sys.path).
+      - name: Check out pysim next to the repo
+        uses: actions/checkout@v4
+        with:
+          repository: osmocom/pysim
+          path: pysim
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pysim and the test dependencies
+        working-directory: simple
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-pysim.txt
+          python -m pip install --no-deps ../pysim
+
+      - name: Python suite
+        working-directory: simple
+        run: python -m unittest discover -s tests
+
+      - name: Frontend suite
+        working-directory: simple/frontend
+        run: node --test
+
+      - name: Build the release package
+        working-directory: simple
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          python tools/build_release.py --expect-version "${TAG#v}" --out dist
+
+      - name: Publish the release
+        working-directory: simple
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          ZIP="dist/simple-${TAG#v}.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --title "$TAG" --generate-notes
+          fi
