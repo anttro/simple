@@ -45,10 +45,11 @@ if command -v pcscd >/dev/null 2>&1; then
     fi
 else
     echo "Note: PC/SC daemon not found. If you use a USB smart card reader,"
-    echo "install pcsc-lite and ccid:"
-    echo "  Debian/Ubuntu: sudo apt install pcscd pcsc-tools"
-    echo "  Arch Linux:    sudo pacman -S pcsc-lite ccid"
-    echo "  Fedora:        sudo dnf install pcsc-lite pcsc-lite-ccid"
+    echo "install pcsc-lite and ccid (plus the PC/SC headers that the"
+    echo "pyscard build needs on Linux):"
+    echo "  Debian/Ubuntu: sudo apt install pcscd pcsc-tools libpcsclite-dev"
+    echo "  Arch Linux:    sudo pacman -S pcsc-lite ccid   (headers included)"
+    echo "  Fedora:        sudo dnf install pcsc-lite pcsc-lite-ccid pcsc-lite-devel"
 fi
 
 echo ""

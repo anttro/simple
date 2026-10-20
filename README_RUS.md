@@ -723,7 +723,7 @@ PWA проверяет версию сервера при подключении
 ### Требования
 
 - **Python 3.9+** с `pip`, и **Git**
-- **Смарт-картридер** (PC/SC или serial/FTDI) — предпочтителен PC/SC (`pcsc-lite` + `ccid` на Linux)
+- **Смарт-картридер** (PC/SC или serial/FTDI) — предпочтителен PC/SC (`pcsc-lite` + `ccid` на Linux). У `pyscard` нет Linux-wheel, поэтому он собирается из исходников: поставьте и пакет с заголовками PC/SC (`libpcsclite-dev` в Debian/Ubuntu, `pcsc-lite-devel` в Fedora; в Arch они входят в `pcsclite`).
 - **Windows** — используйте Python 3.9–3.13 (рекомендуется 3.13): у `pyscard` есть готовые wheel. На 3.14 он собирается из исходников (нужны MSVC C++ Build Tools). SMPP-мост (`smpp.twisted3`) в Windows сознательно не ставится.
 
 ### Скрипты

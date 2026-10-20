@@ -39,6 +39,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # pyscard has no manylinux wheels, so it builds from source on Linux
+      # and needs the PC/SC development headers.
+      - name: Install the PC/SC development headers
+        run: sudo apt-get update && sudo apt-get install -y libpcsclite-dev
+
       - name: Install pysim and the test dependencies
         working-directory: simple
         run: |

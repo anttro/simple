@@ -739,7 +739,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 ### Prerequisites
 
 - **Python 3.9+** with `pip`, and **Git**
-- **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux)
+- **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them).
 - **Windows** — use Python 3.9–3.13 (3.13 recommended): `pyscard` ships precompiled wheels for these versions. On 3.14 it builds from source (needs MSVC C++ Build Tools). The SMPP bridge (`smpp.twisted3`) is intentionally skipped on Windows.
 
 ### Scripts
