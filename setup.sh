@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 
 # Check prerequisites
-command -v python3 >/dev/null 2>&1 || { echo "Error: Python 3 is required but not found. Install Python 3.8+ from https://python.org"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "Error: Python 3 is required but not found. Install Python 3.9+ from https://python.org"; exit 1; }
 command -v git >/dev/null 2>&1 || { echo "Error: Git is required but not found. Install Git from https://git-scm.com"; exit 1; }
 
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')

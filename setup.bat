@@ -13,7 +13,7 @@ REM Check Python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo Error: Python is required but not found.
-    echo Install Python 3.8+ from https://python.org
+    echo Install Python 3.9+ from https://python.org
     pause
     exit /b 1
 )
@@ -44,10 +44,10 @@ call "%VENV_DIR%\Scripts\activate.bat"
 REM Upgrade pip
 python -m pip install --upgrade pip -q
 
-REM pyscard has precompiled wheels for Python 3.10-3.13.
-REM On Python 3.9 / 3.14 pip builds it from source (requires Microsoft C++ Build Tools).
-echo Note: pyscard ships precompiled wheels for Python 3.10-3.13.
-echo       Python 3.9 / 3.14 will build pyscard from source and require
+REM pyscard has precompiled wheels for Python 3.9-3.13.
+REM On Python 3.14 pip builds it from source (requires Microsoft C++ Build Tools).
+echo Note: pyscard ships precompiled wheels for Python 3.9-3.13.
+echo       Python 3.14 will build pyscard from source and require
 echo       Microsoft C++ Build Tools ("Desktop development with C++").
 echo.
 

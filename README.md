@@ -15,13 +15,28 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS PWA plus
 
 **PWA only (client-side tools):** open `frontend/index.html` in any browser, or serve `frontend/` with any static server. No Python required.
 
-**Full (PWA + card server):**
+**Full (PWA + card server)** — two ways to get it:
+
+**1. Download the release package (recommended).** From the
+[Releases](https://github.com/anttro/simple/releases) page take the latest package
+(ZIP), unzip it anywhere and run the setup script once:
+
+```sh
+./setup.sh     # or setup.bat on Windows — creates .venv, installs pysim + server
+./start.sh     # or start.bat — starts the server (it serves the PWA too)
+```
+
+The package is built from the tagged source — no git history, no development files.
+Git is still required: `setup` installs **pysim** from its upstream repository
+(nothing from pysim or its dependencies is bundled).
+
+**2. Clone the repository (for development, or changes not released yet).**
 
 ```sh
 git clone https://github.com/anttro/simple.git
 cd simple
-./setup.sh     # or setup.bat on Windows — creates .venv, installs pysim + server
-./start.sh     # or start.bat — starts the server (it serves the PWA too)
+./setup.sh     # or setup.bat on Windows
+./start.sh     # or start.bat
 ```
 
 Then open http://127.0.0.1:8080 — the UI and API share one origin, so no CORS or browser-permission setup is needed. The server starts fine with an empty reader (no card is a normal state): insert a card and it is initialized automatically (auto-equip), or press **Equip card** in the UI.
@@ -723,28 +738,32 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 
 ### Prerequisites
 
-- **Python 3.8+** with `pip`, and **Git**
+- **Python 3.9+** with `pip`, and **Git**
 - **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux)
-- **Windows** — use Python 3.10–3.13 (3.13 recommended): `pyscard` ships precompiled wheels for these versions. On 3.9 / 3.14 it builds from source (needs MSVC C++ Build Tools). The SMPP bridge (`smpp.twisted3`) is intentionally skipped on Windows.
+- **Windows** — use Python 3.9–3.13 (3.13 recommended): `pyscard` ships precompiled wheels for these versions. On 3.14 it builds from source (needs MSVC C++ Build Tools). The SMPP bridge (`smpp.twisted3`) is intentionally skipped on Windows.
 
 ### Scripts
 
 | Script | What it does |
 |--------|-------------|
-| `setup.sh` / `setup.bat` | Creates `.venv/`, installs pysim and the server. Run once after cloning. |
+| `setup.sh` / `setup.bat` | Creates `.venv/`, installs pysim and the server. Run once after cloning or after unzipping the release package. |
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
 
-`start.sh` auto-detects the reader (PC/SC if `pcscd` is running, else `/dev/ttyUSB0`); `start.bat` always uses `-p 0` (PC/SC is built into Windows). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
+`start.sh` asks for the first PC/SC reader when `pcscd` is running; otherwise the server still auto-detects a PC/SC reader itself, and with none present pysim falls back to its serial default `/dev/ttyUSB0` (pass `-d <device>` for a serial/FTDI reader). `start.bat` always passes `-p 0` (PC/SC is built into Windows). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
 
-### Manual installation
+### Manual installation (Linux/macOS)
 
 ```sh
 python3 -m venv .venv
-source .venv/bin/activate          # Linux/macOS   (Windows: .venv\Scripts\activate)
+source .venv/bin/activate
 pip install git+https://github.com/osmocom/pysim.git
 pip install -e .                   # editable — serves frontend/ from the source tree
 pysim-simple-server --http-port 8080
 ```
+
+On Windows use `setup.bat` instead: it installs pysim's dependencies from
+`requirements-pysim.txt` and pysim itself with `--no-deps`, so the SMPP bridge (and
+its MSVC build chain) is not pulled in.
 
 ### CLI options
 
