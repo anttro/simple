@@ -25,6 +25,11 @@ every change carries a descriptive commit message.
 
 ### Fixed
 
+- The auto-equip's captured traceback now always includes the **exception line**: cmd2
+  renders a rich-box traceback longer than the logged head, so the actual error was cut
+  off.  The tail is appended after a `...` marker; the "releasing the old link failed"
+  message now says it continues with a fresh link (a removed card's dead PC/SC handle
+  always fails to disconnect).
 - A card insertion now marks the PC/SC link for a rebuild, so the **first** auto-equip
   attempt already uses a fresh link.  On Windows the old link cannot connect after a
   swap — v3.32.2 recovered it, but only on the second attempt, after a failed init, a
@@ -32,17 +37,6 @@ every change carries a descriptive commit message.
   never connected either, which the same mark covers.  The rebuild still runs in the
   equip worker (never in the pyscard monitor thread) and `_ensure_transport` releases
   the old link first.
-
-## [3.32.3] — 2026-10-21
-
-### Fixed
-
-- The auto-equip's captured traceback now always includes the **exception line**: cmd2
-  renders a rich-box traceback longer than the logged head, so the actual error was cut
-  off (seen in the first Windows confirmation of v3.32.2).  The tail is appended after a
-  `...` marker.
-- The "releasing the old link failed" message now says it continues with a fresh link —
-  a removed card's dead PC/SC handle always fails to disconnect.
 
 ## [3.32.2] — 2026-10-21
 
