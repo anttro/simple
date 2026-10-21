@@ -444,6 +444,28 @@ class AutoEquipTests(unittest.TestCase):
         self.assertIn('AUTO-EQUIP: init output:', out)
         self.assertIn('ProtocolError: Connection failed', out)
 
+    def test_a_long_traceback_keeps_its_exception_line(self):
+        # cmd2 renders a rich-box traceback; a fixed head slice cut the
+        # exception itself off (seen live on Windows 2026-10-21), so the tail
+        # is always included.
+        srv = self.make_server(None)
+
+        def onecmd(cmd):
+            srv.app.card = SimpleNamespace(_scc='scc')
+            sys.stderr.write('Traceback (most recent call last):\n')
+            for i in range(30):
+                sys.stderr.write('  File "f%d", line %d, in step%d\n' % (i, i, i))
+            sys.stderr.write('CardConnectionException: No card is inserted\n')
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True), \
+             mock.patch.object(server, '_apply_equipped_card', lambda s: None), \
+             mock.patch('sys.stderr', new=StringIO()) as err:
+            self.assertFalse(server._auto_equip_attempt(srv))
+        out = err.getvalue()
+        self.assertIn('AUTO-EQUIP: init output:', out)
+        self.assertIn('CardConnectionException: No card is inserted', out)
+
     def test_failed_attempt_unequips_the_half_initialized_shell(self):
         calls = []
         srv = self.make_server(None)

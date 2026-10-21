@@ -35,8 +35,11 @@ class TestCardPresenceObserver(unittest.TestCase):
         self.trigger_mock = self.trigger.start()
         self.saved_auto = S._AUTO_EQUIP
         S._AUTO_EQUIP = True
+        self.saved_stale = S._TRANSPORT_STALE
+        S._TRANSPORT_STALE = False
 
     def tearDown(self):
+        S._TRANSPORT_STALE = self.saved_stale
         S._AUTO_EQUIP = self.saved_auto
         self.trigger.stop()
         self.patcher.stop()
@@ -59,6 +62,16 @@ class TestCardPresenceObserver(unittest.TestCase):
         self.observer.update(None, ([FakeCard('Test Reader 00 00')], []))
         self.assertTrue(self.server.card_present)
         self.assertEqual(self.disconnects, [])
+        self.trigger_mock.assert_called_once()
+
+    def test_insertion_marks_the_transport_for_a_rebuild(self):
+        # The first equip attempt must already use a fresh link: after a swap
+        # the old one cannot connect on Windows, and a cardless-startup link
+        # never connected (v3.32.4).
+        S._TRANSPORT_STALE = False
+        self.server.card_present = False
+        self.observer.update(None, ([FakeCard('Test Reader 00 00')], []))
+        self.assertTrue(S._TRANSPORT_STALE)
         self.trigger_mock.assert_called_once()
 
     def test_insertion_does_not_trigger_when_disabled(self):

@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.32.2'
+VERSION = '3.32.4'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5426,7 +5426,8 @@ def _ensure_transport(server):
         try:
             old.disconnect()
         except Exception as e:
-            sys.stderr.write('TRANSPORT: releasing the old link failed: %s\n' % e)
+            sys.stderr.write('TRANSPORT: releasing the old link failed '
+                             '(continuing with a fresh one): %s\n' % e)
     try:
         sl = factory()
     except Exception as e:
@@ -5744,8 +5745,15 @@ def _auto_equip_attempt(server):
                 lines = captured.splitlines()
                 start = next(i for i, l in enumerate(lines)
                              if 'Traceback (most recent call last)' in l)
+                body = lines[start:start + 10]
+                tail = [l for l in lines[start:] if l.strip()][-3:]
+                if tail and tail[-1] not in body:
+                    # The exception itself is the last line of the traceback;
+                    # a rich-box traceback can be longer than the head slice.
+                    body.append('...')
+                    body.extend(tail)
                 sys.stderr.write('AUTO-EQUIP: init output:\n%s\n'
-                                 % '\n'.join(lines[start:start + 12]))
+                                 % '\n'.join(body))
             # ANY failed attempt leaves the PC/SC card handle suspect: after a
             # card swap on Windows the link can stay unable to connect, so
             # every retry failed and the watchdog re-armed forever (live
@@ -5819,6 +5827,15 @@ class _CardPresenceObserver(CardObserver):
                     with _CARD_LOCK:
                         if _server_ref:
                             _server_ref.card_present = True
+                        # A freshly inserted card gets a fresh PC/SC link: after a
+                        # swap the old link can stay unable to connect (seen on
+                        # Windows: the first init failed and only the retry's
+                        # rebuild recovered it), and a link created at a cardless
+                        # startup has never connected.  Marking it here (under the
+                        # lock) makes the FIRST attempt rebuild - the rebuild
+                        # itself runs in the equip worker, never in this thread.
+                        global _TRANSPORT_STALE
+                        _TRANSPORT_STALE = True
                     trigger_auto = True
             if trigger_auto and _AUTO_EQUIP:
                 _auto_equip_trigger()
