@@ -269,9 +269,50 @@ class AutoEquipTests(unittest.TestCase):
             self.assertTrue(server._auto_equip_attempts(srv, 3, lambda s: None))
         self.assertEqual(state['calls'], 2)
         self.assertEqual(applied, [srv])
+        # the failed attempt left the handle suspect; the retry's
+        # _ensure_transport (patched here) would rebuild and clear the flag
+        self.assertTrue(server._TRANSPORT_STALE)
+
+    def test_a_failed_init_rebuilds_the_transport_before_the_retry(self):
+        # The Windows swap end to end: the first init fails with the card
+        # present, the retry starts from a fresh PC/SC link and succeeds -
+        # and the old link is released before the new one is built.
+        srv = self.make_server(None)
+        released = []
+        built = []
+
+        class Link:
+            def disconnect(self):
+                released.append(self)
+
+        old = Link()
+        srv.sl = old
+        srv.transport_factory = lambda: built.append(Link()) or built[-1]
+        calls = {'n': 0}
+
+        def onecmd(cmd):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise RuntimeError('ProtocolError: Connection failed')
+            # a completed equip installs both (the failure unequipped the shell)
+            srv.app.card = SimpleNamespace(_scc='scc')
+            srv.app.lchan = 'lchan'
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_apply_equipped_card', lambda s: None):
+            self.assertTrue(server._auto_equip_attempts(srv, 3, lambda s: None))
+        self.assertEqual(calls['n'], 2)
+        self.assertEqual(len(built), 1)
+        self.assertEqual(released, [old])
+        self.assertIs(srv.sl, built[0])
         self.assertFalse(server._TRANSPORT_STALE)
 
-    def test_card_level_failure_keeps_the_transport(self):
+    def test_a_failed_attempt_marks_the_transport_for_the_rebuild(self):
+        # A card-level error used to keep the link: after a Windows card swap
+        # the link stayed unable to connect, every retry failed and the
+        # watchdog re-armed forever (live 2026-10-21).  Any failed attempt now
+        # marks the transport stale so the retry rebuilds it (which releases
+        # the old link first - the 2026-09-24 bug).
         srv = self.make_server(None)
 
         def onecmd(cmd):
@@ -282,7 +323,7 @@ class AutoEquipTests(unittest.TestCase):
         srv.app.onecmd_plus_hooks = onecmd
         with mock.patch.object(server, '_ensure_transport', lambda s: True):
             self.assertFalse(server._auto_equip_attempt(srv))
-        self.assertFalse(server._TRANSPORT_STALE)
+        self.assertTrue(server._TRANSPORT_STALE)
 
     def test_transport_fatal_failure_marks_the_transport(self):
         srv = self.make_server(None)
@@ -341,7 +382,7 @@ class AutoEquipTests(unittest.TestCase):
              mock.patch.object(server, '_apply_equipped_card',
                                lambda s: self.fail('_apply_equipped_card must not run')):
             self.assertFalse(server._auto_equip_attempt(srv))
-        self.assertFalse(server._TRANSPORT_STALE)
+        self.assertTrue(server._TRANSPORT_STALE)
 
     def test_captured_equip_traceback_is_a_failure(self):
         # cmd2 prints swallowed exceptions (with cmd2 debug: a traceback) to
@@ -357,6 +398,51 @@ class AutoEquipTests(unittest.TestCase):
              mock.patch.object(server, '_apply_equipped_card',
                                lambda s: self.fail('_apply_equipped_card must not run')):
             self.assertFalse(server._auto_equip_attempt(srv))
+
+    def test_a_card_present_init_without_a_card_is_a_failure(self):
+        # The Windows loop: the presence monitor still reports the card, the
+        # init produced nothing - it must retry (and rebuild), never report a
+        # silent "card gone" success that re-arms forever (2026-10-21).
+        srv = self.make_server(None)
+
+        def onecmd(cmd):
+            pass        # cmd2 swallowed the real error: no card built
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True):
+            self.assertFalse(server._auto_equip_attempt(srv))
+        self.assertTrue(server._TRANSPORT_STALE)
+
+    def test_a_card_removed_during_the_init_is_still_a_silent_no_op(self):
+        srv = self.make_server(None)
+
+        def onecmd(cmd):
+            srv.card_present = False    # the monitor saw the removal mid-init
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True), \
+             mock.patch('sys.stderr', new=StringIO()) as err:
+            self.assertTrue(server._auto_equip_attempt(srv))
+        self.assertIn('card gone during initialization', err.getvalue())
+        self.assertFalse(server._TRANSPORT_STALE)
+
+    def test_the_swallowed_traceback_reaches_the_log(self):
+        srv = self.make_server(None)
+
+        def onecmd(cmd):
+            srv.app.card = SimpleNamespace(_scc='scc')
+            sys.stderr.write('Traceback (most recent call last):\n'
+                             '  File "x", line 1, in equip\n'
+                             'ProtocolError: Connection failed\n')
+
+        srv.app.onecmd_plus_hooks = onecmd
+        with mock.patch.object(server, '_ensure_transport', lambda s: True), \
+             mock.patch.object(server, '_apply_equipped_card', lambda s: None), \
+             mock.patch('sys.stderr', new=StringIO()) as err:
+            self.assertFalse(server._auto_equip_attempt(srv))
+        out = err.getvalue()
+        self.assertIn('AUTO-EQUIP: init output:', out)
+        self.assertIn('ProtocolError: Connection failed', out)
 
     def test_failed_attempt_unequips_the_half_initialized_shell(self):
         calls = []

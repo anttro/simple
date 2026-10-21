@@ -9,6 +9,18 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.32.2] — 2026-10-21
+
+### Fixed
+
+- **The auto-equip loop after a card swap on Windows.** A failed initialization with
+  the card still present was reported as "card gone during initialization" and treated
+  as a no-op success — so the three retries never ran and the watchdog re-armed every
+  few seconds forever.  It is a failure now, and **every failed attempt marks the
+  PC/SC transport for a rebuild**, so the retry starts from a fresh link (the release
+  of the old link happens first, so it cannot inherit a stale card handle).  The error
+  pySim swallowed is printed as `AUTO-EQUIP: init output:` with its traceback.
+
 ## [3.32.1] — 2026-10-21
 
 ### Added

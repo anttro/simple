@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.32.1'
+VERSION = '3.32.2'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -5701,8 +5701,8 @@ def _auto_equip_attempt(server):
         if not _ensure_transport(server):
             return False
         server.equipping = True
+        out = StringIO()
         try:
-            out = StringIO()
             old_stdout, old_stderr = app.stdout, sys.stderr
             old_debug = getattr(app, 'debug', None)
             app.stdout = out
@@ -5716,9 +5716,17 @@ def _auto_equip_attempt(server):
                     app.debug = old_debug
                 app.stdout = old_stdout
                 sys.stderr = old_stderr
-            if not getattr(server, 'card_present', False) or server.app.card is None:
+            if not getattr(server, 'card_present', False):
+                # A real removal: _handle_card_disconnect already cleared the
+                # session, nothing to retry.
                 sys.stderr.write('AUTO-EQUIP: card gone during initialization\n')
                 return True
+            if server.app.card is None:
+                # The presence monitor still reports the card, so this is a
+                # failed initialization, not a swap - never a silent no-op
+                # (a Windows card swap showed an endless "card gone"
+                # re-arm loop because this returned True: 2026-10-21).
+                raise RuntimeError('the card is present but the init produced no card')
             if 'Traceback (most recent call last)' in out.getvalue():
                 raise RuntimeError('equip reported an error (see the captured output)')
             if not _app_equip_complete(app):
@@ -5729,12 +5737,24 @@ def _auto_equip_attempt(server):
             return True
         except Exception as e:
             sys.stderr.write('AUTO-EQUIP failed: %s\n' % e)
-            # A dead transport must be rebuilt before the next attempt;
-            # card-level failures reconnect on the existing link.  Unequip the
-            # half-initialized shell as well: a failed init can leave command
-            # sets registered that the next equip would refuse to re-register.
-            if _is_transport_fatal(e):
-                _handle_card_disconnect(stale=True)
+            # Show what pySim swallowed (cmd2 printed it into the capture):
+            # without it the failure is undiagnosable in the run log.
+            captured = out.getvalue().strip()
+            if 'Traceback (most recent call last)' in captured:
+                lines = captured.splitlines()
+                start = next(i for i, l in enumerate(lines)
+                             if 'Traceback (most recent call last)' in l)
+                sys.stderr.write('AUTO-EQUIP: init output:\n%s\n'
+                                 % '\n'.join(lines[start:start + 12]))
+            # ANY failed attempt leaves the PC/SC card handle suspect: after a
+            # card swap on Windows the link can stay unable to connect, so
+            # every retry failed and the watchdog re-armed forever (live
+            # 2026-10-21).  Mark the transport stale so the retry rebuilds it -
+            # _ensure_transport releases the old link first, so the new one
+            # never inherits a stale handle (the 2026-09-24 bug).
+            _handle_card_disconnect(stale=True)
+            # Unequip the half-initialized shell too: a failed init can leave
+            # command sets registered that the next equip would refuse.
             _clear_app_card_state(app)
             return False
         finally:
