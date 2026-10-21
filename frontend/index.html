@@ -1943,7 +1943,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.32.0';
+const SIMPLE_VERSION = '3.32.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -15154,7 +15154,7 @@ async function cardsOutfileFile(input) {
 	}
 	_cardsOutfile = { text: text, file: String(file.name || ''),
 		name: String(file.name || '').replace(/\.[^.]+$/, ''),
-		algorithm16: '3des2', mode: 'merge', preview: null };
+		algorithm16: '3des2', cntr: '1', mode: 'merge', preview: null };
 	_cardsOutfileTars = 0;
 	cardsOutfileRender();
 	await cardsOutfilePreview();
@@ -15177,6 +15177,7 @@ function cardsOutfileControls() {
 	const val = id => { const el = document.getElementById(id); return el ? String(el.value) : ''; };
 	if (document.getElementById('cards-of-name')) o.name = val('cards-of-name').trim();
 	if (document.getElementById('cards-of-algo')) o.algorithm16 = val('cards-of-algo') || '3des2';
+	if (document.getElementById('cards-of-cntr')) o.cntr = val('cards-of-cntr').trim().toUpperCase();
 	if (document.getElementById('cards-of-mode')) {
 		o.mode = val('cards-of-mode') === 'replace' ? 'replace' : 'merge';
 	}
@@ -15371,6 +15372,13 @@ function cardsOutfileRender() {
 		'<select id="cards-of-mode" class="block mt-0.5 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">' +
 		'<option value="merge"' + (o.mode === 'replace' ? '' : ' selected') + '>' + esc(t('Merge')) + '</option>' +
 		'<option value="replace"' + (o.mode === 'replace' ? ' selected' : '') + '>' + esc(t('Replace')) + '</option></select></label>';
+	// The counter every created keyset starts from (v3.32.1): the store's
+	// default, editable for cards whose counter is already past it.
+	html += '<label class="text-xs text-gray-600 dark:text-slate-400" title="' +
+		esc(t('The counter every created keyset starts from (1-10 hex digits); the store default is 1')) + '">' +
+		esc(t('Start counter value')) +
+		'<input id="cards-of-cntr" class="block mt-0.5 w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800 font-mono" maxlength="10" value="' +
+		escHtml(o.cntr || '1') + '" onchange="cardsOutfilePreview()"></label>';
 	html += '</div>';
 	html += '<div class="text-xs text-gray-600 dark:text-slate-400 mb-1">' + esc(t('TAR table')) + '</div>';
 	html += '<div id="cards-of-tars">' + cardsOutfileTarRowsHtml() + '</div>';
@@ -15393,7 +15401,7 @@ async function cardsOutfilePreview() {
 	cardsOutfileControls();
 	const body = {
 		text: o.text, name: o.name, algorithm16: o.algorithm16,
-		tars: cardsOutfileTarsFromForm(),
+		tars: cardsOutfileTarsFromForm(), start_counter: o.cntr,
 	};
 	try {
 		o.preview = await pysimFetchOk('/api/presets/import-outfile', body);
@@ -15418,7 +15426,7 @@ async function cardsOutfileImport() {
 	if (btn) btn.disabled = true;
 	const body = {
 		text: o.text, name: o.name, algorithm16: o.algorithm16,
-		tars: cardsOutfileTarsFromForm(), mode: o.mode,
+		tars: cardsOutfileTarsFromForm(), start_counter: o.cntr, mode: o.mode,
 	};
 	try {
 		const res = await pysimFetchOk('/api/presets/import-outfile', body);
@@ -24012,6 +24020,8 @@ const LANG_RU = {
 	'Common name': 'Общее имя',
 	'16-byte keys': '16-байтные ключи',
 	'This TAR needs a keyset (its MSL requires security)': 'Этому TAR нужен keyset (его MSL требует защиты)',
+	'Start counter value': 'Начальное значение счётчика',
+	'The counter every created keyset starts from (1-10 hex digits); the store default is 1': 'Счётчик, с которого начинается каждый созданный keyset (1–10 hex-цифр); по умолчанию в хранилище — 1',
 	'The file is invalid - fix it and refresh the preview': 'Файл некорректен — исправьте его и обновите предпросмотр',
 	'Import mode': 'Режим импорта',
 	'Merge': 'Дополнить',

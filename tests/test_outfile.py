@@ -219,6 +219,26 @@ class OptionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             outfile.parse_outfile(text, tars=[{'tar': '000000', 'msl': '16', 'keyset': 'x'}])
 
+    def test_the_start_counter_is_written_into_every_keyset(self):
+        """The import form's "Start counter value": every created keyset
+        carries it (the store pads it to the protocol's 10-digit form); without
+        it the store's default ('1') applies.  An unusable value is the
+        caller's error, never a silent default (v3.32.1)."""
+        res = outfile.parse_outfile(alfa_text(), start_counter='1a')
+        ks = res['presets'][0]['keysets']
+        self.assertGreaterEqual(len(ks), 2)
+        self.assertEqual([k.get('cntr') for k in ks], ['1A'] * len(ks))
+        # normalised: whitespace stripped, uppercase
+        res = outfile.parse_outfile(alfa_text(), start_counter=' a1 ')
+        self.assertEqual(res['presets'][0]['keysets'][0]['cntr'], 'A1')
+        # unset: no field at all - the store fills its default
+        res = outfile.parse_outfile(alfa_text())
+        self.assertNotIn('cntr', res['presets'][0]['keysets'][0])
+        # an unusable value refuses the whole parse
+        for bad in ('XYZ', '1G', '1234567890A', '   '):
+            with self.assertRaises(ValueError):
+                outfile.parse_outfile(alfa_text(), start_counter=bad)
+
     def test_a_malformed_tar_table_raises(self):
         with self.assertRaises(ValueError):
             outfile.parse_outfile(alfa_text(), tars=[{'tar': 'ZZ', 'msl': '16'}])

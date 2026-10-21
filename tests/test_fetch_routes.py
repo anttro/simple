@@ -979,6 +979,26 @@ class PresetStoreHttpTests(unittest.TestCase):
         self.assertEqual(status, 400, resp)
         self.assertIn('the file is invalid', resp['error'])
         self.assertEqual(len(self.store.list()), before)
+        # the import form's start counter (v3.32.1): every created keyset
+        # carries it; an unusable value is a 400
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'start_counter': '1A'})
+        self.assertEqual(status, 200, resp)
+        self.assertEqual([k.get('cntr') for k in resp['presets'][0]['keysets']],
+                         ['1A'] * len(resp['presets'][0]['keysets']))
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': text, 'start_counter': 'XYZ'})
+        self.assertEqual(status, 400, resp)
+        self.assertIn('start_counter', resp['error'])
+        # ...and an import stores the protocol's padded form (a fresh ICCID:
+        # merge mode skips a duplicate)
+        fresh = text.replace('8970119000004600098', '8970119000004600999')
+        status, resp = self._post('/api/presets/import-outfile', {
+            'text': fresh, 'start_counter': '1A', 'mode': 'merge'})
+        self.assertEqual(status, 200, resp)
+        got = [p for p in self.store.list()
+               if p['iccid'] == '8970119000004600999']
+        self.assertEqual([k['cntr'] for k in got[0]['keysets']], ['000000001A'])
         # a non-list TAR table is the caller's error, never a silent fallback
         status, resp = self._post('/api/presets/import-outfile', {
             'text': text, 'tars': 'nope'})

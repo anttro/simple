@@ -113,8 +113,8 @@ test('the preview and the import both post the outfile endpoint', () => {
 	// the keysets travel per TAR row (v3.29.1): no global tar_keyset
 	assert.ok(!preview.includes('tar_keyset'), 'the preview must not send a global keyset');
 	assert.ok(!imp.includes('tar_keyset'), 'the import must not send a global keyset');
-	assert.match(preview, /tars: cardsOutfileTarsFromForm\(\)/);
-	assert.match(imp, /tars: cardsOutfileTarsFromForm\(\), mode: o\.mode/);
+	assert.match(preview, /tars: cardsOutfileTarsFromForm\(\), start_counter: o\.cntr/);
+	assert.match(imp, /tars: cardsOutfileTarsFromForm\(\), start_counter: o\.cntr, mode: o\.mode/);
 });
 
 test('the 16-byte algorithm values match the server map', () => {
@@ -225,10 +225,12 @@ test('cardsOutfileControls reads the panel controls back into the state', () => 
 	setEl('cards-of-name', '  Batch 7  ');
 	setEl('cards-of-algo', 'aes');
 	setEl('cards-of-mode', 'replace');
+	setEl('cards-of-cntr', ' 1a ');
 	app.cardsOutfileControls();
 	assert.strictEqual(app.state.name, 'Batch 7');
 	assert.strictEqual(app.state.algorithm16, 'aes');
 	assert.strictEqual(app.state.mode, 'replace');
+	assert.strictEqual(app.state.cntr, '1A');   // the store's uppercase hex form
 });
 
 test('picking a file previews it with the file name and the TAR defaults', async () => {
@@ -254,6 +256,10 @@ test('picking a file previews it with the file name and the TAR defaults', async
 	assert.match(els['cards-outfile-panel'].innerHTML, /id="cards-of-tar-0-keyset"/);
 	assert.match(els['cards-outfile-panel'].innerHTML, /<option value="1" selected>Keyset 1 — 15\/15<\/option>/);
 	assert.match(els['cards-outfile-panel'].innerHTML, /8970119000004600098/);
+	// the start counter field defaults to the store's value and travels in the body
+	assert.match(els['cards-outfile-panel'].innerHTML, /id="cards-of-cntr"/);
+	assert.match(els['cards-outfile-panel'].innerHTML, /value="1"/);
+	assert.strictEqual(body.start_counter, '1');
 });
 
 test('a failing preview shows the server message in the panel', async () => {

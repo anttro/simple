@@ -351,6 +351,10 @@ into a preview.
 - `tar_keyset` — an optional **global default keyset** (1–15) for the TAR
   entries that do not name one (the API's shorthand; the PWA sends per-row
   keysets instead).
+- `start_counter` — the counter **every created keyset starts from** (1–10 hex
+  digits; whitespace stripped, uppercased).  Without it the store's default
+  (`1`) applies.  A bad value is a `400`; the import stores the protocol's
+  10-digit form.
 
 Recognised columns (case-insensitive): `ICCID` (the digits + odd-nibble F
 pad, the plain digits, spaced digits or the raw nibble-swapped EF hex all

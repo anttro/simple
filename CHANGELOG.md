@@ -9,6 +9,15 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.32.1] — 2026-10-21
+
+### Added
+
+- **"Start counter value"** in the outfile import: the counter every created keyset
+  starts from.  It defaults to the store's value (`1`); raise it for cards whose
+  counters are already past it.  The API takes `start_counter` (1–10 hex digits;
+  a bad value is a 400), and the preview carries the value.
+
 ## [3.32.0] — 2026-10-21
 
 ### Added

@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.32.0'
+VERSION = '3.32.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -11610,7 +11610,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                     name=str(body.get('name') or ''),
                     algorithm16=algorithm16,
                     tars=tars,
-                    tar_keyset=tar_keyset)
+                    tar_keyset=tar_keyset,
+                    start_counter=body.get('start_counter'))
             except ValueError as e:
                 resp = {'error': str(e)}
                 self._send_json(resp, 400)

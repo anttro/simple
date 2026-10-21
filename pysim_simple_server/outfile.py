@@ -184,13 +184,23 @@ def _hex_value(tok):
     return v if v and len(v) % 2 == 0 else ''
 
 
-def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None):
+def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None,
+                  start_counter=None):
     """Parse an outfile into preset dicts (the store's shape).
 
-    Returns ``{'presets': [...], 'report': {...}}``.  Every skipped row or key
-    is named in the report (up to ``SKIP_REPORT_MAX`` lines, then counted) -
-    nothing is silently dropped.  Raises ValueError on a malformed TAR table.
+    ``start_counter`` (1-10 hex digits) is written into every created keyset -
+    the counter an operation against that keyset starts from; without it the
+    store's default ('1') applies.  Returns
+    ``{'presets': [...], 'report': {...}}``.  Every skipped row or key is named
+    in the report (up to ``SKIP_REPORT_MAX`` lines, then counted) - nothing is
+    silently dropped.  Raises ValueError on a malformed TAR table or counter.
     """
+    counter = None
+    if start_counter not in (None, ''):
+        counter = re.sub(r'\s', '', str(start_counter)).upper()
+        if not re.fullmatch(r'[0-9A-F]{1,10}', counter):
+            raise ValueError('start_counter must be 1-10 hex digits: %r'
+                             % (start_counter,))
     columns, line_index = find_columns(text)
     report = {'columns': columns or [], 'header_lines': max(line_index, 0),
               'rows': 0, 'cards': 0, 'keysets': [], 'tars': 0,
@@ -256,8 +266,11 @@ def parse_outfile(text, name='', algorithm16='3des2', tars=None, tar_keyset=None
                      % (row_no, n, len(kic_key) // 2))
                 continue
             byte = '%02X' % ((n << 4) | algo)
-            keysets.append({'kic': byte, 'kid': byte,
-                            'kicKey': kic_key, 'kidKey': kid_key})
+            keyset = {'kic': byte, 'kid': byte,
+                      'kicKey': kic_key, 'kidKey': kid_key}
+            if counter is not None:
+                keyset['cntr'] = counter
+            keysets.append(keyset)
         if not keysets:
             skip('line %d: no usable keyset' % row_no)
             continue
