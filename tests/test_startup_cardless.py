@@ -8,6 +8,7 @@ line and no traceback, and the pySim-internal 'Waiting for card...' /
 failure keeps the stock-pysim fallback and its traceback.
 """
 
+import inspect
 import io
 import sys
 import unittest
@@ -158,3 +159,28 @@ def _parser():
 
 if __name__ == '__main__':
     unittest.main()
+
+class StartupCardLostTests(unittest.TestCase):
+    """A card removed during the startup init leaves the server cardless.
+
+    The startup code used to keep the card object it had already built:
+    ``card_present`` and ``_CARD_CONNECTED`` stayed True, so the server
+    reported a phantom equipped card and the auto-equip skipped every later
+    insertion (its ``_CARD_CONNECTED`` early return).  The PC/SC error must
+    drop the half-initialized session instead - and not print a traceback for
+    a normal removal."""
+
+    def test_a_pcsc_interruption_drops_the_session(self):
+        src = inspect.getsource(srv_main.main)
+        self.assertIn('_is_pcsc_error(e)', src)
+        self.assertIn('card removed during initialization', src)
+        self.assertIn('_clear_app_card_state(app)', src)
+        # the locals that feed card_present / _CARD_CONNECTED are cleared
+        for line in ('iccid = None', 'card = None', 'rs = None', 'scc = None'):
+            self.assertIn(line, src)
+
+    def test_the_session_state_is_derived_from_the_cleared_card(self):
+        # the assignments that would otherwise report a phantom card
+        src = inspect.getsource(srv_main.main)
+        self.assertIn('server.card_present = card is not None', src)
+        self.assertIn('_CARD_CONNECTED = card is not None', src)

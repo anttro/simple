@@ -9,6 +9,18 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.32.5] — 2026-10-21
+
+### Fixed
+
+- A card removed during the **startup initialization** no longer leaves the server
+  reporting a phantom equipped card.  The init caught the PC/SC error (and printed a
+  traceback) but kept the card object it had already built, so `card_present` and
+  `_CARD_CONNECTED` stayed True — and the auto-equip then skipped every later insertion
+  (its `_CARD_CONNECTED` early return), leaving only a manual Equip or a restart.  A
+  PC/SC error now prints one line (`INIT: card removed during initialization …`), drops
+  the half-initialized session and lets the presence monitor equip the next card.
+
 ## [3.32.4] — 2026-10-21
 
 ### Fixed

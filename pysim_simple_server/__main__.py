@@ -18,7 +18,7 @@ from . import presets
 from . import test_scripts
 from . import test_suites
 from . import testscript
-from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _read_arr, _read_pbr, _netstate_read, _netstate_install, _LineFilter, _test_command_type, migrate_scripts_to_suites
+from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status, _init_proactive_session, _timing_on, _tlog, _set_menu_timeout, start_card_monitor, set_auto_equip, _read_iccid, _read_arr, _read_pbr, _netstate_read, _netstate_install, _LineFilter, _test_command_type, migrate_scripts_to_suites, _is_pcsc_error, _clear_app_card_state
 
 
 _server_start = 0
@@ -295,8 +295,26 @@ def main():
                     break
                 _handle_proactive_chain(scc, st_sw)
             _tlog('terminal_profile_drain: %.0fms' % ((time.time() - t_phase) * 1000))
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
+        except Exception as e:
+            if _is_pcsc_error(e):
+                # The card (or the reader) went away during the startup init -
+                # a normal state, not a crash.  Drop the half-initialized
+                # session: keeping the card object would leave the server
+                # reporting a phantom equipped card, and the auto-equip would
+                # then skip every later insertion (_CARD_CONNECTED is True).
+                # The presence monitor equips the next card (live 2026-10-21).
+                sys.stderr.write('INIT: card removed during initialization - server ready; '
+                                 'insert a card or press Equip\n')
+                iccid = None
+                netstate_files = None
+                arr_files = None
+                pbr_files = None
+                card = None
+                rs = None
+                scc = None
+                _clear_app_card_state(app)
+            else:
+                traceback.print_exc(file=sys.stderr)
     if app is not None and tracer is not None:
         if opts.apdu_trace:
             # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
