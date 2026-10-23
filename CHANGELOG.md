@@ -21,7 +21,7 @@ every change carries a descriptive commit message.
   and the choice is remembered (`simple_ram_batch_sound`); the chime is unlocked by the
   Start click (browser autoplay policy); reduced-motion users get the static card-above-
   the-slot picture.  The card follows the app's SIM silhouette (`sim.svg`): a cut corner
-  and the contact pad, sliding behind the reader bar.
+  at the top and the contact pad near the bottom edge, sliding behind the reader bar.
 
 ### Changed
 
