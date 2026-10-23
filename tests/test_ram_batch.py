@@ -88,7 +88,8 @@ class BatchStateTests(unittest.TestCase):
                                    'failed_step': 'LOAD (3/7)', 'por_sw': '6A80'})
         srv._ram_batch_record(st, {'iccid': '8970119000004600114', 'result': 'skipped',
                                    'reason': 'no preset matches this ICCID'})
-        self.assertEqual(st['counts'], {'installed': 1, 'failed': 1, 'skipped': 1})
+        self.assertEqual(st['counts'], {'installed': 1, 'already_absent': 0,
+                                       'failed': 1, 'skipped': 1})
         self.assertEqual(st['attempts_total'], 3)
         # the notice names the last attempt's outcome
         self.assertIn('skipped: no preset matches this ICCID', st['notice'])
@@ -229,6 +230,49 @@ class BatchCardTests(unittest.TestCase):
         self.assertEqual(seen['notice'], '')               # cleared while installing
         self.assertEqual(seen['current']['iccid'], '8970119000004600098')
         self.assertIn('installed', st['notice'])           # ...and set for the new outcome
+
+    def test_a_delete_that_finds_nothing_is_reported_already_absent(self):
+        """A delete run whose DELETE answered 6A88 is a success (the object is
+        gone, the goal is met) but not a deletion: it is counted in its own
+        bucket and the notice says so (v3.36.0)."""
+        st = srv._ram_batch_new_state(_plan('delete'))
+        preset = _preset('8970119000004600098', 'Alfa')
+
+        def fake_run(server, body, plan, scc):
+            return {'success': True, 'final_cntr': '0000000002',
+                    'steps': [{'name': 'DELETE (application)', 'sw': '9000',
+                               'por_status': 'por_ok', 'por_sw': '6A88',
+                               'delete_not_found': True}]}
+
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
+            srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
+                                                        _FakeStore([preset])))
+        rec = st['attempts'][0]
+        self.assertEqual(rec['result'], 'already_absent')
+        self.assertTrue(rec['not_found'])
+        self.assertEqual(st['counts']['already_absent'], 1)
+        self.assertEqual(st['counts']['installed'], 0)
+        self.assertIn('already absent', st['notice'])
+        self.assertEqual(st['seen']['8970119000004600098'], 'already_absent')
+
+    def test_a_reinstall_with_a_tolerated_pre_delete_is_still_an_install(self):
+        """The reinstall's pre-delete may tolerate 'not found', but the
+        outcome is the INSTALL, not 'already absent'."""
+        st = srv._ram_batch_new_state(_plan('reinstall-app'))
+        preset = _preset('8970119000004600098', 'Alfa')
+
+        def fake_run(server, body, plan, scc):
+            return {'success': True,
+                    'steps': [{'name': 'DELETE (application)', 'por_sw': '6A88',
+                               'delete_not_found': True},
+                              {'name': 'INSTALL [for install]', 'por_sw': '9000'}]}
+
+        with mock.patch.object(srv, '_ram_plan_run', fake_run):
+            srv._ram_batch_handle_card(st, _fake_server('8970119000004600098',
+                                                        _FakeStore([preset])))
+        self.assertEqual(st['attempts'][0]['result'], 'installed')
+        self.assertEqual(st['counts']['installed'], 1)
+        self.assertEqual(st['counts']['already_absent'], 0)
 
     def test_a_card_already_processed_is_reported_not_reinstalled(self):
         st = srv._ram_batch_new_state(_plan())

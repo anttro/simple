@@ -2914,7 +2914,7 @@ def _ram_batch_new_state(plan):
     return {'active': True, 'phase': 'waiting_card', 'stop': False,
             'started': time.time(), 'stopped': None, 'plan': plan,
             'session': None, 'seen': {}, 'attempts': [], 'attempts_total': 0,
-            'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
+            'counts': {'installed': 0, 'already_absent': 0, 'failed': 0, 'skipped': 0},
             'current': None, 'notice': ''}
 
 
@@ -2939,6 +2939,8 @@ def _ram_batch_record(state, rec):
             verb = {'delete': 'deleted',
                     'reinstall-app': 'reinstalled'}.get(kind, 'installed')
             state['notice'] = 'Card %s %s.' % (who, verb)
+        elif result == 'already_absent':
+            state['notice'] = 'Card %s was already absent.' % who
         elif result == 'failed':
             step = rec.get('failed_step') or ''
             sw = rec.get('por_sw') or rec.get('sw') or ''
@@ -2947,8 +2949,9 @@ def _ram_batch_record(state, rec):
         else:
             state['notice'] = 'Card %s skipped: %s.' % (who, rec.get('reason') or '')
     detail = rec.get('reason') or rec.get('failed_step') or ''
+    label = {'already_absent': 'already absent'}.get(result, result)
     sys.stderr.write('RAM-BATCH: %s%s%s\n' % (
-        result, (' ' + who) if rec.get('iccid') else '', (' - ' + detail) if detail else ''))
+        label, (' ' + who) if rec.get('iccid') else '', (' - ' + detail) if detail else ''))
 
 
 def _ram_batch_failure_fields(result):
@@ -3044,6 +3047,15 @@ def _ram_batch_handle_card(state, server):
                'module_aid': result.get('module_aid'),
                'nv_delta': result.get('nv_delta')}
         rec.update(_ram_batch_steps_fields(result))
+        # A delete run whose DELETE answered 'not found' is a success (the
+        # object is gone, the goal is met) but not a deletion: report it as
+        # "already absent" and count it separately (v3.36.0).  Only the delete
+        # kind: a reinstall's tolerated pre-delete is not the outcome.
+        if (state.get('plan') or {}).get('kind') == 'delete' and any(
+                s.get('delete_not_found') for s in (result.get('steps') or [])):
+            outcome = 'already_absent'
+            rec['result'] = outcome
+            rec['not_found'] = True
     elif result is not None:
         outcome = 'failed'
         rec = {'iccid': iccid, 'preset': name, 'result': outcome,
@@ -3178,7 +3190,7 @@ def _ram_batch_status():
         if _RAM_BATCH is None:
             return {'active': False, 'phase': 'idle', 'attempts': [],
                     'attempts_total': 0, 'current': None, 'notice': '',
-                    'counts': {'installed': 0, 'failed': 0, 'skipped': 0},
+                    'counts': {'installed': 0, 'already_absent': 0, 'failed': 0, 'skipped': 0},
                     'started': None, 'stopped': None, 'progress': None,
                     'kind': None}
         return {'active': bool(_RAM_BATCH.get('active')),

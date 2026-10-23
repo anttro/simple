@@ -735,3 +735,29 @@ test('the waiting cue is wired into the poll render, the Start gesture and the C
 	assert.match(css, /\.ram-insert-glow/);
 	assert.match(css, /prefers-reduced-motion: reduce/);
 });
+
+test('an already-absent delete is reported as such, not as a deletion (v3.36.0)', () => {
+	clearEls();
+	setPanelEls();
+	setModalEls();
+	app.resetBatchModal();
+	app.setLast({ active: false, phase: 'finished', kind: 'delete',
+		attempts: [{
+			iccid: '8970119000000115026', preset: 'Alfa', result: 'already_absent',
+			steps: [{ name: 'DELETE (application)', sw: '6A88', ok: true, not_found: true }],
+			steps_total: 1, duration_ms: 1200,
+		}],
+		counts: { installed: 2, already_absent: 1, failed: 0, skipped: 0 },
+		attempts_total: 3, notice: 'Card 8970119000000115026 was already absent.' });
+	app.ramBatchRender();
+	// the counts separate a real deletion from a no-op
+	assert.match(els['ram-batch-counts'].textContent, /Deleted: 2/);
+	assert.match(els['ram-batch-counts'].textContent, /Already absent: 1/);
+	// the attempt's verdict says it - not a plain OK - and keeps the step line
+	assert.match(els['ram-batch-attempts'].innerHTML, /Already absent/);
+	assert.match(els['ram-batch-attempts'].innerHTML, /6A88 \(not found\)/);
+	// the modal carries the same counts
+	app.ramBatchModalOpen();
+	assert.match(els['ram-op-batch-info'].textContent, /Deleted: 2/);
+	assert.match(els['ram-op-batch-info'].textContent, /Already absent: 1/);
+});

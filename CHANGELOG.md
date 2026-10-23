@@ -22,6 +22,15 @@ every change carries a descriptive commit message.
   Start click (browser autoplay policy); reduced-motion users get the static card-above-
   the-slot picture.
 
+### Changed
+
+- A **batch delete that finds the object already gone** is still a success — the goal is met
+  and the run continues — but it is no longer reported as a plain "OK": the attempt's verdict
+  reads **Already absent**, the delete run's counts separate real deletions from no-ops
+  (`Deleted: N · Already absent: M`), and the notice says the card was already absent.  The
+  counts gain an `already_absent` bucket (the attempt result is `already_absent`); a
+  reinstall's tolerated pre-delete is *not* affected — its outcome is still the install.
+
 ### Fixed
 
 - The prebuilt `style.css` had gone stale: a rebuild restored utility classes the UI

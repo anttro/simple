@@ -10321,7 +10321,9 @@ function ramBatchModalRender(st, okLabel, actLabel) {
 	document.getElementById('ram-op-bar').style.width = pct + '%';
 	// the counts and the last finished card's verdict
 	const c = st.counts || {};
-	let info = okLabel + ': ' + (c.installed || 0) + ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
+	let info = okLabel + ': ' + (c.installed || 0);
+	if (c.already_absent) info += ' \u00b7 ' + t('Already absent') + ': ' + c.already_absent;
+	info += ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
 		+ ' \u00b7 ' + t('Skipped') + ': ' + (c.skipped || 0);
 	if (st.attempts_total) info += ' \u00b7 ' + st.attempts_total + ' ' + t('attempts');
 	if (st.notice) info += '\n' + st.notice;
@@ -10544,8 +10546,9 @@ function ramBatchRender() {
 	const counts = document.getElementById('ram-batch-counts');
 	if (counts) {
 		const c = st.counts || {};
-		let text = okLabel + ': ' + (c.installed || 0)
-			+ ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
+		let text = okLabel + ': ' + (c.installed || 0);
+		if (c.already_absent) text += ' \u00b7 ' + t('Already absent') + ': ' + c.already_absent;
+		text += ' \u00b7 ' + t('Failed') + ': ' + (c.failed || 0)
 			+ ' \u00b7 ' + t('Skipped') + ': ' + (c.skipped || 0);
 		if (st.attempts_total) text += ' \u00b7 ' + st.attempts_total + ' ' + t('attempts');
 		if (active && _ramBatchProgress && _ramBatchProgress.active && _ramBatchProgress.name) {
@@ -10581,7 +10584,10 @@ function ramBatchAttemptsHtml(attempts) {
 	for (let i = attempts.length - 1; i >= 0; i--) {
 		const a = attempts[i];
 		const when = a.ts ? new Date(a.ts * 1000).toLocaleTimeString() : '';
+		// A delete that found the object already gone is a success, but not a
+		// deletion: say so instead of a plain OK (v3.36.0).
 		const verdict = a.result === 'installed' ? t('OK')
+			: a.result === 'already_absent' ? t('Already absent')
 			: (a.result === 'failed' ? t('Failed') : t('Skipped'));
 		const tone = a.result === 'installed' ? 'text-emerald-600 dark:text-emerald-400'
 			: (a.result === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400');
@@ -26904,6 +26910,7 @@ const LANG_RU = {
 	'Stopping after the current card...': 'Остановка после текущей карты…',
 	'Insert next card. Waiting for a card...': 'Вставьте следующую карту. Ожидание карты…',
 	'Insert next card': 'Вставьте следующую карту',
+	'Already absent': 'Уже отсутствует',
 	'Sound on': 'Звук включён',
 	'Sound off': 'Звук выключен',
 	'Installed': 'Установлено',
