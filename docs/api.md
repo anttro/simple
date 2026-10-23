@@ -1769,13 +1769,16 @@ Lists the PROVIDE LOCAL INFORMATION qualifier codes with their names.
 
 Returns the effective PLI data dictionary as a qualifier-code map: the
 operator's override, else the built-in default (the qualifiers whose objects
-the pinned ETSI specs define - location as the test network 001/01, the test
-IMEI/IMEISV, language, access technology, search mode, battery; v3.23.1).
+the pinned ETSI specs define - location as the test network 001/01 with test
+LAC 0001 and Cell ID 0001 (the 7-byte PLI form per TS 31.111 8.19.1; the
+5-byte form without the Cell ID belongs to the Network Rejection event
+download), the test IMEI/IMEISV, language, access technology, search mode,
+battery; v3.23.1, the PLI location form fixed in v3.37.0).
 The date/time qualifier stays empty - the host clock answers it while no
 override is set.
 
 ```json
-{"00": "930500F1100000", "0A": "630104", "03": ""}
+{"00": "130700F11000010001", "0A": "630104", "03": ""}
 ```
 
 ### `POST /api/pli-dict`

@@ -3592,9 +3592,12 @@ PLI_QUALIFIER_NAMES = {
 # specs define no contents for them ("reserved for 3GPP/3GPP2") and a
 # fabricated object would mislead the application more than no answer.
 PLI_DEFAULTS = {
-    # Location Information (8.19): PLMN 001/01 (the test network, TS 23.003)
-    # + LAC 0000
-    0x00: '1305' + '00F110' + '0000',
+    # Location Information (TS 31.111 8.19.1, the GERAN form a PLI answer
+    # uses): PLMN 001/01 (the test network, TS 23.003) + LAC 0001 + Cell ID
+    # 0001.  Length 05 (no Cell ID) is the *Network Rejection event* form -
+    # a PLI answer must carry the Cell ID (length 07), otherwise the location
+    # reads as empty and a card applet may re-request it forever.
+    0x00: '1307' + '00F110' + '0001' + '0001',
     # IMEI (8.20): the classic test IMEI 490154203237518, nibble-swapped
     # BCD with the odd 15th digit padded by F (TS 124 008 Mobile Identity)
     0x01: '1408' + '94104502237315F8',
@@ -6608,15 +6611,18 @@ def _parse_setup_menu_items(raw):
     return _attach_nai(items, nai)
 
 
-def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True, max_rounds=None):
+def _handle_proactive_chain(scc, sw91, on_fetch=None, status_poll=True,
+                            max_rounds=_POLL_CHAIN_MAX):
     """Run a FETCH/TERMINAL RESPONSE chain; marks the card as busy so that
     terminal-initiated ENVELOPEs (Data available, Channel status, timers) wait.
     ``status_poll=False`` skips the trailing STATUS (used by the profile
     switch, where the card is mid-switch and must not be queried further).
-    ``max_rounds`` bounds the answers per call (the background poll passes
-    _POLL_CHAIN_MAX so a card that re-queues a command cannot hold the card
-    lock forever); ``_TEST_RUNNING`` aborts the chain before the next FETCH -
-    a test run owns the card and the pending command stays for the script."""
+    ``max_rounds`` bounds the answers per call - the default is
+    _POLL_CHAIN_MAX, so a card that re-queues a command (a chatty applet)
+    cannot hold the card lock forever from *any* call site; a caller may pass
+    a different bound.  ``_TEST_RUNNING`` aborts the chain before the next
+    FETCH - a test run owns the card and the pending command stays for the
+    script."""
     global _PROACTIVE_BUSY
     _PROACTIVE_BUSY = True
     try:
@@ -10032,7 +10038,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 resp = {'sw': st_sw}
                 if st_sw.startswith('91'):
-                    _handle_proactive_chain(scc, st_sw)
+                    _handle_proactive_chain(scc, st_sw, max_rounds=_POLL_CHAIN_MAX)
                     resp['proactive'] = True
                 self._send_json(resp)
                 self._log_resp(resp)

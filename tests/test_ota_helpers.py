@@ -1041,7 +1041,10 @@ class TestProactiveDecode(unittest.TestCase):
         # define (TS 102 223 8.x, tags per TS 101 220 V18.3.0 Table 7.23)
         import pysim_simple_server.server as srv
         d = srv.PLI_DEFAULTS
-        self.assertEqual(d[0x00], '130500F1100000')        # 001/01 + LAC 0000
+        # the 7-byte PLI form: 001/01 + LAC 0001 + Cell ID 0001 (length 05
+        # is the Network Rejection event form, TS 31.111 8.19.1)
+        self.assertEqual(d[0x00], '130700F11000010001')
+        self.assertEqual(len(bytes.fromhex(d[0x00])), 9)
         self.assertEqual(d[0x01], '140894104502237315F8')  # IMEI, F pad
         self.assertEqual(d[0x04], '2D02656E')              # 'en'
         self.assertEqual(d[0x05], '2E020000')              # Timing Advance
@@ -1072,6 +1075,19 @@ class TestProactiveDecode(unittest.TestCase):
         finally:
             srv._PLI_DATA.clear()
             srv._PLI_DATA.update(saved)
+
+    def test_the_pli_tr_carries_the_7_byte_location(self):
+        # the TR builder injects the location object after the Result; a
+        # 5-byte object (no Cell ID) is the Network Rejection form, not a PLI
+        import pysim_simple_server.server as srv
+        saved = srv._PLI_DATA.pop(0x00, None)
+        try:
+            tr = srv._build_tr(object(), 1, 0x26, 0x81, 0x82, 0x00)
+        finally:
+            if saved is not None:
+                srv._PLI_DATA[0x00] = saved
+        self.assertTrue(tr.startswith(bytes.fromhex('810301260002028281030100')))
+        self.assertTrue(tr.endswith(bytes.fromhex('130700F11000010001')))
 
     def test_decode_cmd_empty_raw(self):
         self.assertEqual(_decode_cmd(0x26, b'', None), [])

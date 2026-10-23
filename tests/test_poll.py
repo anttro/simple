@@ -201,6 +201,20 @@ class TestProactiveChainOwnership(unittest.TestCase):
         S._handle_proactive_chain(scc, '910b', max_rounds=3)
         self.assertEqual(len(self._fetches(scc)), 3)
 
+    def test_every_chain_call_is_bounded_by_default(self):
+        # v3.37.0: the bound is the default, not only the background poll's
+        # choice - a chatty card must not wedge any call site (the manual
+        # STATUS poll and the ENVELOPE chain used to loop forever)
+        scc = FakeChattyScc()
+        S._handle_proactive_chain(scc, '910b')
+        self.assertEqual(len(self._fetches(scc)), S._POLL_CHAIN_MAX)
+
+    def test_the_manual_status_poll_passes_the_bound(self):
+        import inspect
+        src = inspect.getsource(S.PysimHandler._do_POST)
+        branch = src.split("'/api/status-poll'", 1)[1].split('elif self.path', 1)[0]
+        self.assertIn('max_rounds=_POLL_CHAIN_MAX', branch)
+
     def test_the_chain_stops_when_a_run_owns_the_card(self):
         scc = FakeChattyScc()
         S._TEST_RUNNING = True

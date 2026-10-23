@@ -146,7 +146,7 @@ class PliDictHttpTests(unittest.TestCase):
         try:
             status, resp = self._req('GET', '/api/pli-dict')
             self.assertEqual(status, 200, resp)
-            self.assertEqual(resp['00'], '130500F1100000')
+            self.assertEqual(resp['00'], '130700F11000010001')
             self.assertEqual(resp['0A'], '630104')
             self.assertEqual(resp['03'], '')      # the host clock answers it
             self.assertEqual(resp['02'], '')      # no default

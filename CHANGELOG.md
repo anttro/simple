@@ -43,6 +43,19 @@ every change carries a descriptive commit message.
 
 ### Fixed
 
+- The **PLI location answer** now uses the 7-byte PLI form (TS 31.111 8.19.1):
+  PLMN 001/01, LAC `0001`, Cell ID `0001`.  The former default was the 5-byte
+  *Network Rejection event* form (no Cell ID) with LAC `0000`; a card applet
+  that re-reads its location after a `*LOCI` status change (the Alfa MultiIMSI
+  applet) treated it as empty and re-requested PLI on every STATUS tick — the
+  PLI storm that slowed RAM Explore.  The TR data is now
+  `13 07 00F110 0001 0001`.
+- The **proactive chain is bounded on every call site**: `_handle_proactive_chain`'s
+  `max_rounds` defaults to `_POLL_CHAIN_MAX` (the background poll always passed it;
+  the manual STATUS poll and the ENVELOPE/menu/TP chains did not).  A card that
+  re-queues a command (the PLI storm) could keep the manual poll looping forever
+  while it held the card lock — `/api/status-poll` never returned and every card
+  request waited.  The manual poll also passes the bound explicitly.
 - The load-test loop closes properly on a raised runner error (it used to leave the run
   `running` forever - the PWA polled a dead run and *Clear report* stayed refused), on a
   card session change inside a suite iteration, and on a member that was stopped; a
