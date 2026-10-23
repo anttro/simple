@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.32.7'
+VERSION = '3.33.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -247,6 +247,24 @@ def _err(key, lang):
 
 def _strip_ansi(text):
     return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
+def _cmd_exception(output):
+    """The first non-empty line of a cmd2/pySim exception captured from a
+    command's output, or None.
+
+    cmd2 catches a command's exception, prints ``EXCEPTION of type ...`` and
+    (in debug mode) a traceback instead of re-raising, so the HTTP handlers
+    that only look for ``got (XXXX)`` reported success while nothing was
+    written.  Both markers are command-level failure evidence.
+    """
+    text = output or ''
+    if 'EXCEPTION of type' not in text and 'Traceback (most recent call last)' not in text:
+        return None
+    for line in text.splitlines():
+        if line.strip():
+            return line.strip()
+    return 'command failed'
 
 
 def _parse_help_text(text):
@@ -9843,6 +9861,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                         sys.stderr = old_stderr
                 finally:
                     apdu_times = _end_apdu_time_collection()
+                exc = _cmd_exception(output)
+                if exc:
+                    resp = {'success': False, 'error': exc}
+                    self._send_json(resp)
+                    self._log_resp(resp)
+                    return
                 sw_match = re.search(r'SW:\s*(\w+)', output)
                 err_match = re.search(r'got (\w+)', output)
                 if err_match:
@@ -9931,6 +9955,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 finally:
                     app.stdout = old_stdout
                     sys.stderr = old_stderr
+                exc = _cmd_exception(output)
+                if exc:
+                    resp = {'success': False, 'error': exc}
+                    self._send_json(resp)
+                    self._log_resp(resp)
+                    return
                 sw_match = re.search(r'SW:\s*(\w+)', output)
                 err_match = re.search(r'got (\w+)', output)
                 if err_match:

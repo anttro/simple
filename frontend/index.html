@@ -1135,6 +1135,7 @@
 								<button data-needs="card" onclick="pysimFsSave()" id="pysim-fs-save-btn" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 hidden disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
 								<button onclick="pysimFsCancel()" id="pysim-fs-cancel-btn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 hidden" data-l10n="Cancel">Cancel</button>
 								<button data-needs="card" onclick="pysimFsEdit()" id="pysim-fs-edit-btn" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Edit raw">Edit raw</button>
+								<button data-needs="card" data-needs-encoder onclick="pysimFsDecEdit()" id="pysim-fs-edit-dec-btn" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Edit decoded">Edit decoded</button>
 							</div>
 						</div>
 						<div id="pysim-fs-status" class="mt-1 text-xs font-mono text-gray-500 dark:text-slate-400" style="min-height:1.2em"></div>
@@ -1943,7 +1944,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.32.7';
+const SIMPLE_VERSION = '3.33.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -9406,6 +9407,11 @@ function pysimApplyAvailability() {
 			disabled = true;
 			if (!hint) hint = t('No decoder for this file');
 		}
+		if (el.hasAttribute('data-needs-encoder') && !pysimFsHasEncoder()) {
+			// Client-side encoder required (Edit decoded).
+			disabled = true;
+			if (!hint) hint = t('No decoded editor for this file');
+		}
 		const capGate = el.getAttribute('data-cap-gate');
 		if (capGate && !capGateOk(capGate)) {
 			// A .cap must be analyzed successfully before its action runs.
@@ -15930,6 +15936,15 @@ function pysimFsHasDecoder() {
 	return !!efFindDecoder(node && node.name, fid);
 }
 
+// Encoder availability for the selected file (Edit decoded), resolved the
+// same way as the decoder above.
+function pysimFsHasEncoder() {
+	if (!pysimFsSelected) return false;
+	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
+	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	return !!efFindEncoder(node && node.name, fid);
+}
+
 // Find a node by its canonical path ("MF/7F20/6F46", "ADF.USIM/6F07"), so
 // custom-file parents can be resolved against the loaded tree (standard DFs
 // included, at any depth). Returns null when the path is not loaded yet.
@@ -16112,6 +16127,8 @@ function pysimFsDecodedHtml(node, data) {
 
 let pysimFsEditMode = false;
 let pysimFsEditData = null;
+let pysimFsDecEditMode = false;
+let pysimFsDecModel = null;
 
 // Edit raw: transparent files become an editable textarea, record files
 // per-record inputs with selection checkboxes.  The decoded view is a
@@ -16124,8 +16141,12 @@ async function pysimFsEdit() {
 		pysimFsSetMode('raw', true);
 		if (!await pysimFsRead()) return;
 	}
+	pysimFsDecEditMode = false;
+	pysimFsDecModel = null;
 	pysimFsEditMode = true;
 	document.getElementById('pysim-fs-edit-btn').classList.add('hidden');
+	const decBtn = document.getElementById('pysim-fs-edit-dec-btn');
+	if (decBtn) decBtn.classList.add('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.remove('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.remove('hidden');
 	pysimFsPillsEnabled(false);
@@ -16141,14 +16162,86 @@ async function pysimFsEdit() {
 	pysimFsSyncContentVisibility();
 }
 
+// Edit decoded: read the file raw, decode it into the file's encoder model
+// and render the per-file form (a field grid, a PLMN row editor or a record
+// block list); Save re-encodes the values (pysimFsDecSave).  Cancel restores
+// the read-only view.
+async function pysimFsDecEdit() {
+	if (pysimFsEditMode) return;
+	pysimFsResetEdit();
+	const rawName = pysimFsSelected;
+	if (!rawName) return;
+	const out = document.getElementById('pysim-fs-content');
+	const statusEl = document.getElementById('pysim-fs-status');
+	out.innerHTML = '';
+	pysimFsSyncContentVisibility();
+	statusEl.textContent = t('Loading...');
+	// the read is in flight: keep the read pills inert until we either enter
+	// edit mode (they stay disabled) or bail out (re-enabled below)
+	pysimFsPillsEnabled(false);
+	try {
+		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
+		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+		body.mode = 'raw';
+		const data = await pysimFetch('/api/read', body);
+		if (rawName !== pysimFsSelected) {
+			// another file was selected while this read ran: its own view owns
+			// the pane now
+			pysimFsPillsEnabled(true);
+			return;
+		}
+		if (!data.success) {
+			pysimFsShowError(statusEl, data.sw, data.error);
+			pysimFsPillsEnabled(true);
+			return;
+		}
+		const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null);
+		const content = data.records ? { kind: 'record', records: data.records }
+			: { kind: 'transparent', data: data.data };
+		const model = efDecEditModel(node && node.name, fid, content);
+		if (!model) {
+			statusEl.textContent = t('No decoded editor for this file');
+			pysimFsPillsEnabled(true);
+			return;
+		}
+		pysimFsDecModel = model;
+		pysimFsDecEditMode = true;
+		out.innerHTML = efDecEditHtml(model, data.data || '');
+		document.getElementById('pysim-fs-edit-btn').classList.add('hidden');
+		const decBtn = document.getElementById('pysim-fs-edit-dec-btn');
+		if (decBtn) decBtn.classList.add('hidden');
+		document.getElementById('pysim-fs-save-btn').classList.remove('hidden');
+		document.getElementById('pysim-fs-cancel-btn').classList.remove('hidden');
+		pysimFsPillsEnabled(false);
+		out.querySelectorAll('.pysim-fs-record-cb').forEach(cb => cb.classList.remove('hidden'));
+		statusEl.textContent = 'SW: ' + data.sw + ' OK';
+	} catch (e) {
+		statusEl.textContent = 'Error: ' + e.message;
+		pysimFsPillsEnabled(true);
+	} finally {
+		pysimFsSyncContentVisibility();
+	}
+}
+
 function pysimFsCancel() {
+	const wasDec = pysimFsDecEditMode;
 	pysimFsEditMode = false;
+	pysimFsDecEditMode = false;
+	pysimFsDecModel = null;
 	document.getElementById('pysim-fs-edit-btn').classList.remove('hidden');
+	const decBtn = document.getElementById('pysim-fs-edit-dec-btn');
+	if (decBtn) decBtn.classList.remove('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.add('hidden');
 	pysimFsPillsEnabled(true);
 	const out = document.getElementById('pysim-fs-content');
-	if (pysimFsEditData) out.innerHTML = pysimFsEditData;
+	if (wasDec) {
+		// the decoded form has no read-only copy to restore: re-read the file
+		// in the current mode
+		if (pysimFsSelected) pysimFsRead();
+	} else if (pysimFsEditData) {
+		out.innerHTML = pysimFsEditData;
+	}
 	pysimFsEditData = null;
 	pysimFsSyncContentVisibility();
 }
@@ -16163,6 +16256,10 @@ async function pysimFsSave() {
 	const wroteFid = String((node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : '')).toUpperCase();
 	const arrTouched = wroteFid === '2F06' || wroteFid === '6F06';
 	statusEl.textContent = 'Saving...';
+	if (pysimFsDecEditMode) {
+		await pysimFsDecSave(node, rawName, statusEl, out, arrTouched);
+		return;
+	}
 	try {
 		const textareas = out.querySelectorAll('textarea');
 		if (textareas.length === 1) {
@@ -16213,12 +16310,87 @@ async function pysimFsSave() {
 	}
 }
 
+// Save the decoded form: a transparent file is one write of the re-encoded
+// hex; a record file collects and encodes ALL checked records before writing
+// anything (a validation error on a later record must not leave earlier ones
+// written), then writes them sequentially.  The per-file encoder is the
+// inverse of the decoder (EF_ENCODERS); a value it cannot encode throws and
+// the error lands in the status line with the record number.
+async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
+	const model = pysimFsDecModel;
+	if (!model) {
+		statusEl.textContent = t('No decoded editor for this file');
+		return;
+	}
+	const entry = model.entry || efFindEncoder(node && node.name,
+		(node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null));
+	if (!entry) { statusEl.textContent = t('No decoded editor for this file'); return; }
+	const root = out.querySelector('.pysim-dec-edit');
+	try {
+		if (model.mode === 'tr') {
+			const orig = root ? (root.getAttribute('data-orig') || '') : '';
+			const values = entry.list
+				? efDecCollectRows(root, entry.list.itemFields)
+				: efDecCollectValues(root, entry.fields);
+			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+			body.data = entry.enc(values, orig);
+			const data = await pysimFetch('/api/write', body);
+			if (!data.success) {
+				pysimFsShowError(statusEl, data.sw, data.error);
+				return;
+			}
+			statusEl.textContent = 'SW: ' + data.sw + ' OK';
+			if (arrTouched) _pysimArrCache = null;
+			pysimFsCancel();
+			return;
+		}
+		const plans = [];
+		for (const block of out.querySelectorAll('.pysim-dec-rec')) {
+			const cb = block.querySelector('.pysim-fs-record-cb');
+			if (cb && !cb.checked) continue;
+			const num = block.getAttribute('data-rec');
+			if (!num) continue;
+			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+			const collected = entry.items
+				? efDecCollectItems(block)
+				: efDecCollectValues(block, entry.fields);
+			try {
+				body.data = entry.enc(collected, block.getAttribute('data-orig') || '');
+			} catch (e) {
+				statusEl.textContent = 'Error: record ' + num + ': ' + e.message;
+				return;
+			}
+			body.record_nr = parseInt(num);
+			plans.push({ num: num, body: body });
+		}
+		if (!plans.length) {
+			statusEl.textContent = t('No records selected — check the ones you want to update');
+			return;
+		}
+		let written = 0;
+		for (const plan of plans) {
+			const data = await pysimFetch('/api/write', plan.body);
+			if (!data.success) {
+				pysimFsShowError(statusEl, data.sw, (data.error || 'Error') + ' (record ' + plan.num +
+					'; ' + written + ' of ' + plans.length + ' records written)');
+				return;
+			}
+			written++;
+		}
+		statusEl.textContent = 'SW: 9000 OK';
+		if (arrTouched) _pysimArrCache = null;
+		pysimFsCancel();
+	} catch (e) {
+		statusEl.textContent = 'Error: ' + e.message;
+	}
+}
+
 // The Read raw / Read decoded pills are the read actions: they switch the
 // view mode and (re-)read the selected file.  `skipRead` updates only the
 // pills — used by pysimFsEdit() right before its own read.  While editing
 // they are inert: re-rendering would discard unsaved changes.
 function pysimFsSetMode(mode, skipRead) {
-	if (pysimFsEditMode) return;
+	if (pysimFsEditMode || pysimFsDecEditMode) return;
 	if (mode === 'dec' && !pysimFsHasDecoder()) return;
 	pysimFsDecodedMode = mode === 'dec';
 	document.querySelectorAll('.pysim-mode-pill').forEach(el => {
@@ -16244,8 +16416,12 @@ function pysimFsPillsEnabled(enabled) {
 
 function pysimFsResetEdit() {
 	pysimFsEditMode = false;
+	pysimFsDecEditMode = false;
+	pysimFsDecModel = null;
 	pysimFsEditData = null;
 	document.getElementById('pysim-fs-edit-btn').classList.remove('hidden');
+	const decBtn = document.getElementById('pysim-fs-edit-dec-btn');
+	if (decBtn) decBtn.classList.remove('hidden');
 	document.getElementById('pysim-fs-save-btn').classList.add('hidden');
 	document.getElementById('pysim-fs-cancel-btn').classList.add('hidden');
 	pysimFsPillsEnabled(true);
@@ -22576,10 +22752,12 @@ const EF_FIELD_LABELS = {
 	short: 'Short name', eap_types: 'EAP types', dfs: 'DFs', uplink_nas_count: 'Uplink NAS count',
 	downlink_nas_count: 'Downlink NAS count', nas_algorithms: 'NAS algorithms', k_asme: 'K-ASME',
 	ksi_asme: 'KSI-ASME', tmsi_time: 'TMSI time', lac_range_low: 'LAC range low',
-	lac_range_high: 'LAC range high', show_in_hplmn: 'Show in HPLMN', hide_in_oplmn: 'Hide in OPLMN',
+	lac_range_high: 'LAC range high', show_in_hplmn: 'Display the network name in HPLMN / an SPDI PLMN',
+	hide_in_oplmn: 'Hide the service provider name outside HPLMN / the SPDI PLMNs',
 	location_update_status: 'Location update status', eps_update_status: 'EPS update status',
 	update_status: 'Update status', access_tech: 'Access technology', p_tmsi_signature: 'P-TMSI signature',
 	master: 'Master EF', iap: 'IAP (EF.IAP)', links: 'Links', files: 'Files', note: 'Note',
+	ext1: 'Extension record', cmi: 'Comparison method pointer',
 };
 
 const EF_GSM7_EXT = { 0x0A: '\n', 0x14: '^', 0x28: '{', 0x29: '}', 0x2F: '\\', 0x3C: '[', 0x3D: '~', 0x3E: ']', 0x40: '|', 0x65: '\u20ac' };
@@ -22754,7 +22932,7 @@ function efPlmnAct(u16) {
 	const g = u16 & 0x008C;
 	if (g === 0x0080 || g === 0x008C) { techs.add('GSM'); techs.add('EC-GSM-IoT'); }
 	else if (g === 0x0084) techs.add('GSM');
-	else if (g === 0x0086) techs.add('EC-GSM-IoT');
+	else if (g === 0x0088) techs.add('EC-GSM-IoT');
 	return [...techs].sort();
 }
 
@@ -22776,13 +22954,16 @@ function efPnnText(value) {
 		return efUcs2Be(data);
 	}
 	if (coding === 0) {
+		const nbits = data.length * 8;
+		// A non-zero spare count identifies the packed form (and its exact
+		// septet count); the all-low "unpacked octets" heuristic is only for
+		// the no-information (spare 0) coding, where a low-byte packed value
+		// would otherwise be misread (0x82 41 21 is packed 'AB', not 'A!').
+		if (spare > 0) return gsm7Decode(data, Math.floor((nbits - spare) / 7));
 		let allLow = data.length > 0;
 		for (let i = 0; i < data.length; i++) if (data[i] >= 0x80) { allLow = false; break; }
 		if (allLow) return efGsm7Octets(data);
-		const nbits = data.length * 8;
-		const septets = spare > 0 ? Math.floor((nbits - spare) / 7)
-			: Math.floor(nbits / 7);
-		return gsm7Decode(data, septets);
+		return gsm7Decode(data, Math.floor(nbits / 7));
 	}
 	return '';
 }
@@ -23211,16 +23392,21 @@ function efDecPnn(b) {
 	return Object.keys(out).length ? out : { raw: efHex(b) };
 }
 
-// ADN-format record: alpha + len(1) + TON/NPI(1) + BCD(10) + CCP(1) + EXT1(1).
-function efDecAdn(b) {
+// ADN-format record (TS 31.102 4.4.2.3): alpha | len(1) | TON/NPI(1) |
+// BCD(10) | CCP1 | EXT1.  The BDN layout (§4.2.44) is one byte longer: the
+// extension slot is EXT4 and the record ends with a comparison-method
+// pointer (an EF.CMI record number, kept as `cmi` and never edited).
+function efDecAdn(b, layout) {
+	const L = layout === 15 ? 15 : 14;
 	if (efAllFf(b)) return { empty: true };
-	if (b.length < 14) return { raw: efHex(b) };
-	const alpha = efRstripFf(b.subarray(0, b.length - 14));
+	if (b.length < L) return { raw: efHex(b) };
+	const alpha = efRstripFf(b.subarray(0, b.length - L));
 	const name = efAnnexA(alpha);
-	const number = efBcdAddress(b.subarray(b.length - 13, b.length - 2));
+	const number = efBcdAddress(b.subarray(b.length - L + 1, b.length - L + 12));
 	const out = { name: name, number: number };
-	if (b[b.length - 2] !== 0xFF) out.ccp = b[b.length - 2];
-	if (b[b.length - 1] !== 0xFF) out.ext1 = b[b.length - 1];
+	if (b[b.length - L + 12] !== 0xFF) out.ccp = b[b.length - L + 12];
+	if (b[b.length - L + 13] !== 0xFF) out.ext1 = b[b.length - L + 13];
+	if (L === 15 && b[b.length - L + 14] !== 0xFF) out.cmi = b[b.length - L + 14];
 	return out;
 }
 
@@ -23399,7 +23585,7 @@ const EF_DECODERS = [
 	{ name: 'EF.SDN', fid: '6f49', fn: efDecAdn },
 	{ name: 'EF.MSISDN', fid: '6f40', fn: efDecAdn },
 	{ name: 'EF.LND', fid: '6f44', fn: efDecAdn },
-	{ name: 'EF.BDN', fid: '6f4d', fn: efDecAdn },
+	{ name: 'EF.BDN', fid: '6f4d', fn: b => efDecAdn(b, 15) },
 	{ name: 'EF.EXT1', fid: '6f4a', fn: efDecExt1 },
 	{ name: 'EF.EXT2', fid: '6f4b', fn: efDecExt1 },
 	{ name: 'EF.EXT3', fid: '6f4c', fn: efDecExt1 },
@@ -23421,6 +23607,416 @@ function efFindDecoder(name, fid) {
 function efFidFromPath(path) {
 	const seg = (path || '').split('/').pop();
 	return /^[0-9a-fA-F]{4}$/.test(seg) ? seg.toUpperCase() : null;
+}
+
+// ---- content encoders (the decoded editor) ----
+// The inverse of the decoders for the files the file manager can edit as
+// values: the edited field values are re-encoded here and written through
+// the raw write path.  Every encoder returns uppercase hex; `origHex` is the
+// untouched file/record, so unchanged text keeps its original coding and
+// every length comes from the card, never from the edit.
+
+// Access technology names exactly as efPlmnAct prints them (TS 31.102 4.2.5).
+const EF_ACT_TECHS = ['UTRAN', 'NG-RAN', 'GSM', 'EC-GSM-IoT', 'E-UTRAN WB-S1',
+	'E-UTRAN NB-S1', 'cdma2000 1xRTT', 'cdma2000 HRPD', 'GSM COMPACT'];
+
+function efGsm7PlainText(text) {
+	for (const c of String(text)) if (GSM7_ALPHABET.indexOf(c) === -1) return false;
+	return true;
+}
+
+// Encoder validation errors are user-facing (the file manager's status line),
+// so they go through t() when the runtime provides it; the pure unit tests
+// extract the encoders without the dictionary and get the English text.
+function efEncError(msg, detail) {
+	return new Error((typeof t === 'function' ? t(msg) : msg) + (detail || ''));
+}
+
+// Alpha identifier / service provider name coding (TS 31.102 4.2.12, 4.4.2.3):
+// one octet per character with bit 8 = 0 when every character is in the SMS
+// default 7-bit alphabet, else 0x80 + UCS-2BE (TS 31.101 annex).  FF padding
+// to the field capacity; a value that does not fit throws.
+function efEncTextBytes(text, capacity, tooLong) {
+	const s = text === undefined || text === null ? '' : String(text);
+	const data = [];
+	if (efGsm7PlainText(s)) {
+		for (const c of s) data.push(GSM7_ALPHABET.indexOf(c));
+	} else {
+		data.push(0x80);
+		for (let i = 0; i < s.length; i++) {
+			const code = s.charCodeAt(i);
+			data.push(code >> 8, code & 0xFF);
+		}
+	}
+	if (data.length > capacity) throw efEncError(tooLong);
+	const out = new Uint8Array(capacity);
+	out.fill(0xFF);
+	out.set(data);
+	return out;
+}
+
+// 3-byte PLMN (TS 24.008): b0 = mcc[1]mcc[0], b1 = (mnc[2] or F) + mcc[2],
+// b2 = mnc[1]mnc[0].
+function efPlmnEnc(mcc, mnc) {
+	const m = String(mcc === undefined || mcc === null ? '' : mcc).trim();
+	const n = String(mnc === undefined || mnc === null ? '' : mnc).trim();
+	if (!/^\d{3}$/.test(m)) throw efEncError('MCC must be 3 digits');
+	if (!/^\d{2,3}$/.test(n)) throw efEncError('MNC must be 2-3 digits');
+	const b0 = m[1] + m[0];
+	const b1 = (n.length === 3 ? n[2] : 'F') + m[2];
+	const b2 = n[1] + n[0];
+	return (b0 + b1 + b2).toUpperCase();
+}
+
+// 2-byte Access Technology (TS 31.102 4.2.5 + Tables 4.2.5.1/4.2.5.2):
+// first byte b8 UTRAN, b7 E-UTRAN selected, b6 WB-S1, b5 NB-S1, b4 NG-RAN
+// (both E-UTRAN forms = b7 only); second byte b8 GSM family, b7 GSM COMPACT,
+// b6 HRPD, b5 1xRTT, b4 EC-GSM-IoT, b3 GSM (GSM+EC = b8 only).
+function efActEnc(techs) {
+	const list = Array.isArray(techs)
+		? techs.map(x => String(x).trim()).filter(Boolean)
+		: String(techs === undefined || techs === null ? '' : techs).split(',').map(x => x.trim()).filter(Boolean);
+	if (!list.length) throw efEncError('Select at least one access technology');
+	for (const name of list) if (EF_ACT_TECHS.indexOf(name) === -1) {
+		throw efEncError('Unknown access technology', ': ' + name);
+	}
+	const has = name => list.indexOf(name) !== -1;
+	let hi = 0, lo = 0;
+	if (has('UTRAN')) hi |= 0x80;
+	if (has('NG-RAN')) hi |= 0x08;
+	const wb = has('E-UTRAN WB-S1'), nb = has('E-UTRAN NB-S1');
+	if (wb && nb) hi |= 0x40;
+	else if (wb) hi |= 0x60;
+	else if (nb) hi |= 0x50;
+	if (has('GSM COMPACT')) lo |= 0x40;
+	if (has('cdma2000 HRPD')) lo |= 0x20;
+	if (has('cdma2000 1xRTT')) lo |= 0x10;
+	const gsm = has('GSM'), ec = has('EC-GSM-IoT');
+	if (gsm && ec) lo |= 0x80;
+	else if (gsm) lo |= 0x84;
+	else if (ec) lo |= 0x88;
+	return efHex([hi, lo]);
+}
+
+// EF.SPN (TS 31.102 4.2.12): condition byte + the provider name.
+function efEncSpn(values, origHex) {
+	values = values || {};
+	const orig = efBytes(origHex || '');
+	const len = Math.max(orig.length, 17);
+	const out = new Uint8Array(len);
+	out.fill(0xFF);
+	const origDec = efDecSpn(orig);
+	const sameFlags = !!values.show_in_hplmn === !!origDec.show_in_hplmn &&
+		!!values.hide_in_oplmn === !!origDec.hide_in_oplmn;
+	// unchanged display bits keep the original condition byte (spare bits
+	// included): an untouched all-FF file stays all-FF
+	out[0] = (sameFlags && orig.length) ? orig[0]
+		: ((values.show_in_hplmn ? 0x01 : 0) | (values.hide_in_oplmn ? 0x02 : 0));
+	const name = values.name === undefined || values.name === null ? '' : String(values.name);
+	const origName = origDec.name || '';
+	if (name === origName) {
+		// unchanged text keeps the original coding (and any quirk in it)
+		for (let i = 1; i < orig.length && i < len; i++) out[i] = orig[i];
+	} else {
+		out.set(efEncTextBytes(name, len - 1, 'The service provider name is too long for this file'), 1);
+	}
+	return efHex(out);
+}
+
+// The 5-byte entry at row `i` of an original PLMNwAcT-style list, decoded the
+// same way the form shows it (unknown ACT codings keep their raw text).
+function efPlmnRowOrig(orig, i) {
+	if (i * 5 + 5 > orig.length) return null;
+	const chunk = orig.subarray(i * 5, i * 5 + 5);
+	if (efAllFf(chunk.subarray(0, 3))) return null;
+	const p = efPlmn(chunk.subarray(0, 3));
+	if (!p) return null;
+	const act = (chunk[3] << 8) | chunk[4];
+	const techs = efPlmnAct(act);
+	return {
+		mcc: p.mcc, mnc: p.mnc,
+		access_tech: techs.length ? techs.join(', ') : '0x' + act.toString(16).toUpperCase().padStart(4, '0'),
+		hex: efHex(chunk),
+	};
+}
+
+// EF.PLMNwAcT / OPLMNwAcT / HPLMNwAcT: 5-byte entries (PLMN + ACT), the tail
+// FF-padded to the file's own length.  An unchanged row is copied from the
+// original bytes - the form's technology list does not model every ACT bit
+// (Rel-18 satellite bits) and equal codings must not be canonicalised.
+function efEncPlmnList(rows, origHex) {
+	const orig = efBytes(origHex || '');
+	const capacity = Math.floor(orig.length / 5);
+	const list = rows || [];
+	if (list.length > capacity) {
+		throw efEncError('Too many entries for this file', ' (' + capacity + ' max)');
+	}
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	let pos = 0;
+	for (let i = 0; i < list.length; i++) {
+		const row = list[i];
+		const old = efPlmnRowOrig(orig, i);
+		const sameAct = old && String(row.access_tech === undefined || row.access_tech === null ? '' : row.access_tech) === old.access_tech;
+		if (old && String(row.mcc).trim() === old.mcc && String(row.mnc).trim() === old.mnc && sameAct) {
+			out.set(efBytes(old.hex), pos);
+		} else if (sameAct) {
+			const oldBytes = efBytes(old.hex);
+			out.set(efBytes(efPlmnEnc(row.mcc, row.mnc)), pos);
+			out[pos + 3] = oldBytes[3];
+			out[pos + 4] = oldBytes[4];
+		} else {
+			out.set(efBytes(efPlmnEnc(row.mcc, row.mnc) + efActEnc(row.access_tech)), pos);
+		}
+		pos += 5;
+	}
+	return efHex(out);
+}
+
+// ADN/BDN-format record: layout 14 is the ADN family (TS 31.102 4.4.2.3:
+// alpha | len | TON/NPI | BCD(10) | CCP1 | EXT1), layout 15 is EF.BDN
+// (§4.2.44: the same fields plus an EXT4 slot and a trailing EF.CMI pointer,
+// both preserved from the original).  The record length comes from the card;
+// `ext` names the extension EF for the refusal message (EXT1 for the ADN/
+// LND slots, EXT2/EXT3/EXT4/EXT5 for FDN/SDN/BDN/MSISDN).
+function efEncAdn(values, origHex, layout, ext) {
+	const LAY = layout === 15 ? 15 : 14;
+	const extName = ext || (LAY === 15 ? 'EXT4' : 'EXT1');
+	values = values || {};
+	const orig = efBytes(origHex || '');
+	const L = orig.length;
+	if (L < LAY) {
+		throw efEncError(LAY === 15 ? 'The record is too short for the BDN layout'
+			: 'The record is too short for the ADN layout');
+	}
+	const alphaCap = L - LAY;
+	const dec = efDecAdn(orig, LAY);
+	const name = values.name === undefined || values.name === null ? '' : String(values.name);
+	const alpha = new Uint8Array(alphaCap);
+	alpha.fill(0xFF);
+	if (name === (dec.name || '')) {
+		for (let i = 0; i < alphaCap && i < orig.length; i++) alpha[i] = orig[i];
+	} else {
+		alpha.set(efEncTextBytes(name, alphaCap, 'The name is too long for this record'));
+	}
+	const raw = String(values.number === undefined || values.number === null ? '' : values.number).replace(/\s+/g, '');
+	if (raw !== '' && !/^\+?\d+$/.test(raw)) throw efEncError('The number must be digits with an optional leading +');
+	const digits = raw.replace(/^\+/, '');
+	if (digits.length > 20) throw efEncError('The number is too long for this record');
+	const lenAt = L - LAY;
+	const ccpAt = lenAt + 12;
+	const extAt = lenAt + 13;
+	const cmiAt = lenAt + 14;
+	const changed = raw !== (dec.number || '');
+	if (changed && orig[extAt] !== 0xFF) {
+		throw efEncError('The number continues in EF.' + extName + ' - editing it is not supported');
+	}
+	const out = new Uint8Array(L);
+	out.set(alpha, 0);
+	let pos = alphaCap;
+	if (!changed) {
+		// The decoder is lossy for control-string/extended-BCD numbers
+		// (0xA-0xE nibbles, SSC digits), so an untouched number is copied
+		// verbatim - [length, TON/NPI, 10 BCD/SSC bytes].  An all-FF record
+		// therefore stays all-FF.
+		for (let i = 0; i < 12; i++) out[pos++] = orig[lenAt + i];
+	} else if (digits === '') {
+		out[pos++] = 0x00;
+		out[pos++] = 0xFF;
+		for (let i = 0; i < 10; i++) out[pos++] = 0xFF;
+	} else {
+		out[pos++] = 1 + Math.ceil(digits.length / 2);
+		out[pos++] = raw.charAt(0) === '+' ? 0x91 : 0x81;
+		for (let i = 0; i < 10; i++) {
+			const lo = i * 2 < digits.length ? digits[i * 2] : 'F';
+			const hi = i * 2 + 1 < digits.length ? digits[i * 2 + 1] : 'F';
+			out[pos++] = parseInt(hi + lo, 16);
+		}
+	}
+	out[pos++] = orig[ccpAt];
+	out[pos++] = orig[extAt];
+	if (LAY === 15) out[pos++] = orig[cmiAt];
+	return efHex(out);
+}
+
+// The ADN-family registry entries: each file's record layout and the extension
+// EF its dialling number continues in (EXT1/EXT2/EXT3/EXT4/EXT5).
+function efEncAdnExt(layout, ext) {
+	return (values, origHex) => efEncAdn(values, origHex, layout, ext);
+}
+
+// Network Name contents (TS 24.008 10.5.3.5a, octet 3 onward): the coding
+// octet followed by the text - GSM 7-bit packed septets with the coding octet
+// 0x80 | spare (the decoder's spare heuristic: 0 when the packed text fills
+// the last octet) or UCS-2BE behind 0x90.  The caller guarantees a GSM7
+// candidate is in the default alphabet.
+function efPnnNameBytes(text) {
+	const s = String(text === undefined || text === null ? '' : text);
+	let gsm = true;
+	for (const c of s) if (GSM7_ALPHABET.indexOf(c) === -1) { gsm = false; break; }
+	if (gsm) {
+		const septets = gsm7TextToSeptets(s);
+		const packed = gsm7Encode(septets);
+		const spare = (8 - ((septets.length * 7) - (packed.length - 1) * 8)) & 7;
+		const out = new Uint8Array(1 + packed.length);
+		out[0] = 0x80 | spare;
+		out.set(packed, 1);
+		return out;
+	}
+	const out = new Uint8Array(1 + s.length * 2);
+	out[0] = 0x90;
+	for (let i = 0; i < s.length; i++) {
+		const code = s.charCodeAt(i);
+		out[1 + i * 2] = code >> 8;
+		out[2 + i * 2] = code & 0xFF;
+	}
+	return out;
+}
+
+function efPnnHexBytes(hex) {
+	const s = String(hex === undefined || hex === null ? '' : hex).trim();
+	if (!/^([0-9a-fA-F]{2})*$/.test(s)) {
+		throw efEncError('The TLV value must be an even number of hex digits');
+	}
+	return efBytes(s);
+}
+
+// The original TLV bytes of an item whose text still matches the row's, so an
+// untouched item is re-emitted verbatim instead of being re-coded from the
+// (heuristic) decode.  Only single-byte TLV lengths occur in EF.PNN.
+function efPnnOrigTlv(item, text) {
+	if (!item || !item.orig) return null;
+	const b = efBytes(item.orig);
+	if (b.length < 2 || (b[1] & 0x80) || b[1] + 2 !== b.length) return null;
+	if (b[0] !== parseInt(item.tag, 16)) return null;
+	return efPnnText(b.subarray(2)) === text ? b : null;
+}
+
+// EF.PNN (TS 31.102 4.2.58): a record is a list of Network name TLVs - '43'
+// full name, '45' short name (TS 24.008 10.5.3.5a contents) and '80' PLMN
+// additional information (UCS-2 bytes) - FF-padded to the record length.
+// Unknown tags are re-emitted verbatim.  An empty name omits its TLV only
+// when the record ends up with no items at all: the full name (43) is
+// mandatory as soon as the record carries any TLV.
+function efEncPnn(items, origHex) {
+	const orig = efBytes(origHex || '');
+	const out = [];
+	const seen = {};
+	let emptyFull = false;
+	for (const item of (items || [])) {
+		const tag = String(item.tag === undefined || item.tag === null ? '' : item.tag).toUpperCase();
+		if (!/^[0-9A-F]{2}$/.test(tag)) throw efEncError('The TLV tag must be one hex byte');
+		if (tag === '43' || tag === '45') {
+			if (seen[tag]) throw efEncError('Only one full name / short name per record');
+			seen[tag] = true;
+		}
+		if ((tag === '43' || tag === '45') && !item.raw) {
+			const text = item.text === undefined || item.text === null ? '' : String(item.text);
+			if (!text) {
+				if (tag === '43') emptyFull = true;
+				continue;   // an empty name omits its TLV
+			}
+			const origTlv = efPnnOrigTlv(item, text);
+			if (origTlv) {
+				out.push({ tag: tag, tlv: origTlv });
+				continue;
+			}
+			out.push({ tag: tag, value: efPnnNameBytes(text) });
+			continue;
+		}
+		out.push({ tag: tag, value: efPnnHexBytes(item.hex) });
+	}
+	if (out.length && emptyFull) {
+		throw efEncError('The full name (43) is required when the record has other TLVs');
+	}
+	let size = 0;
+	for (const t of out) {
+		if (t.value && t.value.length > 0xFF) {
+			throw efEncError('The TLV value is longer than 255 bytes');
+		}
+		size += t.tlv ? t.tlv.length : 2 + t.value.length;
+	}
+	if (size > orig.length) throw efEncError('The record is too short for these items');
+	const bytes = new Uint8Array(orig.length);
+	bytes.fill(0xFF);
+	let pos = 0;
+	for (const t of out) {
+		if (t.tlv) {
+			bytes.set(t.tlv, pos);
+			pos += t.tlv.length;
+			continue;
+		}
+		bytes[pos++] = parseInt(t.tag, 16);
+		bytes[pos++] = t.value.length;
+		bytes.set(t.value, pos);
+		pos += t.value.length;
+	}
+	return efHex(bytes);
+}
+
+// The decoded editor's field schemas: one per file family, the keys matching
+// the decoder output.  `kind` is text, digits, bool, select or techs (the
+// access technology checkboxes, the value being the decoder's ', '-joined
+// string).
+const EF_SPN_FIELDS = [
+	{ key: 'show_in_hplmn', label: 'Display the network name in HPLMN / an SPDI PLMN', kind: 'bool' },
+	{ key: 'hide_in_oplmn', label: 'Hide the service provider name outside HPLMN / the SPDI PLMNs', kind: 'bool' },
+	{ key: 'name', label: 'Name', kind: 'text' },
+];
+
+const EF_ADN_FIELDS = [
+	{ key: 'name', label: 'Name', kind: 'text' },
+	{ key: 'number', label: 'Number', kind: 'text' },
+];
+
+// The PLMNwAcT family's row editor: a variable list of 5-byte entries.
+const EF_PLMN_LIST = {
+	key: 'plmns', addLabel: 'Add network',
+	itemFields: [
+		{ key: 'mcc', label: 'MCC', kind: 'digits', max: 3, required: true },
+		{ key: 'mnc', label: 'MNC', kind: 'digits', max: 3, required: true },
+		{ key: 'access_tech', label: 'Access technology', kind: 'techs' },
+	],
+};
+
+// The EF.PNN record editor: a list of Network name TLVs.  `kind` says how the
+// value is edited/encoded (a Network Name text or raw hex bytes); unknown
+// tags parsed from the record are preserved raw.
+const EF_PNN_ITEMS = {
+	addLabel: 'Add TLV',
+	tags: [
+		{ tag: '43', label: 'Full name', kind: 'name' },
+		{ tag: '45', label: 'Short name', kind: 'name' },
+		{ tag: '80', label: 'PLMN additional information', kind: 'hex' },
+	],
+	preserveUnknown: true,
+};
+
+const EF_ENCODERS = [
+	{ name: 'EF.SPN', fid: '6f46', enc: efEncSpn, fields: EF_SPN_FIELDS },
+	{ name: 'EF.PLMNwAcT', fid: '6f60', enc: efEncPlmnList, list: EF_PLMN_LIST },
+	{ name: 'EF.OPLMNwAcT', fid: '6f61', enc: efEncPlmnList, list: EF_PLMN_LIST },
+	{ name: 'EF.HPLMNwAcT', fid: '6f62', enc: efEncPlmnList, list: EF_PLMN_LIST },
+	{ name: 'EF.PNN', fid: '6fc5', enc: efEncPnn, items: EF_PNN_ITEMS },
+	{ name: 'EF.ADN', fid: '6f3a', enc: efEncAdnExt(14, 'EXT1'), ext: 'EXT1', fields: EF_ADN_FIELDS },
+	{ name: 'EF.FDN', fid: '6f3b', enc: efEncAdnExt(14, 'EXT2'), ext: 'EXT2', fields: EF_ADN_FIELDS },
+	{ name: 'EF.SDN', fid: '6f49', enc: efEncAdnExt(14, 'EXT3'), ext: 'EXT3', fields: EF_ADN_FIELDS },
+	{ name: 'EF.MSISDN', fid: '6f40', enc: efEncAdnExt(14, 'EXT5'), ext: 'EXT5', fields: EF_ADN_FIELDS },
+	{ name: 'EF.LND', fid: '6f44', enc: efEncAdnExt(14, 'EXT1'), ext: 'EXT1', fields: EF_ADN_FIELDS },
+	{ name: 'EF.BDN', fid: '6f4d', enc: efEncAdnExt(15, 'EXT4'), ext: 'EXT4', fields: EF_ADN_FIELDS },
+];
+
+function efFindEncoder(name, fid) {
+	let n = (name || '').toUpperCase();
+	if (n.includes('/')) n = n.split('/').pop();
+	for (const e of EF_ENCODERS) if (e.name.toUpperCase() === n) return e;
+	const f = (fid || '').toLowerCase();
+	if (f) for (const e of EF_ENCODERS) if (e.fid === f) return e;
+	return null;
+}
+
+function efHasEncoder(name, fid) {
+	return !!efFindEncoder(name, fid);
 }
 
 // ---- content decoding, flattening and diffs ----
@@ -23567,6 +24163,293 @@ function efContentDiff(name, fid, expectedHex, actualHex) {
 	if (exp === null || act === null || efIsRawOnly(exp) || efIsRawOnly(act)) return null;
 	const rows = efDiffData(exp, act);
 	return { rows: rows, sameDecoded: rows.length === 0 };
+}
+
+// ===== decoded editing: model and form =====
+// The decoded editor is the inverse of the read-only decoded view: the file
+// is read raw, decoded into editable values (the decoders' own keys), edited
+// and re-encoded by the file's EF_ENCODERS entry.  Only the files with an
+// encoder get the form; everything else keeps the raw editor.
+
+// A decoded value set for the edit form: a raw fallback (a decoder that could
+// not read the file's shape) has nothing to edit ({}).  An all-FF file is
+// decoded normally - EF.SPN's FF condition byte exposes both display bits, so
+// an untouched save stays byte-identical - and an all-FF record's own
+// `empty: true` marker still yields {}.
+function efDecModelValues(dec, hex) {
+	if (!dec || !dec.fn) return {};
+	const bytes = efBytes(hex || '');
+	const d = efDecodeBytes(dec.fn, bytes);
+	if (!d || d.empty === true || efIsRawOnly(d)) return {};
+	return d;
+}
+
+// Parse a record whose contents are a TLV list (EF.PNN): known name tags come
+// back as text (the decoder's own efPnnText), a known hex tag as its value
+// hex, anything else as {tag, hex, raw: true} preserved verbatim.  `orig` is
+// the item's original TLV bytes, so an unchanged item is re-emitted exactly
+// (its coding, AddCI bit, padding and length).
+function efDecItemsFromHex(entry, hex) {
+	const tags = (entry && entry.items && entry.items.tags) || [];
+	const bytes = efBytes(hex || '');
+	const items = [];
+	let start = 0;
+	for (const t of efTlv(bytes)) {
+		const tlv = efHex(bytes.subarray(start, t.end));
+		start = t.end;
+		const tag = t.tag.toString(16).toUpperCase().padStart(2, '0');
+		const spec = tags.find(x => String(x.tag).toUpperCase() === tag);
+		if (spec && spec.kind === 'name') items.push({ tag: tag, text: efPnnText(t.value), orig: tlv });
+		else if (spec) items.push({ tag: tag, hex: efHex(t.value), orig: tlv });
+		else items.push({ tag: tag, hex: efHex(t.value), raw: true, orig: tlv });
+	}
+	return items;
+}
+
+// content: {kind:'transparent', data:'HEX'} | {kind:'record', records:[{num,data}]}
+function efDecEditModel(name, fid, content) {
+	const entry = efFindEncoder(name, fid);
+	if (!entry) return null;
+	const dec = efFindDecoder(name, fid);
+	if (content && content.kind === 'record') {
+		return {
+			entry: entry,
+			mode: 'records',
+			records: (content.records || []).map(r => entry.items
+				? { num: r.num, orig: r.data || '', items: efDecItemsFromHex(entry, r.data || '') }
+				: { num: r.num, orig: r.data || '', values: efDecModelValues(dec, r.data || '') }),
+		};
+	}
+	return { entry: entry, mode: 'tr', values: efDecModelValues(dec, (content && content.data) || '') };
+}
+
+// The value of a techs field (the decoder's ', '-joined string) as a list.
+function efActTechList(value) {
+	if (Array.isArray(value)) return value.map(x => String(x).trim()).filter(Boolean);
+	return String(value === undefined || value === null ? '' : value)
+		.split(',').map(x => x.trim()).filter(Boolean);
+}
+
+function efDecFieldHtml(f, value) {
+	const key = esc(f.key);
+	let input;
+	if (f.kind === 'bool') {
+		input = '<input type="checkbox" data-key="' + key + '"' + (value ? ' checked' : '') +
+			' onchange="pysimFsDecRowCheck(this)">';
+	} else if (f.kind === 'techs') {
+		const sel = efActTechList(value);
+		input = '<span class="inline-flex flex-wrap gap-x-3 gap-y-0.5">' + EF_ACT_TECHS.map(name =>
+			'<label class="flex items-center gap-1"><input type="checkbox" data-tech="' + esc(name) + '"' +
+			(sel.indexOf(name) !== -1 ? ' checked' : '') +
+			' onchange="pysimFsDecRowCheck(this)">' + esc(name) + '</label>').join('') + '</span>';
+	} else if (f.kind === 'select') {
+		const cur = String(value === undefined || value === null ? '' : value);
+		input = '<select data-key="' + key + '" onchange="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+			(f.options || []).map(o => {
+				const v = String(o.v);
+				return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(t(o.l || v)) + '</option>';
+			}).join('') + '</select>';
+	} else {
+		const max = f.max ? ' maxlength="' + f.max + '"' : '';
+		input = '<input type="text" data-key="' + key + '" value="' +
+			esc(value === undefined || value === null ? '' : String(value)) + '"' + max +
+			' oninput="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">';
+	}
+	const body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(f.label)) + '</span>' + input;
+	return f.kind === 'techs'
+		? '<div class="pysim-dec-item flex flex-wrap items-center gap-x-2 gap-y-1">' + body + '</div>'
+		: '<label class="pysim-dec-item flex items-center gap-2">' + body + '</label>';
+}
+
+// One PLMN list row: the item fields + a remove button.
+function efDecRowHtml(entry, row) {
+	let html = '<div class="pysim-dec-row flex flex-wrap items-center gap-2 border border-gray-200 dark:border-slate-700 rounded px-2 py-1">';
+	for (const f of entry.list.itemFields) html += efDecFieldHtml(f, row ? row[f.key] : undefined);
+	html += '<button type="button" class="pysim-dec-remove ml-auto px-1.5 py-0.5 rounded bg-red-600 text-white hover:bg-red-700" title="' +
+		esc(t('Remove')) + '" onclick="pysimFsDecRemoveRow(this)">✕</button></div>';
+	return html;
+}
+
+function efDecGridHtml(fields, values) {
+	let html = '<div class="text-xs space-y-1">';
+	for (const f of fields) html += efDecFieldHtml(f, values ? values[f.key] : undefined);
+	return html + '</div>';
+}
+
+// One record TLV row (the EF.PNN editor): a tag select with the known tags,
+// the value input (text for a Network Name, hex for a raw tag) and a remove
+// button.  A tag the entry does not know stays read-only with its tag and
+// bytes (never silently dropped).
+function efDecItemRowHtml(entry, item) {
+	const tags = (entry.items && entry.items.tags) || [];
+	const wanted = String(item && item.tag ? item.tag : (tags[0] ? tags[0].tag : '43')).toUpperCase();
+	const spec = tags.find(x => String(x.tag).toUpperCase() === wanted);
+	const raw = !spec || !!(item && item.raw);
+	const tagHtml = raw
+		? '<span class="font-mono text-gray-600 dark:text-slate-300">' + esc(wanted) + '</span>'
+		: '<select data-itag onchange="pysimFsDecItemTag(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+			tags.map(x => '<option value="' + esc(x.tag) + '" data-kind="' + esc(x.kind) + '"' + (x.tag === wanted ? ' selected' : '') + '>' +
+				esc(x.tag + ' ' + t(x.label)) + '</option>').join('') + '</select>';
+	const kind = raw ? 'hex' : spec.kind;
+	const value = raw || kind === 'hex' ? ((item && item.hex) || '') : ((item && item.text) || '');
+	const input = '<input type="text" data-ikey="' + esc(kind === 'name' ? 'text' : 'hex') + '" value="' + esc(value) + '"' +
+		(raw ? ' readonly' : ' oninput="pysimFsDecRowCheck(this)"') +
+		' class="flex-1 border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">';
+	const remove = raw ? '' : '<button type="button" class="pysim-dec-remove ml-auto px-1.5 py-0.5 rounded bg-red-600 text-white hover:bg-red-700" title="' +
+		esc(t('Remove')) + '" onclick="pysimFsDecRemoveItem(this)">✕</button>';
+	const origAttr = item && item.orig ? ' data-iorig="' + esc(item.orig) + '"' : '';
+	return '<div class="pysim-dec-item-row flex flex-wrap items-center gap-2" data-tag="' + esc(wanted) + '"' + origAttr + '>' +
+		tagHtml + input + remove + '</div>';
+}
+
+// One record's TLV list + its Add TLV button.
+function efDecItemsHtml(entry, record) {
+	let html = '<div class="pysim-dec-items space-y-1">';
+	for (const item of (record && record.items) || []) html += efDecItemRowHtml(entry, item);
+	html += '</div><button type="button" class="pysim-dec-add mt-1 px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" onclick="pysimFsDecAddItem(this)">' +
+		esc(t(entry.items.addLabel)) + '</button>';
+	return html;
+}
+
+function efDecRecordsHtml(entry, records) {
+	let html = '';
+	for (const r of records || []) {
+		const empty = efAllFf(efBytes(r.orig || ''));
+		html += '<div class="pysim-dec-rec mb-2" data-rec="' + esc(String(r.num)) + '" data-orig="' + esc(r.orig || '') + '">' +
+			'<label class="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400 mb-0.5">' +
+			'<input type="checkbox" class="pysim-fs-record-cb shrink-0 hidden">' +
+			esc(t('Record')) + ' ' + esc(String(r.num)) + (empty ? ' — ' + esc(t('empty')) : '') + '</label>' +
+			'<div class="pl-5">' + (entry.items ? efDecItemsHtml(entry, r) : efDecGridHtml(entry.fields, r.values)) + '</div></div>';
+	}
+	return html;
+}
+
+// The form HTML.  Inputs carry data-key (and data-tech), so the save path
+// collects them from the DOM; the container carries the original transparent
+// hex the encoder needs, each record block its own.
+function efDecEditHtml(model, origHex) {
+	const entry = model.entry;
+	const title = '<div class="text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">' + esc(entry.name) + '</div>';
+	if (model.mode === 'records') {
+		return '<div class="pysim-dec-edit" data-mode="records">' + title + efDecRecordsHtml(entry, model.records) + '</div>';
+	}
+	if (entry.list) {
+		const rows = (model.values && model.values[entry.list.key]) || [];
+		let html = '<div class="pysim-dec-rows">';
+		for (const row of rows) html += efDecRowHtml(entry, row);
+		html += '</div><button type="button" class="mt-1 px-2 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" onclick="pysimFsDecAddRow()">' +
+			esc(t(entry.list.addLabel)) + '</button>';
+		return '<div class="pysim-dec-edit" data-mode="tr" data-orig="' + esc(origHex || '') + '">' + title + html + '</div>';
+	}
+	return '<div class="pysim-dec-edit" data-mode="tr" data-orig="' + esc(origHex || '') + '">' + title +
+		efDecGridHtml(entry.fields, model.values) + '</div>';
+}
+
+// Collect the form values of one scope (the whole TR form or one record
+// block): a techs field becomes the decoder's ', '-joined string.
+function efDecCollectValues(root, fields) {
+	const out = {};
+	if (!root) return out;
+	for (const f of (fields || [])) {
+		if (f.kind === 'techs') {
+			const techs = [];
+			root.querySelectorAll('[data-tech]').forEach(cb => {
+				if (cb.checked) techs.push(cb.getAttribute('data-tech'));
+			});
+			out[f.key] = techs.join(', ');
+		} else {
+			const el = root.querySelector('[data-key="' + f.key + '"]');
+			if (!el) { out[f.key] = f.kind === 'bool' ? false : ''; continue; }
+			out[f.key] = f.kind === 'bool' ? !!el.checked : el.value;
+		}
+	}
+	return out;
+}
+
+// Collect one list row per `.pysim-dec-row` block (the PLMNwAcT family).
+function efDecCollectRows(root, itemFields) {
+	const rows = [];
+	if (!root) return rows;
+	root.querySelectorAll('.pysim-dec-row').forEach(row => rows.push(efDecCollectValues(row, itemFields)));
+	return rows;
+}
+
+// Collect one record's TLV rows in DOM order: a Network Name row carries its
+// text, a hex row its raw value (validated by the encoder).  A row parsed
+// from the card also carries its original TLV bytes (data-iorig), so an
+// untouched item keeps its coding.
+function efDecCollectItems(root) {
+	const items = [];
+	if (!root) return items;
+	root.querySelectorAll('.pysim-dec-item-row').forEach(row => {
+		const tag = String(row.getAttribute('data-tag') || '').toUpperCase();
+		const input = row.querySelector('[data-ikey]');
+		const kind = input ? input.getAttribute('data-ikey') : 'hex';
+		const value = input ? input.value : '';
+		const item = kind === 'text' ? { tag: tag, text: value } : { tag: tag, hex: String(value).trim() };
+		const orig = row.getAttribute('data-iorig');
+		if (orig) item.orig = orig;
+		items.push(item);
+	});
+	return items;
+}
+
+// Auto-check a record block when any of its inputs changes (so Save touches
+// exactly the records the user edited).
+function pysimFsDecRowCheck(el) {
+	const rec = el && el.closest ? el.closest('.pysim-dec-rec') : null;
+	if (!rec) return;
+	const cb = rec.querySelector('.pysim-fs-record-cb');
+	if (cb) cb.checked = true;
+}
+
+function pysimFsDecAddRow() {
+	if (!pysimFsSelected) return;
+	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
+	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	const entry = efFindEncoder(node && node.name, fid);
+	if (!entry || !entry.list) return;
+	const out = document.getElementById('pysim-fs-content');
+	const rows = out && out.querySelector('.pysim-dec-rows');
+	if (rows) rows.insertAdjacentHTML('beforeend', efDecRowHtml(entry, null));
+}
+
+function pysimFsDecRemoveRow(btn) {
+	const row = btn && btn.closest ? btn.closest('.pysim-dec-row') : null;
+	if (row) row.remove();
+}
+
+// A TLV row's tag changed: keep the row's data-tag and the value input's kind
+// (text for a Network Name, hex for the raw tags) in step.
+function pysimFsDecItemTag(sel) {
+	const row = sel && sel.closest ? sel.closest('.pysim-dec-item-row') : null;
+	if (!row) return;
+	row.setAttribute('data-tag', String(sel.value).toUpperCase());
+	const input = row.querySelector('[data-ikey]');
+	const opt = sel.options && sel.options[sel.selectedIndex];
+	const kind = opt && opt.getAttribute('data-kind');
+	if (input) input.setAttribute('data-ikey', kind === 'hex' ? 'hex' : 'text');
+	pysimFsDecRowCheck(sel);
+}
+
+function pysimFsDecAddItem(btn) {
+	const rec = btn && btn.closest ? btn.closest('.pysim-dec-rec') : null;
+	const box = rec ? rec.querySelector('.pysim-dec-items') : null;
+	if (!box || !pysimFsSelected) return;
+	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
+	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	const entry = efFindEncoder(node && node.name, fid);
+	if (!entry || !entry.items) return;
+	const first = (entry.items.tags || [])[0];
+	box.insertAdjacentHTML('beforeend', efDecItemRowHtml(entry, { tag: first ? first.tag : '43' }));
+	pysimFsDecRowCheck(btn);
+}
+
+function pysimFsDecRemoveItem(btn) {
+	const row = btn && btn.closest ? btn.closest('.pysim-dec-item-row') : null;
+	if (!row) return;
+	pysimFsDecRowCheck(btn);
+	row.remove();
 }
 
 // ===== Network simulation (Phone tab) =====
@@ -24216,6 +25099,40 @@ const LANG_RU = {
 	'Read raw': 'Читать сырые данные',
 	'Read decoded': 'Декодировать',
 	'Edit raw': 'Редактировать сырые данные',
+	'Edit decoded': 'Редактировать декодированные данные',
+	'Add network': 'Добавить сеть',
+	'Add TLV': 'Добавить TLV',
+	'Full name': 'Полное имя',
+	'Short name': 'Короткое имя',
+	'PLMN additional information': 'Дополнительная информация PLMN',
+	'Only one full name / short name per record': 'На запись допускается только одно полное и одно короткое имя',
+	'The full name (43) is required when the record has other TLVs': 'Полное имя (43) обязательно, если в записи есть другие TLV',
+	'The record is too short for these items': 'Запись слишком коротка для этих элементов',
+	'The TLV value must be an even number of hex digits': 'Значение TLV должно содержать чётное число hex-цифр',
+	'The TLV value is longer than 255 bytes': 'Значение TLV длиннее 255 байт',
+	'The TLV tag must be one hex byte': 'Тег TLV должен состоять из одного hex-байта',
+	'No decoded editor for this file': 'Нет редактора для этого файла',
+	'No records selected — check the ones you want to update': 'Записи не выбраны — отметьте те, которые нужно обновить',
+	'Display the network name in HPLMN / an SPDI PLMN': 'Показывать имя сети в HPLMN / PLMN из SPDI',
+	'Hide the service provider name outside HPLMN / the SPDI PLMNs': 'Скрывать имя оператора вне HPLMN / PLMN из SPDI',
+	'Number': 'Номер',
+	'Access technology': 'Технология доступа',
+	'Unknown access technology': 'Неизвестная технология доступа',
+	'MCC must be 3 digits': 'MCC должен состоять из 3 цифр',
+	'MNC must be 2-3 digits': 'MNC должен состоять из 2-3 цифр',
+	'Select at least one access technology': 'Выберите хотя бы одну технологию доступа',
+	'The service provider name is too long for this file': 'Имя оператора слишком длинное для этого файла',
+	'Too many entries for this file': 'Слишком много записей для этого файла',
+	'The record is too short for the ADN layout': 'Запись слишком короткая для формата ADN',
+	'The record is too short for the BDN layout': 'Запись слишком короткая для формата BDN',
+	'The name is too long for this record': 'Имя слишком длинное для этой записи',
+	'The number must be digits with an optional leading +': 'Номер должен состоять из цифр с необязательным ведущим +',
+	'The number is too long for this record': 'Номер слишком длинный для этой записи',
+	'The number continues in EF.EXT1 - editing it is not supported': 'Номер продолжается в EF.EXT1 — редактирование не поддерживается',
+	'The number continues in EF.EXT2 - editing it is not supported': 'Номер продолжается в EF.EXT2 — редактирование не поддерживается',
+	'The number continues in EF.EXT3 - editing it is not supported': 'Номер продолжается в EF.EXT3 — редактирование не поддерживается',
+	'The number continues in EF.EXT4 - editing it is not supported': 'Номер продолжается в EF.EXT4 — редактирование не поддерживается',
+	'The number continues in EF.EXT5 - editing it is not supported': 'Номер продолжается в EF.EXT5 — редактирование не поддерживается',
 	'Refresh': 'Обновить',
 	'Last refresh': 'Последнее обновление',
 	'Save': 'Сохранить',

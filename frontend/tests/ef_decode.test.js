@@ -325,7 +325,7 @@ test('efFlatten renders fields, services and PLMNs for display', () => {
 		[['Service 5', 'Call Control by USIM']]);
 	assert.deepStrictEqual(efFlatten({ plmns: [{ mcc: '262', mnc: '01', access_tech: 'GSM' }] }),
 		[['PLMN 1', '262-01 (GSM)']]);
-	assert.deepStrictEqual(efFlatten({ show_in_hplmn: true }), [['Show in HPLMN', 'yes']]);
+	assert.deepStrictEqual(efFlatten({ show_in_hplmn: true }), [['Display the network name in HPLMN / an SPDI PLMN', 'yes']]);
 	assert.deepStrictEqual(efFlatten({ title: 'Menu!', icon: '0123' }), [['Title', 'Menu!'], ['Icon', '0123']]);
 });
 
@@ -437,4 +437,29 @@ test('profilerRenderReport shows raw and decoded comparisons for content mismatc
 	assert.match(same, /Raw comparison/);
 	assert.match(same, /Decoded values match/);
 	assert.doesNotMatch(same, /Decoded comparison/);
+});
+
+test('EF.BDN uses the 15-byte ADN layout (TS 31.102 4.2.44)', () => {
+	// alpha 'TEST' | len 06 | TON/NPI 91 | BCD 21 43 65 87 09 + FF padding |
+	// CCP FF | EXT4 FF | EF.CMI comparison-method pointer 03
+	const hex = '54455354' + '06' + '91' + '2143658709' + 'FF'.repeat(7) + '03';
+	const bdn = efBytes(hex);
+	const want = { name: 'TEST', number: '+1234567890', cmi: 3 };
+	assert.strictEqual(bdn.length, 19);
+	assert.deepStrictEqual(efDecAdn(bdn, 15), want);
+	assert.deepStrictEqual(efFindDecoder('EF.BDN').fn(bdn), want);
+	// the 14-byte default and the EF.ADN registry entry are unchanged
+	const adn = efBytes('42204841203120536963FFFFFFFFFFFF06810628560810FFFFFFFFFFFFFF');
+	const adnWant = { name: 'B HA 1 Sic', number: '6082658001' };
+	assert.deepStrictEqual(efDecAdn(adn), adnWant);
+	assert.deepStrictEqual(efFindDecoder('EF.ADN').fn(adn), adnWant);
+	assert.notDeepStrictEqual(efDecAdn(adn, 15), adnWant);
+});
+
+test('the BDN extension and CMI fields carry readable labels', () => {
+	assert.deepStrictEqual(efFlatten({ cmi: 3 }), [['Comparison method pointer', '3']]);
+	assert.deepStrictEqual(efFlatten({ ext1: 2 }), [['Extension record', '2']]);
+	const bdn = efDecAdn(efBytes('54455354' + '06' + '91' + '2143658709' +
+		'FF'.repeat(7) + '03'), 15);
+	assert.ok(efFlatten(bdn).some(r => r[0] === 'Comparison method pointer' && r[1] === '3'));
 });

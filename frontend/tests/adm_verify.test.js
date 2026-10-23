@@ -57,9 +57,10 @@ test('pysimAdmSecuritySw flags only the access-condition SWs', () => {
 });
 
 test('file-manager security failures route through the ADM hint', () => {
-	// no raw SW error rendering is left (all three sites use the hint helper)
+	// no raw SW error rendering is left (every read/write site, the raw and
+	// the decoded edit paths, uses the hint helper)
 	assert.ok(!/statusEl\.textContent = 'SW: ' \+ \(data\.sw/.test(html), 'raw SW error rendering is gone');
-	assert.strictEqual((html.match(/pysimFsShowError\(statusEl, data\.sw/g) || []).length, 3);
+	assert.strictEqual((html.match(/pysimFsShowError\(statusEl, data\.sw/g) || []).length, 6);
 	assert.ok(html.includes("btn.textContent = t('Verify ADM')"));
 	assert.ok(html.includes("el.setAttribute('onclick', 'pysimVerifyAdm()')"));
 });

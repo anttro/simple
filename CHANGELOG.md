@@ -9,6 +9,37 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.33.0] — 2026-10-23
+
+### Added
+
+- **Edit decoded** in the file manager: a file is read raw, decoded into its own editable
+  form, re-encoded in the browser and written through the normal update path.  The first
+  wave covers **EF.SPN**, **EF.PLMNwAcT / EF.OPLMNwAcT / EF.HPLMNwAcT**, the dialling-number
+  files **EF.ADN / EF.FDN / EF.SDN / EF.MSISDN / EF.LND / EF.BDN** and **EF.PNN**.  Shapes:
+  a flat transparent form (SPN), a transparent list editor with add/remove rows (PLMN+ACT),
+  per-record forms with a selection checkbox that is auto-checked when a field changes
+  (dialling numbers, PNN) and per-record TLV item rows with add/remove/edit (PNN's full and
+  short names plus the PLMN additional information).  All checked records are encoded and
+  validated before anything is written; unchanged fields, record lengths, extension
+  pointers (EF.EXT1–EXT5), the BDN comparison-method byte and unknown PNN TLVs are
+  preserved, and an edit that would break a reference (a number continued in an extension
+  file, a dropped mandatory PNN full name) is refused.
+- `docs/decoded-editing.md`: the file-format survey behind the design (every known EF
+  classified by structure/coding into the editor's shapes S0–S10, with the release waves).
+
+### Fixed
+
+- **EF.BDN** decodes and encodes with its own `X+15` layout (the trailing Comparison Method
+  Pointer); the shared ADN codec had treated it as `X+14`.
+- `efPlmnAct` decoded the EC-GSM-IoT-only ACT (`b8=1,b4=1,b3=0`, `0x0088`) as nothing while
+  checking the impossible `0x0086` (TS 31.102 Table 4.2.5.2).
+- PNN network names: the decoder now trusts a non-zero spare-bit count before the
+  "all bytes < 0x80 → uncompressed" heuristic, so a valid packed name can no longer be
+  misread (and later written back wrong).
+- `/api/write` and `/api/read` report a cmd2 exception in the captured output as a failure
+  instead of `success: true` with `SW: 9000`.
+
 ## [3.32.7] — 2026-10-23
 
 ### Removed

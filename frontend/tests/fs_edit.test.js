@@ -24,6 +24,8 @@ function extractFunc(src, name) {
 let code = 'var pysimFsDecodedMode = false;\n'
 	+ 'var pysimFsEditMode = false;\n'
 	+ 'var pysimFsEditData = null;\n'
+	+ 'var pysimFsDecEditMode = false;\n'
+	+ 'var pysimFsDecModel = null;\n'
 	+ 'var pysimFsSelected = null;\n'
 	+ 'var pysimFsTreeRoot = null;\n';
 for (const fn of ['pysimFsSetMode', 'pysimFsPillsEnabled', 'pysimFsEdit',
