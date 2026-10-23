@@ -28,6 +28,17 @@ every change carries a descriptive commit message.
 - `docs/decoded-editing.md`: the file-format survey behind the design (every known EF
   classified by structure/coding into the editor's shapes S0–S10, with the release waves).
 
+### Removed
+
+- The file manager's decoded view no longer carries the collapsed **pySim JSON (server)**
+  disclosure — the view is the client-side EF decoder's table only.  The disclosure was an
+  unrelated *second* decode: opening it issued another `/api/read` with `mode: 'decoded'`
+  to run pySim's `read_binary_decoded`/`read_records_decoded`, and it was reachable only
+  when our decoder covered the file (`Read decoded` is decoder-gated), so the one case
+  where a second opinion would matter — a file our decoders do not cover — never offered
+  it.  `/api/read` keeps `mode: 'decoded'` for API callers; the help, READMEs and project
+  notes say the decoded table is built in the browser from the same raw bytes.
+
 ### Fixed
 
 - **EF.BDN** decodes and encodes with its own `X+15` layout (the trailing Comparison Method
@@ -39,26 +50,6 @@ every change carries a descriptive commit message.
   misread (and later written back wrong).
 - `/api/write` and `/api/read` report a cmd2 exception in the captured output as a failure
   instead of `success: true` with `SW: 9000`.
-
-## [3.32.7] — 2026-10-23
-
-### Removed
-
-- The file manager's decoded view no longer carries the collapsed **pySim JSON
-  (server)** disclosure — the view is the client-side EF decoder's table only.  The
-  disclosure was an unrelated *second* decode: opening it issued another `/api/read` with
-  `mode: 'decoded'` to run pySim's `read_binary_decoded`/`read_records_decoded`, and it
-  was reachable only when our decoder covered the file (`Read decoded` is decoder-gated),
-  so the one case where a second opinion would matter — a file our decoders do not
-  cover — never offered it.  `/api/read` keeps `mode: 'decoded'` for API callers; the
-  help, READMEs and project notes now say the decoded table is built in the browser from
-  the same raw bytes.  `ef_decode.test.js` pins the view's output and the absence of the
-  lookup.
-
-## [3.32.6] — 2026-10-23
-
-### Fixed
-
 - The empty amber **preset-mismatch banner** no longer flashes on the SCP80/RAM view.
   `ramOpChanged()` (v3.28.0) un-hid `#ram-preset-warning` by the operation kind, but the
   banner's text *and* visibility belong to `spPresetWarningRender()` (which also handles
