@@ -1918,7 +1918,20 @@
 			</div>
 			<div class="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
 				<div id="ram-op-spin" class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+				<span id="ram-op-insert" class="hidden items-center" aria-hidden="true">
+					<svg viewBox="0 0 72 44" width="64" height="39" class="shrink-0">
+						<g class="ram-insert-card text-blue-600 dark:text-blue-400">
+							<rect x="27" y="1" width="18" height="26" rx="2.5" fill="currentColor"></rect>
+							<rect x="31" y="6" width="10" height="7" rx="1" fill="#fff" opacity="0.9"></rect>
+							<path d="M31 8.5h10M31 10.5h10M34.5 6v7M38.5 6v7" stroke="currentColor" stroke-width="0.6" opacity="0.55"></path>
+						</g>
+						<rect x="3" y="18" width="66" height="22" rx="4" fill="currentColor" class="text-gray-500 dark:text-slate-400"></rect>
+						<rect x="8" y="26" width="56" height="5" rx="2.5" fill="currentColor" class="text-gray-900" opacity="0.55"></rect>
+						<rect class="ram-insert-glow text-amber-500 dark:text-amber-400" x="8" y="26" width="56" height="5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+					</svg>
+				</span>
 				<span id="ram-op-status" data-l10n="Working...">Working...</span>
+				<button type="button" id="ram-op-sound" onclick="ramBatchToggleSound()" class="ml-auto hidden px-2 py-0.5 text-xs rounded-full border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700" aria-pressed="true" title="Sound on" aria-label="Sound on">🔊</button>
 			</div>
 			<div class="mt-2 w-full bg-gray-200 dark:bg-slate-700 rounded h-1.5">
 				<div id="ram-op-bar" class="bg-blue-600 dark:bg-blue-500 h-1.5 rounded" style="width:0%"></div>
@@ -1944,7 +1957,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.35.0';
+const SIMPLE_VERSION = '3.36.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10273,6 +10286,8 @@ function ramBatchModalOpen() {
 	document.getElementById('ram-op-spin').classList.add('hidden');
 	document.getElementById('ram-op-warn').classList.add('hidden');
 	document.getElementById('ram-op-batch-info').classList.remove('hidden');
+	const sound = document.getElementById('ram-op-sound');
+	if (sound) { sound.classList.remove('hidden'); ramBatchUpdateSoundButton(); }
 	modal.classList.remove('hidden');
 	ramBatchRender();                        // paint from the current state now
 }
@@ -10327,6 +10342,98 @@ function ramBatchModalRender(st, okLabel, actLabel) {
 	document.getElementById('ram-op-close').disabled = active;
 }
 
+// ===== batch "insert the next card" cue (v3.36.0) =====
+// The waiting phase is the only moment the operator must act, so it gets a
+// card-into-reader animation in the modal, an optional chime (edge-triggered:
+// once per card, not on every 2 s poll) and a tab-title hint while the tab is
+// hidden.  The chime needs an AudioContext unlocked by a gesture: the Start
+// click (and the sound toggle) do that; a reloaded page stays silent until the
+// next click.
+let _ramBatchWaiting = false;
+let _ramBatchAudio = null;
+let _ramBatchTitleBase = '';
+
+function ramBatchSoundEnabled() {
+	try { return localStorage.getItem('simple_ram_batch_sound') !== '0'; }
+	catch (e) { return true; }
+}
+
+function ramBatchUpdateSoundButton() {
+	const btn = document.getElementById('ram-op-sound');
+	if (!btn) return;
+	const on = ramBatchSoundEnabled();
+	btn.textContent = on ? '\u{1F50A}' : '\u{1F507}';
+	btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+	btn.title = t(on ? 'Sound on' : 'Sound off');
+	btn.setAttribute('aria-label', t(on ? 'Sound on' : 'Sound off'));
+}
+
+function ramBatchToggleSound() {
+	try { localStorage.setItem('simple_ram_batch_sound', ramBatchSoundEnabled() ? '0' : '1'); }
+	catch (e) { /* private mode */ }
+	ramBatchUpdateSoundButton();
+	if (ramBatchSoundEnabled()) ramBatchChime();   // a preview when turning it on
+}
+
+function ramBatchAudioUnlock() {
+	try {
+		if (typeof window === 'undefined') return;
+		const Ctor = window.AudioContext || window.webkitAudioContext;
+		if (!Ctor) return;
+		if (!_ramBatchAudio) _ramBatchAudio = new Ctor();
+		if (_ramBatchAudio.state === 'suspended') _ramBatchAudio.resume();
+	} catch (e) { _ramBatchAudio = null; }
+}
+
+function ramBatchChime() {
+	if (!ramBatchSoundEnabled()) return;
+	try {
+		if (typeof window === 'undefined') return;
+		const Ctor = window.AudioContext || window.webkitAudioContext;
+		if (!Ctor) return;
+		if (!_ramBatchAudio) _ramBatchAudio = new Ctor();
+		const ctx = _ramBatchAudio;
+		if (ctx.state === 'suspended') { ctx.resume().catch(() => {}); }
+		const start = ctx.currentTime + 0.02;
+		[880, 660].forEach((freq, i) => {
+			const osc = ctx.createOscillator();
+			const gain = ctx.createGain();
+			osc.type = 'sine';
+			osc.frequency.value = freq;
+			const at = start + i * 0.18;
+			gain.gain.setValueAtTime(0.0001, at);
+			gain.gain.exponentialRampToValueAtTime(0.18, at + 0.02);
+			gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.15);
+			osc.connect(gain);
+			gain.connect(ctx.destination);
+			osc.start(at);
+			osc.stop(at + 0.17);
+		});
+	} catch (e) { /* no audio available: the visual cue remains */ }
+}
+
+function ramBatchTitleHint(waiting) {
+	if (!_ramBatchTitleBase) _ramBatchTitleBase = document.title || 'SIMple';
+	const hint = !!waiting && !!document.hidden;
+	document.title = hint ? t('Insert next card') + ' \u2014 SIMple' : _ramBatchTitleBase;
+}
+
+// Called from ramBatchRender (the 2 s poll): returns true only on the
+// transition into the waiting phase, and updates the animation/title.
+function ramBatchWaitingCue(waiting) {
+	const entered = !!waiting && !_ramBatchWaiting;
+	_ramBatchWaiting = !!waiting;
+	const ins = document.getElementById('ram-op-insert');
+	if (ins) {
+		ins.classList.toggle('hidden', !waiting);
+		ins.classList.toggle('flex', !!waiting);
+	}
+	ramBatchTitleHint(waiting);
+	return entered;
+}
+
+document.addEventListener('visibilitychange', () => ramBatchTitleHint(_ramBatchWaiting));
+
 async function ramBatchFetch() {
 	if (_ramBatchFetching) return;
 	_ramBatchFetching = true;
@@ -10378,6 +10485,10 @@ function ramBatchRender() {
 	const st = ramBatchMergedState();
 	const active = !!st.active;
 	const phase = st.phase || (active ? 'waiting_card' : 'idle');
+	// The waiting cue: the animation in the modal, the chime once per card and
+	// the tab-title hint (v3.36.0).
+	const waiting = active && phase !== 'installing' && phase !== 'stopping';
+	if (ramBatchWaitingCue(waiting)) ramBatchChime();
 	// The success labels follow the operation (v3.29.0): the counts bucket is
 	// 'installed' for every kind - "the operation succeeded".  The last seen
 	// kind is remembered for the modal's title and these labels, so a cleared
@@ -10526,6 +10637,8 @@ function ramInstallCapFields() {
 }
 
 async function ramBatchStart() {
+	// The click is the gesture the waiting chime needs later.
+	ramBatchAudioUnlock();
 	// The operation selects the batch kind (v3.29.0): the .cap install, the
 	// applet reinstall (no .cap - the package is loaded) or a GP delete.  The
 	// server builds and validates the plan once at Start.
@@ -10634,6 +10747,10 @@ function ramOpModalBegin(title) {
 		'mt-2 text-xs font-mono whitespace-pre-wrap overflow-auto text-gray-700 dark:text-slate-300';
 	document.getElementById('ram-op-close').disabled = true;
 	document.getElementById('ram-op-spin').classList.remove('hidden');
+	const ins = document.getElementById('ram-op-insert');
+	if (ins) { ins.classList.add('hidden'); ins.classList.remove('flex'); }
+	const snd = document.getElementById('ram-op-sound');
+	if (snd) snd.classList.add('hidden');
 	document.getElementById('ram-op-warn').classList.remove('hidden');
 	document.getElementById('ram-op-batch-info').classList.add('hidden');
 	document.getElementById('ram-op-batch-stop').classList.add('hidden');
@@ -26786,6 +26903,9 @@ const LANG_RU = {
 	'Reinstalling...': 'Переустановка…',
 	'Stopping after the current card...': 'Остановка после текущей карты…',
 	'Insert next card. Waiting for a card...': 'Вставьте следующую карту. Ожидание карты…',
+	'Insert next card': 'Вставьте следующую карту',
+	'Sound on': 'Звук включён',
+	'Sound off': 'Звук выключен',
 	'Installed': 'Установлено',
 	'Deleted': 'Удалено',
 	'Reinstalled': 'Переустановлено',

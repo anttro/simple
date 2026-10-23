@@ -28,7 +28,10 @@ for (const fn of ['ramIsBatchOp', 'ramBatchPanelVisible', 'ramBatchMergedState',
 	'ramBatchStepsText',
 	'ramBatchAttemptsHtml', 'ramBatchRender', 'ramBatchApplyStatus', 'ramBatchFetch',
 	'ramBatchStart', 'ramBatchStop', 'ramBatchClear', 'ramOpProgressText',
-	'ramOpModalClose', 'esc']) {
+	'ramOpModalClose', 'esc',
+	'ramBatchSoundEnabled', 'ramBatchUpdateSoundButton', 'ramBatchToggleSound',
+	'ramBatchAudioUnlock', 'ramBatchChime', 'ramBatchTitleHint',
+	'ramBatchWaitingCue']) {
 	code += extractFunc(html, fn, ASYNC_FNS.indexOf(fn) >= 0) + '\n';
 }
 
@@ -39,7 +42,9 @@ const els = {};
 function setEl(id, value) {
 	els[id] = {
 		id: id, value: value === undefined ? '' : value, textContent: '', innerHTML: '',
-		disabled: false, style: {},
+		disabled: false, style: {}, title: '', attrs: {},
+		setAttribute(k, v) { els[id].attrs[k] = String(v); },
+		getAttribute(k) { return els[id].attrs[k]; },
 		classes: {},
 		classList: {
 			add(c) { els[id].classes[c] = true; },
@@ -64,7 +69,8 @@ function clearEls() {
 function setModalEls() {
 	for (const id of ['ram-op-modal', 'ram-op-title', 'ram-op-status', 'ram-op-bar',
 		'ram-op-steps', 'ram-op-spin', 'ram-op-warn', 'ram-op-close',
-		'ram-op-batch-info', 'ram-op-batch-stop', 'ram-op-batch-clear']) setEl(id, '');
+		'ram-op-batch-info', 'ram-op-batch-stop', 'ram-op-batch-clear',
+		'ram-op-insert', 'ram-op-sound']) setEl(id, '');
 }
 function setPanelEls() {
 	for (const id of ['ram-op', 'ram-batch-panel', 'ram-batch-start', 'ram-batch-stop',
@@ -75,7 +81,17 @@ function setPanelEls() {
 
 const app = new Function('els', `
 	var sandbox = { fetched: [], replies: {}, fetchError: null, alerts: [], visibility: true };
-	var document = { getElementById: id => els[id] || null };
+	var document = {
+		getElementById: id => els[id] || null,
+		hidden: false, title: 'SIMple',
+		addEventListener: () => {},
+	};
+	var _ls = {};
+	var localStorage = {
+		getItem: k => (k in _ls ? _ls[k] : null),
+		setItem: (k, v) => { _ls[k] = String(v); },
+		removeItem: k => { delete _ls[k]; },
+	};
 	var t = k => k;
 	var isViewVisible = () => sandbox.visibility;
 	var alert = m => sandbox.alerts.push(String(m));
@@ -109,6 +125,9 @@ const app = new Function('els', `
 	var _ramBatchFetchAt = 0;
 	var _ramBatchSummary = null;
 	var _ramBatchProgress = null;
+	var _ramBatchWaiting = false;
+	var _ramBatchAudio = null;
+	var _ramBatchTitleBase = '';
 	var RAM_BATCH_FETCH_STALE_MS = ${RAM_BATCH_FETCH_STALE_MS};
 	${code}
 	sandbox.getLast = () => _ramBatchLast;
@@ -134,6 +153,16 @@ const app = new Function('els', `
 	sandbox.ramBatchStart = ramBatchStart;
 	sandbox.ramBatchStop = ramBatchStop;
 	sandbox.ramBatchClear = ramBatchClear;
+	sandbox.ramBatchWaitingCue = ramBatchWaitingCue;
+	sandbox.ramBatchTitleHint = ramBatchTitleHint;
+	sandbox.ramBatchSoundEnabled = ramBatchSoundEnabled;
+	sandbox.ramBatchUpdateSoundButton = ramBatchUpdateSoundButton;
+	sandbox.ramBatchToggleSound = ramBatchToggleSound;
+	sandbox.setHidden = v => { document.hidden = !!v; };
+	sandbox.getTitle = () => document.title;
+	sandbox.resetWaiting = () => { _ramBatchWaiting = false; };
+	sandbox.storage = _ls;
+	sandbox.resetStorage = () => { for (const k of Object.keys(_ls)) delete _ls[k]; };
 	return sandbox;
 `)(els);
 
@@ -638,4 +667,71 @@ test('the stop and clear calls hit their endpoints', async () => {
 	await app.ramBatchClear();
 	await new Promise(r => setImmediate(r));
 	assert.deepStrictEqual(app.fetched, ['/api/ram-batch/stop', '/api/ram-batch/clear', '/api/ram-batch/status']);
+});
+
+
+test('the waiting cue fires once per card and drives the insert animation (v3.36.0)', () => {
+	clearEls();
+	setPanelEls();
+	setModalEls();
+	app.resetWaiting();
+	assert.strictEqual(app.ramBatchWaitingCue(true), true, 'entering waiting cues');
+	assert.strictEqual(app.ramBatchWaitingCue(true), false, 'still waiting: no repeat');
+	assert.strictEqual(app.ramBatchWaitingCue(false), false, 'installing resets');
+	assert.strictEqual(app.ramBatchWaitingCue(true), true, 'the next card cues again');
+	assert.ok(els['ram-op-insert'].classes['flex'] === true);
+	assert.ok(!els['ram-op-insert'].classes['hidden']);
+	app.ramBatchWaitingCue(false);
+	assert.ok(els['ram-op-insert'].classes['hidden']);
+	// the render drives it from the phase
+	app.setLast({ active: true, phase: 'waiting_card', attempts: [], counts: {}, attempts_total: 0, notice: '' });
+	app.ramBatchRender();
+	assert.ok(!els['ram-op-insert'].classes['hidden']);
+	app.setLast({ active: true, phase: 'installing', current: { iccid: '8970119000004600098' },
+		attempts: [], counts: {}, attempts_total: 1 });
+	app.ramBatchRender();
+	assert.ok(els['ram-op-insert'].classes['hidden']);
+});
+
+test('the sound toggle persists and updates the button (v3.36.0)', () => {
+	clearEls();
+	setModalEls();
+	app.resetStorage();
+	assert.strictEqual(app.ramBatchSoundEnabled(), true, 'sound is on by default');
+	app.ramBatchUpdateSoundButton();
+	assert.strictEqual(els['ram-op-sound'].textContent, '\u{1F50A}');
+	assert.strictEqual(els['ram-op-sound'].attrs['aria-pressed'], 'true');
+	app.ramBatchToggleSound();
+	assert.strictEqual(app.ramBatchSoundEnabled(), false);
+	assert.strictEqual(app.storage['simple_ram_batch_sound'], '0');
+	assert.strictEqual(els['ram-op-sound'].textContent, '\u{1F507}');
+	assert.strictEqual(els['ram-op-sound'].attrs['aria-pressed'], 'false');
+	app.ramBatchToggleSound();
+	assert.strictEqual(app.ramBatchSoundEnabled(), true);
+});
+
+test('the tab title hints while the run waits and the tab is hidden (v3.36.0)', () => {
+	app.setHidden(false);
+	app.ramBatchTitleHint(true);
+	assert.strictEqual(app.getTitle(), 'SIMple');
+	app.setHidden(true);
+	app.ramBatchTitleHint(true);
+	assert.strictEqual(app.getTitle(), 'Insert next card \u2014 SIMple');
+	app.setHidden(false);
+	app.ramBatchTitleHint(true);
+	assert.strictEqual(app.getTitle(), 'SIMple');
+});
+
+test('the waiting cue is wired into the poll render, the Start gesture and the CSS (v3.36.0)', () => {
+	const render = extractFunc(html, 'ramBatchRender');
+	assert.match(render, /const waiting = active && phase !== 'installing' && phase !== 'stopping';/);
+	assert.match(render, /if \(ramBatchWaitingCue\(waiting\)\) ramBatchChime\(\);/);
+	assert.match(extractFunc(html, 'ramBatchStart'), /ramBatchAudioUnlock\(\)/);
+	assert.match(html, /id="ram-op-insert"/);
+	assert.match(html, /id="ram-op-sound"/);
+	const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+	assert.match(css, /\.ram-insert-card/);
+	assert.match(css, /@keyframes ram-insert/);
+	assert.match(css, /\.ram-insert-glow/);
+	assert.match(css, /prefers-reduced-motion: reduce/);
 });

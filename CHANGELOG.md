@@ -9,6 +9,25 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.36.0] — 2026-10-23
+
+### Added
+
+- The batch **"waiting for the next card"** state is now a deliberate cue: the status
+  modal shows a card-into-reader animation next to the prompt, a short chime sounds
+  **once per card** when the run enters the waiting phase (Web Audio — no audio asset;
+  edge-triggered in the 2 s poll, so it does not repeat), and while the tab is hidden the
+  title hints "Insert next card".  The speaker button next to the status mutes the chime
+  and the choice is remembered (`simple_ram_batch_sound`); the chime is unlocked by the
+  Start click (browser autoplay policy); reduced-motion users get the static card-above-
+  the-slot picture.
+
+### Fixed
+
+- The prebuilt `style.css` had gone stale: a rebuild restored utility classes the UI
+  already used but the output lacked (e.g. `bg-blue-50` on the batch notice, `inline-flex`,
+  `mx-2`, `max-h-48`, `w-44`, `min-w-24`).
+
 ## [3.35.0] — 2026-10-23
 
 ### Added

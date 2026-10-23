@@ -5,3 +5,26 @@
 .dark .text-heading {
   color: #f1f5f9;
 }
+/* RAM batch: the "insert the next card" cue (v3.36.0).
+   The card slides into the reader slot and back; the slot glows while the
+   run waits.  The static transform is the reduced-motion fallback: the card
+   rests above the slot. */
+.ram-insert-card {
+  transform: translateY(-14px);
+  animation: ram-insert 2.8s ease-in-out infinite;
+}
+@keyframes ram-insert {
+  0%, 12% { transform: translateY(-14px); }
+  45%, 55% { transform: translateY(10px); }
+  88%, 100% { transform: translateY(-14px); }
+}
+.ram-insert-glow {
+  animation: ram-insert-glow 1.4s ease-in-out infinite;
+}
+@keyframes ram-insert-glow {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.95; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ram-insert-card, .ram-insert-glow { animation: none; }
+}

@@ -616,6 +616,10 @@ video {
   pointer-events: none;
 }
 
+.\!visible {
+  visibility: visible !important;
+}
+
 .visible {
   visibility: visible;
 }
@@ -682,6 +686,11 @@ video {
 
 .col-span-4 {
   grid-column: span 4 / span 4;
+}
+
+.mx-2 {
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
 }
 
 .mx-3 {
@@ -807,6 +816,10 @@ video {
   display: flex;
 }
 
+.inline-flex {
+  display: inline-flex;
+}
+
 .table {
   display: table;
 }
@@ -841,6 +854,10 @@ video {
 
 .max-h-32 {
   max-height: 8rem;
+}
+
+.max-h-48 {
+  max-height: 12rem;
 }
 
 .max-h-56 {
@@ -935,6 +952,10 @@ video {
   width: 10rem;
 }
 
+.w-44 {
+  width: 11rem;
+}
+
 .w-48 {
   width: 12rem;
 }
@@ -978,6 +999,10 @@ video {
 
 .min-w-0 {
   min-width: 0px;
+}
+
+.min-w-24 {
+  min-width: 6rem;
 }
 
 .min-w-\[12rem\] {
@@ -1395,6 +1420,11 @@ video {
   background-color: rgb(219 234 254 / var(--tw-bg-opacity, 1));
 }
 
+.bg-blue-50 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(239 246 255 / var(--tw-bg-opacity, 1));
+}
+
 .bg-blue-50\/50 {
   background-color: rgb(239 246 255 / 0.5);
 }
@@ -1796,6 +1826,11 @@ video {
   color: rgb(31 41 55 / var(--tw-text-opacity, 1));
 }
 
+.text-gray-900 {
+  --tw-text-opacity: 1;
+  color: rgb(17 24 39 / var(--tw-text-opacity, 1));
+}
+
 .text-green-600 {
   --tw-text-opacity: 1;
   color: rgb(22 163 74 / var(--tw-text-opacity, 1));
@@ -1893,8 +1928,58 @@ video {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
+.transition {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
 .dark .text-heading {
   color: #f1f5f9;
+}
+
+/* RAM batch: the "insert the next card" cue (v3.36.0).
+   The card slides into the reader slot and back; the slot glows while the
+   run waits.  The static transform is the reduced-motion fallback: the card
+   rests above the slot. */
+
+.ram-insert-card {
+  transform: translateY(-14px);
+  animation: ram-insert 2.8s ease-in-out infinite;
+}
+
+@keyframes ram-insert {
+  0%, 12% {
+    transform: translateY(-14px);
+  }
+
+  45%, 55% {
+    transform: translateY(10px);
+  }
+
+  88%, 100% {
+    transform: translateY(-14px);
+  }
+}
+
+.ram-insert-glow {
+  animation: ram-insert-glow 1.4s ease-in-out infinite;
+}
+
+@keyframes ram-insert-glow {
+  0%, 100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ram-insert-card, .ram-insert-glow {
+    animation: none;
+  }
 }
 
 .hover\:bg-amber-100:hover {
@@ -1954,11 +2039,6 @@ video {
 .hover\:bg-gray-700:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(55 65 81 / var(--tw-bg-opacity, 1));
-}
-
-.hover\:bg-red-100:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgb(254 226 226 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-red-200:hover {
@@ -2091,6 +2171,10 @@ video {
 
 .dark\:bg-blue-900\/10:is(.dark *) {
   background-color: rgb(30 58 138 / 0.1);
+}
+
+.dark\:bg-blue-900\/20:is(.dark *) {
+  background-color: rgb(30 58 138 / 0.2);
 }
 
 .dark\:bg-blue-900\/40:is(.dark *) {
@@ -2258,10 +2342,6 @@ video {
   background-color: rgb(6 78 59 / 0.4);
 }
 
-.dark\:hover\:bg-red-900\/40:hover:is(.dark *) {
-  background-color: rgb(127 29 29 / 0.4);
-}
-
 .dark\:hover\:bg-red-900\/50:hover:is(.dark *) {
   background-color: rgb(127 29 29 / 0.5);
 }
@@ -2287,6 +2367,11 @@ video {
 .dark\:hover\:text-gray-300:hover:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(209 213 219 / var(--tw-text-opacity, 1));
+}
+
+.dark\:hover\:text-slate-200:hover:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(226 232 240 / var(--tw-text-opacity, 1));
 }
 
 .dark\:hover\:text-slate-300:hover:is(.dark *) {
@@ -2328,7 +2413,8 @@ video {
   .lg\:flex-row {
     flex-direction: row;
   }
-}/* ===== Theme contrast adjustments ===== */
+}
+/* ===== Theme contrast adjustments ===== */
 
 /* Light theme: darken softer (muted) text one step for higher contrast */
 .text-gray-400 {
