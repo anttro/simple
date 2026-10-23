@@ -1,7 +1,8 @@
 # Decoded editing — file-format survey and design
 
-Status: design note for the **Edit decoded** feature.  Waves 1 and 2 shipped in
-v3.33.0 and v3.34.0; decoded editing for EF.DIR/EF.ARR/EF.SMS/EF.PBR is
+Status: design note for the **Edit decoded** feature.  Waves 1–3 shipped in
+v3.33.0 (SPN/PLMN/ADN/PNN), v3.34.0 (service tables/scalars/PLMN lists/BCD/CB)
+and v3.35.0 (EF.SMSP); decoded editing for EF.DIR/EF.ARR/EF.SMS/EF.PBR is
 **postponed by decision** (their decoded view is enough).  It classifies
 the EFs the workbench knows (the client-side decoder registry) by the spec's
 own structure and content coding, assigns each an editing *shape*, and sets the
@@ -108,7 +109,7 @@ editing candidates.
 | EF.ECC (SIM) | 6FB7 | TS 51.011 10.3.27 | 3n | emergency codes (TR) | S6 | 3.35 |
 | EF.ECC (USIM) | 6FB7 | TS 31.102 4.2.21 | X+4 | code(3) + alpha(X) + category(1) | S7 | 3.35 |
 | EF.EXT1–EXT5 | 6F4A–6F55 | TS 31.102 4.4.2.4 / 4.2.30/31/45/37 | 13 | type-dependent: additional data / subaddress | S9 | 3.36 |
-| EF.SMSP | 6F42 | TS 31.102 4.2.27 | 28+Y | alpha + parameter indicators + TP-DA/SCA/PID/DCS/VP | S10 | on request only |
+| EF.SMSP | 6F42 | TS 31.102 4.2.27 | 28+Y | alpha + parameter indicators + TP-DA/SCA/PID/DCS/VP | S10 | **3.35** |
 | EF.SMS | 6F3C | TS 31.102 4.2.25 | 176 | status byte + TPDU | S10 | **postponed (read-only)** |
 | EF.ARR | 2F06/6F06 | TS 31.102 4.2.55 | X | access-rule TLVs (ISO 7816-4) | S8/S9 | **postponed (read-only)** |
 | EF.DIR | 2F00 | TS 51.011 10.3.3 | X | application template TLVs (61 > 4F/50/73…) | S8/S9 | **postponed (read-only)** |
@@ -169,7 +170,15 @@ beyond S9/S10.
     count and 1 for an even one; the first encoder always wrote 9.
 12. **SIM EF.LP/EF.PL use the 1-byte DCS language coding**, unlike the USIM
     EF.LI's 2-byte ISO 639 letters — the shared decoder is wrong for the SIM
-    files (queued with the 3.35 language work).
+    files (queued with the language work).
+13. **EF.SMSP's parameter indicators are a five-bit presence map with inverted
+    meaning** (TS 31.102 §4.2.27: bit 1 DA, 2 SCA, 3 PID, 4 DCS, 5 VP; bit = 1
+    means *absent*; bits 6–8 reserved = 1).  The decoder had the bits shifted
+    (SCA on 5, PID on 2, DCS on 3, VP on 4), so mixed indicators were misread.
+14. **The two address slots use different length conventions**: TP-DA's length
+    is the digit count (TS 23.040 §9.1.2.5), TS-SCA's is the octet count of
+    TON/NPI + digits with 0 = default SMSC (TS 24.011 §8.2.5.2); the decoder
+    read the DA slot as octets.  Both are handled explicitly now.
 
 ## 4. Release waves
 
@@ -183,7 +192,13 @@ beyond S9/S10.
   CBMI/CBMID/CBMIR.  Decoder fixes: ACC class numbering, the AD operation
   mode / MNC-length rules, the SST 2-bit layout (read-only for now) and the
   IMSI parity nibble.
-- **v3.35.0** — LI/LP/PL (the SIM files need the 1-byte DCS language coding
+- **v3.35.0 (shipped)** — EF.SMSP as the first S10 dedicated builder: the full
+  parameter form (alpha; TP-DA and TS-SCA with their own length conventions
+  and TON; TP-PID; TP-DCS with TS 23.038 hints; the relative TP-VP with the
+  TS 23.040 ladder), a per-parameter *absent (the ME default applies)* state,
+  verbatim preservation of unchanged slots (including alphanumeric TON
+  addresses) and the parameter-indicator and TP-DA-length decoder fixes.
+- **v3.36.0** — LI/LP/PL (the SIM files need the 1-byte DCS language coding
   and a name-dependent decoder), GID1/GID2 (the clause states no coding —
   verify TS 31.101 first), SPDI (the A3 > 80 wrapper), OPL (PNN record
   select), ECC (SIM and USIM — needs a structure-aware decode), SUUME,
@@ -191,8 +206,6 @@ beyond S9/S10.
 - **Postponed by decision (read-only; do not implement without confirmation)**
   — EF.DIR, EF.ARR, EF.SMS, EF.PBR: they rarely need manual changes and the
   decoded view is enough.
-- **On request only** — EF.SMSP (a parameter form; no TPDU/parameter builder
-  exists in the PWA today).
 - **Read-only forever (S0)** unless a dedicated flow appears: LOCI/PSLOCI/
   EPSLOCI/EPSNSC/LOCIGPRS, Kc/KcGPRS, Keys/KeysPS, ACM, START-HFN/THRESHOLD,
   call logs (ME-written), DCK/NETPAR.

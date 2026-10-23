@@ -27,7 +27,7 @@ const FNS = [
 	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecSst', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
 	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
-	'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
+	'efSmspDaNumber', 'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
 	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
 	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
 	'efDecodeFile', 'efDecodeHex', 'efIsRawOnly', 'efFieldLabel', 'efPrimitive', 'efFlatten',
@@ -278,11 +278,39 @@ test('EF record decoders: SMS, OPL, DIR, ARR, IMPI/SMSP', () => {
 	assert.strictEqual(smsp.sca, '+4915790109999');
 	assert.strictEqual(smsp.tp_pid, '0x00');
 	assert.strictEqual(smsp.tp_dcs, '0x00');
+	assert.strictEqual(smsp.tp_vp, '0xA9');
+	assert.strictEqual(smsp.indicators, '0xE1');
+	assert.strictEqual(smsp.tp_da, undefined);
 	// EF.SMS status byte + skip SMSC + TPDU
 	const sms = efDecSms(efBytes('030891945197109099f90000'));
 	assert.strictEqual(sms.direction, 'MT');
 	assert.strictEqual(sms.status, 'message to be read');
 	assert.strictEqual(sms.tpdu, '0000');
+});
+
+test('EF.SMSP decodes the indicator bits (TS 31.102 4.2.27)', () => {
+	// live card record: DA absent (0x01), SCA present, PID present, DCS absent
+	// (0x08), VP present; bits 6..8 reserved = 1 -> 0xE9
+	const live = efDecSmsp(efBytes('ffffffffffffffffffffffffffe9ffffffffffffffffffffffff07919733824009f0ffffffff0000ff'));
+	assert.deepStrictEqual(live, {
+		indicators: '0xE9',
+		sca: '+79332804900',
+		tp_pid: '0x00',
+		tp_vp: '0xFF',
+	});
+	assert.strictEqual(live.tp_da, undefined);
+	assert.strictEqual(live.tp_dcs, undefined);   // DCS absent, its 00 slot kept raw for the editor
+});
+
+test('EF.SMSP reads the TP-DA length as a digit count (00 padding is not ABS)', () => {
+	// alpha FF x13 | indicator FE (DA present, rest absent) |
+	// DA 04 81 21 43 00 00 FF... ("1234" padded with 00, not FF)
+	const hex = 'FF'.repeat(13) + 'FE' + '048121430000FFFFFFFFFFFF'
+		+ 'FF'.repeat(12) + 'FF' + 'FF' + 'FF';
+	assert.deepStrictEqual(efDecSmsp(efBytes(hex)), {
+		indicators: '0xFE',
+		tp_da: '1234',
+	});
 });
 
 test('service tables: UST service bits and IST fallback for 6F07', () => {

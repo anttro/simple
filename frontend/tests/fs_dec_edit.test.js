@@ -40,7 +40,7 @@ function extractConst(src, name) {
 }
 
 const FNS = [
-	'efBytes', 'efHex', 'efAllFf', 'efRstripFf', 'efUcs2Be', 'efGsm7Octets',
+	'efBytes', 'efHex', 'efSwapNibbles', 'efAllFf', 'efRstripFf', 'efUcs2Be', 'efGsm7Octets',
 	'efAnnexA', 'efBcdAddress', 'efPlmn', 'efPlmnAct', 'efDecSpn', 'efDecPlmnWact',
 	'efDecAdn', 'efFindDecoder', 'efDecodeBytes', 'efIsRawOnly', 'efTlv',
 	'efPnnText', 'efDecItemsFromHex',
@@ -56,14 +56,14 @@ const FNS = [
 	'pysimFsHasDecoder', 'pysimFsHasEncoder', 'pysimFsDecSave', 'pysimFsDecEdit',
 	'pysimFsPillsEnabled', 'pysimFsSyncContentVisibility', 'gsm7Decode',
 	'gsm7TextToSeptets', 'gsm7Encode',
-	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
 ];
 
 let code = 'var pysimFsSelected = null;\nvar pysimFsTreeRoot = null;\nvar pysimFsDecModel = null;\n'
 	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -904,4 +904,205 @@ test('F5: an untouched all-FF AD saves FF through the collected form value', asy
 	await pysimFsDecSave(null, 'EF.AD', status, out, false);
 	assert.strictEqual(stubs.bodies.length, 1);
 	assert.strictEqual(stubs.bodies[0].body.data, 'FF'.repeat(6));
+});
+
+// EF.SMSP: the custom (dedicated builder) entry kind.
+const SMSP_FIX = 'ffffffffffffffffffffffffffe9ffffffffffffffffffffffff07919733824009f0ffffffff0000ff';
+
+function smspSaveBlock(orig, num, values) {
+	const inputs = { alpha: { value: values.alpha } };
+	for (const key of ['da', 'sca', 'pid', 'dcs', 'vp']) {
+		const p = values.params[key];
+		if (key === 'da' || key === 'sca') {
+			inputs[key + '.number'] = { value: p.number };
+			inputs[key + '.ton'] = { value: String(p.ton) };
+		} else {
+			inputs[key + '.value'] = { value: p.value };
+		}
+	}
+	const rows = {};
+	for (const key of ['da', 'sca', 'pid', 'dcs', 'vp']) {
+		rows[key] = {
+			querySelector: sel => sel === '[data-smsp-absent="' + key + '"]'
+				? { checked: !values.params[key].present } : null,
+		};
+	}
+	return {
+		querySelector: sel => {
+			if (sel === '.pysim-fs-record-cb') return { checked: true };
+			let m = /^\[data-smsp="(.+)"\]$/.exec(sel);
+			if (m) return inputs[m[1]] || null;
+			m = /^\[data-smsp-orig="(.+)"\]$/.exec(sel);
+			return m ? (rows[m[1]] || null) : null;
+		},
+		querySelectorAll: () => [],
+		getAttribute: k => k === 'data-rec' ? String(num) : (k === 'data-orig' ? orig : null),
+	};
+}
+
+test('the SMSP custom form renders the parameter rows, presence and hints', () => {
+	const model = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [{ num: 1, data: SMSP_FIX }] });
+	assert.strictEqual(model.mode, 'records');
+	assert.strictEqual(model.records[0].values.params.sca.number, '+79332804900');
+	const out = efDecEditHtml(model);
+	assert.match(out, /class="pysim-dec-items/);
+	assert.match(out, /data-smsp="alpha" value=""/);
+	assert.match(out, /data-smsp-absent="da" checked/);
+	assert.doesNotMatch(out, /data-smsp-absent="sca" checked/);
+	assert.match(out, /data-smsp="sca.number" value="\+79332804900"/);
+	assert.match(out, /data-smsp="pid.value" value="0x00"/);
+	assert.match(out, /data-smsp="dcs.value" value="0x00"/);
+	assert.match(out, /data-smsp="vp.value" value="0xFF"/);
+	// an absent DCS shows the neutral ME-default note (not a decoded hint);
+	// the present VP still shows its relative-VP hint
+	assert.match(out, /data-smsp-hint>absent — the ME default applies/);
+	assert.doesNotMatch(out, /general data coding/);
+	assert.match(out, /63 weeks/);
+	assert.match(out, /TS 23.040 TP-PID \(raw\)/);
+	// a present DCS renders its decoded TS 23.038 hint (the 44-byte vector)
+	const vec = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [{ num: 1,
+		data: '534d5343ffffffffffffffffffffffffe1ffffffffffffffffffffffff0891945197109099f9ffffff0000a9' }] });
+	assert.match(efDecEditHtml(vec), /general data coding, GSM 7-bit, uncompressed/);
+});
+
+test('the SMSP custom collect reads the rows back with their original slots', () => {
+	const model = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [{ num: 1, data: SMSP_FIX }] });
+	const block = smspSaveBlock(SMSP_FIX, 1, model.records[0].values);
+	assert.deepStrictEqual(efSmspCollect(block), {
+		alpha: '',
+		params: {
+			da: { present: false, number: '', ton: 1 },
+			sca: { present: true, number: '+79332804900', ton: 1 },
+			pid: { present: true, value: '0x00' },
+			dcs: { present: false, value: '0x00' },
+			vp: { present: true, value: '0xFF' },
+		},
+	});
+});
+
+test('an untouched SMSP record saves byte-identically; an edit re-encodes', async () => {
+	const entry = efFindEncoder('EF.SMSP', null);
+	const model = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [{ num: 1, data: SMSP_FIX }] });
+	pysimFsDecModel = model;
+	const out = { querySelector: () => null,
+		querySelectorAll: sel => sel === '.pysim-dec-rec'
+			? [smspSaveBlock(SMSP_FIX, 1, model.records[0].values)] : [] };
+	let stubs = saveStubs({ success: true, sw: '9000' });
+	let status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.SMSP', status, out, false);
+	assert.strictEqual(stubs.bodies.length, 1);
+	assert.strictEqual(stubs.bodies[0].body.record_nr, 1);
+	assert.strictEqual(stubs.bodies[0].body.data, SMSP_FIX.toUpperCase());
+	// edit the SCA number
+	const edited = JSON.parse(JSON.stringify(model.records[0].values));
+	edited.params.sca.number = '+4915790109999';
+	stubs = saveStubs({ success: true, sw: '9000' });
+	status = { textContent: '' };
+	const out2 = { querySelector: () => null,
+		querySelectorAll: sel => sel === '.pysim-dec-rec' ? [smspSaveBlock(SMSP_FIX, 1, edited)] : [] };
+	await pysimFsDecSave(null, 'EF.SMSP', status, out2, false);
+	assert.strictEqual(stubs.bodies[0].body.data, efEncSmsp(edited, SMSP_FIX));
+});
+
+test('the SMSP absent toggle disables the row inputs and the hex hint is live', () => {
+	const inputs = [{ disabled: false }, { disabled: false }];
+	const hint = { textContent: '' };
+	const row = {
+		getAttribute: () => 'dcs',
+		querySelector: sel => sel === '[data-smsp-hint]' ? hint : null,
+		querySelectorAll: sel => sel === '[data-smsp]' ? inputs : [],
+	};
+	const cb = { checked: true, closest: sel => sel === '[data-smsp-orig]' ? row : null };
+	pysimFsSmspToggle(cb);
+	assert.ok(inputs.every(i => i.disabled));
+	pysimFsSmspHexInput({ value: 'F4', closest: sel => sel === '[data-smsp-orig]' ? row : null });
+	assert.strictEqual(hint.textContent, 'data coding, 8-bit data, class 0');
+	const vpHint = { textContent: '' };
+	const vpRow = {
+		getAttribute: () => 'vp',
+		querySelector: sel => sel === '[data-smsp-hint]' ? vpHint : null,
+	};
+	pysimFsSmspHexInput({ value: '90', closest: () => vpRow });
+	assert.strictEqual(vpHint.textContent, '12 h 30 min');
+});
+
+test('the SMSP entry is wired into the encoder registry', () => {
+	const entry = efFindEncoder('EF.SMSP', null);
+	assert.strictEqual(entry.fid, '6f42');
+	assert.strictEqual(typeof entry.custom.html, 'function');
+	assert.strictEqual(typeof entry.custom.collect, 'function');
+	assert.strictEqual(typeof entry.custom.model, 'function');
+	assert.strictEqual(efHasEncoder('EF.SMSP', '6f42'), true);
+});
+
+const SMSP_ALNUM = 'FF'.repeat(13) + 'FE' + '0750414243444546FFFFFFFF'
+	+ 'FF'.repeat(12) + 'FF' + 'FF' + 'FF';
+const SMSP_VEC = '534d5343ffffffffffffffffffffffffe1ffffffffffffffffffffffff0891945197109099f9ffffff0000a9';
+
+test('the SMSP TON 5 alphanumeric slot is read-only in the form', () => {
+	const model = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [{ num: 1, data: SMSP_ALNUM }] });
+	assert.strictEqual(model.records[0].values.params.da.alnum, true);
+	const out = efDecEditHtml(model);
+	assert.doesNotMatch(out, /data-smsp="da.number"/);
+	assert.doesNotMatch(out, /data-smsp="da.ton"/);
+	assert.match(out, /alphanumeric address — not editable here; it is preserved as is/);
+	assert.match(out, /0750414243444546FFFFFFFF/);
+	// still togglable absent, and the encoder keeps it verbatim while present
+	const block = smspSaveBlock(SMSP_ALNUM, 1, model.records[0].values);
+	const vals = efSmspCollect(block);
+	assert.strictEqual(vals.params.da.present, true);
+	assert.strictEqual(efEncSmsp(vals, SMSP_ALNUM), SMSP_ALNUM.toUpperCase());
+});
+
+test('the SMSP TON select keeps an unknown current value', () => {
+	const model = efSmspModel(SMSP_FIX);
+	model.params.sca.ton = 3;
+	const html = efSmspHtml(model);
+	assert.match(html, /<option value="3" selected>Current 3<\/option>/);
+});
+
+test('a multi-record SMSP save scopes each block to its own record', async () => {
+	const entry = efFindEncoder('EF.SMSP', null);
+	// record 1 untouched, record 2 (the 44-byte vector) with an edited alpha
+	const model = efDecEditModel('EF.SMSP', '6f42', { kind: 'record', records: [
+		{ num: 1, data: SMSP_FIX }, { num: 2, data: SMSP_VEC },
+	] });
+	const edited = JSON.parse(JSON.stringify(model.records[1].values));
+	edited.alpha = 'Two';
+	pysimFsDecModel = model;
+	const blocks = [smspSaveBlock(SMSP_FIX, 1, model.records[0].values),
+		smspSaveBlock(SMSP_VEC, 2, edited)];
+	const out = { querySelector: () => null,
+		querySelectorAll: sel => sel === '.pysim-dec-rec' ? blocks : [] };
+	const stubs = saveStubs({ success: true, sw: '9000' });
+	const status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.SMSP', status, out, false);
+	assert.strictEqual(stubs.bodies.length, 2);
+	assert.deepStrictEqual(stubs.bodies.map(b => b.body.record_nr), [1, 2]);
+	assert.strictEqual(stubs.bodies[0].body.data, SMSP_FIX.toUpperCase());
+	assert.strictEqual(stubs.bodies[1].body.data, efEncSmsp(edited, SMSP_VEC));
+	assert.notStrictEqual(stubs.bodies[1].body.data, SMSP_VEC.toUpperCase());
+});
+
+test('the SMSP DCS hint follows the absent toggle', () => {
+	const hint = { textContent: 'general data coding, GSM 7-bit, uncompressed' };
+	const input = { value: '00' };
+	const cb = { checked: false };
+	const row = {
+		getAttribute: () => 'dcs',
+		querySelector: sel => {
+			if (sel === '[data-smsp-hint]') return hint;
+			if (sel === '[data-smsp-absent]') return cb;
+			if (sel === '[data-smsp="dcs.value"]') return input;
+			return null;
+		},
+		querySelectorAll: () => [],
+	};
+	cb.checked = true;
+	cb.closest = sel => sel === '[data-smsp-orig]' ? row : null;
+	pysimFsSmspToggle(cb);
+	assert.strictEqual(hint.textContent, 'absent — the ME default applies');
+	cb.checked = false;
+	pysimFsSmspToggle(cb);
+	assert.strictEqual(hint.textContent, 'general data coding, GSM 7-bit, uncompressed');
 });

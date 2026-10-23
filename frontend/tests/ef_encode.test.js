@@ -44,20 +44,20 @@ function extractConst(src, name) {
 
 const FNS = [
 	'efBytes', 'efHex', 'efSwapNibbles', 'efAllFf', 'efRstripFf', 'efUcs2Be',
-	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efPlmn', 'efPlmnAct',
-	'efDecSpn', 'efDecPlmnWact', 'efDecAdn', 'efDecPnn', 'efFindDecoder',
+	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efBcdAddressLen', 'efPlmn', 'efPlmnAct',
+	'efDecSpn', 'efDecPlmnWact', 'efDecAdn', 'efDecPnn', 'efDecSmsp', 'efFindDecoder',
 	'efDecodeBytes', 'efTlv', 'efPnnText', 'efDecItemsFromHex',
 	'efGsm7PlainText', 'efEncTextBytes', 'efPlmnEnc', 'efActEnc', 'efEncSpn',
 	'efEncPlmnList', 'efListRows', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
 	'efFindEncoder', 'efHasEncoder', 'gsm7Decode', 'gsm7TextToSeptets',
 	'gsm7Encode', 'efEncError', 'efDecModelValues',
-	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
 ];
 
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -456,6 +456,7 @@ test('unchanged content re-encodes byte-identically (all fixtures)', () => {
 		else if (name === 'EF.BDN') dec = efDecAdn(bytes, 15);
 		else if (name === 'EF.ADN') dec = efDecAdn(bytes);
 		else if (name === 'EF.PNN') dec = efDecItemsFromHex(efFindEncoder('EF.PNN', null), hex);
+		else if (name === 'EF.SMSP') dec = efSmspModel(hex);
 		else throw new Error('no decoder for ' + name);
 		// the model's empty/raw marker yields the form's empty value set
 		if (dec && (dec.empty === true || (dec.raw !== undefined && Object.keys(dec).length === 1))) dec = {};
@@ -510,6 +511,8 @@ test('unchanged content re-encodes byte-identically (all fixtures)', () => {
 		{ name: 'EF.CBMI', fid: '6f45', hex: CBMI_HEX },
 		{ name: 'EF.CBMID', fid: '6f48', hex: CBMI_HEX },
 		{ name: 'EF.CBMIR', fid: '6f50', hex: CBMIR_HEX },
+		{ name: 'EF.SMSP', fid: '6f42', hex: SMSP_FIX },
+		{ name: 'EF.SMSP', fid: '6f42', hex: SMSP_VEC },
 		{ name: 'EF.CBMIR', fid: '6f50', hex: 'FF'.repeat(4) },
 	];
 	for (const c of cases) {
@@ -767,4 +770,238 @@ test('CBMI / CBMIR: message ids and ranges round-trip with FF padding', () => {
 	assert.throws(() => efEncCbmir({ ranges: [
 		{ low: '0000', high: 'FFFE' }, { low: '0100', high: '02FF' },
 	] }, CBMIR_HEX), /Too many entries/);
+});
+
+// EF.SMSP (TS 31.102 4.2.27): alpha (Y = len-28), the indicator byte, the
+// DA/SCA slots, PID, DCS and VP.  The live fixture and the 44-byte vector.
+const SMSP_FIX = 'ffffffffffffffffffffffffffe9ffffffffffffffffffffffff07919733824009f0ffffffff0000ff';
+const SMSP_VEC = '534d5343ffffffffffffffffffffffffe1ffffffffffffffffffffffff0891945197109099f9ffffff0000a9';
+
+test('EF.SMSP: the live fixture model and the no-edit round-trip', () => {
+	const entry = efFindEncoder('EF.SMSP', null);
+	assert.strictEqual(entry.fid, '6f42');
+	assert.ok(entry.custom, 'the SMSP entry has a custom builder');
+	assert.deepStrictEqual(efSmspModel(SMSP_FIX), {
+		alpha: '',
+		params: {
+			da: { present: false, orig: 'FFFFFFFFFFFFFFFFFFFFFFFF', number: '', ton: 1, alnum: false },
+			sca: { present: true, orig: '07919733824009F0FFFFFFFF', number: '+79332804900', ton: 1, alnum: false },
+			pid: { present: true, orig: '00', value: '0x00' },
+			dcs: { present: false, orig: '00', value: '0x00' },
+			vp: { present: true, orig: 'FF', value: '0xFF' },
+		},
+	});
+	assert.strictEqual(efEncSmsp(efSmspModel(SMSP_FIX), SMSP_FIX), SMSP_FIX.toUpperCase());
+	assert.strictEqual(efEncSmsp(efSmspModel(SMSP_VEC), SMSP_VEC), SMSP_VEC.toUpperCase());
+});
+
+test('EF.SMSP: SCA/DA edits and the two length conventions', () => {
+	const base = efSmspModel(SMSP_FIX);
+	const clone = () => JSON.parse(JSON.stringify(base));
+	// SCA length = TON/NPI + BCD octets
+	let v = clone();
+	v.params.sca.number = '+4915790109999';
+	let out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(52, 56), '0891');   // len 8, TON/NPI 91
+	assert.deepStrictEqual(efSmspModel(out).params.sca.number, '+4915790109999');
+	// SCA empty = the default SMSC (length 0)
+	v = clone();
+	v.params.sca.number = '';
+	out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(52, 56), '00FF');
+	assert.strictEqual(efSmspModel(out).params.sca.number, '');
+	// DA length = the digit count; TON 0 -> TON/NPI 01
+	v = clone();
+	Object.assign(v.params.da, { present: true, number: '12345', ton: 0 });
+	out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(26, 28), 'E8');     // DA bit cleared
+	assert.strictEqual(out.slice(28, 52), '05812143F5FFFFFFFFFFFFFF');
+	assert.deepStrictEqual(efSmspModel(out).params.da.number, '12345');
+	// 20 digits fit, 21 are refused
+	v = clone();
+	Object.assign(v.params.da, { present: true, number: '1'.repeat(20), ton: 1 });
+	assert.strictEqual(efEncSmsp(v, SMSP_FIX).slice(28, 30), '14');
+	v.params.da.number = '1'.repeat(21);
+	assert.throws(() => efEncSmsp(v, SMSP_FIX), /max 20 digits/);
+	assert.throws(() => efEncSmsp({ ...clone(), params: { ...base.params,
+		da: { present: true, number: '', ton: 1, orig: '' } } }, SMSP_FIX), /TP-DA number is required/);
+	assert.throws(() => efEncSmsp({ ...clone(), params: { ...base.params,
+		sca: { present: true, number: '12A', ton: 1, orig: '' } } }, SMSP_FIX), /digits/);
+});
+
+test('EF.SMSP: presence toggles and the indicator byte', () => {
+	const base = efSmspModel(SMSP_FIX);
+	const clone = () => JSON.parse(JSON.stringify(base));
+	// DCS newly present: E9 -> E1 (bit 4 cleared), the value written
+	let v = clone();
+	v.params.dcs.present = true;
+	v.params.dcs.value = '0x08';
+	let out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(26, 28), 'E1');
+	assert.strictEqual(out.slice(78, 80), '08');
+	// SCA newly absent: the bit set and the slot FF-filled
+	v = clone();
+	v.params.sca.present = false;
+	out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(26, 28), 'EB');
+	assert.strictEqual(out.slice(28, 52), 'FF'.repeat(12));
+	// PID newly absent: E9 -> ED
+	v = clone();
+	v.params.pid.present = false;
+	out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(26, 28), 'ED');
+	assert.strictEqual(out.slice(76, 78), 'FF');
+	// an untouched file keeps the original indicator byte (reserved bits too)
+	assert.strictEqual(efEncSmsp(base, SMSP_FIX).slice(26, 28), 'E9');
+});
+
+test('EF.SMSP: alpha, PID/DCS/VP hex and the refusals', () => {
+	const base = efSmspModel(SMSP_FIX);
+	const clone = () => JSON.parse(JSON.stringify(base));
+	let v = clone();
+	v.alpha = 'Test';
+	let out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(0, 8), '54657374');
+	assert.strictEqual(efSmspModel(out).alpha, 'Test');
+	assert.throws(() => efEncSmsp({ ...clone(), alpha: 'A'.repeat(14) }, SMSP_FIX), /alpha identifier is too long/);
+	v = clone();
+	v.params.pid.value = '0x7F';
+	v.params.vp.value = 'A8';
+	v.params.dcs = { present: true, orig: '', value: 'F4' };
+	out = efEncSmsp(v, SMSP_FIX);
+	assert.deepStrictEqual([out.slice(76, 78), out.slice(78, 80), out.slice(80, 82)], ['7F', 'F4', 'A8']);
+	for (const key of ['pid', 'dcs', 'vp']) {
+		const bad = clone();
+		bad.params[key] = { ...bad.params[key], present: true, value: 'ZZ' };
+		assert.throws(() => efEncSmsp(bad, SMSP_FIX), /2 hex digits/, key);
+	}
+	assert.throws(() => efEncSmsp({ ...clone(), params: { ...base.params,
+		sca: { present: true, number: '12A', ton: 1, orig: '' } } }, SMSP_FIX), /digits/);
+	assert.throws(() => efEncSmsp(base, 'FF'.repeat(27)), /too short for the SMSP layout/);
+});
+
+test('EF.SMSP: an all-FF 28-byte record round-trips', () => {
+	const ff = 'FF'.repeat(28);
+	const model = efSmspModel(ff);
+	assert.strictEqual(model.alpha, '');
+	for (const key of ['da', 'sca', 'pid', 'dcs', 'vp']) assert.strictEqual(model.params[key].present, false, key);
+	assert.strictEqual(efEncSmsp(model, ff), ff);
+});
+
+test('EF.SMSP: the TS 23.038 DCS hint', () => {
+	assert.strictEqual(smspDcsHint('00'), 'general data coding, GSM 7-bit, uncompressed');
+	assert.strictEqual(smspDcsHint('10'), 'general data coding, GSM 7-bit, uncompressed, class 0');
+	assert.strictEqual(smspDcsHint('08'), 'general data coding, UCS2, uncompressed');
+	assert.strictEqual(smspDcsHint('F4'), 'data coding, 8-bit data, class 0');
+	assert.strictEqual(smspDcsHint('D0'), 'MWI store, GSM 7-bit, inactive, voicemail');
+	assert.strictEqual(smspDcsHint('C0'), 'MWI discard, GSM 7-bit, inactive, voicemail');
+	assert.strictEqual(smspDcsHint('88'), 'reserved coding group');
+	assert.strictEqual(smspDcsHint('ZZ'), '');
+});
+
+test('EF.SMSP: the TS 23.040 relative VP hint', () => {
+	const cases = { '00': '5 min', '8F': '12 h', '90': '12 h 30 min', 'A7': '24 h',
+		'A8': '2 days', 'C4': '30 days', 'C5': '5 weeks', 'FF': '63 weeks' };
+	for (const [hex, want] of Object.entries(cases)) assert.strictEqual(smspVpHint(hex), want, hex);
+	assert.strictEqual(smspVpHint('ZZ'), '');
+});
+
+// A present DA slot with TON 5 (alphanumeric, TS 23.040 9.1.2.5).
+const SMSP_ALNUM = 'FF'.repeat(13) + 'FE' + '0750414243444546FFFFFFFF'
+	+ 'FF'.repeat(12) + 'FF' + 'FF' + 'FF';
+// The live fixture with the SCA absent (indicator EB, FF slot).
+const SMSP_SCA_ABSENT = SMSP_FIX.slice(0, 26) + 'eb' + SMSP_FIX.slice(28, 52)
+	+ 'FF'.repeat(12) + SMSP_FIX.slice(76);
+// The live fixture with VP absent (indicator F9, FF slot).
+const SMSP_VP_ABSENT = SMSP_FIX.slice(0, 26) + 'f9' + SMSP_FIX.slice(28, 80) + 'ff';
+
+test('EF.SMSP: a TON 5 alphanumeric address is kept verbatim and only toggles', () => {
+	const model = efSmspModel(SMSP_ALNUM);
+	assert.strictEqual(model.params.da.present, true);
+	assert.strictEqual(model.params.da.alnum, true);
+	assert.strictEqual(model.params.da.ton, 5);
+	assert.strictEqual(model.params.da.number, '');
+	// an untouched round trip is byte-identical (no BCD re-encode)
+	assert.strictEqual(efEncSmsp(model, SMSP_ALNUM), SMSP_ALNUM.toUpperCase());
+	// editing another field leaves the alphanumeric slot verbatim
+	const edited = JSON.parse(JSON.stringify(model));
+	edited.alpha = 'X';
+	const out = efEncSmsp(edited, SMSP_ALNUM);
+	assert.strictEqual(out.slice(0, 4), '58FF');
+	assert.strictEqual(out.slice(28, 52), '0750414243444546FFFFFFFF');
+	// toggling it absent FF-fills the slot and sets its indicator bit
+	const absent = JSON.parse(JSON.stringify(model));
+	absent.params.da.present = false;
+	const off = efEncSmsp(absent, SMSP_ALNUM);
+	assert.strictEqual(off.slice(26, 28), 'FF');
+	assert.strictEqual(off.slice(28, 52), 'FF'.repeat(12));
+});
+
+test('EF.SMSP: the VP presence bit (0x10) on decode and encode', () => {
+	const dec = efDecSmsp(efBytes(SMSP_VP_ABSENT));
+	assert.strictEqual(dec.indicators, '0xF9');
+	assert.strictEqual(dec.tp_vp, undefined);
+	assert.strictEqual(dec.sca, '+79332804900');
+	assert.strictEqual(efEncSmsp(efSmspModel(SMSP_VP_ABSENT), SMSP_VP_ABSENT), SMSP_VP_ABSENT.toUpperCase());
+	const model = efSmspModel(SMSP_FIX);
+	model.params.vp.present = false;
+	const out = efEncSmsp(model, SMSP_FIX);
+	assert.strictEqual(out.slice(26, 28), 'F9');
+	assert.strictEqual(out.slice(80, 82), 'FF');
+});
+
+test('EF.SMSP: a newly present empty SCA writes the default-SMSC slot', () => {
+	const model = efSmspModel(SMSP_SCA_ABSENT);
+	assert.strictEqual(model.params.sca.present, false);
+	model.params.sca.present = true;
+	model.params.sca.number = '';
+	const out = efEncSmsp(model, SMSP_SCA_ABSENT);
+	assert.strictEqual(out.slice(26, 28), 'E9');   // the SCA bit cleared
+	assert.strictEqual(out.slice(52, 56), '00FF'); // length 0 + FF fill
+});
+
+test('EF.SMSP: a leading + forces TON 1 (international)', () => {
+	const base = efSmspModel(SMSP_FIX);
+	const v = JSON.parse(JSON.stringify(base));
+	v.params.sca = { present: true, number: '+4915790109999', ton: 0 };
+	const out = efEncSmsp(v, SMSP_FIX);
+	assert.strictEqual(out.slice(54, 56), '91');
+	const da = JSON.parse(JSON.stringify(base));
+	Object.assign(da.params.da, { present: true, number: '+12345', ton: 2 });
+	const out2 = efEncSmsp(da, SMSP_FIX);
+	assert.strictEqual(out2.slice(30, 32), '91');  // extension + TON 1 + NPI
+});
+
+test('EF.SMSP: the day/week VP ladder boundaries', () => {
+	assert.strictEqual(smspVpHint('A8'), '2 days');
+	assert.strictEqual(smspVpHint('AD'), '7 days');
+	assert.strictEqual(smspVpHint('C2'), '28 days');
+	assert.strictEqual(smspVpHint('C4'), '30 days');
+	assert.strictEqual(smspVpHint('C5'), '5 weeks');
+	assert.strictEqual(smspVpHint('FF'), '63 weeks');
+});
+
+test('EF.SMSP: the remaining DCS hint branches', () => {
+	assert.strictEqual(smspDcsHint('40'), 'automatic deletion, GSM 7-bit, uncompressed');
+	assert.strictEqual(smspDcsHint('0C'), 'general data coding, reserved, uncompressed');
+});
+
+test('EF.SMSP: the duration plural helper (Russian 1 / 2-4 / 5+)', () => {
+	assert.deepStrictEqual([1, 2, 4, 5, 11, 21, 22, 25].map(smspPluralIndex), [0, 1, 1, 2, 2, 0, 1, 2]);
+	globalThis.currentLang = 'ru';
+	globalThis.t = k => ({
+		day: 'день', 'days-few': 'дня', days: 'дней',
+		week: 'неделя', 'weeks-few': 'недели', weeks: 'недель',
+	})[k] || k;
+	try {
+		assert.strictEqual(smspCount(1, 'day', 'days-few', 'days'), '1 день');
+		assert.strictEqual(smspCount(2, 'day', 'days-few', 'days'), '2 дня');
+		assert.strictEqual(smspCount(5, 'day', 'days-few', 'days'), '5 дней');
+		assert.strictEqual(smspCount(2, 'week', 'weeks-few', 'weeks'), '2 недели');
+		assert.strictEqual(smspCount(5, 'week', 'weeks-few', 'weeks'), '5 недель');
+	} finally {
+		delete globalThis.currentLang;
+		delete globalThis.t;
+	}
+	assert.strictEqual(smspCount(2, 'day', 'days-few', 'days'), '2 days');
 });

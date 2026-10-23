@@ -9,6 +9,28 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.35.0] — 2026-10-23
+
+### Added
+
+- **EF.SMSP decoded editor** — the full SMS-parameter form (TS 31.102 §4.2.27): alpha,
+  TP-Destination Address and TS-Service Centre Address (each with its own length
+  convention and a TON select; an empty SCA means the default SMSC), TP-PID, TP-DCS and
+  the relative TP-VP — every parameter with an *absent (the ME default applies)* toggle.
+  Live hints decode the DCS (TS 23.038 §4: coding group, alphabet, class, compression,
+  message-waiting) and the relative validity period (TS 23.040 §9.2.3.12.1).  Unchanged
+  parameters keep their exact bytes (a card quirk such as a DCS marked absent with byte
+  `00` survives), alphanumeric TON addresses are preserved read-only, and all checked
+  records are validated before anything is written.
+
+### Fixed
+
+- `efDecSmsp` mapped the parameter indicators shifted (SCA on bit 5, PID on bit 2, DCS
+  on bit 3, VP on bit 4); the spec order is DA/SCA/PID/DCS/VP on bits 1–5 with bits 6–8
+  reserved — a record with a mixed indicator (e.g. `E9`) showed DCS and hid VP.
+- The read-only EF.SMSP view decoded the TP-DA length as octets, although it is the digit
+  count (TS 23.040 §9.1.2.5); a slot padded with `00` gained phantom digits.
+
 ## [3.34.0] — 2026-10-23
 
 ### Added

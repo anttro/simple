@@ -1944,7 +1944,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.34.0';
+const SIMPLE_VERSION = '3.35.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16329,9 +16329,10 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 	try {
 		if (model.mode === 'tr') {
 			const orig = root ? (root.getAttribute('data-orig') || '') : '';
-			const values = entry.list
-				? efDecCollectRows(root, entry.list.itemFields)
-				: efDecCollectValues(root, entry.fields);
+			const values = entry.custom
+				? entry.custom.collect(root)
+				: (entry.list ? efDecCollectRows(root, entry.list.itemFields)
+					: efDecCollectValues(root, entry.fields));
 			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
 			body.data = entry.enc(values, orig);
 			// identity writes ask once, and only when something actually changes
@@ -16358,9 +16359,9 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 			const num = block.getAttribute('data-rec');
 			if (!num) continue;
 			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
-			const collected = entry.items
-				? efDecCollectItems(block)
-				: efDecCollectValues(block, entry.fields);
+			const collected = entry.custom
+				? entry.custom.collect(block)
+				: (entry.items ? efDecCollectItems(block) : efDecCollectValues(block, entry.fields));
 			try {
 				body.data = entry.enc(collected, block.getAttribute('data-orig') || '');
 			} catch (e) {
@@ -22753,7 +22754,7 @@ const EF_FIELD_LABELS = {
 	op_mode: 'Operation mode', test_mode: 'Test mode', additional_info: 'Additional info',
 	mnc_length: 'MNC length', services: 'Services', plmns: 'PLMNs', applications: 'Applications',
 	aid: 'AID', label: 'Label', eap: 'EAP', message_ids: 'Message IDs', ranges: 'Ranges',
-	esc: 'Emergency category', param_indicators: 'Parameter indicators', tp_da: 'TP-DA',
+	esc: 'Emergency category', indicators: 'Parameter indicators', tp_da: 'TP-DA',
 	sca: 'SCA', tp_pid: 'TP-PID', tp_dcs: 'TP-DCS', tp_vp: 'TP-VP', alpha: 'Alpha',
 	direction: 'Direction', status: 'Status', tpdu: 'TPDU', display_condition: 'Display condition',
 	rfu: 'RFU', ccp: 'CCP', ext: 'Extension', tag: 'Tag', hex: 'Hex', lac_range: 'LAC range',
@@ -23248,6 +23249,17 @@ function efDecAcl(b) {
 	return apns.length ? { apns: apns } : { raw: efHex(b) };
 }
 
+// TS 23.040 §9.1.2.5: the TP-DA length is the DIGIT count, so the BCD octets
+// are ceil(len/2) (the SCA length counts the TON/NPI + BCD octets instead).
+function efSmspDaNumber(slot) {
+	const n = slot.length ? slot[0] : 0xFF;
+	if (n === 0xFF || n === 0) return '';
+	const ton = (slot[1] >> 4) & 0x07;
+	const octets = Math.min(10, Math.ceil(n / 2));
+	const digits = efSwapNibbles(efHex(slot.subarray(2, 2 + octets))).replace(/[fF]+$/, '');
+	return digits ? (ton === 1 ? '+' + digits : digits) : '';
+}
+
 function efDecSmsp(b) {
 	if (efAllFf(b)) return { empty: true };
 	if (b.length < 28) return { raw: efHex(b) };
@@ -23255,14 +23267,15 @@ function efDecSmsp(b) {
 	const out = {};
 	const alpha = efAnnexA(efRstripFf(b.subarray(0, y)));
 	if (alpha) out.alpha = alpha;
+	// TS 31.102 4.2.27: bits 1..5 = DA, SCA, PID, DCS, VP (1 = absent), bits
+	// 6..8 reserved (1).
 	const pi = b[y];
-	const flags = [];
-	out.param_indicators = '0x' + pi.toString(16).toUpperCase().padStart(2, '0');
-	if (!(pi & 0x01)) out.tp_da = efBcdAddressLen(b.subarray(y + 1, y + 13));
-	if (!(pi & 0x10)) out.sca = efBcdAddressLen(b.subarray(y + 13, y + 25));
-	if (!(pi & 0x02)) out.tp_pid = '0x' + b[y + 25].toString(16).toUpperCase().padStart(2, '0');
-	if (!(pi & 0x04)) out.tp_dcs = '0x' + b[y + 26].toString(16).toUpperCase().padStart(2, '0');
-	if (!(pi & 0x08)) out.tp_vp = '0x' + b[y + 27].toString(16).toUpperCase().padStart(2, '0');
+	out.indicators = '0x' + pi.toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x01)) out.tp_da = efSmspDaNumber(b.subarray(y + 1, y + 13));
+	if (!(pi & 0x02)) out.sca = efBcdAddressLen(b.subarray(y + 13, y + 25));
+	if (!(pi & 0x04)) out.tp_pid = '0x' + b[y + 25].toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x08)) out.tp_dcs = '0x' + b[y + 26].toString(16).toUpperCase().padStart(2, '0');
+	if (!(pi & 0x10)) out.tp_vp = '0x' + b[y + 27].toString(16).toUpperCase().padStart(2, '0');
 	return out;
 }
 
@@ -24290,6 +24303,343 @@ function efEncCbmir(values, origHex) {
 	return efHex(out);
 }
 
+// ===== EF.SMSP (TS 31.102 4.2.27) =====
+// A linear-fixed record: alpha (Y = len-28 octets), the parameter indicator
+// byte (bits 1..5 = DA, SCA, PID, DCS, VP; 1 = absent; bits 6..8 = 1), the
+// 12-octet DA slot, the 12-octet SCA slot, then the PID, DCS and VP bytes.
+const EF_SMSP_PARAMS = [
+	{ key: 'da', label: 'TP-DA', kind: 'address', bit: 0x01, off: 1 },
+	{ key: 'sca', label: 'TS-SCA', kind: 'address', bit: 0x02, off: 13 },
+	{ key: 'pid', label: 'TP-PID', kind: 'hex', bit: 0x04, off: 25 },
+	{ key: 'dcs', label: 'TP-DCS', kind: 'hex', bit: 0x08, off: 26 },
+	{ key: 'vp', label: 'TP-VP', kind: 'hex', bit: 0x10, off: 27 },
+];
+
+// Hint text goes through t() when the runtime has it (the pure test harness
+// extracts these without the dictionary and gets the English text).
+function smspT(s) {
+	return typeof t === 'function' ? t(s) : s;
+}
+
+// TS 23.038 §4 coding-group hint.
+function smspDcsHint(hex) {
+	const s = String(hex === undefined || hex === null ? '' : hex).replace(/^0x/i, '').trim();
+	if (!/^[0-9a-fA-F]{2}$/.test(s)) return '';
+	const d = parseInt(s, 16);
+	const top = d >> 4;
+	const classes = ['class 0', 'class 1', 'class 2', 'class 3'];
+	if (top <= 7) {
+		const parts = [
+			smspT(top >= 4 ? 'automatic deletion' : 'general data coding'),
+			smspT(['GSM 7-bit', '8-bit data', 'UCS2', 'reserved'][(d >> 2) & 3]),
+			smspT((d & 0x20) ? 'compressed' : 'uncompressed'),
+		];
+		if (d & 0x10) parts.push(smspT(classes[d & 3]));
+		return parts.join(', ');
+	}
+	if (top <= 11) return smspT('reserved coding group');
+	if (top <= 14) {
+		return [
+			smspT(top === 12 ? 'MWI discard' : 'MWI store'),
+			smspT(top === 14 ? 'UCS2' : 'GSM 7-bit'),
+			smspT((d & 0x08) ? 'active' : 'inactive'),
+			smspT(['voicemail', 'fax', 'email', 'other'][d & 3]),
+		].join(', ');
+	}
+	return [
+		smspT('data coding'),
+		smspT((d & 0x04) ? '8-bit data' : 'GSM 7-bit'),
+		smspT(classes[d & 3]),
+	].join(', ');
+}
+
+function smspDurationText(secs) {
+	const h = Math.floor(secs / 3600);
+	const m = Math.round((secs % 3600) / 60);
+	if (!h) return m + ' ' + smspT('min');
+	return h + ' ' + smspT('h') + (m ? ' ' + m + ' ' + smspT('min') : '');
+}
+
+// Russian needs three plural forms (1 / 2-4 / 5+, and the 11-14 exception);
+// English needs the singular/plural pair.  `few` is only used by the RU form.
+function smspPluralIndex(n) {
+	n = Math.abs(n) % 100;
+	if (n >= 11 && n <= 14) return 2;
+	const d = n % 10;
+	if (d === 1) return 0;
+	if (d >= 2 && d <= 4) return 1;
+	return 2;
+}
+
+function smspCount(n, one, few, many) {
+	const ru = typeof currentLang !== 'undefined' && currentLang === 'ru';
+	if (ru) {
+		const idx = smspPluralIndex(n);
+		return n + ' ' + smspT(idx === 0 ? one : (idx === 1 ? few : many));
+	}
+	return n + ' ' + smspT(n === 1 ? one : many);
+}
+
+// TS 23.040 §9.2.3.12.1 relative validity-period hint: minutes for 0-143,
+// 30-minute steps for 144-167, DAYS for 168-196 and WEEKS for 197-255.
+function smspVpHint(hex) {
+	const s = String(hex === undefined || hex === null ? '' : hex).replace(/^0x/i, '').trim();
+	if (!/^[0-9a-fA-F]{2}$/.test(s)) return '';
+	const v = parseInt(s, 16);
+	if (v <= 143) return smspDurationText((v + 1) * 300);
+	if (v <= 167) return smspDurationText(43200 + (v - 143) * 1800);
+	if (v <= 196) return smspCount(v - 166, 'day', 'days-few', 'days');
+	return smspCount(v - 192, 'week', 'weeks-few', 'weeks');
+}
+
+// A DA/SCA slot decoded for the form: the length byte is the digit count for
+// DA and the TON/NPI + BCD octet count for SCA (0 = the default SMSC).  A
+// TON 5 (alphanumeric) address is not BCD text - it is shown raw and kept
+// verbatim by the encoder.
+function efSmspAddressModel(slot, present, isSca) {
+	const orig = efHex(slot);
+	const n = slot.length ? slot[0] : 0xFF;
+	let ton = 1, number = '';
+	if (n !== 0xFF && n !== 0) {
+		ton = (slot[1] >> 4) & 0x07;
+		const octets = Math.max(0, Math.min(10, isSca ? n - 1 : Math.ceil(n / 2)));
+		const digits = ton === 5 ? ''
+			: efSwapNibbles(efHex(slot.subarray(2, 2 + octets))).replace(/[fF]+$/, '');
+		number = digits ? (ton === 1 ? '+' + digits : digits) : '';
+	}
+	return { present: present, orig: orig, number: number, ton: ton, alnum: ton === 5 };
+}
+
+// The per-record form model: alpha + each parameter's presence, original slot
+// bytes and editable value.
+function efSmspModel(hex) {
+	const b = efBytes(hex || '');
+	const y = Math.max(0, b.length - 28);
+	const pi = b.length >= 28 ? b[y] : 0xFF;
+	const alpha = efAnnexA(efRstripFf(b.subarray(0, Math.min(y, b.length))));
+	const slot = (at, len) => b.subarray(at, Math.min(b.length, at + len));
+	const byte = (at, bit) => {
+		const v = b.length > at ? b[at] : 0xFF;
+		return { present: !(pi & bit), orig: efHex([v]),
+			value: '0x' + v.toString(16).toUpperCase().padStart(2, '0') };
+	};
+	return {
+		alpha: alpha,
+		params: {
+			da: efSmspAddressModel(slot(y + 1, 12), !(pi & 0x01), false),
+			sca: efSmspAddressModel(slot(y + 13, 12), !(pi & 0x02), true),
+			pid: byte(y + 25, 0x04),
+			dcs: byte(y + 26, 0x08),
+			vp: byte(y + 27, 0x10),
+		},
+	};
+}
+
+function efSmspTonOptions(ton) {
+	const opts = [{ v: 0, l: 'Unknown' }, { v: 1, l: 'International' }, { v: 2, l: 'National' }];
+	if (!opts.some(o => o.v === ton)) opts.push({ v: ton, l: 'Current', current: true });
+	return opts.map(o => '<option value="' + o.v + '"' + (o.v === ton ? ' selected' : '') + '>' +
+		esc(o.current ? t('Current') + ' ' + o.v : t(o.l)) + '</option>').join('');
+}
+
+function efSmspParamRow(key, label, slot) {
+	const absent = !slot.present;
+	const dis = absent ? ' disabled' : '';
+	const raw = slot.alnum && slot.present;
+	let body;
+	if ((key === 'da' || key === 'sca') && raw) {
+		// TS 23.040 9.1.2.5 TON 5: GSM 7-bit alphanumeric contents, not BCD -
+		// keep the slot verbatim, only its presence is editable here.
+		body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(label)) + '</span>' +
+			'<span class="font-mono break-all">' + esc(slot.orig || '') + '</span>' +
+			'<span class="text-xs text-gray-500 dark:text-slate-400">' +
+			esc(t('alphanumeric address — not editable here; it is preserved as is')) + '</span>';
+	} else if (key === 'da' || key === 'sca') {
+		body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(label)) + '</span>' +
+			'<input type="text" data-smsp="' + key + '.number" value="' + esc(slot.number || '') + '"' + dis +
+			' oninput="pysimFsDecRowCheck(this)" class="flex-1 border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+			'<select data-smsp="' + key + '.ton"' + dis + ' onchange="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+			efSmspTonOptions(slot.ton) + '</select>';
+		if (key === 'sca') {
+			body += '<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(t('empty = default SMSC')) + '</span>';
+		}
+	} else {
+		const hint = absent ? t('absent — the ME default applies')
+			: (key === 'dcs' ? smspDcsHint(slot.value) : (key === 'vp' ? smspVpHint(slot.value) : ''));
+		body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(label)) + '</span>' +
+			'<input type="text" data-smsp="' + key + '.value" value="' + esc(slot.value || '') + '" maxlength="4"' + dis +
+			' oninput="pysimFsSmspHexInput(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">';
+		body += key === 'pid'
+			? '<span class="text-xs text-gray-500 dark:text-slate-400">' + esc(t('TS 23.040 TP-PID (raw); 0x00 = short message type 0')) + '</span>'
+			: '<span class="text-xs text-gray-500 dark:text-slate-400" data-smsp-hint>' + esc(hint) + '</span>';
+	}
+	return '<div class="pysim-dec-item flex flex-wrap items-center gap-2" data-smsp-orig="' + key + '">' +
+		'<label class="flex items-center gap-1"><input type="checkbox" data-smsp-absent="' + key + '"' +
+		(absent ? ' checked' : '') + ' onchange="pysimFsSmspToggle(this)">' + esc(t('Absent (the ME default applies)')) + '</label>' +
+		body + '</div>';
+}
+
+function efSmspHtml(values) {
+	const v = values || {};
+	const p = v.params || {};
+	let html = '<div class="pysim-dec-items space-y-1">' +
+		'<div class="pysim-dec-item flex flex-wrap items-center gap-2">' +
+		'<span class="text-gray-500 dark:text-slate-400">' + esc(t('Alpha')) + '</span>' +
+		'<input type="text" data-smsp="alpha" value="' + esc(v.alpha || '') + '" oninput="pysimFsDecRowCheck(this)" ' +
+		'class="flex-1 border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+		'</div>';
+	for (const spec of EF_SMSP_PARAMS) html += efSmspParamRow(spec.key, spec.label, p[spec.key] || {});
+	return html + '</div>';
+}
+
+function efSmspCollect(root) {
+	const pick = key => root.querySelector('[data-smsp="' + key + '"]');
+	const out = { alpha: '', params: {} };
+	const alpha = pick('alpha');
+	if (alpha) out.alpha = alpha.value;
+	for (const spec of EF_SMSP_PARAMS) {
+		const row = root.querySelector('[data-smsp-orig="' + spec.key + '"]');
+		const absent = row ? row.querySelector('[data-smsp-absent="' + spec.key + '"]') : null;
+		const present = !(absent && absent.checked);
+		if (spec.kind === 'address') {
+			const num = pick(spec.key + '.number');
+			const ton = pick(spec.key + '.ton');
+			out.params[spec.key] = { present: present,
+				number: num ? num.value : '', ton: ton ? parseInt(ton.value, 10) : 1 };
+		} else {
+			const val = pick(spec.key + '.value');
+			out.params[spec.key] = { present: present, value: val ? val.value : '' };
+		}
+	}
+	return out;
+}
+
+function pysimFsSmspToggle(cb) {
+	const row = cb && cb.closest ? cb.closest('[data-smsp-orig]') : null;
+	if (!row) return;
+	const absent = !!cb.checked;
+	row.querySelectorAll('[data-smsp]').forEach(el => { el.disabled = absent; });
+	const key = row.getAttribute('data-smsp-orig');
+	const hint = row.querySelector('[data-smsp-hint]');
+	if (hint) {
+		const input = row.querySelector('[data-smsp="' + key + '.value"]');
+		hint.textContent = absent ? t('absent — the ME default applies')
+			: (key === 'dcs' ? smspDcsHint(input && input.value) : smspVpHint(input && input.value));
+	}
+	pysimFsDecRowCheck(cb);
+}
+
+function pysimFsSmspHexInput(input) {
+	const row = input && input.closest ? input.closest('[data-smsp-orig]') : null;
+	if (row) {
+		const key = row.getAttribute('data-smsp-orig');
+		const cb = row.querySelector('[data-smsp-absent]');
+		const hint = row.querySelector('[data-smsp-hint]');
+		if (hint) {
+			hint.textContent = (cb && cb.checked) ? t('absent — the ME default applies')
+				: (key === 'dcs' ? smspDcsHint(input.value) : smspVpHint(input.value));
+		}
+	}
+	pysimFsDecRowCheck(input);
+}
+
+function efSmspHexByte(value) {
+	const s = String(value === undefined || value === null ? '' : value).replace(/^0x/i, '').trim();
+	if (!/^[0-9a-fA-F]{2}$/.test(s)) throw efEncError('The parameter value must be 2 hex digits');
+	return parseInt(s, 16);
+}
+
+// A DA/SCA slot: [length][TON/NPI][10 BCD bytes], FF beyond the digits.  DA's
+// length is the digit count, SCA's the TON/NPI+BCD octet count (0 = default).
+// A leading '+' forces TON 1 (international) whatever the select says.
+function efSmspAddressBytes(key, val) {
+	const num = String(val && val.number !== undefined && val.number !== null ? val.number : '').replace(/\s+/g, '');
+	const plus = num.charAt(0) === '+';
+	const digits = num.replace(/^\+/, '');
+	if (digits !== '' && !/^\d+$/.test(digits)) throw efEncError('The number must be digits with an optional leading +');
+	if (digits.length > 20) throw efEncError('The number is too long for SMSP (max 20 digits)');
+	if (key === 'da' && digits.length === 0) throw efEncError('The TP-DA number is required when present');
+	const ton = plus ? 1 : Number(val && val.ton);
+	const out = new Uint8Array(12);
+	out.fill(0xFF);
+	if (key === 'da') out[0] = digits.length;
+	else out[0] = digits.length ? 1 + Math.ceil(digits.length / 2) : 0;
+	if (!digits.length) return out;
+	out[1] = 0x80 | ((Number.isInteger(ton) ? ton : 1) << 4) | 0x01;   // extension + TON + NPI(ISDN)
+	for (let i = 0; i < 10; i++) {
+		const lo = i * 2 < digits.length ? digits[i * 2] : 'F';
+		const hi = i * 2 + 1 < digits.length ? digits[i * 2 + 1] : 'F';
+		out[2 + i] = parseInt(hi + lo, 16);
+	}
+	return out;
+}
+
+function efSmspAddrUnchanged(slot, key, val) {
+	const model = efSmspAddressModel(slot, true, key === 'sca');
+	const num = String(val && val.number !== undefined && val.number !== null ? val.number : '').replace(/\s+/g, '');
+	const ton = val && val.ton !== undefined && val.ton !== null ? Number(val.ton) : model.ton;
+	return num === model.number && ton === model.ton;
+}
+
+function efSmspByteUnchanged(origByte, value) {
+	const s = String(value === undefined || value === null ? '' : value).replace(/^0x/i, '').trim();
+	if (origByte === undefined || !/^[0-9a-fA-F]{2}$/.test(s)) return false;
+	return parseInt(s, 16) === origByte;
+}
+
+// EF.SMSP: the alpha, the five parameters' slots and the indicator byte.  An
+// unchanged slot is copied verbatim (the fixture's absent DCS 00 and VP FF
+// included); the indicator byte is kept when all five presence flags match.
+function efEncSmsp(values, origHex) {
+	const orig = efBytes(origHex || '');
+	if (orig.length < 28) throw efEncError('The record is too short for the SMSP layout');
+	const y = orig.length - 28;
+	const origPi = orig[y];
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	const alpha = String(values && values.alpha !== undefined && values.alpha !== null ? values.alpha : '');
+	const origAlpha = efAnnexA(efRstripFf(orig.subarray(0, y)));
+	if (alpha === origAlpha) out.set(orig.subarray(0, y), 0);
+	else out.set(efEncTextBytes(alpha, y, 'The alpha identifier is too long for this record'), 0);
+	const params = (values && values.params) || {};
+	const presence = {};
+	for (const spec of EF_SMSP_PARAMS) {
+		const v = params[spec.key] || {};
+		const origPresent = !(origPi & spec.bit);
+		const present = v.present === undefined ? origPresent : !!v.present;
+		presence[spec.key] = present;
+		const at = y + spec.off;
+		const samePresence = present === origPresent;
+		if (spec.kind === 'address') {
+			const slot = orig.subarray(at, at + 12);
+			const origTon = slot.length > 1 ? (slot[1] >> 4) & 0x07 : 0;
+			// a present alphanumeric (TON 5) address is not editable here: it
+			// stays verbatim, and only its presence can change
+			if (origPresent && origTon === 5) {
+				if (present) out.set(slot, at);
+				else for (let i = 0; i < 12; i++) out[at + i] = 0xFF;
+			} else if (samePresence && efSmspAddrUnchanged(slot, spec.key, v)) out.set(slot, at);
+			else if (!present) for (let i = 0; i < 12; i++) out[at + i] = 0xFF;
+			else out.set(efSmspAddressBytes(spec.key, v), at);
+		} else {
+			const origByte = orig.length > at ? orig[at] : undefined;
+			if (samePresence && efSmspByteUnchanged(origByte, v.value)) out[at] = origByte;
+			else if (!present) out[at] = 0xFF;
+			else out[at] = efSmspHexByte(v.value);
+		}
+	}
+	const allSame = EF_SMSP_PARAMS.every(spec => presence[spec.key] === !(origPi & spec.bit));
+	if (allSame) out[y] = origPi;
+	else {
+		let pi = 0xE0;
+		for (const spec of EF_SMSP_PARAMS) if (!presence[spec.key]) pi |= spec.bit;
+		out[y] = pi;
+	}
+	return efHex(out);
+}
+
+const EF_SMSP_CUSTOM = { model: efSmspModel, html: efSmspHtml, collect: efSmspCollect };
+
 // The decoded editor's field schemas: one per file family, the keys matching
 // the decoder output.  `kind` is text, digits, bool, select or techs (the
 // access technology checkboxes, the value being the decoder's ', '-joined
@@ -24423,6 +24773,7 @@ const EF_ENCODERS = [
 	{ name: 'EF.CBMI', fid: '6f45', enc: efEncCbmi, model: efCbmiModel, list: EF_CBMI_LIST },
 	{ name: 'EF.CBMID', fid: '6f48', enc: efEncCbmi, model: efCbmiModel, list: EF_CBMI_LIST },
 	{ name: 'EF.CBMIR', fid: '6f50', enc: efEncCbmir, model: efCbmirModel, list: EF_CBMIR_LIST },
+	{ name: 'EF.SMSP', fid: '6f42', enc: efEncSmsp, custom: EF_SMSP_CUSTOM },
 	{ name: 'EF.ADN', fid: '6f3a', enc: efEncAdnExt(14, 'EXT1'), ext: 'EXT1', fields: EF_ADN_FIELDS },
 	{ name: 'EF.FDN', fid: '6f3b', enc: efEncAdnExt(14, 'EXT2'), ext: 'EXT2', fields: EF_ADN_FIELDS },
 	{ name: 'EF.SDN', fid: '6f49', enc: efEncAdnExt(14, 'EXT3'), ext: 'EXT3', fields: EF_ADN_FIELDS },
@@ -24652,16 +25003,19 @@ function efDecEditModel(name, fid, content) {
 	const entry = efFindEncoder(name, fid);
 	if (!entry) return null;
 	const dec = efFindDecoder(name, fid);
+	const modelValues = hex => entry.custom
+		? entry.custom.model(hex)
+		: efDecModelFor(entry, dec, hex);
 	if (content && content.kind === 'record') {
 		return {
 			entry: entry,
 			mode: 'records',
 			records: (content.records || []).map(r => entry.items
 				? { num: r.num, orig: r.data || '', items: efDecItemsFromHex(entry, r.data || '') }
-				: { num: r.num, orig: r.data || '', values: efDecModelFor(entry, dec, r.data || '') }),
+				: { num: r.num, orig: r.data || '', values: modelValues(r.data || '') }),
 		};
 	}
-	return { entry: entry, mode: 'tr', values: efDecModelFor(entry, dec, (content && content.data) || '') };
+	return { entry: entry, mode: 'tr', values: modelValues((content && content.data) || '') };
 }
 
 // The value of a techs field (the decoder's ', '-joined string) as a list.
@@ -24793,7 +25147,8 @@ function efDecRecordsHtml(entry, records) {
 			'<label class="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400 mb-0.5">' +
 			'<input type="checkbox" class="pysim-fs-record-cb shrink-0 hidden">' +
 			esc(t('Record')) + ' ' + esc(String(r.num)) + (empty ? ' — ' + esc(t('empty')) : '') + '</label>' +
-			'<div class="pl-5">' + (entry.items ? efDecItemsHtml(entry, r) : efDecGridHtml(entry.fields, r.values)) + '</div></div>';
+			'<div class="pl-5">' + (entry.items ? efDecItemsHtml(entry, r)
+				: (entry.custom ? entry.custom.html(r.values) : efDecGridHtml(entry.fields, r.values))) + '</div></div>';
 	}
 	return html;
 }
@@ -24816,7 +25171,7 @@ function efDecEditHtml(model, origHex) {
 		return '<div class="pysim-dec-edit" data-mode="tr" data-orig="' + esc(origHex || '') + '">' + title + html + '</div>';
 	}
 	return '<div class="pysim-dec-edit" data-mode="tr" data-orig="' + esc(origHex || '') + '">' + title +
-		efDecGridHtml(entry.fields, model.values) + '</div>';
+		(entry.custom ? entry.custom.html(model.values) : efDecGridHtml(entry.fields, model.values)) + '</div>';
 }
 
 // Collect the form values of one scope (the whole TR form or one record
@@ -25671,6 +26026,53 @@ const LANG_RU = {
 	'Write cancelled': 'Запись отменена',
 	'Writing the ICCID changes the card identity and may break network registration. Continue?': 'Запись ICCID меняет идентичность карты и может нарушить регистрацию в сети. Продолжить?',
 	'Writing the IMSI changes the card identity and may break network registration. Continue?': 'Запись IMSI меняет идентичность карты и может нарушить регистрацию в сети. Продолжить?',
+	'Unknown': 'Неизвестно',
+	'International': 'Международный',
+	'National': 'Национальный',
+	'Absent (the ME default applies)': 'Отсутствует (действует значение ME по умолчанию)',
+	'absent — the ME default applies': 'отсутствует — действует значение ME по умолчанию',
+	'alphanumeric address — not editable here; it is preserved as is': 'алфавитно-цифровой адрес — здесь не редактируется; сохраняется как есть',
+	'day': 'день',
+	'days-few': 'дня',
+	'weeks-few': 'недели',
+	'TP-DA': 'TP-DA',
+	'TS-SCA': 'TS-SCA',
+	'TP-PID': 'TP-PID',
+	'TP-DCS': 'TP-DCS',
+	'TP-VP': 'TP-VP',
+	'empty = default SMSC': 'пусто = SMSC по умолчанию',
+	'TS 23.040 TP-PID (raw); 0x00 = short message type 0': 'TS 23.040 TP-PID (raw); 0x00 — короткое сообщение типа 0',
+	'general data coding': 'общая индикация кодирования',
+	'automatic deletion': 'автоматическое удаление',
+	'GSM 7-bit': 'GSM 7-бит',
+	'8-bit data': '8-битные данные',
+	'UCS2': 'UCS2',
+	'reserved': 'резерв',
+	'compressed': 'сжатый',
+	'uncompressed': 'несжатый',
+	'class 0': 'класс 0',
+	'class 1': 'класс 1',
+	'class 2': 'класс 2',
+	'class 3': 'класс 3',
+	'reserved coding group': 'резервная группа кодирования',
+	'MWI discard': 'MWI: удалить',
+	'MWI store': 'MWI: сохранить',
+	'inactive': 'неактивно',
+	'active': 'активно',
+	'voicemail': 'голосовая почта',
+	'fax': 'факс',
+	'email': 'эл. почта',
+	'other': 'другое',
+	'data coding': 'кодирование данных',
+	'h': 'ч',
+	'week': 'неделя',
+	'weeks': 'недель',
+	'days': 'дней',
+	'The record is too short for the SMSP layout': 'Запись слишком короткая для формата SMSP',
+	'The alpha identifier is too long for this record': 'Альфа-идентификатор слишком длинный для этой записи',
+	'The number is too long for SMSP (max 20 digits)': 'Номер слишком длинный для SMSP (максимум 20 цифр)',
+	'The TP-DA number is required when present': 'Номер TP-DA обязателен, если параметр присутствует',
+	'The parameter value must be 2 hex digits': 'Значение параметра должно состоять из 2 hex-цифр',
 	'Refresh': 'Обновить',
 	'Last refresh': 'Последнее обновление',
 	'Save': 'Сохранить',
