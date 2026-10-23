@@ -1943,7 +1943,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.32.6';
+const SIMPLE_VERSION = '3.32.7';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16076,7 +16076,9 @@ async function pysimFsRead() {
 }
 
 // Decoded view of a read result: label/value fields from the client-side EF
-// decoders, with the server-side pySim JSON behind a disclosure.
+// decoders (the same raw bytes the raw view shows - no server-side decode is
+// involved; v3.32.7 removed the pySim JSON lookup, it was an unrelated second
+// read of the card).
 function pysimFsDecodedHtml(node, data) {
 	const name = (node && node.name) || null;
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected || '') ? pysimFsSelected : null);
@@ -16105,27 +16107,7 @@ function pysimFsDecodedHtml(node, data) {
 		if (dec.empty) html += '<div class="text-xs text-gray-500 dark:text-slate-400 mb-1">' + esc(t('empty')) + '</div>';
 		html += efRenderFieldsHtml(efFlatten(dec.data));
 	}
-	html += '<details class="mt-2" ontoggle="if (this.open) pysimFsLoadPySimJson()"><summary class="text-xs text-gray-400 dark:text-slate-500 cursor-pointer">' + esc(t('pySim JSON (server)')) + '</summary>' +
-		'<div id="pysim-fs-pysim-json" class="text-xs font-mono mt-1 text-gray-600 dark:text-slate-400 break-all"></div></details>';
 	return html;
-}
-
-async function pysimFsLoadPySimJson() {
-	const el = document.getElementById('pysim-fs-pysim-json');
-	if (!el) return;
-	el.textContent = t('Loading...');
-	try {
-		const rawName = pysimFsSelected;
-		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
-		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
-		body.mode = 'decoded';
-		const data = await pysimFetch('/api/read', body);
-		if (data && data.decoded) el.textContent = JSON.stringify(data.decoded, null, 1);
-		else if (data && data.data) el.textContent = data.data;
-		else el.textContent = (data && data.error) || t('No response yet');
-	} catch (e) {
-		el.textContent = 'Error: ' + e.message;
-	}
 }
 
 let pysimFsEditMode = false;
@@ -24741,7 +24723,6 @@ const LANG_RU = {
 	'No decoder for this file': 'Нет декодера для этого файла',
 	'showing raw data': 'показаны сырые данные',
 	'No decodable fields': 'Нет декодируемых полей',
-	'pySim JSON (server)': 'pySim JSON (сервер)',
 	'Raw comparison': 'Сравнение сырых данных',
 	'Decoded comparison': 'Декодированное сравнение',
 	'Decoded values match; raw bytes differ': 'Декодированные значения совпадают; отличаются сырые байты',

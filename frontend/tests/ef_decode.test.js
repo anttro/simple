@@ -376,7 +376,10 @@ test('file manager decoded view renders fields, not JSON', () => {
 	const out = pysimFsDecodedHtml({ name: 'EF.IMSI', fid: null }, { success: true, data: '082982608200002080' });
 	assert.match(out, /IMSI/);
 	assert.match(out, /228062800000208/);
-	assert.match(out, /pySim JSON \(server\)/);
+	// The view is the client-side decoder's table only (v3.32.7): the
+	// server-side pySim JSON disclosure is gone - it was an unrelated second
+	// read of the card, not an input to this decode.
+	assert.doesNotMatch(out, /pySim JSON/);
 	assert.doesNotMatch(out, /\{"imsi"/);
 	// the label column is content-sized, not a fixed 10rem block
 	assert.match(out, /grid-template-columns:max-content 1fr/);
@@ -385,6 +388,15 @@ test('file manager decoded view renders fields, not JSON', () => {
 	const raw = pysimFsDecodedHtml({ name: 'EF.NOPE', fid: 'abcd' }, { success: true, data: '0011' });
 	assert.match(raw, /No decoder for this file/);
 	assert.match(raw, /0011/);
+});
+
+test('the file manager never requests the server-side decode', () => {
+	// The decoded table is client-side (the raw read's bytes); the pySim JSON
+	// lookup - a second /api/read with mode 'decoded' - is gone (v3.32.7).
+	assert.ok(!html.includes("mode = 'decoded'"));
+	assert.ok(!html.includes('pysimFsLoadPySimJson'));
+	assert.ok(!html.includes('pysim-fs-pysim-json'));
+	assert.ok(!html.includes('pySim JSON (server)'));
 });
 
 test('efRenderFieldsHtml sizes the label column to its content', () => {
