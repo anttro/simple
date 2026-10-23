@@ -2,6 +2,8 @@
 
 > Formerly known as OTAMan — renamed to SIMple on 2026-09-19.
 
+📢 Project news and updates: [Telegram channel](https://t.me/youeyeseesee)
+
 SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS PWA plus a local card server ([`pysim-simple-server`](pysim_simple_server/), a pySim/PC-SC bridge that also serves the PWA). It covers the full lab cycle:
 
 - **APDU workbench** — SIM/USIM RFM and Expanded Script builders (TS 102 226), GlobalPlatform RAM commands, a C-APDU/R-APDU parser and a response decoder (ISO 7816 / TS 102 221 / GP);

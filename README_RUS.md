@@ -2,6 +2,8 @@
 
 > Прежнее название — OTAMan; переименован в SIMple 2026-09-19.
 
+📢 Новости и обновления проекта: [Telegram-канал](https://t.me/youeyeseesee)
+
 SIMple — инструментарий для специалистов по UICC/SIM-картам: автономный HTML/JS PWA и локальный сервер карт ([`pysim-simple-server`](pysim_simple_server/) — мост к pySim/PC-SC, он же раздаёт PWA). Закрывает весь цикл лабораторной работы:
 
 - **APDU-верстак** — конструкторы SIM/USIM RFM и Expanded Script (TS 102 226), команды GlobalPlatform RAM, парсер C-APDU/R-APDU и декодер ответов (ISO 7816 / TS 102 221 / GP);
