@@ -22,22 +22,6 @@ every change carries a descriptive commit message.
   parameters keep their exact bytes (a card quirk such as a DCS marked absent with byte
   `00` survives), alphanumeric TON addresses are preserved read-only, and all checked
   records are validated before anything is written.
-
-### Fixed
-
-- `efDecSmsp` mapped the parameter indicators shifted (SCA on bit 5, PID on bit 2, DCS
-  on bit 3, VP on bit 4); the spec order is DA/SCA/PID/DCS/VP on bits 1–5 with bits 6–8
-  reserved — a record with a mixed indicator (e.g. `E9`) showed DCS and hid VP.
-- The read-only EF.SMSP view decoded the TP-DA length as octets, although it is the digit
-  count (TS 23.040 §9.1.2.5); a slot padded with `00` gained phantom digits.
-- The **Read decoded** pill no longer looks disabled when it is enabled: an inactive-but-
-  enabled pill is now an outlined button (blue on white/slate), and the grey fill and
-  dimming are left to the actually disabled state.
-
-## [3.34.0] — 2026-10-23
-
-### Added
-
 - **Edit decoded, wave 2** — new editors for the service tables **EF.UST / EF.IST /
   EF.EST** (a filterable bit grid preserving services the table does not model), the
   scalars **EF.ACC**, **EF.PHASE**, **EF.HPPLMN** and **EF.AD**, the PLMN lists
@@ -50,6 +34,14 @@ every change carries a descriptive commit message.
 
 ### Fixed
 
+- `efDecSmsp` mapped the parameter indicators shifted (SCA on bit 5, PID on bit 2, DCS
+  on bit 3, VP on bit 4); the spec order is DA/SCA/PID/DCS/VP on bits 1–5 with bits 6–8
+  reserved — a record with a mixed indicator (e.g. `E9`) showed DCS and hid VP.
+- The read-only EF.SMSP view decoded the TP-DA length as octets, although it is the digit
+  count (TS 23.040 §9.1.2.5); a slot padded with `00` gained phantom digits.
+- The **Read decoded** pill no longer looks disabled when it is enabled: an inactive-but-
+  enabled pill is now an outlined button (blue on white/slate), and the grey fill and
+  dimming are left to the actually disabled state.
 - **EF.ACC** class numbering (TS 31.102 4.2.15): byte 1 b8…b1 codes classes 15…8 and
   byte 2 classes 7…0 — the decoder counted class 0 at the MSB (an all-FF ACC read as
   class 0 instead of classes 0–15).
