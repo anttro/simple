@@ -20,7 +20,8 @@ every change carries a descriptive commit message.
   title hints "Insert next card".  The speaker button next to the status mutes the chime
   and the choice is remembered (`simple_ram_batch_sound`); the chime is unlocked by the
   Start click (browser autoplay policy); reduced-motion users get the static card-above-
-  the-slot picture.
+  the-slot picture.  The card follows the app's SIM silhouette (`sim.svg`): a cut corner
+  and the contact pad, sliding behind the reader bar.
 
 ### Changed
 

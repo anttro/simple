@@ -1944,21 +1944,22 @@ video {
    rests above the slot. */
 
 .ram-insert-card {
-  transform: translateY(-14px);
+  /* the resting position is the card just above the slot (0); the insert
+     slide takes it 20px down, behind the reader front */
   animation: ram-insert 2.8s ease-in-out infinite;
 }
 
 @keyframes ram-insert {
   0%, 12% {
-    transform: translateY(-14px);
+    transform: translateY(0);
   }
 
   45%, 55% {
-    transform: translateY(10px);
+    transform: translateY(20px);
   }
 
   88%, 100% {
-    transform: translateY(-14px);
+    transform: translateY(0);
   }
 }
 
