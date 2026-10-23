@@ -24,9 +24,9 @@ function extractFunc(src, name) {
 const FNS = [
 	'efBytes', 'efHex', 'efSwapNibbles', 'efAllFf', 'efRstripFf', 'efTlv', 'efUcs2Be',
 	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efBcdAddressLen', 'efPlmn', 'efPlmnAct', 'efPnnText',
-	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
+	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecSst', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
-	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
+	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
 	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
 	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
@@ -42,7 +42,7 @@ for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'FCP_ARR_AM_BITS']) {
 	code += html.match(new RegExp('const ' + c + ' = [\\s\\S]*?\\n\\];'))[0].replace('const ', 'var ') + '\n';
 }
-for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_PHASE_NAMES', 'EF_PBR_KINDS']) {
+for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_PBR_KINDS']) {
 	code += html.match(new RegExp('const ' + c + ' = \\{.*\\};'))[0].replace('const ', 'var ') + '\n';
 }
 code += html.match(/const EF_FIELD_LABELS = \{[\s\S]*?\n\};/)[0].replace('const ', 'var ') + '\n';
@@ -103,7 +103,9 @@ test('EF decoders match the pinned spec / pySim test vectors', () => {
 	assert.deepStrictEqual(efDecLi(efBytes('FFFF')), { languages: [] });
 	assert.deepStrictEqual(efDecSpn(efBytes('0147534d2d52204348ffffffffffffffff')), { show_in_hplmn: true, hide_in_oplmn: false, name: 'GSM-R CH' });
 	assert.deepStrictEqual(efDecAcc(efBytes('0000')), { access_classes: [] });
-	assert.deepStrictEqual(efDecAcc(efBytes('8000')), { access_classes: [0] });
+	assert.deepStrictEqual(efDecAcc(efBytes('8000')), { access_classes: [15] });
+	assert.deepStrictEqual(efDecAcc(efBytes('0001')), { access_classes: [0] });
+	assert.deepStrictEqual(efDecAcc(efBytes('8001')), { access_classes: [15, 0] });
 	assert.deepStrictEqual(efDecEcc(efBytes('19f101')), { number: '911', esc: '0x01' });
 	assert.deepStrictEqual(efDecKc(efBytes('837d783609a3858f05')), { kc: '837D783609A3858F', ksi: 0 });
 	assert.deepStrictEqual(efDecPlmnList(efBytes('22F860')), { plmns: [{ mcc: '228', mnc: '06' }] });
@@ -115,7 +117,7 @@ test('EF decoders match the pinned spec / pySim test vectors', () => {
 	assert.strictEqual(efFindDecoder('EF.FPLMN', null).fn, efDecFplmn);
 	assert.deepStrictEqual(efDecCbmi(efBytes('0010FFFF0020')), { message_ids: [16, 32] });
 	assert.deepStrictEqual(efDecCbmir(efBytes('0000FFFEFFFF')), { ranges: [['0000', 'FFFE']] });
-	assert.deepStrictEqual(efDecPhase(efBytes('03')), { phase: 'phase 2 and higher' });
+	assert.deepStrictEqual(efDecPhase(efBytes('03')), { phase: 'phase 2 and PROFILE DOWNLOAD required' });
 	assert.deepStrictEqual(efDecNai(efBytes('8021696d732e6d6e633030302e6d63633733382e336770706e6574776f726b2e6f7267')),
 		{ text: 'ims.mnc000.mcc738.3gppnetwork.org' });
 	assert.deepStrictEqual(efDecImsi(efBytes('FFFF')), { empty: true });
@@ -288,6 +290,29 @@ test('service tables: UST service bits and IST fallback for 6F07', () => {
 	assert.deepStrictEqual(ust.services, [{ n: 29, name: 'Data download via SMS-CB' }]);
 	const ist = efDecImsi(efBytes('01'));
 	assert.deepStrictEqual(ist.services, [{ n: 1, name: 'P-CSCF address' }]);
+});
+
+test('EF.SST is the SIM 2-bit service table (allocated/activated)', () => {
+	// TS 51.011 10.3.7: service 2 ADN -> byte 0, pair start bit 2 (0x04
+	// allocated, 0x08 activated)
+	assert.deepStrictEqual(efDecSst(efBytes('0C')), { services: [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: true, activated: true },
+	] });
+	assert.deepStrictEqual(efDecSst(efBytes('04')), { services: [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: true, activated: false },
+	] });
+	assert.deepStrictEqual(efDecSst(efBytes('08')), { services: [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: false, activated: true },
+	] });
+	// byte 1 pair 3 (bits 6/7) = service 4 SMS; byte 0 pair 1 = service 2
+	assert.deepStrictEqual(efDecSst(efBytes('C0')), { services: [
+		{ n: 4, name: 'Short Message Storage (SMS)', allocated: true, activated: true },
+	] });
+	assert.deepStrictEqual(efDecSst(efBytes('00')), { services: [] });
+	assert.deepStrictEqual(efFindDecoder('EF.SST', null).fn(efBytes('0C')).services[0].activated, true);
+	// the read-only view shows both bits
+	assert.ok(efFlatten(efDecSst(efBytes('0C'))).some(r =>
+		r[0] === 'Service 2' && r[1].includes('allocated') && r[1].includes('activated')));
 });
 
 test('decoder registry resolves by name first, then FID; unknown returns null', () => {

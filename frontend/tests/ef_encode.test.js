@@ -48,15 +48,16 @@ const FNS = [
 	'efDecSpn', 'efDecPlmnWact', 'efDecAdn', 'efDecPnn', 'efFindDecoder',
 	'efDecodeBytes', 'efTlv', 'efPnnText', 'efDecItemsFromHex',
 	'efGsm7PlainText', 'efEncTextBytes', 'efPlmnEnc', 'efActEnc', 'efEncSpn',
-	'efEncPlmnList', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
+	'efEncPlmnList', 'efListRows', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
 	'efFindEncoder', 'efHasEncoder', 'gsm7Decode', 'gsm7TextToSeptets',
-	'gsm7Encode', 'efEncError',
+	'gsm7Encode', 'efEncError', 'efDecModelValues',
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 
 ];
 
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_ENCODERS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -211,7 +212,7 @@ test('EF.SPN and the ADN family share the encoder registry with the PLMN list', 
 	assert.strictEqual(efFindEncoder('EF.ALIAS', '6f60').enc, efEncPlmnList);
 	assert.strictEqual(efFindEncoder('EF.NOPE', 'abcd'), null);
 	assert.strictEqual(efHasEncoder('EF.ADN', null), true);
-	assert.strictEqual(efHasEncoder('EF.IMSI', null), false);
+	assert.strictEqual(efHasEncoder('EF.LOCI', null), false);
 	// one shared schema for the ADN family and one for the three PLMN files
 	assert.strictEqual(efFindEncoder('EF.ADN', null).fields, efFindEncoder('EF.BDN', null).fields);
 	assert.strictEqual(efFindEncoder('EF.PLMNwAcT', null).list, efFindEncoder('EF.HPLMNwAcT', null).list);
@@ -429,14 +430,36 @@ test('F14: the encoder messages go through t() (unknown technology, too many row
 });
 
 test('unchanged content re-encodes byte-identically (all fixtures)', () => {
+	const tables = { 'EF.UST': EF_UST_SERVICES, 'EF.IST': EF_IST_SERVICES,
+		'EF.EST': EF_EST_SERVICES };
 	const decode = (name, hex) => {
+		const entry = efFindEncoder(name, null);
 		const bytes = efBytes(hex);
-		if (name === 'EF.SPN') return efDecSpn(bytes);
-		if (name === 'EF.PLMNwAcT') return efDecPlmnWact(bytes).plmns;
-		if (name === 'EF.BDN') return efDecAdn(bytes, 15);
-		if (name === 'EF.ADN') return efDecAdn(bytes);
-		if (name === 'EF.PNN') return efDecItemsFromHex(efFindEncoder('EF.PNN', null), hex);
-		throw new Error('no decoder for ' + name);
+		let dec;
+		if (name === 'EF.SPN') dec = efDecSpn(bytes);
+		else if (tables[name]) {
+			// the form renders only the table's services; other set bits stay
+			// in the original bytes
+			dec = { services: efDecServiceTable(bytes, tables[name]).services
+				.filter(s => Object.prototype.hasOwnProperty.call(tables[name], s.n)) };
+		} else if (name === 'EF.ACC') dec = efDecAcc(bytes);
+		else if (name === 'EF.PHASE') dec = efDecPhase(bytes);
+		else if (name === 'EF.HPPLMN') dec = efDecHpplmn(bytes);
+		else if (name === 'EF.AD') dec = efDecAd(bytes);
+		else if (name === 'EF.PLMNsel' || name === 'EF.EHPLMN') dec = efDecPlmnList(bytes);
+		else if (name === 'EF.FPLMN') dec = efDecFplmn(bytes);
+		else if (name === 'EF.ICCID') dec = efDecIccid(bytes);
+		else if (name === 'EF.IMSI') dec = efDecImsi(bytes);
+		else if (name === 'EF.CBMI' || name === 'EF.CBMID') dec = efDecCbmi(bytes);
+		else if (name === 'EF.CBMIR') dec = efDecCbmir(bytes);
+		else if (name === 'EF.PLMNwAcT') dec = efDecPlmnWact(bytes).plmns;
+		else if (name === 'EF.BDN') dec = efDecAdn(bytes, 15);
+		else if (name === 'EF.ADN') dec = efDecAdn(bytes);
+		else if (name === 'EF.PNN') dec = efDecItemsFromHex(efFindEncoder('EF.PNN', null), hex);
+		else throw new Error('no decoder for ' + name);
+		// the model's empty/raw marker yields the form's empty value set
+		if (dec && (dec.empty === true || (dec.raw !== undefined && Object.keys(dec).length === 1))) dec = {};
+		return entry.model ? entry.model(dec) : dec;
 	};
 	const cases = [
 		{ name: 'EF.SPN', fid: '6f46', hex: SPN_ORIG },
@@ -456,6 +479,38 @@ test('unchanged content re-encodes byte-identically (all fixtures)', () => {
 		{ name: 'EF.PNN', fid: '6fc5', hex: PNN_2 },
 		{ name: 'EF.PNN', fid: '6fc5', hex: '800400410042' + 'FF'.repeat(16) },
 		{ name: 'EF.PNN', fid: '6fc5', hex: '430a82d432bbbc7eb75de4325a02aabb' + 'ff'.repeat(14) },
+		// wave 2
+		{ name: 'EF.UST', fid: '6f38', hex: UST_ONE },
+		{ name: 'EF.UST', fid: '6f38', hex: UST_MULTI },
+		{ name: 'EF.UST', fid: '6f38', hex: UST_UNMODELLED },
+		{ name: 'EF.UST', fid: '6f38', hex: 'FF'.repeat(19) },
+		{ name: 'EF.IST', fid: '6f07', hex: '01' },
+		{ name: 'EF.EST', fid: '6f56', hex: '07' },
+		{ name: 'EF.EST', fid: '6f56', hex: EST_FF },
+		{ name: 'EF.ACC', fid: '6f78', hex: ACC_ONE },
+		{ name: 'EF.PHASE', fid: '6fae', hex: '00' },
+		{ name: 'EF.PHASE', fid: '6fae', hex: '02' },
+		{ name: 'EF.PHASE', fid: '6fae', hex: '03' },
+		{ name: 'EF.PHASE', fid: '6fae', hex: '0F' },
+		{ name: 'EF.HPPLMN', fid: '6f31', hex: '00' },
+		{ name: 'EF.HPPLMN', fid: '6f31', hex: '2A' },
+		{ name: 'EF.AD', fid: '6fad', hex: AD_HEX },
+		{ name: 'EF.AD', fid: '6fad', hex: '55' + '0000' + '03' + 'AABB' },
+		{ name: 'EF.AD', fid: '6fad', hex: 'FF'.repeat(6) },
+		{ name: 'EF.AD', fid: '6fad', hex: '00' + '0000' },
+		{ name: 'EF.AD', fid: '6fad', hex: '00' + '0000' + '00' + 'AABB' },
+		{ name: 'EF.PLMNsel', fid: '6f30', hex: PLMN_ONLY },
+		{ name: 'EF.FPLMN', fid: '6f7b', hex: FPLMN_HOLES },
+		{ name: 'EF.EHPLMN', fid: '6fd9', hex: PLMN_ONLY },
+		{ name: 'EF.ICCID', fid: '2fe2', hex: ICCID_HEX },
+		{ name: 'EF.ICCID', fid: '2fe2', hex: 'FF'.repeat(10) },
+		{ name: 'EF.IMSI', fid: '6f07', hex: IMSI_HEX },
+		{ name: 'EF.IMSI', fid: '6f07', hex: '0811325476981032F4' },
+		{ name: 'EF.IMSI', fid: '6f07', hex: 'FF'.repeat(9) },
+		{ name: 'EF.CBMI', fid: '6f45', hex: CBMI_HEX },
+		{ name: 'EF.CBMID', fid: '6f48', hex: CBMI_HEX },
+		{ name: 'EF.CBMIR', fid: '6f50', hex: CBMIR_HEX },
+		{ name: 'EF.CBMIR', fid: '6f50', hex: 'FF'.repeat(4) },
 	];
 	for (const c of cases) {
 		const entry = efFindEncoder(c.name, c.fid);
@@ -510,4 +565,206 @@ test('F8: the ADN-family entries name their extension EF and use it in refusals'
 	assert.throws(() => efEncAdn({ name: 'TEST', number: '+79001234567' }, bdnExt4, 15, 'EXT4'), /EF\.EXT4/);
 	// the unchanged number still copies the extension slots verbatim
 	assert.strictEqual(efEncAdn(efDecAdn(efBytes(fdn)), fdn, 14, 'EXT2'), fdn.toUpperCase());
+});
+
+// Wave 2 fixtures.
+const UST_ONE = '00000010';                  // service 29
+const UST_MULTI = '010204';                  // services 1, 10, 19
+const UST_UNMODELLED = '000000' + '10' + '00'.repeat(14) + 'FC'; // 29 + bits 147-152
+const EST_FF = 'FFFF';
+const ACC_ONE = '8001';                      // classes 15 and 0
+const AD_HEX = '00' + '0000' + '03' + 'AABB'; // op normal, info 0000, MNC 3, RFU
+const PLMN_ONLY = '62F21022F860';
+const FPLMN_HOLES = '22F860FFFFFF62F210';
+const ICCID_HEX = '988812010000400310f0';
+const IMSI_HEX = '082982608200002080';
+const CBMI_HEX = '0010FFFF0020';
+const CBMIR_HEX = '0000FFFE';
+
+test('service tables: encode/decode round-trips and unmodelled bits', () => {
+	const label = n => EF_UST_SERVICES[n] || 'RFU';
+	assert.deepStrictEqual(efDecServiceTable(efBytes(UST_MULTI), EF_UST_SERVICES).services,
+		[{ n: 1, name: label(1) }, { n: 10, name: label(10) }, { n: 19, name: label(19) }]);
+	for (const [name, hex] of [['EF.UST', UST_ONE], ['EF.UST', UST_MULTI],
+		['EF.IST', '01'], ['EF.EST', '07']]) {
+		const entry = efFindEncoder(name, null);
+		const table = name === 'EF.UST' ? EF_UST_SERVICES
+			: (name === 'EF.IST' ? EF_IST_SERVICES : EF_EST_SERVICES);
+		const services = efDecServiceTable(efBytes(hex), table).services;
+		assert.strictEqual(entry.enc({ services: services }, hex), hex, name + ' ' + hex);
+	}
+	// EF.SST has no editor (its 2-bit SIM layout needs a dedicated UI)
+	assert.strictEqual(efFindEncoder('EF.SST', '6f38'), null);
+	assert.strictEqual(efHasEncoder('EF.SST', '6f38'), false);
+	assert.strictEqual(efFindEncoder('EF.UST', '6f38').name, 'EF.UST');
+	// EST defines services 1-3; all-FF keeps the other bits too
+	assert.deepStrictEqual(efDecServiceTable(efBytes('07'), EF_EST_SERVICES).services,
+		[{ n: 1, name: 'Fixed Dialling Numbers (FDN)' },
+			{ n: 2, name: 'Barred Dialling Numbers (BDN)' },
+			{ n: 3, name: 'APN Control List (ACL)' }]);
+	assert.strictEqual(efFindEncoder('EF.EST', null).enc(
+		{ services: efDecServiceTable(efBytes(EST_FF), EF_EST_SERVICES).services
+			.filter(s => Object.prototype.hasOwnProperty.call(EF_EST_SERVICES, s.n)) }, EST_FF), EST_FF);
+	// service bits outside the table are preserved from the original bytes
+	const entry = efFindEncoder('EF.UST', null);
+	const unmodelled = efDecServiceTable(efBytes(UST_UNMODELLED), EF_UST_SERVICES).services
+		.filter(s => Object.prototype.hasOwnProperty.call(EF_UST_SERVICES, s.n));
+	assert.strictEqual(entry.enc({ services: unmodelled }, UST_UNMODELLED), UST_UNMODELLED);
+	// unchecking everything clears the table bits but keeps the unmodelled byte
+	assert.strictEqual(entry.enc({ services: [] }, UST_UNMODELLED),
+		'000000' + '00' + '00'.repeat(14) + 'FC');
+	// length is kept
+	assert.strictEqual(entry.enc({ services: efDecServiceTable(efBytes('00000010' + '00'), EF_UST_SERVICES).services },
+		'0000001000'), '0000001000');
+});
+
+test('service tables: unknown services and a too-short table are refused', () => {
+	assert.throws(() => efEncServiceTable({ services: [{ n: 147, name: 'RFU' }] },
+		'FF'.repeat(19), EF_UST_SERVICES), /Unknown service/);
+	assert.throws(() => efEncServiceTable({ services: [{ n: 9, name: 'MSISDN' }] },
+		'00', EF_UST_SERVICES), /too short for service/);
+	assert.throws(() => efEncServiceTable({ services: [{ n: 0 }] }, '00', EF_UST_SERVICES), /Unknown service/);
+});
+
+test('F-ACC: the class numbering and the ACC10/encoder rules', () => {
+	assert.deepStrictEqual(efDecAcc(efBytes('8000')), { access_classes: [15] });
+	assert.deepStrictEqual(efDecAcc(efBytes('0001')), { access_classes: [0] });
+	assert.deepStrictEqual(efDecAcc(efBytes('8001')), { access_classes: [15, 0] });
+	assert.strictEqual(efEncAcc({ access_classes: [{ n: 15 }] }, '0000'), '8000');
+	assert.strictEqual(efEncAcc({ access_classes: [{ n: 0 }] }, '0000'), '0001');
+	assert.strictEqual(efEncAcc({ access_classes: efDecAcc(efBytes(ACC_ONE)).access_classes }, ACC_ONE), ACC_ONE);
+	// ACC 10 is not editable but the encoder always forces it to 0
+	assert.strictEqual(efEncAcc({ access_classes: [{ n: 10 }] }, '0000'), '0000');
+	assert.strictEqual(efEncAcc({ access_classes: [{ n: 15 }, { n: 10 }] }, '0000'), '8000');
+	assert.throws(() => efEncAcc({ access_classes: [{ n: 16 }] }, '0000'), /Unknown access class/);
+	assert.throws(() => efEncAcc({ access_classes: [] }, '00'), /too short/);
+});
+
+test('PHASE: known and unknown values round-trip through the model', () => {
+	for (const hex of ['00', '02', '03', '0F']) {
+		const model = efPhaseModel(efDecPhase(efBytes(hex)));
+		assert.strictEqual(efEncPhase(model, hex), hex, hex);
+	}
+	assert.deepStrictEqual(efPhaseModel(efDecPhase(efBytes('03'))), { phase_hex: '03' });
+	assert.deepStrictEqual(efPhaseModel(efDecPhase(efBytes('0F'))), { phase_hex: '0F' });
+	assert.strictEqual(efDecPhase(efBytes('0F')).phase, '0x0F');
+	assert.throws(() => efEncPhase({ phase_hex: 'ZZ' }, '00'), /hex byte/);
+});
+
+test('HPPLMN: the raw interval byte round-trips', () => {
+	assert.deepStrictEqual(efDecHpplmn(efBytes('2A')), { interval: '0x2A' });
+	for (const hex of ['00', '2A', 'FF']) {
+		assert.strictEqual(efEncHpplmn(efDecHpplmn(efBytes(hex)), hex), hex, hex);
+	}
+	assert.strictEqual(efEncHpplmn({ interval: '2A' }, '2A'), '2A');
+	assert.throws(() => efEncHpplmn({ interval: 'XYZ' }, '00'), /hex byte/);
+});
+
+test('AD: the whole-byte operation mode, additional info, MNC length and RFU tail', () => {
+	const dec = efDecAd(efBytes(AD_HEX));
+	assert.deepStrictEqual(dec, { op_mode: 'normal operation', additional_info: '0000', mnc_length: 3 });
+	assert.deepStrictEqual(efAdModel(dec), { op_mode: '00', additional_info: '0000', mnc_length: '3' });
+	assert.strictEqual(efEncAd(efAdModel(dec), AD_HEX), AD_HEX);
+	for (const [op, name] of [['80', 'type approval'], ['01', 'normal operation + specific facilities'],
+		['81', 'type approval + specific facilities'], ['02', 'maintenance (off line)'],
+		['04', 'cell test operation']]) {
+		const hex = op + '0000' + '03';
+		assert.strictEqual(efDecAd(efBytes(hex)).op_mode, name, op);
+		assert.strictEqual(efEncAd(efAdModel(efDecAd(efBytes(hex))), hex), hex, op);
+	}
+	// an edited op mode / info / MNC keeps the RFU tail
+	assert.strictEqual(efEncAd({ op_mode: '80', additional_info: '1234', mnc_length: '2' }, AD_HEX),
+		'80123402AABB');
+	// the SIM 3-byte form (no MNC-length byte) and the valid MNC length 0
+	assert.strictEqual(efEncAd({ op_mode: '00', additional_info: '1234' }, '00' + '0000'), '001234');
+	assert.strictEqual(efEncAd({ op_mode: '00', additional_info: '1234', mnc_length: '' }, '00' + '0000'), '001234');
+	assert.throws(() => efEncAd({ op_mode: '00', additional_info: '1234', mnc_length: '2' }, '00' + '0000'),
+		/no MNC length byte/);
+	assert.strictEqual(efEncAd({ op_mode: '00', additional_info: '0000', mnc_length: '0' }, AD_HEX),
+		'000000' + '00' + 'AABB');
+	// an unknown op byte is shown and written back
+	const unk = '55' + '0000' + '03' + 'AABB';
+	assert.strictEqual(efDecAd(efBytes(unk)).op_mode, '0x55');
+	assert.strictEqual(efAdModel(efDecAd(efBytes(unk))).op_mode, '55');
+	assert.strictEqual(efEncAd(efAdModel(efDecAd(efBytes(unk))), unk), unk);
+	// an all-FF record stays all-FF (the model is empty)
+	assert.strictEqual(efEncAd(efAdModel({}), 'FF'.repeat(6)), 'FF'.repeat(6));
+	assert.throws(() => efEncAd({ op_mode: 'ZZ' }, AD_HEX), /hex byte/);
+	assert.throws(() => efEncAd({ op_mode: '00', additional_info: '123' }, AD_HEX), /4 hex digits/);
+	assert.throws(() => efEncAd({ op_mode: '00', mnc_length: '4' }, AD_HEX), /0, 2 or 3/);
+	assert.throws(() => efEncAd({ op_mode: '00' }, '00'), /too short/);
+});
+
+test('PLMN-only lists: round-trip, holes, add/remove and capacity', () => {
+	assert.deepStrictEqual(efDecPlmnList(efBytes(PLMN_ONLY)).plmns,
+		[{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '06' }]);
+	assert.strictEqual(efEncPlmnOnly({ plmns: efDecPlmnList(efBytes(PLMN_ONLY)).plmns }, PLMN_ONLY), PLMN_ONLY);
+	// FPLMN FFFFFF holes anywhere are kept for an unchanged list
+	assert.deepStrictEqual(efDecFplmn(efBytes(FPLMN_HOLES)).plmns,
+		[{ mcc: '228', mnc: '06' }, { mcc: '262', mnc: '01' }]);
+	assert.strictEqual(efEncPlmnOnly({ plmns: efDecFplmn(efBytes(FPLMN_HOLES)).plmns }, FPLMN_HOLES), FPLMN_HOLES);
+	// an edit compacts and FF-pads
+	assert.strictEqual(efEncPlmnOnly({ plmns: [{ mcc: '262', mnc: '01' }] }, FPLMN_HOLES),
+		'62F210' + 'FF'.repeat(6));
+	assert.strictEqual(efEncPlmnOnly({ plmns: [
+		{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '06' }, { mcc: '250', mnc: '99' },
+	] }, '62F21022F860' + 'FFFFFF'), '62F21022F86052F099');
+	assert.throws(() => efEncPlmnOnly({ plmns: [{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '06' }] },
+		'62F210'), /Too many entries/);
+	assert.throws(() => efEncPlmnOnly({ plmns: [{ mcc: '26', mnc: '01' }] }, '62F210'), /MCC/);
+});
+
+test('ICCID / IMSI: BCD round-trips, padding and refusals', () => {
+	assert.deepStrictEqual(efDecIccid(efBytes(ICCID_HEX)), { iccid: '8988211000000430010' });
+	assert.strictEqual(efEncIccid({ iccid: '8988211000000430010' }, ICCID_HEX), ICCID_HEX.toUpperCase());
+	// odd digit count -> trailing F nibble
+	assert.strictEqual(efEncIccid({ iccid: '12345' }, 'FF'.repeat(10)), '2143F5' + 'FF'.repeat(7));
+	assert.strictEqual(efEncIccid({}, 'FF'.repeat(10)), 'FF'.repeat(10));
+	assert.throws(() => efEncIccid({ iccid: '12A' }, 'FF'.repeat(10)), /digits/);
+	assert.throws(() => efEncIccid({ iccid: '1'.repeat(21) }, 'FF'.repeat(10)), /too long/);
+	assert.throws(() => efEncIccid({ iccid: '1'.repeat(20) }, 'FF'.repeat(9)), /does not fit/);
+
+	assert.deepStrictEqual(efDecImsi(efBytes(IMSI_HEX)), { imsi: '228062800000208' });
+	assert.strictEqual(efEncImsi({ imsi: '228062800000208' }, IMSI_HEX), IMSI_HEX);
+	// 14 digits (even): the type/parity nibble is 1 and the body is F-padded
+	assert.strictEqual(efEncImsi({ imsi: '12345678901234' }, 'FF'.repeat(9)), '0811325476981032F4');
+	assert.deepStrictEqual(efDecImsi(efBytes('0811325476981032F4')), { imsi: '12345678901234' });
+	assert.strictEqual(efEncImsi({ imsi: '123456789012345' }, 'FF'.repeat(9)), '081932547698103254');
+	assert.deepStrictEqual(efDecImsi(efBytes('081932547698103254')), { imsi: '123456789012345' });
+	// 6F07 is also EF.IST: a short file is refused, not overwritten
+	assert.throws(() => efEncImsi({ imsi: '228062800000208' }, '01'), /service table, not an IMSI/);
+	assert.throws(() => efEncImsi({}, '01'), /service table, not an IMSI/);
+	assert.strictEqual(efEncImsi({}, 'FF'.repeat(9)), 'FF'.repeat(9));
+	assert.throws(() => efEncImsi({ imsi: '12345' }, 'FF'.repeat(9)), /6-15/);
+	assert.throws(() => efEncImsi({ imsi: '1'.repeat(16) }, 'FF'.repeat(9)), /6-15/);
+	assert.throws(() => efEncImsi({ imsi: '228062800000208' }, 'FF'.repeat(8)), /does not fit/);
+});
+
+test('CBMI / CBMIR: message ids and ranges round-trip with FF padding', () => {
+	assert.deepStrictEqual(efDecCbmi(efBytes(CBMI_HEX)), { message_ids: [16, 32] });
+	const cbmi = efCbmiModel(efDecCbmi(efBytes(CBMI_HEX)));
+	assert.deepStrictEqual(cbmi, { message_ids: [{ id: '0010' }, { id: '0020' }] });
+	assert.strictEqual(efEncCbmi(cbmi, CBMI_HEX), CBMI_HEX);   // the FFFF hole is kept
+	assert.strictEqual(efEncCbmi({ message_ids: [{ id: '0010' }, { id: '0020' }, { id: '0044' }] },
+		CBMI_HEX), '001000200044');
+	assert.strictEqual(efEncCbmi({ message_ids: [{ id: '0010' }] }, '0010FFFFFFFF'), '0010FFFFFFFF');
+	assert.strictEqual(efEncCbmi({ message_ids: [{ id: '0010' }, { id: '20' }] }, '0010FFFFFFFF'),
+		'00100020FFFF');
+	assert.throws(() => efEncCbmi({ message_ids: [{ id: 'XYZ' }] }, CBMI_HEX), /1-4 hex digits/);
+	assert.throws(() => efEncCbmi({ message_ids: [{ id: '0010' }, { id: '0020' }, { id: '0030' }, { id: '0040' }] },
+		'0010FFFF'), /Too many entries/);
+
+	assert.deepStrictEqual(efDecCbmir(efBytes(CBMIR_HEX)), { ranges: [['0000', 'FFFE']] });
+	const cbmir = efCbmirModel(efDecCbmir(efBytes(CBMIR_HEX)));
+	assert.deepStrictEqual(cbmir, { ranges: [{ low: '0000', high: 'FFFE' }] });
+	assert.strictEqual(efEncCbmir(cbmir, CBMIR_HEX), CBMIR_HEX);
+	assert.strictEqual(efEncCbmir({ ranges: [
+		{ low: '0000', high: 'FFFE' }, { low: '0100', high: '02FF' },
+	] }, CBMIR_HEX + 'FFFFFFFF'), '0000FFFE010002FF');
+	assert.strictEqual(efEncCbmir({ ranges: [{ low: '0000', high: 'FFFE' }] },
+		CBMIR_HEX + 'FFFFFFFF'), CBMIR_HEX + 'FFFFFFFF');
+	assert.throws(() => efEncCbmir({ ranges: [{ low: '0000', high: 'XYZ' }] }, CBMIR_HEX), /1-4 hex digits/);
+	assert.throws(() => efEncCbmir({ ranges: [
+		{ low: '0000', high: 'FFFE' }, { low: '0100', high: '02FF' },
+	] }, CBMIR_HEX), /Too many entries/);
 });

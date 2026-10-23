@@ -1,6 +1,8 @@
 # Decoded editing — file-format survey and design
 
-Status: design note for the **Edit decoded** feature (v3.33.0).  It classifies
+Status: design note for the **Edit decoded** feature.  Waves 1 and 2 shipped in
+v3.33.0 and v3.34.0; decoded editing for EF.DIR/EF.ARR/EF.SMS/EF.PBR is
+**postponed by decision** (their decoded view is enough).  It classifies
 the EFs the workbench knows (the client-side decoder registry) by the spec's
 own structure and content coding, assigns each an editing *shape*, and sets the
 release waves.  The reference is the pinned specs (`projects/docs/uicc/`):
@@ -57,32 +59,32 @@ editing candidates.
 
 | EF | FID | Spec | Size | Content | Shape | Wave |
 |---|---|---|---|---|---|---|
-| EF.ICCID | 2FE2 | TS 51.011 10.3.1 | 10 B | BCD (nibble-swapped), F padding | S3 | 3.34 |
-| EF.IMSI | 6F07 | TS 31.102 4.2.2 | 9 B | length byte + '9'-prefixed BCD | S3 | 3.34 |
-| EF.IST | 6F07 | TS 31.102 4.2.2 (SAIP) | 1–2 B | service bits | S6 | 3.34 |
-| EF.UST | 6F38 | TS 31.102 4.2.8 | X ≥ 1 | service bits | S6 | 3.34 |
-| EF.SST | 6F38 | TS 51.011 10.3.7 | X ≥ 1 | service bits | S6 | 3.34 |
-| EF.EST | 6F56 | TS 31.102 4.2.47 | X ≥ 1 | enabled-service bits | S6 | 3.34 |
-| EF.LI | 6F05 | TS 31.102 4.2.1 | 2n | ISO 639 language codes | S6 | 3.34 |
-| EF.LP / EF.PL | 6F05 / 2F05 | TS 51.011 10.3.1/10.3.2 | 1–n | language codes | S6 | 3.34 |
+| EF.ICCID | 2FE2 | TS 51.011 10.3.1 | 10 B | BCD (nibble-swapped), F padding; UPDATE is NEV per TS 102 221 | S3 | **3.34** |
+| EF.IMSI | 6F07 | TS 31.102 4.2.2 | 9 B | length byte + parity/type nibble ('9' odd / '1' even) + BCD | S3 | **3.34** |
+| EF.IST | 6F07 | TS 31.102 4.2.2 (SAIP) | 1–2 B | service bits | S6 | **3.34** |
+| EF.UST | 6F38 | TS 31.102 4.2.8 | X ≥ 1 | service bits | S6 | **3.34** |
+| EF.SST | 6F38 | TS 51.011 10.3.7 | X ≥ 1 | **2 bits/service** (allocated + activated) | S6 (pending) | decoder fixed; editor later |
+| EF.EST | 6F56 | TS 31.102 4.2.47 | X ≥ 1 | enabled-service bits (3 services) | S6 | **3.34** |
+| EF.LI | 6F05 | TS 31.102 4.2.1 | 2n | ISO 639 letters (2 B each) | S6 | 3.35 |
+| EF.LP / EF.PL | 6F05 / 2F05 | TS 51.011 10.3.1 / 10.1.2 | 1–n | **1 byte per language** (DCS language coding) | S6 | 3.35 |
 | EF.SPN | 6F46 | TS 31.102 4.2.12 | 17 B | condition byte + Annex A text | S2 | **3.33** |
-| EF.PLMNsel | 6F30 | TS 51.011 10.3.4 | 3n (n ≥ 8) | PLMN list | S4 | 3.34 |
-| EF.FPLMN | 6F7B | TS 31.102 4.2.16 | 3n (n ≥ 4) | PLMN list | S4 | 3.34 |
-| EF.EHPLMN | 6FD9 | TS 31.102 4.2.84 | 3n | PLMN list | S4 | 3.34 |
+| EF.PLMNsel | 6F30 | TS 51.011 10.3.4 | 3n (n ≥ 8) | PLMN list | S4 | **3.34** |
+| EF.FPLMN | 6F7B | TS 31.102 4.2.16 | 3n (n ≥ 4) | PLMN list (FFFFFF holes anywhere) | S4 | **3.34** |
+| EF.EHPLMN | 6FD9 | TS 31.102 4.2.84 | 3n | PLMN list | S4 | **3.34** |
 | EF.PLMNwAcT | 6F60 | TS 31.102 4.2.5 | 5n (n ≥ 8) | PLMN + ACT | S5 | **3.33** |
 | EF.OPLMNwAcT | 6F61 | TS 31.102 4.2.53 | 5n (n ≥ 8) | PLMN + ACT | S5 | **3.33** |
 | EF.HPLMNwAcT | 6F62 | TS 31.102 4.2.54 | 5n (n ≥ 1) | PLMN + ACT | S5 | **3.33** |
-| EF.SPDI | 6FCD | TS 31.102 4.2.66 | x | TLV: A3 > 80 > PLMN list | S4 | 3.34 |
-| EF.GID1 / GID2 | 6F3E / 6F3F | TS 31.102 4.2.10/4.2.11 | n | text (Annex A) | S2 | 3.34 |
+| EF.SPDI | 6FCD | TS 31.102 4.2.66 | x | TLV: A3 > 80 > PLMN list | S4 | 3.35 |
+| EF.GID1 / GID2 | 6F3E / 6F3F | TS 31.102 4.2.10/4.2.11 | n | identifier bytes (coding not stated in the clause) | S2 | 3.35 (verify TS 31.101) |
 | EF.SUUME | 6F54 | TS 51.011 10.3.34 | X+Y | alpha (Annex A) | S2 | 3.35 |
 | EF.IMPI/DOMAIN/IMPU | 6F02/6F03/6F04 | TS 31.102 (ISIM) | X | NAI text | S2 | 3.35 |
-| EF.ACC | 6F78 | TS 31.102 4.2.15 | 2 B | class bits | S1/S6 | 3.34 |
-| EF.PHASE | 6FAE | TS 51.011 10.3.19 | 1 B | phase id | S1 | 3.34 |
-| EF.HPPLMN | 6F31 | TS 31.102 4.2.6 | 1 B | search period | S1 | 3.34 |
-| EF.AD | 6FAD | TS 31.102 4.2.18 | 4+X | op mode, info, MNC length | S1 | 3.34 |
-| EF.CBMI | 6F45 | TS 31.102 4.2.14 | 2n | CB message ids | S6 | 3.34 |
-| EF.CBMID | 6F48 | TS 31.102 4.2.20 | 2n | CB message ids | S6 | 3.34 |
-| EF.CBMIR | 6F50 | TS 31.102 4.2.22 | 4n | CB id ranges | S6 | 3.34 |
+| EF.ACC | 6F78 | TS 31.102 4.2.15 | 2 B | class bits (b8…b1 = 15…8 / 7…0; ACC 10 written 0) | S6 | **3.34** |
+| EF.PHASE | 6FAE | TS 51.011 10.3.19 | 1 B | phase id (00/02/03) | S1 | **3.34** |
+| EF.HPPLMN | 6F31 | TS 31.102 4.2.6 | 1 B | search-period multiplier | S1 | **3.34** |
+| EF.AD | 6FAD | TS 31.102 4.2.18 | 4+X | op-mode byte enum, info, MNC length (may be 0 or absent) | S1 | **3.34** |
+| EF.CBMI | 6F45 | TS 31.102 4.2.14 | 2n | CB message ids | S6 | **3.34** |
+| EF.CBMID | 6F48 | TS 31.102 4.2.20 | 2n | CB message ids | S6 | **3.34** |
+| EF.CBMIR | 6F50 | TS 31.102 4.2.22 | 4n | CB id ranges | S6 | **3.34** |
 | EF.ACL | 6F57 | TS 31.102 4.2.48 | X | version byte + TLV list (DD APNs) | S8-TR | 3.35 |
 | EF.LOCI | 6F7E | TS 31.102 4.2.17 | 11 B | TMSI/LAI/status | **S0** | — |
 | EF.PSLOCI | 6F73 | TS 31.102 4.2.23 | 14 B | P-TMSI/RAI/status | **S0** | — |
@@ -103,14 +105,14 @@ editing candidates.
 | EF.BDN | 6F4D | TS 31.102 4.2.44 | **X+15** | ADN layout + **Comparison Method Pointer** | S7 | **3.33** (fix) |
 | EF.PNN | 6FC5 | TS 31.102 4.2.58 | X ≥ 3 | TLVs: 43 full / 45 short / 80 PLMN info | S8 | **3.33** |
 | EF.OPL | 6FC6 | TS 31.102 4.2.59 | 8 | LAI (PLMN+LAC) + PNN record id | S7 | 3.35 |
-| EF.ECC (SIM) | 6FB7 | TS 51.011 10.3.27 | 3n | emergency codes (TR) | S6 | 3.34 |
+| EF.ECC (SIM) | 6FB7 | TS 51.011 10.3.27 | 3n | emergency codes (TR) | S6 | 3.35 |
 | EF.ECC (USIM) | 6FB7 | TS 31.102 4.2.21 | X+4 | code(3) + alpha(X) + category(1) | S7 | 3.35 |
 | EF.EXT1–EXT5 | 6F4A–6F55 | TS 31.102 4.4.2.4 / 4.2.30/31/45/37 | 13 | type-dependent: additional data / subaddress | S9 | 3.36 |
-| EF.SMSP | 6F42 | TS 31.102 4.2.27 | 28+Y | alpha + parameter indicators + TP-DA/SCA/PID/DCS/VP | S10 | 3.36 |
-| EF.SMS | 6F3C | TS 31.102 4.2.25 | 176 | status byte + TPDU | S10 | 3.36 |
-| EF.ARR | 2F06/6F06 | TS 31.102 4.2.55 | X | access-rule TLVs (ISO 7816-4) | S8/S9 | 3.36 |
-| EF.DIR | 2F00 | TS 51.011 10.3.3 | X | application template TLVs (61 > 4F/50/73…) | S8/S9 | 3.36 |
-| EF.PBR | 4F30/4FXX | TS 31.102 4.4.2.1 | X | BER-TLV: A8/A9/AA containers, C0–CC links | S9 | later |
+| EF.SMSP | 6F42 | TS 31.102 4.2.27 | 28+Y | alpha + parameter indicators + TP-DA/SCA/PID/DCS/VP | S10 | on request only |
+| EF.SMS | 6F3C | TS 31.102 4.2.25 | 176 | status byte + TPDU | S10 | **postponed (read-only)** |
+| EF.ARR | 2F06/6F06 | TS 31.102 4.2.55 | X | access-rule TLVs (ISO 7816-4) | S8/S9 | **postponed (read-only)** |
+| EF.DIR | 2F00 | TS 51.011 10.3.3 | X | application template TLVs (61 > 4F/50/73…) | S8/S9 | **postponed (read-only)** |
+| EF.PBR | 4F30/4FXX | TS 31.102 4.4.2.1 | X | BER-TLV: A8/A9/AA containers, C0–CC links | S9 | **postponed (read-only)** |
 | EF.EPSNSC | 6FE4 | TS 31.102 4.2.92 | — | NAS security context | **S0** | — |
 | EF.ICI/OCI (call logs) | 6F80/6F81 | TS 31.102 4.2.33/4.2.34 | X+28/X+27 | ADN-like + time/date → cyclic, ME-written | **S0** (plan) | — |
 
@@ -152,21 +154,45 @@ beyond S9/S10.
    the Network Name IE (TS 24.008 10.5.3.5a) for PNN, where the first byte is
    `0x80 | spare` for packed GSM 7-bit and `0x90` for UCS-2 — the real-card
    vector `43 0A 82 D4 32 BB BC 7E B7 5D E4 32 …` confirms it.
+8. **EF.SST is a 2-bit table** (TS 51.011 10.3.7): 4 services per byte, first
+   bit of the pair = allocated, second = activated.  The shared 1-bit
+   UST/EST codec was used for it, so SIM service tables were both misread and
+   miswritten; the decoder is fixed in v3.34.0, editing waits for an
+   allocated/activated UI.
+9. **EF.ACC class numbering** (TS 31.102 4.2.15): byte 1 b8…b1 = classes 15…8
+   and byte 2 = 7…0 (class 10 is written as 0); the old decoder counted from
+   class 0 at the MSB.  Fixed in v3.34.0.
+10. **EF.AD's operation mode is a whole byte** (00/80/01/81/02/04), not bits
+    0-1 plus a test bit; the MNC-length byte may be 0 (service n°130 available)
+    or absent (3-byte SIM form).  The decoder and encoder follow this now.
+11. **The IMSI parity/type nibble** (TS 24.008 10.5.1.4) is 9 for an odd digit
+    count and 1 for an even one; the first encoder always wrote 9.
+12. **SIM EF.LP/EF.PL use the 1-byte DCS language coding**, unlike the USIM
+    EF.LI's 2-byte ISO 639 letters — the shared decoder is wrong for the SIM
+    files (queued with the 3.35 language work).
 
 ## 4. Release waves
 
-- **v3.33.0 (current)** — framework: encoder registry, field/list/items
+- **v3.33.0 (shipped)** — framework: encoder registry, field/list/items
   schemas, record checkboxes + auto-check, save/validation; shapes S2, S5,
   S7, S8 for SPN, PLMNwAcT/OPLMNwAcT/HPLMNwAcT, ADN/FDN/SDN/MSISDN/LND,
   PNN; the BDN layout fix; the `efPlmnAct` EC-GSM-IoT-only (`0x88`) decode fix.
-- **v3.34.0** — S1/S3/S6 wave: UST/SST/IST/EST service toggles, LI/LP/PL,
-  ACC, PHASE, HPPLMN, AD, CBMI/CBMID/CBMIR, ECC (SIM), ICCID, IMSI,
-  PLMNsel/FPLMN/EHPLMN, SPDI, GID1/GID2.
-- **v3.35.0** — remaining S7 records: OPL (PNN record select), ECC (USIM),
-  SUUME, IMPI/DOMAIN/IMPU; EXT1–5 as a read-only structured view.
-- **v3.36.0+** — S10/complex: SMSP (parameter form), SMS (TPDU editor,
-  reusing the existing PDU builders), ARR (rule editor — the decoder already
-  renders rule lines), DIR (application templates), PBR (nested tree).
+- **v3.34.0 (shipped)** — the S1/S3/S4/S6 wave: UST/IST/EST service tables
+  (filterable bit grid), ACC, PHASE, HPPLMN, AD, the PLMN-only lists
+  (PLMNsel/FPLMN/EHPLMN), ICCID/IMSI (behind a confirmation) and
+  CBMI/CBMID/CBMIR.  Decoder fixes: ACC class numbering, the AD operation
+  mode / MNC-length rules, the SST 2-bit layout (read-only for now) and the
+  IMSI parity nibble.
+- **v3.35.0** — LI/LP/PL (the SIM files need the 1-byte DCS language coding
+  and a name-dependent decoder), GID1/GID2 (the clause states no coding —
+  verify TS 31.101 first), SPDI (the A3 > 80 wrapper), OPL (PNN record
+  select), ECC (SIM and USIM — needs a structure-aware decode), SUUME,
+  IMPI/DOMAIN/IMPU, ACL; EXT1–EXT5 as a read-only structured view.
+- **Postponed by decision (read-only; do not implement without confirmation)**
+  — EF.DIR, EF.ARR, EF.SMS, EF.PBR: they rarely need manual changes and the
+  decoded view is enough.
+- **On request only** — EF.SMSP (a parameter form; no TPDU/parameter builder
+  exists in the PWA today).
 - **Read-only forever (S0)** unless a dedicated flow appears: LOCI/PSLOCI/
   EPSLOCI/EPSNSC/LOCIGPRS, Kc/KcGPRS, Keys/KeysPS, ACM, START-HFN/THRESHOLD,
   call logs (ME-written), DCK/NETPAR.

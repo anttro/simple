@@ -1944,7 +1944,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.33.0';
+const SIMPLE_VERSION = '3.34.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16334,6 +16334,13 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 				: efDecCollectValues(root, entry.fields);
 			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
 			body.data = entry.enc(values, orig);
+			// identity writes ask once, and only when something actually changes
+			if (entry.confirm && String(body.data).toUpperCase() !== String(orig).toUpperCase()) {
+				if (!await pysimConfirm(t(entry.confirm))) {
+					statusEl.textContent = t('Write cancelled');
+					return;
+				}
+			}
 			const data = await pysimFetch('/api/write', body);
 			if (!data.success) {
 				pysimFsShowError(statusEl, data.sw, data.error);
@@ -22722,7 +22729,9 @@ window.addEventListener('resize', pysimFsFitTree);
 const EF_UST_SERVICES = {1: "Local Phone Book", 2: "Fixed Dialling Numbers (FDN)", 3: "Extension 2", 4: "Service Dialling Numbers (SDN)", 5: "Extension3", 6: "Barred Dialling Numbers (BDN)", 7: "Extension4", 8: "Outgoing Call Information (OCI and OCT)", 9: "Incoming Call Information (ICI and ICT)", 10: "Short Message Storage (SMS)", 11: "Short Message Status Reports (SMSR)", 12: "Short Message Service Parameters (SMSP)", 13: "Advice of Charge (AoC)", 14: "Capability Configuration Parameters 2 (CCP2)", 15: "Cell Broadcast Message Identifier", 16: "Cell Broadcast Message Identifier Ranges", 17: "Group Identifier Level 1", 18: "Group Identifier Level 2", 19: "Service Provider Name", 20: "User controlled PLMN selector with Access Technology", 21: "MSISDN", 22: "Image (IMG)", 23: "Support of Localised Service Areas (SoLSA)", 24: "Enhanced Multi-Level Precedence and Pre-emption Service", 25: "Automatic Answer for eMLPP", 26: "RFU", 27: "GSM Access", 28: "Data download via SMS-PP", 29: "Data download via SMS-CB", 30: "Call Control by USIM", 31: "MO-SMS Control by USIM", 32: "RUN AT COMMAND command", 33: "shall be set to 1", 34: "Enabled Services Table", 35: "APN Control List (ACL)", 36: "Depersonalisation Control Keys", 37: "Co-operative Network List", 38: "GSM security context", 39: "CPBCCH Information", 40: "Investigation Scan", 41: "MexE", 42: "Operator controlled PLMN selector with Access Technology", 43: "HPLMN selector with Access Technology", 44: "Extension 5", 45: "PLMN Network Name", 46: "Operator PLMN List", 47: "Mailbox Dialling Numbers", 48: "Message Waiting Indication Status", 49: "Call Forwarding Indication Status", 50: "Reserved and shall be ignored", 51: "Service Provider Display Information", 52: "Multimedia Messaging Service (MMS)", 53: "Extension 8", 54: "Call control on GPRS by USIM", 55: "MMS User Connectivity Parameters", 56: "Network's indication of alerting in the MS (NIA)", 57: "VGCS Group Identifier List (EFVGCS and EFVGCSS)", 58: "VBS Group Identifier List (EFVBS and EFVBSS)", 59: "Pseudonym", 60: "User Controlled PLMN selector for I-WLAN access", 61: "Operator Controlled PLMN selector for I-WLAN access", 62: "User controlled WSID list", 63: "Operator controlled WSID list", 64: "VGCS security", 65: "VBS security", 66: "WLAN Reauthentication Identity", 67: "Multimedia Messages Storage", 68: "Generic Bootstrapping Architecture (GBA)", 69: "MBMS security", 70: "Data download via USSD and USSD application mode", 71: "Equivalent HPLMN", 72: "Additional TERMINAL PROFILE after UICC activation", 73: "Equivalent HPLMN Presentation Indication", 74: "Last RPLMN Selection Indication", 75: "OMA BCAST Smart Card Profile", 76: "GBA-based Local Key Establishment Mechanism", 77: "Terminal Applications", 78: "Service Provider Name Icon", 79: "PLMN Network Name Icon", 80: "Connectivity Parameters for USIM IP connections", 81: "Home I-WLAN Specific Identifier List", 82: "I-WLAN Equivalent HPLMN Presentation Indication", 83: "I-WLAN HPLMN Priority Indication", 84: "I-WLAN Last Registered PLMN", 85: "EPS Mobility Management Information", 86: "Allowed CSG Lists and corresponding indications", 87: "Call control on EPS PDN connection by USIM", 88: "HPLMN Direct Access", 89: "eCall Data", 90: "Operator CSG Lists and corresponding indications", 91: "Support for SM-over-IP", 92: "Support of CSG Display Control", 93: "Communication Control for IMS by USIM", 94: "Extended Terminal Applications", 95: "Support of UICC access to IMS", 96: "Non-Access Stratum configuration by USIM", 97: "PWS configuration by USIM", 98: "RFU", 99: "URI support by UICC", 100: "Extended EARFCN support", 101: "ProSe", 102: "USAT Application Pairing", 103: "Media Type support", 104: "IMS call disconnection cause", 105: "URI support for MO SHORT MESSAGE CONTROL", 106: "ePDG configuration Information support", 107: "ePDG configuration Information configured", 108: "ACDC support", 109: "MCPTT", 110: "ePDG configuration Information for Emergency Service support", 111: "ePDG configuration Information for Emergency Service configured", 112: "eCall Data over IMS", 113: "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [12]", 114: "From Preferred", 115: "IMS configuration data", 116: "TV configuration", 117: "3GPP PS Data Off", 118: "3GPP PS Data Off Service List", 119: "V2X", 120: "XCAP Configuration Data", 121: "EARFCN list for MTC/NB-IOT UEs", 122: "5GS Mobility Management Information", 123: "5G Security Parameters", 124: "Subscription identifier privacy support", 125: "SUCI calculation by the USIM", 126: "UAC Access Identities support", 127: "Expect control plane-based Steering of Roaming information during initial registration in VPLMN", 128: "Call control on PDU Session by USIM", 129: "5GS Operator PLMN List", 130: "Support for SUPI of type NSI or GLI or GCI", 131: "3GPP PS Data Off separate Home and Roaming lists", 132: "Support for URSP by USIM", 133: "5G Security Parameters extended", 134: "MuD and MiD configuration data", 135: "Support for Trusted non-3GPP access networks by USIM", 136: "Support for multiple records of NAS security context storage for multiple registration", 137: "Pre-configured CAG information list", 138: "SOR-CMCI storage in USIM", 139: "5G ProSe", 140: "Storage of disaster roaming information in USIM", 141: "Pre-configured eDRX parameters", 142: "5G NSWO support", 143: "PWS configuration for SNPN in USIM", 144: "Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access", 145: "K_AUSF derivation configuration", 146: "Network Identifier for SNPN (NID)"};
 const EF_SST_SERVICES = {1: "CHV1 disable function", 2: "Abbreviated Dialling Numbers (ADN)", 3: "Fixed Dialling Numbers (FDN)", 4: "Short Message Storage (SMS)", 5: "Advice of Charge (AoC)", 6: "Capability Configuration Parameters (CCP)", 7: "PLMN selector", 8: "RFU", 9: "MSISDN", 10: "Extension1", 11: "Extension2", 12: "SMS Parameters", 13: "Last Number Dialled (LND)", 14: "Cell Broadcast Message Identifier", 15: "Group Identifier Level 1", 16: "Group Identifier Level 2", 17: "Service Provider Name", 18: "Service Dialling Numbers (SDN)", 19: "Extension3", 20: "RFU", 21: "VGCS Group Identifier List (EFVGCS and EFVGCSS)", 22: "VBS Group Identifier List (EFVBS and EFVBSS)", 23: "enhanced Multi-Level Precedence and Pre-emption Service", 24: "Automatic Answer for eMLPP", 25: "Data download via SMS-CB", 26: "Data download via SMS-PP", 27: "Menu selection", 28: "Call control", 29: "Proactive SIM", 30: "Cell Broadcast Message Identifier Ranges", 31: "Barred Dialling Numbers (BDN)", 32: "Extension4", 33: "De-personalization Control Keys", 34: "Co-operative Network List", 35: "Short Message Status Reports", 36: "Network's indication of alerting in the MS", 37: "Mobile Originated Short Message control by SIM", 38: "GPRS", 39: "Image (IMG)", 40: "SoLSA (Support of Local Service Area)", 41: "USSD string data object supported in Call Control", 42: "RUN AT COMMAND command", 43: "User controlled PLMN Selector with Access Technology", 44: "Operator controlled PLMN Selector with Access Technology", 45: "HPLMN Selector with Access Technology", 46: "CPBCCH Information", 47: "Investigation Scan", 48: "Extended Capability Configuration Parameters", 49: "MExE", 50: "Reserved and shall be ignored", 51: "PLMN Network Name", 52: "Operator PLMN List", 53: "Mailbox Dialling Numbers", 54: "Message Waiting Indication Status", 55: "Call Forwarding Indication Status", 56: "Service Provider Display Information", 57: "Multimedia Messaging Service (MMS)", 58: "Extension 8", 59: "MMS User Connectivity Parameters"};
 const EF_IST_SERVICES = {1: "P-CSCF address", 2: "Generic Bootstrapping Architecture (GBA)", 3: "HTTP Digest", 4: "GBA-based Local Key Establishment Mechanism", 5: "Support of P-CSCF discovery for IMS Local Break Out", 6: "Short Message Storage (SMS)", 7: "Short Message Status Reports (SMSR)", 8: "Support for SM-over-IP including data download via SMS-PP as defined in TS 31.111 [31]", 9: "Communication Control for IMS by ISIM", 10: "Support of UICC access to IMS", 11: "URI support by UICC", 12: "Media Type support", 13: "IMS call disconnection cause", 14: "URI support for MO SHORT MESSAGE CONTROL", 15: "MCPTT", 16: "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [31]", 17: "From Preferred", 18: "IMS configuration data", 19: "XCAP Configuration Data", 20: "WebRTC URI", 21: "MuD and MiD configuration data", 22: "IMS Data Channel indication"};
-const EF_PHASE_NAMES = {0: "phase 1", 2: "phase 2", 3: "phase 2 and higher"};
+const EF_PHASE_NAMES = {0: "phase 1", 2: "phase 2", 3: "phase 2 and PROFILE DOWNLOAD required"};
+// TS 31.102 4.2.47 EF.EST: the enabled-services bits.
+const EF_EST_SERVICES = {1: "Fixed Dialling Numbers (FDN)", 2: "Barred Dialling Numbers (BDN)", 3: "APN Control List (ACL)"};
 // TS 31.102 §4.4.2.1 EF_PBR primitive tags (the phonebook kinds).
 const EF_PBR_KINDS = { 0xC0: 'EF.ADN', 0xC1: 'EF.IAP', 0xC2: 'EF.EXT1', 0xC3: 'EF.SNE', 0xC4: 'EF.ANR', 0xC5: 'EF.PBC', 0xC6: 'EF.GRP', 0xC7: 'EF.AAS', 0xC8: 'EF.GAS', 0xC9: 'EF.UID', 0xCA: 'EF.EMAIL', 0xCB: 'EF.CCP1', 0xCC: 'EF.PURI' };
 
@@ -23009,6 +23018,25 @@ function efDecServiceTable(b, table) {
 	return { services: services };
 }
 
+// TS 51.011 10.3.7 EF.SST (SIM): two bits per service, four per byte - the
+// first bit of the pair (b1/b3/b5/b7) is allocated, the second (b2/b4/b6/b8)
+// activated; service n -> byte (n-1)>>2, pair start 2*((n-1)&3).
+function efDecSst(b) {
+	const services = [];
+	for (let i = 0; i < b.length; i++) {
+		for (let pair = 0; pair < 4; pair++) {
+			const n = i * 4 + pair + 1;
+			const allocated = !!(b[i] & (1 << (pair * 2)));
+			const activated = !!(b[i] & (1 << (pair * 2 + 1)));
+			if (allocated || activated) {
+				services.push({ n: n, name: EF_SST_SERVICES[n] || 'RFU',
+					allocated: allocated, activated: activated });
+			}
+		}
+	}
+	return { services: services };
+}
+
 function efDecPlmnList(b) {
 	const plmns = [];
 	for (let i = 0; i + 2 < b.length; i += 3) {
@@ -23125,8 +23153,36 @@ function efDecAcc(b) {
 	if (b.length < 2) return { raw: efHex(b) };
 	const val = (b[0] << 8) | b[1];
 	const classes = [];
-	for (let i = 0; i < 16; i++) if (val & (0x8000 >> i)) classes.push(i);
+	// TS 31.102 4.2.15: byte 1 b8..b1 = ACC 15..8, byte 2 b8..b1 = ACC 7..0,
+	// so the MSB of the 16-bit value is class 15 (8000 -> [15], 0001 -> [0]).
+	for (let i = 0; i < 16; i++) if (val & (0x8000 >> i)) classes.push(15 - i);
 	return { access_classes: classes };
+}
+
+// TS 31.102 4.2.6 EF.HPPLMN: a 1-byte time-interval multiplier - a raw byte
+// whose scale depends on the radio technology (minutes on GERAN/UTRAN, hours
+// on NB-IoT/EC-GSM-IoT/eMTC-M1), so the editor exposes the hex value.
+function efDecHpplmn(b) {
+	if (!b.length) return { raw: efHex(b) };
+	return { interval: '0x' + b[0].toString(16).toUpperCase().padStart(2, '0') };
+}
+
+// TS 31.102 4.2.18 EF.AD: byte 1 is the whole RFU/operation-mode enum, bytes
+// 2-3 additional information, byte 4 the MNC length, bytes 5.. RFU.
+const EF_AD_OP_MODES = {
+	'00': 'normal operation', '80': 'type approval',
+	'01': 'normal operation + specific facilities', '81': 'type approval + specific facilities',
+	'02': 'maintenance (off line)', '04': 'cell test operation',
+};
+
+function efDecAd(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (!b.length) return { raw: efHex(b) };
+	const op = b[0].toString(16).toUpperCase().padStart(2, '0');
+	const out = { op_mode: EF_AD_OP_MODES[op] || '0x' + op };
+	if (b.length >= 3) out.additional_info = efHex(b.subarray(1, 3));
+	if (b.length >= 4 && b[3] !== 0xFF) out.mnc_length = b[3];
+	return out;
 }
 
 function efDecPhase(b) {
@@ -23181,18 +23237,6 @@ function efDecOpl(b) {
 	}
 	if (!recs.length) return { raw: efHex(b) };
 	return recs.length === 1 ? recs[0] : { records: recs };
-}
-
-function efDecAd(b) {
-	if (efAllFf(b)) return { empty: true };
-	const op = b[0] & 0x03;
-	const out = {
-		op_mode: { 0: 'normal operation', 1: 'specific features' }[op] || '0x' + op.toString(16).padStart(2, '0'),
-		test_mode: !!(b[0] & 0x04),
-	};
-	if (b.length >= 3) out.additional_info = efHex(b.subarray(1, 3));
-	if (b.length >= 4 && b[3] !== 0xFF) out.mnc_length = b[3];
-	return out;
 }
 
 function efDecAcl(b) {
@@ -23543,7 +23587,9 @@ const EF_DECODERS = [
 	{ name: 'EF.IMSI', fid: '6f07', fn: efDecImsi },
 	{ name: 'EF.IST', fid: '6f07', fn: b => efDecServiceTable(b, EF_IST_SERVICES) },
 	{ name: 'EF.UST', fid: '6f38', fn: b => efDecServiceTable(b, EF_UST_SERVICES) },
-	{ name: 'EF.SST', fid: '6f38', fn: b => efDecServiceTable(b, EF_SST_SERVICES) },
+	{ name: 'EF.SST', fid: '6f38', fn: efDecSst },
+	{ name: 'EF.EST', fid: '6f56', fn: b => efDecServiceTable(b, EF_EST_SERVICES) },
+	{ name: 'EF.HPPLMN', fid: '6f31', fn: efDecHpplmn },
 	{ name: 'EF.LI', fid: '6f05', fn: efDecLi },
 	{ name: 'EF.LP', fid: '6f05', fn: efDecLi },
 	{ name: 'EF.PL', fid: '2f05', fn: efDecLi },
@@ -23954,6 +24000,296 @@ function efEncPnn(items, origHex) {
 	return efHex(bytes);
 }
 
+// Service tables (TS 31.102 4.2.7/4.2.46/4.2.47, TS 51.011 10.3.7): service n
+// lives in byte (n-1)>>3, bit (n-1)&7 (LSB first).  The original bytes are the
+// base, so bits of services the table does not define survive.
+function efEncServiceTable(values, origHex, table) {
+	const orig = efBytes(origHex || '');
+	const out = new Uint8Array(orig.length);
+	out.set(orig, 0);
+	for (const key of Object.keys(table || {})) {
+		const n = Number(key);
+		if (n < 1 || (n - 1) >= out.length * 8) continue;
+		out[(n - 1) >> 3] &= ~(1 << ((n - 1) & 7));
+	}
+	for (const item of (values && values.services) || []) {
+		const n = Number(item && typeof item === 'object' ? item.n : item);
+		if (!Number.isInteger(n) || n < 1 || !Object.prototype.hasOwnProperty.call(table, n)) {
+			throw efEncError('Unknown service', ': ' + (item && item.n));
+		}
+		if ((n - 1) >= out.length * 8) {
+			throw efEncError('The service table is too short for service', ' ' + n);
+		}
+		out[(n - 1) >> 3] |= 1 << ((n - 1) & 7);
+	}
+	return efHex(out);
+}
+
+// EF.ACC (TS 31.102 4.2.15): class c is bit c of the 16-bit value (class 15 is
+// the MSB); ACC 10 is not used and is written as 0.
+function efEncAcc(values, origHex) {
+	const orig = efBytes(origHex || '');
+	if (orig.length < 2) throw efEncError('The record is too short for the ACC layout');
+	let val = 0;
+	for (const item of (values && values.access_classes) || []) {
+		const c = Number(item && typeof item === 'object' ? item.n : item);
+		if (!Number.isInteger(c) || c < 0 || c > 15) {
+			throw efEncError('Unknown access class', ': ' + (item && item.n));
+		}
+		val |= 1 << c;
+	}
+	val &= ~(1 << 10);
+	const out = new Uint8Array(orig.length);
+	out.set(orig, 0);
+	out[0] = (val >> 8) & 0xFF;
+	out[1] = val & 0xFF;
+	return efHex(out);
+}
+
+// EF.PHASE (TS 51.011 10.3.19): one byte - 00 phase 1, 02 phase 2, 03 phase 2
+// with PROFILE DOWNLOAD; the editor also keeps an unknown current value.
+function efPhaseValue(name) {
+	const s = String(name === undefined || name === null ? '' : name);
+	for (const k of Object.keys(EF_PHASE_NAMES)) {
+		if (EF_PHASE_NAMES[k] === s) return Number(k).toString(16).toUpperCase().padStart(2, '0');
+	}
+	const m = /^0x([0-9a-fA-F]{1,2})$/.exec(s);
+	return m ? m[1].toUpperCase().padStart(2, '0') : '';
+}
+
+function efPhaseModel(dec) {
+	return { phase_hex: efPhaseValue(dec && dec.phase) };
+}
+
+function efEncPhase(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const s = String(values && values.phase_hex !== undefined && values.phase_hex !== null
+		? values.phase_hex : '').trim();
+	if (!/^(0x)?[0-9a-fA-F]{1,2}$/.test(s)) throw efEncError('The phase must be a hex byte');
+	const out = new Uint8Array(Math.max(orig.length, 1));
+	out.fill(0xFF);
+	out[0] = parseInt(s.replace(/^0x/i, ''), 16);
+	return efHex(out);
+}
+
+// EF.HPPLMN (TS 31.102 4.2.6): the raw 1-byte time-interval multiplier (the
+// scale depends on the radio technology, so the editor shows the hex value).
+function efEncHpplmn(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const s = String(values && values.interval !== undefined && values.interval !== null
+		? values.interval : '').trim();
+	if (!/^(0x)?[0-9a-fA-F]{1,2}$/.test(s)) throw efEncError('The interval must be a hex byte');
+	const out = new Uint8Array(Math.max(orig.length, 1));
+	out.fill(0xFF);
+	out[0] = parseInt(s.replace(/^0x/i, ''), 16);
+	return efHex(out);
+}
+
+// EF.AD (TS 31.102 4.2.18): the operation-mode byte, the 2-byte additional
+// information, the MNC length and the RFU tail (bytes 5.. preserved).
+function efAdOpValue(name) {
+	const s = String(name === undefined || name === null ? '' : name);
+	for (const k of Object.keys(EF_AD_OP_MODES)) if (EF_AD_OP_MODES[k] === s) return k;
+	const m = /^0x([0-9a-fA-F]{1,2})$/.exec(s);
+	return m ? m[1].toUpperCase().padStart(2, '0') : '';
+}
+
+function efAdModel(dec) {
+	dec = dec || {};
+	// an all-FF record has no decoded op mode: expose FF so the untouched
+	// form writes FF back instead of the select's first known value (00)
+	const empty = dec.op_mode === undefined;
+	return {
+		op_mode: empty ? 'FF' : efAdOpValue(dec.op_mode),
+		additional_info: dec.additional_info || '',
+		mnc_length: dec.mnc_length === undefined ? '' : String(dec.mnc_length),
+	};
+}
+
+function efEncAd(values, origHex) {
+	const orig = efBytes(origHex || '');
+	// TS 31.102 4.2.18 is 4+X bytes; the SIM form (TS 51.011 10.3.18) may omit
+	// byte 4, so a 3-byte record is valid too
+	if (orig.length < 3) throw efEncError('The record is too short for the AD layout');
+	const op = String(values && values.op_mode !== undefined && values.op_mode !== null
+		? values.op_mode : '').trim();
+	if (op !== '' && !/^(0x)?[0-9a-fA-F]{1,2}$/.test(op)) {
+		throw efEncError('The operation mode must be a hex byte');
+	}
+	const info = String(values && values.additional_info !== undefined && values.additional_info !== null
+		? values.additional_info : '').trim();
+	if (info !== '' && !/^[0-9a-fA-F]{4}$/.test(info)) {
+		throw efEncError('The additional information must be 4 hex digits');
+	}
+	// 0 is valid (service n°130 available), as are the USIM 2/3
+	const mnc = String(values && values.mnc_length !== undefined && values.mnc_length !== null
+		? values.mnc_length : '').trim();
+	if (mnc !== '' && !/^[023]$/.test(mnc)) throw efEncError('The MNC length must be 0, 2 or 3 digits');
+	if (orig.length < 4 && mnc !== '') throw efEncError('The record has no MNC length byte');
+	const out = new Uint8Array(orig.length);
+	out.set(orig, 0);
+	out[0] = op === '' ? 0xFF : parseInt(op.replace(/^0x/i, ''), 16);
+	const infoBytes = efBytes(info || 'FFFF');
+	out[1] = infoBytes[0];
+	out[2] = infoBytes[1];
+	if (orig.length >= 4) out[3] = mnc === '' ? 0xFF : parseInt(mnc, 10);
+	return efHex(out);
+}
+
+// The decoded editor's list save passes the collected row ARRAY while the API
+// and the decoders' own output use the {key: rows} object; accept both (the
+// PLMNwAcT encoder keeps its array-only contract).
+function efListRows(values, key) {
+	if (Array.isArray(values)) return values;
+	return (values && values[key]) || [];
+}
+
+// EF.PLMNsel / EF.HPPLMN / EF.EHPLMN: 3-byte PLMNs, no ACT.  An unchanged list
+// keeps the original bytes (EF.FPLMN may carry FFFFFF holes); an edited one is
+// written compactly and FF-padded.
+function efEncPlmnOnly(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const rows = efListRows(values, 'plmns');
+	const capacity = Math.floor(orig.length / 3);
+	if (rows.length > capacity) {
+		throw efEncError('Too many entries for this file', ' (' + capacity + ' max)');
+	}
+	const chunks = [];
+	for (let i = 0; i + 2 < orig.length; i += 3) {
+		const chunk = orig.subarray(i, i + 3);
+		if (efAllFf(chunk)) continue;
+		const p = efPlmn(chunk);
+		if (p) chunks.push(p);
+	}
+	const same = rows.length === chunks.length && rows.every((r, i) =>
+		String(r.mcc).trim() === chunks[i].mcc && String(r.mnc).trim() === chunks[i].mnc);
+	if (same) return efHex(orig);
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	let pos = 0;
+	for (const row of rows) {
+		out.set(efBytes(efPlmnEnc(row.mcc, row.mnc)), pos);
+		pos += 3;
+	}
+	return efHex(out);
+}
+
+// EF.ICCID (TS 102 221 13.2): E.118 digits in nibble-swapped BCD, an odd digit
+// count padded with F and the file's FF tail kept.
+function efEncIccid(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const digits = String(values && values.iccid !== undefined && values.iccid !== null
+		? values.iccid : '').replace(/\s+/g, '');
+	if (digits !== '' && !/^\d+$/.test(digits)) throw efEncError('The ICCID must be digits');
+	if (digits.length > 20) throw efEncError('The ICCID is too long');
+	const need = Math.ceil(digits.length / 2);
+	if (need > orig.length) throw efEncError('The ICCID does not fit in the file');
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	for (let i = 0; i < need; i++) {
+		const lo = digits[i * 2] !== undefined ? digits[i * 2] : 'F';
+		const hi = digits[i * 2 + 1] !== undefined ? digits[i * 2 + 1] : 'F';
+		out[i] = parseInt(hi + lo, 16);
+	}
+	return efHex(out);
+}
+
+// EF.IMSI (TS 31.102 4.2.2, TS 24.008 10.5.1.4): byte 1 = the body's nibble
+// count / 2; the body's first nibble is the identity type plus the parity
+// indicator - 9 for an odd digit count, 1 for an even one - followed by the
+// digits (odd total padded with F), nibble-swapped; FF-padded to the file.
+// 6F07 is also EF.IST: a short file is a service table, not an IMSI.
+function efEncImsi(values, origHex) {
+	const orig = efBytes(origHex || '');
+	if (orig.length <= 2) {
+		throw efEncError('This file is a service table, not an IMSI');
+	}
+	const digits = String(values && values.imsi !== undefined && values.imsi !== null
+		? values.imsi : '').replace(/\s+/g, '');
+	if (digits !== '' && !/^\d{6,15}$/.test(digits)) throw efEncError('The IMSI must be 6-15 digits');
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	if (digits === '') return efHex(out);
+	let body = (digits.length % 2 ? '9' : '1') + digits;
+	if (body.length % 2) body += 'F';
+	const need = 1 + body.length / 2;
+	if (need > orig.length) throw efEncError('The IMSI does not fit in the file');
+	out[0] = body.length / 2;
+	for (let i = 1; i < need; i++) {
+		const lo = body[(i - 1) * 2];
+		const hi = body[(i - 1) * 2 + 1];
+		out[i] = parseInt(hi + lo, 16);
+	}
+	return efHex(out);
+}
+
+// EF.CBMI / EF.CBMID: 2-byte message ids (FFFF = unused).  The form's rows
+// carry 4-hex-digit ids; an unchanged list keeps the original bytes (holes).
+function efCbmiModel(dec) {
+	const ids = dec && dec.message_ids ? dec.message_ids : [];
+	return { message_ids: ids.map(n => ({ id: Number(n).toString(16).toUpperCase().padStart(4, '0') })) };
+}
+
+function efEncCbmi(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const rows = efListRows(values, 'message_ids');
+	const capacity = Math.floor(orig.length / 2);
+	if (rows.length > capacity) {
+		throw efEncError('Too many entries for this file', ' (' + capacity + ' max)');
+	}
+	const ids = rows.map(r => {
+		const s = String(r && r.id !== undefined && r.id !== null ? r.id : r).trim();
+		if (!/^(0x)?[0-9a-fA-F]{1,4}$/.test(s)) throw efEncError('The message ID must be 1-4 hex digits');
+		return parseInt(s.replace(/^0x/i, ''), 16);
+	});
+	const dec = efDecCbmi(orig).message_ids;
+	if (ids.length === dec.length && ids.every((v, i) => v === dec[i])) return efHex(orig);
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	for (let i = 0; i < ids.length; i++) {
+		out[i * 2] = (ids[i] >> 8) & 0xFF;
+		out[i * 2 + 1] = ids[i] & 0xFF;
+	}
+	return efHex(out);
+}
+
+// EF.CBMIR: 4-byte ranges (low, high) of 2-byte message ids.
+function efCbmirModel(dec) {
+	const ranges = dec && dec.ranges ? dec.ranges : [];
+	return { ranges: ranges.map(r => ({ low: r[0], high: r[1] })) };
+}
+
+function efEncCbmir(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const rows = efListRows(values, 'ranges');
+	const capacity = Math.floor(orig.length / 4);
+	if (rows.length > capacity) {
+		throw efEncError('Too many entries for this file', ' (' + capacity + ' max)');
+	}
+	const hex4 = v => Number(v).toString(16).toUpperCase().padStart(4, '0');
+	const ranges = rows.map(r => {
+		const low = String(r && r.low !== undefined ? r.low : '').trim();
+		const high = String(r && r.high !== undefined ? r.high : '').trim();
+		if (!/^(0x)?[0-9a-fA-F]{1,4}$/.test(low) || !/^(0x)?[0-9a-fA-F]{1,4}$/.test(high)) {
+			throw efEncError('The range bounds must be 1-4 hex digits');
+		}
+		return [parseInt(low.replace(/^0x/i, ''), 16), parseInt(high.replace(/^0x/i, ''), 16)];
+	});
+	const dec = (efDecCbmir(orig).ranges || []).map(r => [r[0], r[1]]);
+	const same = ranges.length === dec.length && ranges.every((r, i) =>
+		hex4(r[0]) === dec[i][0].toUpperCase() && hex4(r[1]) === dec[i][1].toUpperCase());
+	if (same) return efHex(orig);
+	const out = new Uint8Array(orig.length);
+	out.fill(0xFF);
+	for (let i = 0; i < ranges.length; i++) {
+		out[i * 4] = (ranges[i][0] >> 8) & 0xFF;
+		out[i * 4 + 1] = ranges[i][0] & 0xFF;
+		out[i * 4 + 2] = (ranges[i][1] >> 8) & 0xFF;
+		out[i * 4 + 3] = ranges[i][1] & 0xFF;
+	}
+	return efHex(out);
+}
+
 // The decoded editor's field schemas: one per file family, the keys matching
 // the decoder output.  `kind` is text, digits, bool, select or techs (the
 // access technology checkboxes, the value being the decoder's ', '-joined
@@ -23992,12 +24328,101 @@ const EF_PNN_ITEMS = {
 	preserveUnknown: true,
 };
 
+// Service-table and scalar editors (wave 2).  The bits kind renders the whole
+// table as a filterable checkbox grid; its value is the decoder's list.
+const EF_ACC_CLASSES = {
+	0: 'Class 0', 1: 'Class 1', 2: 'Class 2', 3: 'Class 3', 4: 'Class 4', 5: 'Class 5',
+	6: 'Class 6', 7: 'Class 7', 8: 'Class 8', 9: 'Class 9', 11: 'Class 11',
+	12: 'Class 12', 13: 'Class 13', 14: 'Class 14', 15: 'Class 15',
+};
+
+const EF_UST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_UST_SERVICES }];
+const EF_IST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_IST_SERVICES }];
+const EF_EST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_EST_SERVICES }];
+
+const EF_ACC_FIELDS = [{ key: 'access_classes', label: 'Access classes', kind: 'bits', items: EF_ACC_CLASSES }];
+
+const EF_PHASE_FIELDS = [{
+	key: 'phase_hex', label: 'Phase', kind: 'select',
+	options: [
+		{ v: '00', l: EF_PHASE_NAMES[0] },
+		{ v: '02', l: EF_PHASE_NAMES[2] },
+		{ v: '03', l: EF_PHASE_NAMES[3] },
+	],
+}];
+
+const EF_HPPLMN_FIELDS = [{
+	key: 'interval', label: 'Interval', kind: 'hex', max: 4,
+	hint: '00 = no higher-priority PLMN search; 01-FF = n minutes on GERAN/UTRAN '
+		+ '(01 = n, 02 = 2n, ...). NB-IoT/EC-GSM-IoT/eMTC-M1 read the same byte in hours '
+		+ '(01 = n hours (2 h), 02-28 = 2n hours, 29-50 = 4n-80 hours).',
+}];
+
+const EF_AD_FIELDS = [
+	{
+		key: 'op_mode', label: 'Operation mode', kind: 'select',
+		options: [
+			{ v: '00', l: 'normal operation' },
+			{ v: '80', l: 'type approval' },
+			{ v: '01', l: 'normal operation + specific facilities' },
+			{ v: '81', l: 'type approval + specific facilities' },
+			{ v: '02', l: 'maintenance (off line)' },
+			{ v: '04', l: 'cell test operation' },
+		],
+	},
+	{ key: 'additional_info', label: 'Additional info', kind: 'hex', max: 4 },
+	{ key: 'mnc_length', label: 'MNC length', kind: 'digits', max: 1 },
+];
+
+// PLMN lists without ACT (EF.PLMNsel / EF.FPLMN / EF.EHPLMN): the PLMN row UI
+// without the technology field.
+const EF_PLMN_ONLY_LIST = {
+	key: 'plmns', addLabel: 'Add network',
+	itemFields: [
+		{ key: 'mcc', label: 'MCC', kind: 'digits', max: 3, required: true },
+		{ key: 'mnc', label: 'MNC', kind: 'digits', max: 3, required: true },
+	],
+};
+
+const EF_ICCID_FIELDS = [{ key: 'iccid', label: 'ICCID', kind: 'text' }];
+const EF_IMSI_FIELDS = [{ key: 'imsi', label: 'IMSI', kind: 'text' }];
+
+const EF_CBMI_LIST = {
+	key: 'message_ids', addLabel: 'Add message ID',
+	itemFields: [{ key: 'id', label: 'Message ID', kind: 'hex', max: 4, required: true }],
+};
+
+const EF_CBMIR_LIST = {
+	key: 'ranges', addLabel: 'Add range',
+	itemFields: [
+		{ key: 'low', label: 'Low', kind: 'hex', max: 4, required: true },
+		{ key: 'high', label: 'High', kind: 'hex', max: 4, required: true },
+	],
+};
+
 const EF_ENCODERS = [
+	{ name: 'EF.ICCID', fid: '2fe2', enc: efEncIccid, fields: EF_ICCID_FIELDS,
+		confirm: 'Writing the ICCID changes the card identity and may break network registration. Continue?' },
+	{ name: 'EF.IMSI', fid: '6f07', enc: efEncImsi, fields: EF_IMSI_FIELDS,
+		confirm: 'Writing the IMSI changes the card identity and may break network registration. Continue?' },
+	{ name: 'EF.IST', fid: '6f07', enc: (v, o) => efEncServiceTable(v, o, EF_IST_SERVICES), fields: EF_IST_FIELDS },
+	{ name: 'EF.UST', fid: '6f38', enc: (v, o) => efEncServiceTable(v, o, EF_UST_SERVICES), fields: EF_UST_FIELDS },
+	{ name: 'EF.EST', fid: '6f56', enc: (v, o) => efEncServiceTable(v, o, EF_EST_SERVICES), fields: EF_EST_FIELDS },
+	{ name: 'EF.ACC', fid: '6f78', enc: efEncAcc, fields: EF_ACC_FIELDS },
+	{ name: 'EF.PHASE', fid: '6fae', enc: efEncPhase, model: efPhaseModel, fields: EF_PHASE_FIELDS },
+	{ name: 'EF.HPPLMN', fid: '6f31', enc: efEncHpplmn, fields: EF_HPPLMN_FIELDS },
+	{ name: 'EF.AD', fid: '6fad', enc: efEncAd, model: efAdModel, fields: EF_AD_FIELDS },
 	{ name: 'EF.SPN', fid: '6f46', enc: efEncSpn, fields: EF_SPN_FIELDS },
+	{ name: 'EF.PLMNsel', fid: '6f30', enc: efEncPlmnOnly, list: EF_PLMN_ONLY_LIST },
 	{ name: 'EF.PLMNwAcT', fid: '6f60', enc: efEncPlmnList, list: EF_PLMN_LIST },
 	{ name: 'EF.OPLMNwAcT', fid: '6f61', enc: efEncPlmnList, list: EF_PLMN_LIST },
 	{ name: 'EF.HPLMNwAcT', fid: '6f62', enc: efEncPlmnList, list: EF_PLMN_LIST },
 	{ name: 'EF.PNN', fid: '6fc5', enc: efEncPnn, items: EF_PNN_ITEMS },
+	{ name: 'EF.FPLMN', fid: '6f7b', enc: efEncPlmnOnly, list: EF_PLMN_ONLY_LIST },
+	{ name: 'EF.EHPLMN', fid: '6fd9', enc: efEncPlmnOnly, list: EF_PLMN_ONLY_LIST },
+	{ name: 'EF.CBMI', fid: '6f45', enc: efEncCbmi, model: efCbmiModel, list: EF_CBMI_LIST },
+	{ name: 'EF.CBMID', fid: '6f48', enc: efEncCbmi, model: efCbmiModel, list: EF_CBMI_LIST },
+	{ name: 'EF.CBMIR', fid: '6f50', enc: efEncCbmir, model: efCbmirModel, list: EF_CBMIR_LIST },
 	{ name: 'EF.ADN', fid: '6f3a', enc: efEncAdnExt(14, 'EXT1'), ext: 'EXT1', fields: EF_ADN_FIELDS },
 	{ name: 'EF.FDN', fid: '6f3b', enc: efEncAdnExt(14, 'EXT2'), ext: 'EXT2', fields: EF_ADN_FIELDS },
 	{ name: 'EF.SDN', fid: '6f49', enc: efEncAdnExt(14, 'EXT3'), ext: 'EXT3', fields: EF_ADN_FIELDS },
@@ -24006,12 +24431,19 @@ const EF_ENCODERS = [
 	{ name: 'EF.BDN', fid: '6f4d', enc: efEncAdnExt(15, 'EXT4'), ext: 'EXT4', fields: EF_ADN_FIELDS },
 ];
 
+// Decoder-only names that share a FID with an editable file: the FID fallback
+// must not pick the wrong layout (EF.SST is not EF.UST on 6F38 - its 2-bit
+// SIM layout has no editor yet).
+const EF_READONLY_NAMES = ['EF.SST'];
+
 function efFindEncoder(name, fid) {
 	let n = (name || '').toUpperCase();
 	if (n.includes('/')) n = n.split('/').pop();
 	for (const e of EF_ENCODERS) if (e.name.toUpperCase() === n) return e;
 	const f = (fid || '').toLowerCase();
-	if (f) for (const e of EF_ENCODERS) if (e.fid === f) return e;
+	if (f && EF_READONLY_NAMES.indexOf(n) === -1) {
+		for (const e of EF_ENCODERS) if (e.fid === f) return e;
+	}
 	return null;
 }
 
@@ -24081,7 +24513,8 @@ function efFlatten(data) {
 		}
 		arr.forEach((it, i) => {
 			if (Array.isArray(it)) rows.push([label + ' ' + (i + 1), it.map(efPrimitive).join('\u2013')]);
-			else if (it && it.n !== undefined && it.name !== undefined) rows.push(['Service ' + it.n, String(it.name)]);
+			else if (it && it.n !== undefined && it.name !== undefined && it.allocated !== undefined) rows.push(['Service ' + it.n, String(it.name) + ' \u2014 ' + (it.allocated ? 'allocated' : 'not allocated') + ', ' + (it.activated ? 'activated' : 'not activated')]);
+		else if (it && it.n !== undefined && it.name !== undefined) rows.push(['Service ' + it.n, String(it.name)]);
 			else if (it && it.mcc !== undefined) rows.push(['PLMN ' + (i + 1), it.mcc + '-' + it.mnc + (it.access_tech ? ' (' + it.access_tech + ')' : '')]);
 			else if (it && it.aid !== undefined) rows.push(['Application ' + (i + 1), (it.label ? it.label + ' \u2014 ' : '') + it.aid + (it.eap ? ' [' + (it.eap.eap_types || []).join(', ') + ']' : '')]);
 			else if (it && it.link !== undefined && it.tag !== undefined) rows.push([label + ' ' + (i + 1), 'Type ' + it.link + ' \u00b7 ' + (it.kind || ('tag ' + it.tag)) + (it.fid ? ' \u2014 ' + it.fid + (it.sfi ? ' (SFI ' + it.sfi + ')' : '') : (it.raw ? ' \u2014 ' + it.raw : ''))]);
@@ -24184,6 +24617,14 @@ function efDecModelValues(dec, hex) {
 	return d;
 }
 
+// The decoded values shaped for the form: an encoder entry may carry a
+// `model(decoded)` hook (PHASE/AD/CBMI/CBMIR map their display names/ids to
+// the form's values); the default is the decoded object itself.
+function efDecModelFor(entry, dec, hex) {
+	const values = efDecModelValues(dec, hex);
+	return entry && entry.model ? entry.model(values) : values;
+}
+
 // Parse a record whose contents are a TLV list (EF.PNN): known name tags come
 // back as text (the decoder's own efPnnText), a known hex tag as its value
 // hex, anything else as {tag, hex, raw: true} preserved verbatim.  `orig` is
@@ -24217,10 +24658,10 @@ function efDecEditModel(name, fid, content) {
 			mode: 'records',
 			records: (content.records || []).map(r => entry.items
 				? { num: r.num, orig: r.data || '', items: efDecItemsFromHex(entry, r.data || '') }
-				: { num: r.num, orig: r.data || '', values: efDecModelValues(dec, r.data || '') }),
+				: { num: r.num, orig: r.data || '', values: efDecModelFor(entry, dec, r.data || '') }),
 		};
 	}
-	return { entry: entry, mode: 'tr', values: efDecModelValues(dec, (content && content.data) || '') };
+	return { entry: entry, mode: 'tr', values: efDecModelFor(entry, dec, (content && content.data) || '') };
 }
 
 // The value of a techs field (the decoder's ', '-joined string) as a list.
@@ -24228,6 +24669,14 @@ function efActTechList(value) {
 	if (Array.isArray(value)) return value.map(x => String(x).trim()).filter(Boolean);
 	return String(value === undefined || value === null ? '' : value)
 		.split(',').map(x => x.trim()).filter(Boolean);
+}
+
+// The checked keys of a bits field: the decoder's list may hold service
+// objects ({n,name}) or plain class numbers.
+function efBitsSelected(value) {
+	const set = new Set();
+	for (const v of (value || [])) set.add(String(v && typeof v === 'object' ? v.n : v));
+	return set;
 }
 
 function efDecFieldHtml(f, value) {
@@ -24242,23 +24691,48 @@ function efDecFieldHtml(f, value) {
 			'<label class="flex items-center gap-1"><input type="checkbox" data-tech="' + esc(name) + '"' +
 			(sel.indexOf(name) !== -1 ? ' checked' : '') +
 			' onchange="pysimFsDecRowCheck(this)">' + esc(name) + '</label>').join('') + '</span>';
+	} else if (f.kind === 'bits') {
+		const selected = efBitsSelected(value);
+		const nums = Object.keys(f.items || {}).map(Number).sort((a, b) => a - b);
+		input = '<div class="pysim-dec-bits border border-gray-200 dark:border-slate-700 rounded p-2">' +
+			'<input type="text" class="pysim-dec-bits-filter w-full mb-1 border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200" placeholder="' +
+			esc(t('Filter services')) + '" oninput="pysimFsDecBitsFilter(this)">' +
+			'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));max-height:12rem;overflow-y:auto">' +
+			nums.map(n => {
+				const name = String(f.items[n]);
+				return '<label class="pysim-dec-bit-row flex items-center gap-1">' +
+					'<input type="checkbox" data-bit="' + n + '" data-bit-name="' + esc(name) + '"' +
+					(selected.has(String(n)) ? ' checked' : '') + ' onchange="pysimFsDecRowCheck(this)">' +
+					'<span class="font-mono text-gray-500 dark:text-slate-400">' + n + '</span>' +
+					'<span class="break-all">' + esc(t(name)) + '</span></label>';
+			}).join('') + '</div></div>';
 	} else if (f.kind === 'select') {
 		const cur = String(value === undefined || value === null ? '' : value);
+		const opts = (f.options || []).slice();
+		if (cur !== '' && !opts.some(o => String(o.v) === cur)) opts.unshift({ v: cur, l: 'Current', current: true });
 		input = '<select data-key="' + key + '" onchange="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
-			(f.options || []).map(o => {
+			opts.map(o => {
 				const v = String(o.v);
-				return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(t(o.l || v)) + '</option>';
+				const label = o.current ? t('Current') + ' ' + v : t(o.l || v);
+				return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>';
 			}).join('') + '</select>';
 	} else {
 		const max = f.max ? ' maxlength="' + f.max + '"' : '';
-		input = '<input type="text" data-key="' + key + '" value="' +
+		const hexAttr = f.kind === 'hex' ? ' data-hex="1"' : '';
+		input = '<input type="text" data-key="' + key + '"' + hexAttr + ' value="' +
 			esc(value === undefined || value === null ? '' : String(value)) + '"' + max +
 			' oninput="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">';
 	}
 	const body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(f.label)) + '</span>' + input;
-	return f.kind === 'techs'
-		? '<div class="pysim-dec-item flex flex-wrap items-center gap-x-2 gap-y-1">' + body + '</div>'
-		: '<label class="pysim-dec-item flex items-center gap-2">' + body + '</label>';
+	const wide = f.kind === 'techs' || f.kind === 'bits';
+	if (!f.hint) {
+		return wide
+			? '<div class="pysim-dec-item flex flex-wrap items-center gap-x-2 gap-y-1">' + body + '</div>'
+			: '<label class="pysim-dec-item flex items-center gap-2">' + body + '</label>';
+	}
+	return '<div class="pysim-dec-item">' +
+		(wide ? body : '<label class="flex items-center gap-2">' + body + '</label>') +
+		'<div class="text-xs text-gray-500 dark:text-slate-400">' + esc(t(f.hint)) + '</div></div>';
 }
 
 // One PLMN list row: the item fields + a remove button.
@@ -24357,6 +24831,14 @@ function efDecCollectValues(root, fields) {
 				if (cb.checked) techs.push(cb.getAttribute('data-tech'));
 			});
 			out[f.key] = techs.join(', ');
+		} else if (f.kind === 'bits') {
+			const items = [];
+			root.querySelectorAll('[data-bit]').forEach(cb => {
+				if (!cb.checked) return;
+				items.push({ n: parseInt(cb.getAttribute('data-bit'), 10),
+					name: cb.getAttribute('data-bit-name') || '' });
+			});
+			out[f.key] = items;
 		} else {
 			const el = root.querySelector('[data-key="' + f.key + '"]');
 			if (!el) { out[f.key] = f.kind === 'bool' ? false : ''; continue; }
@@ -24401,6 +24883,16 @@ function pysimFsDecRowCheck(el) {
 	if (!rec) return;
 	const cb = rec.querySelector('.pysim-fs-record-cb');
 	if (cb) cb.checked = true;
+}
+
+// The bits grid's text filter: hide the rows whose label does not match.
+function pysimFsDecBitsFilter(input) {
+	const box = input && input.closest ? input.closest('.pysim-dec-bits') : null;
+	if (!box) return;
+	const q = String(input.value || '').toLowerCase();
+	box.querySelectorAll('.pysim-dec-bit-row').forEach(row => {
+		row.style.display = row.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+	});
 }
 
 function pysimFsDecAddRow() {
@@ -25133,6 +25625,52 @@ const LANG_RU = {
 	'The number continues in EF.EXT3 - editing it is not supported': 'Номер продолжается в EF.EXT3 — редактирование не поддерживается',
 	'The number continues in EF.EXT4 - editing it is not supported': 'Номер продолжается в EF.EXT4 — редактирование не поддерживается',
 	'The number continues in EF.EXT5 - editing it is not supported': 'Номер продолжается в EF.EXT5 — редактирование не поддерживается',
+	'Services': 'Сервисы',
+	'Filter services': 'Фильтр сервисов',
+	'Access classes': 'Классы доступа',
+	'Phase': 'Фаза',
+	'Interval': 'Интервал',
+	'Operation mode': 'Режим работы',
+	'Additional info': 'Дополнительная информация',
+	'MNC length': 'Длина MNC',
+	'Current': 'Текущее',
+	'Add message ID': 'Добавить ID сообщения',
+	'Add range': 'Добавить диапазон',
+	'Message ID': 'ID сообщения',
+	'Low': 'Нижняя граница',
+	'High': 'Верхняя граница',
+	'phase 1': 'фаза 1',
+	'phase 2': 'фаза 2',
+	'phase 2 and PROFILE DOWNLOAD required': 'фаза 2 и требуется PROFILE DOWNLOAD',
+	'normal operation': 'нормальная работа',
+	'type approval': 'сертификационное испытание',
+	'normal operation + specific facilities': 'нормальная работа + специальные возможности',
+	'type approval + specific facilities': 'сертификационное испытание + специальные возможности',
+	'maintenance (off line)': 'обслуживание (off line)',
+	'cell test operation': 'тестирование соты',
+	'00 = no higher-priority PLMN search; 01-FF = n minutes on GERAN/UTRAN (01 = n, 02 = 2n, ...). NB-IoT/EC-GSM-IoT/eMTC-M1 read the same byte in hours (01 = n hours (2 h), 02-28 = 2n hours, 29-50 = 4n-80 hours).': '00 — поиск PLMN с более высоким приоритетом не выполняется; 01-FF — n минут в GERAN/UTRAN (01 = n, 02 = 2n, ...). NB-IoT/EC-GSM-IoT/eMTC-M1 читают тот же байт в часах (01 = n часов (2 ч), 02-28 = 2n часов, 29-50 = 4n-80 часов).',
+	'Unknown service': 'Неизвестный сервис',
+	'The service table is too short for service': 'Таблица сервисов слишком коротка для сервиса',
+	'The record is too short for the ACC layout': 'Запись слишком короткая для формата ACC',
+	'Unknown access class': 'Неизвестный класс доступа',
+	'The phase must be a hex byte': 'Фаза должна быть hex-байтом',
+	'The interval must be a hex byte': 'Интервал должен быть hex-байтом',
+	'The operation mode must be a hex byte': 'Режим работы должен быть hex-байтом',
+	'The additional information must be 4 hex digits': 'Дополнительная информация должна состоять из 4 hex-цифр',
+	'The MNC length must be 0, 2 or 3 digits': 'Длина MNC должна быть 0, 2 или 3 цифры',
+	'The record has no MNC length byte': 'В записи нет байта длины MNC',
+	'This file is a service table, not an IMSI': 'Это файл таблицы сервисов, а не IMSI',
+	'The record is too short for the AD layout': 'Запись слишком короткая для формата AD',
+	'The ICCID must be digits': 'ICCID должен состоять из цифр',
+	'The ICCID is too long': 'ICCID слишком длинный',
+	'The ICCID does not fit in the file': 'ICCID не помещается в файл',
+	'The IMSI must be 6-15 digits': 'IMSI должен состоять из 6-15 цифр',
+	'The IMSI does not fit in the file': 'IMSI не помещается в файл',
+	'The message ID must be 1-4 hex digits': 'ID сообщения должен состоять из 1-4 hex-цифр',
+	'The range bounds must be 1-4 hex digits': 'Границы диапазона должны состоять из 1-4 hex-цифр',
+	'Write cancelled': 'Запись отменена',
+	'Writing the ICCID changes the card identity and may break network registration. Continue?': 'Запись ICCID меняет идентичность карты и может нарушить регистрацию в сети. Продолжить?',
+	'Writing the IMSI changes the card identity and may break network registration. Continue?': 'Запись IMSI меняет идентичность карты и может нарушить регистрацию в сети. Продолжить?',
 	'Refresh': 'Обновить',
 	'Last refresh': 'Последнее обновление',
 	'Save': 'Сохранить',

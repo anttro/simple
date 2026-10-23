@@ -9,6 +9,35 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.34.0] — 2026-10-23
+
+### Added
+
+- **Edit decoded, wave 2** — new editors for the service tables **EF.UST / EF.IST /
+  EF.EST** (a filterable bit grid preserving services the table does not model), the
+  scalars **EF.ACC**, **EF.PHASE**, **EF.HPPLMN** and **EF.AD**, the PLMN lists
+  **EF.PLMNsel / EF.FPLMN / EF.EHPLMN**, the identities **EF.ICCID / EF.IMSI** (behind a
+  confirmation — writing them changes the card identity) and the cell-broadcast lists
+  **EF.CBMI / EF.CBMID / EF.CBMIR**.  **EF.SST** is deliberately left read-only: its
+  SIM layout is 2 bits per service (allocated + activated), which needs its own editor.
+- The file-format survey (`docs/decoded-editing.md`) now records the shipped waves and
+  marks **EF.DIR / EF.ARR / EF.SMS / EF.PBR** as postponed by decision (read-only).
+
+### Fixed
+
+- **EF.ACC** class numbering (TS 31.102 4.2.15): byte 1 b8…b1 codes classes 15…8 and
+  byte 2 classes 7…0 — the decoder counted class 0 at the MSB (an all-FF ACC read as
+  class 0 instead of classes 0–15).
+- **EF.AD** (TS 31.102 4.2.18): the operation mode is a whole-byte enum
+  (00/80/01/81/02/04), not bits 0-1 plus a test bit; the MNC length may be 0 (service
+  n°130 available) or absent (3-byte SIM form) — the editor previously refused both.
+- **EF.SST** (TS 51.011 10.3.7): the SIM service table is decoded with its 2-bits-per-
+  service layout (allocated + activated) instead of the UST 1-bit codec.
+- **EF.IMSI**: the parity/type nibble is `9` for an odd digit count and `1` for an even
+  one (TS 24.008 10.5.1.4); the encoder always wrote `9`.
+- Saving a PLMN/CB list with no edits no longer rewrites it as all-FF (the collected rows
+  and the list encoders disagreed on the value shape).
+
 ## [3.33.0] — 2026-10-23
 
 ### Added

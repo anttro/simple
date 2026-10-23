@@ -45,24 +45,25 @@ const FNS = [
 	'efDecAdn', 'efFindDecoder', 'efDecodeBytes', 'efIsRawOnly', 'efTlv',
 	'efPnnText', 'efDecItemsFromHex',
 	'efGsm7PlainText', 'efEncTextBytes', 'efPlmnEnc', 'efActEnc', 'efEncSpn',
-	'efEncPlmnList', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
+	'efEncPlmnList', 'efListRows', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
 	'efFindEncoder', 'efHasEncoder', 'efEncError',
-	'efDecModelValues', 'efDecEditModel', 'efActTechList', 'efDecFieldHtml',
+	'efDecModelValues', 'efDecModelFor', 'efDecEditModel', 'efActTechList', 'efDecFieldHtml',
 	'efDecRowHtml', 'efDecGridHtml', 'efDecItemRowHtml', 'efDecItemsHtml',
 	'efDecRecordsHtml', 'efDecEditHtml',
 	'efDecCollectValues', 'efDecCollectRows', 'efDecCollectItems',
-	'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
+	'efBitsSelected', 'pysimFsDecBitsFilter', 'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
 	'pysimFsDecRemoveItem', 'pysimFsFindNode',
 	'pysimFsHasDecoder', 'pysimFsHasEncoder', 'pysimFsDecSave', 'pysimFsDecEdit',
 	'pysimFsPillsEnabled', 'pysimFsSyncContentVisibility', 'gsm7Decode',
 	'gsm7TextToSeptets', 'gsm7Encode',
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 
 ];
 
 let code = 'var pysimFsSelected = null;\nvar pysimFsTreeRoot = null;\nvar pysimFsDecModel = null;\n'
 	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_ENCODERS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -70,6 +71,22 @@ eval(code);
 // The decoder entries these files resolve to (the full EF_DECODERS registry is
 // pinned by ef_decode.test.js; only the model's lookup path is exercised here).
 var EF_DECODERS = [
+	{ name: 'EF.ICCID', fid: '2fe2', fn: efDecIccid },
+	{ name: 'EF.IMSI', fid: '6f07', fn: efDecImsi },
+	{ name: 'EF.IST', fid: '6f07', fn: b => efDecServiceTable(b, EF_IST_SERVICES) },
+	{ name: 'EF.UST', fid: '6f38', fn: b => efDecServiceTable(b, EF_UST_SERVICES) },
+	{ name: 'EF.SST', fid: '6f38', fn: efDecSst },
+	{ name: 'EF.EST', fid: '6f56', fn: b => efDecServiceTable(b, EF_EST_SERVICES) },
+	{ name: 'EF.HPPLMN', fid: '6f31', fn: efDecHpplmn },
+	{ name: 'EF.ACC', fid: '6f78', fn: efDecAcc },
+	{ name: 'EF.PHASE', fid: '6fae', fn: efDecPhase },
+	{ name: 'EF.AD', fid: '6fad', fn: efDecAd },
+	{ name: 'EF.PLMNsel', fid: '6f30', fn: efDecPlmnList },
+	{ name: 'EF.FPLMN', fid: '6f7b', fn: efDecFplmn },
+	{ name: 'EF.EHPLMN', fid: '6fd9', fn: efDecPlmnList },
+	{ name: 'EF.CBMI', fid: '6f45', fn: efDecCbmi },
+	{ name: 'EF.CBMID', fid: '6f48', fn: efDecCbmi },
+	{ name: 'EF.CBMIR', fid: '6f50', fn: efDecCbmir },
 	{ name: 'EF.SPN', fid: '6f46', fn: efDecSpn },
 	{ name: 'EF.PLMNwAcT', fid: '6f60', fn: efDecPlmnWact },
 	{ name: 'EF.OPLMNwAcT', fid: '6f61', fn: efDecPlmnWact },
@@ -95,10 +112,10 @@ test('efFindEncoder / efHasEncoder resolve by name and FID, like the decoders', 
 	assert.strictEqual(efFindEncoder('ef.plmnwact', null).name, 'EF.PLMNwAcT');
 	assert.strictEqual(efFindEncoder('MF/7F10/6F3A/EF.ADN', null).name, 'EF.ADN');
 	assert.strictEqual(efFindEncoder('EF.ALIAS', '6f40').name, 'EF.MSISDN');
-	assert.strictEqual(efFindEncoder('EF.IMSI', '6f07'), null);
+	assert.strictEqual(efFindEncoder('EF.LOCI', '6f7e'), null);
 	assert.strictEqual(efFindEncoder(null, null), null);
 	assert.strictEqual(efHasEncoder('EF.SDN', null), true);
-	assert.strictEqual(efHasEncoder('EF.IMSI', null), false);
+	assert.strictEqual(efHasEncoder('EF.LOCI', null), false);
 });
 
 test('the model is a TR value set for SPN / PLMNwAcT and record rows for ADN', () => {
@@ -126,7 +143,7 @@ test('the model is a TR value set for SPN / PLMNwAcT and record rows for ADN', (
 	assert.deepStrictEqual(adn.records[1].values, {});
 	assert.strictEqual(adn.records[1].orig, ADN_FF);
 	// no encoder -> no model, even when a decoder exists
-	assert.strictEqual(efDecEditModel('EF.IMSI', null, { kind: 'transparent', data: '082982608200002080' }), null);
+	assert.strictEqual(efDecEditModel('EF.LOCI', null, { kind: 'transparent', data: '082982608200002080' }), null);
 	assert.strictEqual(efDecEditModel('EF.NOPE', 'abcd', { kind: 'transparent', data: '00' }), null);
 });
 
@@ -244,7 +261,11 @@ test('pysimFsHasEncoder resolves the selected file by name or FID', () => {
 	assert.strictEqual(pysimFsHasEncoder(), true);
 	pysimFsSelected = '6F46';
 	assert.strictEqual(pysimFsHasEncoder(), true);
-	pysimFsSelected = 'EF.IMSI';
+	pysimFsSelected = 'EF.LOCI';
+	assert.strictEqual(pysimFsHasEncoder(), false);
+	// the SIM service table shares 6F38 with UST but has no editor
+	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.SST', fid: '6f38' }] };
+	pysimFsSelected = 'EF.SST';
 	assert.strictEqual(pysimFsHasEncoder(), false);
 	pysimFsSelected = null;
 	assert.strictEqual(pysimFsHasEncoder(), false);
@@ -652,4 +673,235 @@ test('F12: a selection change during the read abandons the decoded edit', async 
 	await pending;
 	assert.strictEqual(resets, 1);
 	assert.strictEqual(content.innerHTML, '', 'the old file must not render over the new selection');
+});
+
+// Wave 2 fixtures.
+const UST_ONE = '00000010';                  // service 29
+const ACC_ONE = '8001';                      // classes 15 and 0
+const CBMI_HEX = '0010FFFF0020';
+const CBMIR_HEX = '0000FFFE';
+const ICCID_HEX = '988812010000400310f0';
+
+test('the bits field renders a filtered checkbox grid and collects {n,name}', () => {
+	const model = efDecEditModel('EF.UST', '6f38', { kind: 'transparent', data: UST_ONE });
+	assert.deepStrictEqual(model.values.services, [{ n: 29, name: 'Data download via SMS-CB' }]);
+	const out = efDecEditHtml(model, UST_ONE);
+	assert.match(out, /class="pysim-dec-bits /);
+	assert.match(out, /pysim-dec-bits-filter/);
+	assert.match(out, /data-bit="29" data-bit-name="Data download via SMS-CB" checked/);
+	// the whole UST table is rendered (146 services)
+	assert.strictEqual((out.match(/data-bit="/g) || []).length, 146);
+	// ACC: 15 editable classes (10 is always written 0), 15 and 0 checked
+	const acc = efDecEditHtml(efDecEditModel('EF.ACC', '6f78', { kind: 'transparent', data: ACC_ONE }), ACC_ONE);
+	assert.strictEqual((acc.match(/data-bit="/g) || []).length, 15);
+	assert.match(acc, /data-bit="15" data-bit-name="Class 15" checked/);
+	assert.match(acc, /data-bit="0" data-bit-name="Class 0" checked/);
+	assert.doesNotMatch(acc, /data-bit="10"/);
+	assert.match(acc, /data-bit="11" data-bit-name="Class 11"/);
+	// the collection yields the checked {n,name} list
+	const root = {
+		querySelectorAll: sel => sel === '[data-bit]' ? [
+			{ checked: true, getAttribute: k => k === 'data-bit' ? '1' : 'Fixed Dialling Numbers (FDN)' },
+			{ checked: false, getAttribute: () => '2' },
+			{ checked: true, getAttribute: k => k === 'data-bit' ? '3' : 'APN Control List (ACL)' },
+		] : [],
+	};
+	assert.deepStrictEqual(efDecCollectValues(root, EF_EST_FIELDS), { services: [
+		{ n: 1, name: 'Fixed Dialling Numbers (FDN)' },
+		{ n: 3, name: 'APN Control List (ACL)' },
+	] });
+});
+
+test('the bits filter hides the non-matching rows', () => {
+	const rows = [
+		{ textContent: '1 Local Phone Book', style: {} },
+		{ textContent: '2 Fixed Dialling Numbers', style: {} },
+	];
+	const box = { querySelectorAll: sel => sel === '.pysim-dec-bit-row' ? rows : [] };
+	const input = { value: 'fixed', closest: sel => sel === '.pysim-dec-bits' ? box : null };
+	pysimFsDecBitsFilter(input);
+	assert.strictEqual(rows[0].style.display, 'none');
+	assert.strictEqual(rows[1].style.display, '');
+});
+
+test('the select keeps an unknown current value as an option', () => {
+	const model = efDecEditModel('EF.PHASE', '6fae', { kind: 'transparent', data: '0F' });
+	assert.deepStrictEqual(model.values, { phase_hex: '0F' });
+	const out = efDecEditHtml(model, '0F');
+	assert.match(out, /<option value="0F" selected>Current 0F<\/option>/);
+	const known = efDecEditHtml(efDecEditModel('EF.PHASE', '6fae', { kind: 'transparent', data: '03' }), '03');
+	assert.match(known, /<option value="03" selected>phase 2 and PROFILE DOWNLOAD required<\/option>/);
+	// AD unknown op mode
+	const ad = efDecEditHtml(efDecEditModel('EF.AD', '6fad',
+		{ kind: 'transparent', data: '55' + '0000' + '03' + 'AABB' }), '55' + '0000' + '03' + 'AABB');
+	assert.match(ad, /<option value="55" selected>Current 55<\/option>/);
+	assert.match(ad, /data-key="additional_info" data-hex="1" value="0000"/);
+	assert.match(ad, /data-key="mnc_length" value="3"/);
+});
+
+test('the hint fields render their help text', () => {
+	const out = efDecEditHtml(efDecEditModel('EF.HPPLMN', '6f31', { kind: 'transparent', data: '2A' }), '2A');
+	assert.match(out, /data-key="interval" data-hex="1" value="0x2A" maxlength="4"/);
+	assert.match(out, /00 = no higher-priority PLMN search/);
+	assert.match(out, /NB-IoT\/EC-GSM-IoT\/eMTC-M1 read the same byte in hours/);
+});
+
+test('the wave-2 model hooks shape PHASE/AD/CBMI/CBMIR for the form', () => {
+	assert.deepStrictEqual(efDecEditModel('EF.PHASE', '6fae', { kind: 'transparent', data: '02' }).values,
+		{ phase_hex: '02' });
+	assert.deepStrictEqual(efDecEditModel('EF.AD', '6fad', { kind: 'transparent', data: '80' + '1234' + '02' }).values,
+		{ op_mode: '80', additional_info: '1234', mnc_length: '2' });
+	const cbmi = efDecEditModel('EF.CBMI', '6f45', { kind: 'transparent', data: CBMI_HEX });
+	assert.deepStrictEqual(cbmi.values, { message_ids: [{ id: '0010' }, { id: '0020' }] });
+	const cbmir = efDecEditModel('EF.CBMIR', '6f50', { kind: 'transparent', data: CBMIR_HEX });
+	assert.deepStrictEqual(cbmir.values, { ranges: [{ low: '0000', high: 'FFFE' }] });
+});
+
+test('the CB list forms use the row editor with hex ids/bounds', () => {
+	const cbmi = efDecEditModel('EF.CBMI', '6f45', { kind: 'transparent', data: CBMI_HEX });
+	const out = efDecEditHtml(cbmi, CBMI_HEX);
+	assert.strictEqual((out.match(/class="pysim-dec-row /g) || []).length, 2);
+	assert.match(out, /data-key="id" data-hex="1" value="0010"/);
+	assert.match(out, /data-hex="1"/);
+	assert.match(out, />Add message ID</);
+	const cbmir = efDecEditModel('EF.CBMIR', '6f50', { kind: 'transparent', data: CBMIR_HEX });
+	const out2 = efDecEditHtml(cbmir, CBMIR_HEX);
+	assert.strictEqual((out2.match(/class="pysim-dec-row /g) || []).length, 1);
+	assert.match(out2, /data-key="low" data-hex="1" value="0000"/);
+	assert.match(out2, /data-key="high" data-hex="1" value="FFFE"/);
+	assert.match(out2, />Add range</);
+});
+
+test('the confirm entries ask once and only for a changed identity', async () => {
+	const decSave = extractFunc(html, 'pysimFsDecSave');
+	assert.ok(decSave.includes('entry.confirm'));
+	assert.ok(decSave.includes('pysimConfirm(t(entry.confirm))'));
+	const entry = efFindEncoder('EF.ICCID', null);
+	pysimFsDecModel = { entry: entry, mode: 'tr' };
+	const makeOut = value => {
+		const root = {
+			getAttribute: k => k === 'data-orig' ? ICCID_HEX : null,
+			querySelector: sel => sel === '[data-key="iccid"]' ? { value: value } : null,
+		};
+		return { querySelector: sel => sel === '.pysim-dec-edit' ? root : null, querySelectorAll: () => [] };
+	};
+	// unchanged -> no dialog
+	let asked = 0;
+	globalThis.pysimConfirm = async () => { asked++; return true; };
+	let stubs = saveStubs({ success: true, sw: '9000' });
+	let status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.ICCID', status, makeOut('8988211000000430010'), false);
+	assert.strictEqual(asked, 0);
+	assert.strictEqual(stubs.bodies.length, 1);
+	// changed + cancel -> nothing written
+	globalThis.pysimConfirm = async () => { asked++; return false; };
+	stubs = saveStubs({ success: true, sw: '9000' });
+	status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.ICCID', status, makeOut('8988211000000430011'), false);
+	assert.strictEqual(asked, 1);
+	assert.strictEqual(stubs.bodies.length, 0);
+	assert.match(status.textContent, /Write cancelled/);
+	// changed + accept -> written
+	globalThis.pysimConfirm = async () => { asked++; return true; };
+	stubs = saveStubs({ success: true, sw: '9000' });
+	status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.ICCID', status, makeOut('8988211000000430011'), false);
+	assert.strictEqual(asked, 2);
+	assert.strictEqual(stubs.bodies.length, 1);
+	assert.strictEqual(stubs.bodies[0].body.data, '988812010000400310F1');
+});
+
+// Finding 1: the list save passes the collected row ARRAY; the encoders must
+// not wipe the file when nothing was edited.
+const PLMN_ONLY = '62F21022F860';
+const FPLMN_HOLES = '22F860FFFFFF62F210';
+
+function listSaveRoot(orig, rows) {
+	const rowEls = rows.map(vals => ({
+		querySelector: sel => {
+			const m = /^\[data-key="(.+)"\]$/.exec(sel);
+			return m && vals[m[1]] !== undefined ? { value: vals[m[1]] } : null;
+		},
+		querySelectorAll: () => [],
+	}));
+	return {
+		getAttribute: k => k === 'data-orig' ? orig : null,
+		querySelectorAll: sel => sel === '.pysim-dec-row' ? rowEls : [],
+	};
+}
+
+test('F1: a list save with no edits keeps the original bytes', async () => {
+	const cases = [
+		{ name: 'EF.PLMNsel', fid: '6f30', orig: PLMN_ONLY,
+			rows: [{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '06' }] },
+		{ name: 'EF.FPLMN', fid: '6f7b', orig: FPLMN_HOLES,
+			rows: [{ mcc: '228', mnc: '06' }, { mcc: '262', mnc: '01' }] },
+		{ name: 'EF.EHPLMN', fid: '6fd9', orig: PLMN_ONLY,
+			rows: [{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '06' }] },
+		{ name: 'EF.CBMI', fid: '6f45', orig: CBMI_HEX, rows: [{ id: '0010' }, { id: '0020' }] },
+		{ name: 'EF.CBMID', fid: '6f48', orig: CBMI_HEX, rows: [{ id: '0010' }, { id: '0020' }] },
+		{ name: 'EF.CBMIR', fid: '6f50', orig: CBMIR_HEX, rows: [{ low: '0000', high: 'FFFE' }] },
+	];
+	for (const c of cases) {
+		pysimFsDecModel = { entry: efFindEncoder(c.name, c.fid), mode: 'tr' };
+		const out = {
+			querySelector: sel => sel === '.pysim-dec-edit' ? listSaveRoot(c.orig, c.rows) : null,
+			querySelectorAll: () => [],
+		};
+		const stubs = saveStubs({ success: true, sw: '9000' });
+		const status = { textContent: '' };
+		await pysimFsDecSave(null, c.name, status, out, false);
+		assert.strictEqual(stubs.bodies.length, 1, c.name);
+		assert.strictEqual(stubs.bodies[0].body.data, c.orig,
+			c.name + ': a no-edit list save must not wipe the file');
+	}
+});
+
+test('F1: an edited list row is written through the same save path', async () => {
+	const cases = [
+		{ name: 'EF.PLMNsel', fid: '6f30', orig: PLMN_ONLY,
+			rows: [{ mcc: '262', mnc: '01' }, { mcc: '228', mnc: '07' }] },
+		{ name: 'EF.CBMI', fid: '6f45', orig: CBMI_HEX,
+			rows: [{ id: '0010' }, { id: '0030' }] },
+		{ name: 'EF.CBMIR', fid: '6f50', orig: CBMIR_HEX,
+			rows: [{ low: '0000', high: 'FF00' }] },
+	];
+	for (const c of cases) {
+		const entry = efFindEncoder(c.name, c.fid);
+		pysimFsDecModel = { entry: entry, mode: 'tr' };
+		const out = {
+			querySelector: sel => sel === '.pysim-dec-edit' ? listSaveRoot(c.orig, c.rows) : null,
+			querySelectorAll: () => [],
+		};
+		const stubs = saveStubs({ success: true, sw: '9000' });
+		const status = { textContent: '' };
+		await pysimFsDecSave(null, c.name, status, out, false);
+		const expected = entry.enc(c.rows, c.orig);
+		assert.notStrictEqual(expected, c.orig, c.name + ': the edit must change the bytes');
+		assert.strictEqual(stubs.bodies.length, 1, c.name);
+		assert.strictEqual(stubs.bodies[0].body.data, expected, c.name);
+	}
+});
+
+test('F5: an untouched all-FF AD saves FF through the collected form value', async () => {
+	const entry = efFindEncoder('EF.AD', null);
+	const model = efDecEditModel('EF.AD', null, { kind: 'transparent', data: 'FF'.repeat(6) });
+	assert.deepStrictEqual(model.values, { op_mode: 'FF', additional_info: '', mnc_length: '' });
+	const form = efDecEditHtml(model, 'FF'.repeat(6));
+	assert.match(form, /<option value="FF" selected>Current FF<\/option>/);
+	pysimFsDecModel = model;
+	const vals = { op_mode: 'FF', additional_info: '', mnc_length: '' };
+	const root = {
+		getAttribute: k => k === 'data-orig' ? 'FF'.repeat(6) : null,
+		querySelector: sel => {
+			const m = /^\[data-key="(.+)"\]$/.exec(sel);
+			return m ? { value: vals[m[1]] } : null;
+		},
+	};
+	const out = { querySelector: sel => sel === '.pysim-dec-edit' ? root : null, querySelectorAll: () => [] };
+	const stubs = saveStubs({ success: true, sw: '9000' });
+	const status = { textContent: '' };
+	await pysimFsDecSave(null, 'EF.AD', status, out, false);
+	assert.strictEqual(stubs.bodies.length, 1);
+	assert.strictEqual(stubs.bodies[0].body.data, 'FF'.repeat(6));
 });
