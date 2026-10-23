@@ -117,12 +117,19 @@ test('Read raw / Read decoded pills switch the view and read the file', () => {
 	assert.strictEqual(h.reads(), 0, 'skipRead updates the pills only');
 	assert.ok(h.pill('raw').classList.contains('bg-blue-600'));
 	assert.ok(!h.pill('dec').classList.contains('bg-blue-600'));
+	// an enabled inactive pill is outlined, not grey: the grey fill reads as
+	// "disabled" although the pill is clickable (reported live)
+	assert.ok(h.pill('dec').classList.contains('bg-white'));
+	assert.ok(h.pill('dec').classList.contains('text-blue-600'));
+	assert.ok(!h.pill('dec').classList.contains('bg-gray-200'));
 
 	pysimFsSetMode('dec');
 	assert.strictEqual(pysimFsDecodedMode, true);
 	assert.strictEqual(h.reads(), 1, 'a pill click reads the selected file');
 	assert.ok(h.pill('dec').classList.contains('bg-blue-600'));
 	assert.ok(!h.pill('raw').classList.contains('bg-blue-600'));
+	assert.ok(h.pill('raw').classList.contains('bg-white'));
+	assert.ok(!h.pill('raw').classList.contains('bg-gray-200'));
 });
 
 test('pill clicks are ignored while editing', () => {
@@ -221,4 +228,7 @@ test('the file manager row exposes the read pills and Edit raw', () => {
 	assert.ok(html.includes('id="pysim-fs-read-raw-btn"') && html.includes('data-needs="card"'));
 	const dec = /<button[^>]*id="pysim-fs-read-dec-btn"[^>]*>/.exec(html);
 	assert.ok(dec && dec[0].includes('data-needs-decoder'), 'the decoded pill is decoder-gated');
+	// the enabled-inactive look is an outline; the grey fill is for disabled
+	assert.ok(dec[0].includes('bg-white') && dec[0].includes('text-blue-600'));
+	assert.ok(!dec[0].includes('bg-gray-200'));
 });

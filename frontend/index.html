@@ -1129,8 +1129,8 @@
 						<div id="pysim-fs-info" class="mb-1"></div>
 						<div id="pysim-fs-content" class="w-full font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1.5 bg-gray-100 dark:bg-slate-800 min-h-20 overflow-y-auto hidden"></div>
 						<div class="flex gap-2 mt-1 items-center">
-							<button type="button" data-needs="card" onclick="pysimFsSetMode('raw')" id="pysim-fs-read-raw-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed" data-mode="raw" data-l10n="Read raw">Read raw</button>
-							<button type="button" data-needs="card" data-needs-decoder onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
+							<button type="button" data-needs="card" onclick="pysimFsSetMode('raw')" id="pysim-fs-read-raw-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer border border-blue-500 bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed" data-mode="raw" data-l10n="Read raw">Read raw</button>
+							<button type="button" data-needs="card" data-needs-decoder onclick="pysimFsSetMode('dec')" id="pysim-fs-read-dec-btn" class="pysim-mode-pill px-2 py-0.5 text-xs rounded cursor-pointer border border-blue-500 bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-300 hover:bg-gray-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-mode="dec" data-l10n="Read decoded">Read decoded</button>
 							<div class="ml-auto flex gap-2">
 								<button data-needs="card" onclick="pysimFsSave()" id="pysim-fs-save-btn" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 hidden disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Save">Save</button>
 								<button onclick="pysimFsCancel()" id="pysim-fs-cancel-btn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 hidden" data-l10n="Cancel">Cancel</button>
@@ -16405,10 +16405,15 @@ function pysimFsSetMode(mode, skipRead) {
 		const active = el.dataset.mode === mode;
 		el.classList.toggle('bg-blue-600', active);
 		el.classList.toggle('text-white', active);
-		el.classList.toggle('bg-gray-200', !active);
-		el.classList.toggle('dark:bg-slate-700', !active);
-		el.classList.toggle('text-gray-700', !active);
-		el.classList.toggle('dark:text-slate-300', !active);
+		// An enabled inactive pill is an outlined button, not a grey one:
+		// grey reads as "disabled" while the pill is still clickable.  The
+		// grey/dimmed look is left to the disabled state alone.
+		el.classList.toggle('bg-white', !active);
+		el.classList.toggle('dark:bg-slate-800', !active);
+		el.classList.toggle('text-blue-600', !active);
+		el.classList.toggle('dark:text-blue-300', !active);
+		el.classList.toggle('hover:bg-gray-100', !active);
+		el.classList.toggle('dark:hover:bg-slate-600', !active);
 	});
 	if (!skipRead && pysimFsSelected) pysimFsRead();
 }

@@ -30,6 +30,9 @@ every change carries a descriptive commit message.
   reserved — a record with a mixed indicator (e.g. `E9`) showed DCS and hid VP.
 - The read-only EF.SMSP view decoded the TP-DA length as octets, although it is the digit
   count (TS 23.040 §9.1.2.5); a slot padded with `00` gained phantom digits.
+- The **Read decoded** pill no longer looks disabled when it is enabled: an inactive-but-
+  enabled pill is now an outlined button (blue on white/slate), and the grey fill and
+  dimming are left to the actually disabled state.
 
 ## [3.34.0] — 2026-10-23
 
