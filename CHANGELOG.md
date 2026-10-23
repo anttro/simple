@@ -31,6 +31,7 @@ every change carries a descriptive commit message.
   (`Deleted: N · Already absent: M`), and the notice says the card was already absent.  The
   counts gain an `already_absent` bucket (the attempt result is `already_absent`); a
   reinstall's tolerated pre-delete is *not* affected — its outcome is still the install.
+- The READMEs link the project's news channel: [Telegram — @youeyeseesee](https://t.me/youeyeseesee).
 
 ### Fixed
 
