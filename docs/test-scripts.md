@@ -229,6 +229,19 @@ TEST-RUN step 4: MENU-SELECT ENVELOPE=80c2000009d30702020181900101 item=1 ('One'
   (`APDU-TRACE(…): <cmd> → SW: … RESP: …`) for every APDU, including the
   file-manager reads and pySim's auto-handler traffic.
 
+## Load testing
+
+A run may be repeated: `POST /api/test/run {..., "iterations": N}` (the
+PWA's **Iterations** field next to Start / Run suite) executes the script or
+the whole suite N times.  Successful iterations are discarded - only the
+iteration counter and the timing are kept, so memory use stays flat.  The
+first iteration that ends in an error stops the loop and keeps its full
+report (steps, failed checks, log excerpt; for a suite, the member report);
+a manual stop ends it after the current iteration, and a card session change
+between iterations is an error.  The SCP80 counter state is shared across
+iterations, so packets continue from what the previous iteration consumed.
+The iteration count is a run parameter - the stored script/suite is unchanged.
+
 ## Document shape
 
 ```json

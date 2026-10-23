@@ -9,6 +9,31 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.37.0] — 2026-10-23
+
+### Added
+
+- **Load testing** for test scripts and suites.  `POST /api/test/run` takes an optional
+  `iterations` count (the PWA's **Iterations** field next to *Start* / *Run suite*): the
+  run repeats N times, successful iterations are discarded (only the iteration counter and
+  the timing are kept; the per-step log is not rendered or retained), and the first
+  iteration that ends in an **error** stops the loop and keeps that iteration's full
+  report.  A manual stop ends it after the current iteration, and a card session change
+  between iterations is an error (a swapped card is never run against another card's
+  script).  The SCP80 counter state is shared across iterations, so packets continue from
+  what the previous run consumed.  The run status gains a `load` block (`iteration`,
+  `done`, `failed_iteration`, `elapsed_ms`, `avg_ms`); the count is a run parameter, not
+  part of the stored script or suite.
+
+### Fixed
+
+- The load-test loop closes properly on a raised runner error (it used to leave the run
+  `running` forever - the PWA polled a dead run and *Clear report* stayed refused), on a
+  card session change inside a suite iteration, and on a member that was stopped; a
+  warning in any iteration is reflected in the final status, `avg_ms` covers the attempted
+  iterations (the failing one included), and each suite iteration's `counters_before` is
+  read fresh from the preset store.
+
 ## [3.36.0] — 2026-10-23
 
 ### Added

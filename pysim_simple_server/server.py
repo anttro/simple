@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.36.0'
+VERSION = '3.37.0'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -7059,6 +7059,12 @@ _TEST_RUN = {
     # suite runs (v3.22.0): None for a single script; the members list and the
     # report summary live here, plus the run-log buffer/adm state
     'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
+    # load testing (v3.37.0): a run parameter, not a stored option.  `done`
+    # counts the successful iterations (their results are discarded); the
+    # failing iteration's steps/log stay as the report.
+    'load': {'enabled': False, 'iterations': None, 'iteration': 0, 'done': 0,
+             'failed_iteration': None, 'started': None, 'finished': None,
+             'elapsed_ms': None, 'avg_ms': None},
 }
 _TEST_LOCK = threading.Lock()
 _TEST_THREAD = None
@@ -7146,6 +7152,37 @@ _TEST_COMMAND_TYPES = {name.upper(): code for code, name in PROACTIVE_TYPE_NAMES
 
 def _test_command_type(name):
     return _TEST_COMMAND_TYPES.get((name or '').upper())
+
+
+_TEST_LOAD_MAX = 1000000
+
+
+def _test_load_state(iterations, suite=False):
+    """The `load` block of a run: disabled for a normal single run.  `suite`
+    lets the PWA label a suite load test even after its state is cleared."""
+    enabled = iterations > 1
+    return {'enabled': enabled, 'suite': bool(suite),
+            'iterations': iterations if enabled else None,
+            'iteration': 0, 'done': 0, 'failed_iteration': None,
+            'started': time.time() if enabled else None, 'finished': None,
+            'elapsed_ms': None, 'avg_ms': None}
+
+
+def _test_load_iterations(body):
+    """The run's iteration count (1 when omitted).  Raises ValueError for a
+    bad value (the endpoint answers 400)."""
+    raw = (body or {}).get('iterations')
+    if raw is None or raw == '':
+        return 1
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError('iterations must be an integer')
+    if isinstance(raw, float) and raw != n:
+        raise ValueError('iterations must be an integer')
+    if n < 1 or n > _TEST_LOAD_MAX:
+        raise ValueError('iterations must be between 1 and %d' % _TEST_LOAD_MAX)
+    return n
 
 
 def _test_state_snapshot():
@@ -8586,8 +8623,9 @@ def _test_run_spawn(server, target, args, thread_name):
         raise
 
 
-def _test_run_start(server, script, preset, script_id=None, adm_info=None):
-    """Start a single-script run."""
+def _test_run_start(server, script, preset, script_id=None, adm_info=None,
+                    iterations=1):
+    """Start a single-script run; `iterations` > 1 makes it a load test."""
     with _TEST_LOCK:
         _TEST_RUN.update({
             'running': True, 'stop': False, 'name': script['name'], 'status': None,
@@ -8598,19 +8636,27 @@ def _test_run_start(server, script, preset, script_id=None, adm_info=None):
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
             'suite': None, 'log': [], 'log_prefix': '',
             'adm': adm_info or {'required': False},
+            'load': _test_load_state(iterations),
         })
-    _test_run_spawn(server, _test_run_worker, (server, script, preset), 'test-script')
+    if iterations > 1:
+        sys.stderr.write('TEST-LOAD: script %r, %d iterations\n'
+                         % (script.get('name') or script_id or 'script',
+                            iterations))
+        _test_run_spawn(server, _test_load_script_worker,
+                        (server, script, preset, script_id, iterations), 'test-load')
+    else:
+        _test_run_spawn(server, _test_run_worker, (server, script, preset),
+                        'test-script')
 
 
-def _test_suite_execute(server, suite, members, preset, preset_id):
-    """The suite worker body: setup -> members in order (per-member on_fail)
-    -> teardown, one card session, no resume.  The teardown runs on every
-    stop - its purpose is to leave the card ready for a new test - as long as
-    the card is in the reader; a card reset stops the suite and the remaining
-    members are skipped (the report flags it)."""
-    global _TEST_RUNNING
+def _test_suite_execute_once(server, suite, members, preset, preset_id, state,
+                             shared=None):
+    """One suite iteration: setup -> members in order (per-member on_fail) ->
+    teardown, one card session, no resume.  Fills `state` and the live
+    `_TEST_RUN` steps/log; returns ``(status, stopped, session_changed)``.
+    The caller owns the run lifecycle - a load test repeats this per
+    iteration."""
     session_start = getattr(server, 'card_session', 0)
-    state = _TEST_RUN['suite']
     stopped = False
     session_changed = False
     setup_i = next((i for i, (e, _s) in enumerate(members)
@@ -8622,7 +8668,7 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
     # suite, so a second SCP80 script starts from what the first consumed
     # (the store persists each packet's counter; the preset dict here is the
     # suite-start snapshot).
-    shared = {}
+    shared = shared if shared is not None else {}
 
     def run_member(i):
         entry, script = members[i]
@@ -8659,8 +8705,11 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
 
     abort = False
     if setup_i is not None:
-        status, _s = run_member(setup_i)
-        if status not in ('ok', 'warning'):
+        status, setup_stopped = run_member(setup_i)
+        if setup_stopped:
+            stopped = True
+            abort = True
+        elif status not in ('ok', 'warning'):
             abort = True
             skip_pending('the setup script failed')
     for i in member_idx:
@@ -8676,13 +8725,17 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
             session_changed = True
             skip_pending('card session changed (card removed or re-equipped)')
             break
-        status, _s = run_member(i)
+        status, member_stopped = run_member(i)
+        if member_stopped:
+            stopped = True
+            abort = True
+            break
         if status not in ('ok', 'warning') and members[i][0]['on_fail'] == 'stop':
             abort = True
-    if abort:
-        skip_pending('a previous script failed (on_fail: stop)')
-    else:
+    if stopped:
         skip_pending('stopped')
+    elif abort:
+        skip_pending('a previous script failed (on_fail: stop)')
     if teardown_i is not None:
         if not getattr(server, 'card_present', False):
             with _TEST_LOCK:
@@ -8715,28 +8768,39 @@ def _test_suite_execute(server, suite, members, preset, preset_id):
             'warning': statuses.count('warning'),
             'error': statuses.count('error'),
             'skipped': statuses.count('skipped'),
-            'stopped': bool(stopped),
+            'stopped': bool(stopped or statuses.count('stopped')),
             'session_changed': state['session_changed'],
-            'wall_ms': int((time.time() - (_TEST_RUN['started'] or time.time())) * 1000),
+            'wall_ms': int((time.time() - (state.get('started') or _TEST_RUN['started'] or time.time())) * 1000),
             'counters_before': state.get('counters_before'),
             'counters_after': after,
             'setup': state['members'][setup_i]['status'] if setup_i is not None else None,
             'teardown': state['members'][teardown_i]['status'] if teardown_i is not None else None,
         }
         if 'error' in statuses:
-            _TEST_RUN['status'] = 'error'
+            status = 'error'
         elif 'warning' in statuses:
-            _TEST_RUN['status'] = 'warning'
-        elif stopped:
-            _TEST_RUN['status'] = 'stopped'
+            status = 'warning'
+        elif stopped or 'stopped' in statuses:
+            status = 'stopped'
         else:
-            _TEST_RUN['status'] = 'ok'
+            status = 'ok'
+    return status, stopped, session_changed
+
+
+def _test_suite_execute(server, suite, members, preset, preset_id, shared=None):
+    """The single suite run: one iteration, then the run state is finalised.
+    (A load test calls `_test_suite_execute_once` itself.)"""
+    global _TEST_RUNNING
+    state = _TEST_RUN['suite']
+    status, _stopped, _session_changed = _test_suite_execute_once(
+        server, suite, members, preset, preset_id, state, shared)
+    with _TEST_LOCK:
+        _TEST_RUN['status'] = status
         _TEST_RUN['running'] = False
         _TEST_RUN['finished'] = time.time()
         _TEST_RUN['log_prefix'] = ''      # the report is done: no stale prefix
     _TEST_RUNNING = False
     _sim_resume_poll()
-
 
 def _test_suite_worker(server, suite, members, preset, preset_id):
     global _TEST_RUNNING
@@ -8788,6 +8852,7 @@ def _test_suite_state(suite, members, preset, preset_id, session, reset_info=Non
         'require_adm': bool(suite.get('require_adm')),
         'start_reset': bool(suite.get('start_reset')),
         'reset': reset_info or None,
+        'started': time.time(),
         'session_start': session, 'session_end': None,
         'session_changed': False, 'preset_id': preset_id,
         'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
@@ -8804,7 +8869,7 @@ def _test_suite_state(suite, members, preset, preset_id, session, reset_info=Non
 
 
 def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None,
-                      reset_info=None):
+                      reset_info=None, iterations=1):
     """Start a suite run: `members` is the resolved, normalised
     ``[(entry, script)]`` list in run order.  `reset_info` records the
     start-of-suite card reset the caller already performed."""
@@ -8821,9 +8886,198 @@ def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None,
             'suite': _test_suite_state(suite, members, preset, preset_id, session,
                                        reset_info=reset_info),
             'log': [], 'log_prefix': '', 'adm': adm_info or {'required': False},
+            'load': _test_load_state(iterations, suite=True),
         })
-    _test_run_spawn(server, _test_suite_worker,
-                    (server, suite, members, preset, preset_id), 'test-suite')
+    if iterations > 1:
+        sys.stderr.write('TEST-LOAD: suite %r, %d iterations\n'
+                         % (suite.get('name') or 'suite', iterations))
+        _test_run_spawn(server, _test_load_suite_worker,
+                        (server, suite, members, preset, preset_id, iterations),
+                        'test-load')
+    else:
+        _test_run_spawn(server, _test_suite_worker,
+                        (server, suite, members, preset, preset_id), 'test-suite')
+
+
+
+def _test_load_finalise(status, done, iterations, failed, attempted=None):
+    """Close a load run: the counters, the timing and the final status.  Only
+    the failing iteration's steps/log stay (successful ones were discarded).
+    `attempted` counts the started iterations (the failing/partial one
+    included), so `avg_ms` is a real per-iteration time."""
+    with _TEST_LOCK:
+        now = time.time()
+        load = _TEST_RUN['load']
+        started = load.get('started') or _TEST_RUN.get('started') or now
+        elapsed = int((now - started) * 1000)
+        attempted = attempted if attempted is not None else done
+        load.update({'done': done, 'failed_iteration': failed, 'finished': now,
+                     'elapsed_ms': elapsed,
+                     'avg_ms': int(elapsed / attempted) if attempted else None})
+        _TEST_RUN['running'] = False
+        _TEST_RUN['finished'] = now
+        _TEST_RUN['status'] = status
+        _TEST_RUN['log_prefix'] = ''
+    if failed:
+        how = 'failed at iteration %d/%d' % (failed, iterations)
+    elif status == 'stopped':
+        how = 'stopped after %d/%d' % (done, iterations)
+    else:
+        how = 'done %d/%d' % (done, iterations)
+    sys.stderr.write('TEST-LOAD: %s (%s)\n'
+                     % (_TEST_RUN.get('name') or 'run', how))
+
+
+def _test_load_script_worker(server, script, preset, script_id, iterations):
+    """Repeat one script `iterations` times: successful runs are discarded,
+    an error (or a stop) keeps its steps/log as the report (v3.37.0)."""
+    global _TEST_RUNNING
+    shared = {}                    # the SCP80 counter continues across runs
+    session = getattr(server, 'card_session', 0)
+    done = 0
+    attempted = 0
+    failed = None
+    final = 'ok'
+    worst = 'ok'
+    try:
+        for i in range(1, iterations + 1):
+            with _TEST_LOCK:
+                if _TEST_RUN['stop']:
+                    final = 'stopped'
+                    break
+                _TEST_RUN.update({'steps': [], 'index': 0, 'status': None,
+                                  'error': None, 'log': [], 'log_prefix': ''})
+                _TEST_RUN['load'].update({'iteration': i, 'done': done})
+            attempted = i
+            if getattr(server, 'card_session', 0) != session:
+                with _TEST_LOCK:
+                    _TEST_RUN['error'] = ('the card session changed during the '
+                                          'load test (card removed or re-equipped)')
+                failed = i
+                final = 'error'
+                break
+            _ctx, stopped = _test_run_script(server, script, preset, shared=shared)
+            with _TEST_LOCK:
+                levels = [st.get('status') for st in _TEST_RUN['steps']]
+                if stopped:
+                    status = 'stopped'
+                elif 'error' in levels:
+                    status = 'error'
+                elif 'warning' in levels:
+                    status = 'warning'
+                else:
+                    status = 'ok'
+                if status in ('error', 'stopped'):
+                    if status == 'error':
+                        failed = i
+                        if not _TEST_RUN.get('error'):
+                            _TEST_RUN['error'] = 'iteration %d failed' % i
+                    final = status
+                else:
+                    if status == 'warning':
+                        worst = 'warning'
+                    done = i
+                    _TEST_RUN['steps'] = []
+                    _TEST_RUN['log'] = []
+                    _TEST_RUN['load']['done'] = done
+            if final != 'ok':
+                break
+        if final == 'ok':
+            final = worst if done == iterations else 'stopped'
+        _test_load_finalise(final, done, iterations, failed, attempted)
+    except Exception as e:
+        # a raised runner error must not leave the run "running" forever (the
+        # PWA would poll a dead run and Clear would stay refused)
+        traceback.print_exc()
+        with _TEST_LOCK:
+            _TEST_RUN['error'] = str(e)
+        if failed is None:
+            failed = _TEST_RUN['load'].get('iteration') or (done + 1)
+        _test_load_finalise('error', done, iterations, failed, attempted)
+    finally:
+        _TEST_RUNNING = False
+        _sim_resume_poll()
+
+
+def _test_load_suite_worker(server, suite, members, preset, preset_id, iterations):
+    """Repeat a whole suite `iterations` times (setup/members/teardown per
+    iteration, one shared counter state); the same success/failure policy as
+    the script load test (v3.37.0)."""
+    global _TEST_RUNNING
+    shared = {}
+    session = getattr(server, 'card_session', 0)
+    done = 0
+    attempted = 0
+    failed = None
+    final = 'ok'
+    worst = 'ok'
+    try:
+        for i in range(1, iterations + 1):
+            with _TEST_LOCK:
+                if _TEST_RUN['stop']:
+                    final = 'stopped'
+                    break
+                # the report's counters_before is this iteration's start; the
+                # protocol state (keys/TARs) stays the run-start snapshot
+                fresh = preset
+                store = getattr(server, 'card_presets', None)
+                if preset_id and store is not None:
+                    fresh = store.get(preset_id) or preset
+                state = _test_suite_state(suite, members, fresh, preset_id, session)
+                _TEST_RUN.update({'suite': state, 'steps': [], 'index': 0,
+                                  'total': 0, 'status': None, 'error': None,
+                                  'log': [], 'log_prefix': ''})
+                _TEST_RUN['load'].update({'iteration': i, 'done': done})
+            attempted = i
+            if getattr(server, 'card_session', 0) != session:
+                with _TEST_LOCK:
+                    _TEST_RUN['error'] = ('the card session changed during the '
+                                          'load test (card removed or re-equipped)')
+                failed = i
+                final = 'error'
+                break
+            status, stopped, session_changed = _test_suite_execute_once(
+                server, suite, members, preset, preset_id, state, shared)
+            if session_changed:
+                with _TEST_LOCK:
+                    _TEST_RUN['error'] = ('the card session changed during the '
+                                          'load test (card removed or re-equipped)')
+                failed = i
+                final = 'error'
+                break
+            if stopped or status == 'stopped':
+                final = 'stopped'
+                break
+            if status == 'error':
+                failed = i
+                final = 'error'
+                with _TEST_LOCK:
+                    if not _TEST_RUN.get('error'):
+                        _TEST_RUN['error'] = 'iteration %d failed' % i
+                break
+            if status == 'warning':
+                worst = 'warning'
+            with _TEST_LOCK:
+                done = i
+                _TEST_RUN['load']['done'] = done
+                _TEST_RUN['steps'] = []
+                _TEST_RUN['log'] = []
+                # successful iterations are not tracked (a failure keeps its
+                # own state for the report)
+                _TEST_RUN['suite'] = None
+        if final == 'ok':
+            final = worst if done == iterations else 'stopped'
+        _test_load_finalise(final, done, iterations, failed, attempted)
+    except Exception as e:
+        traceback.print_exc()
+        with _TEST_LOCK:
+            _TEST_RUN['error'] = str(e)
+        if failed is None:
+            failed = _TEST_RUN['load'].get('iteration') or (done + 1)
+        _test_load_finalise('error', done, iterations, failed, attempted)
+    finally:
+        _TEST_RUNNING = False
+        _sim_resume_poll()
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -8895,7 +9149,7 @@ class PysimHandler(BaseHTTPRequestHandler):
         self._send_json(resp, 500)
         self._log_resp(resp)
 
-    def _test_suite_run_request(self, suite_id, body):
+    def _test_suite_run_request(self, suite_id, body, iterations=1):
         """Start a suite run: resolve the members and the preset, run the ADM
         prerequisite, then hand over to the suite runner (one card session,
         no resume)."""
@@ -9006,7 +9260,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         try:
             _test_suite_start(self.server, suite, members, preset,
                               str(body.get('preset_id') or '') or None,
-                              adm_info=adm_info, reset_info=reset_info)
+                              adm_info=adm_info, reset_info=reset_info,
+                              iterations=iterations)
         except Exception as e:
             resp = {'error': 'could not start the suite run: %s' % e}
             self._send_json(resp, 500)
@@ -11286,9 +11541,16 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp, 409)
                 self._log_resp(resp)
                 return
+            try:
+                iterations = _test_load_iterations(body)
+            except ValueError as e:
+                resp = {'error': str(e)}
+                self._send_json(resp, 400)
+                self._log_resp(resp)
+                return
             suite_id = str(body.get('suite_id') or '').strip().lower()
             if suite_id:
-                self._test_suite_run_request(suite_id, body)
+                self._test_suite_run_request(suite_id, body, iterations)
                 return
             script_raw, script_id, script_err = _test_run_script_from_body(self.server, body)
             if script_err:
@@ -11329,7 +11591,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 return
             try:
                 _test_run_start(self.server, script, preset, script_id or None,
-                                adm_info=adm_info)
+                                adm_info=adm_info, iterations=iterations)
             except Exception as e:
                 resp = {'error': 'could not start the test run: %s' % e}
                 self._send_json(resp, 500)
@@ -11358,6 +11620,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         'scp80_counters': {},
                         'started': None, 'finished': None, 'error': None,
                         'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
+                        'load': _test_load_state(1),
                     })
             if busy:
                 resp = {'error': 'test script is running'}

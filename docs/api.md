@@ -1006,11 +1006,22 @@ on every stop** as long as the card is in the reader; a card reset (session
 change) stops the suite, skips the remaining members and is flagged in the
 report.
 
+`iterations` (optional, 1-1,000,000, default 1) repeats the script or the
+whole suite: successful iterations are discarded (only the counter and the
+timing are kept; the per-step log is not retained), the first iteration that
+ends in an **error** stops the loop and keeps that iteration's report, a
+manual stop ends it after the current iteration, and a card session change
+between iterations is an error.  The status gains `load`:
+`{enabled, iterations, iteration, done, failed_iteration, started, finished,
+elapsed_ms, avg_ms}`.
+
 The suite run's snapshot adds `suite`: the member records (`status`, `steps`,
 `note`, `log` - the semantic run-log excerpt), the `summary` (ok/warning/
 error/skipped counts, `wall_ms`, `stopped`, `session_changed`, the SCP80
 `counters_before`/`counters_after` per keyset), the `start_reset` flag and
-the `reset` result (ICCID + ms) and the run's `adm` state.
+the `reset` result (ICCID + ms) and the run's `adm` state.  A successful load
+test leaves `suite` `null` (no iteration is tracked); a failing one keeps the
+failing iteration's suite state.
 The report is exported from the PWA as JSON or Markdown; the run state lives
 in the server until `POST /api/test/clear` (no history).
 

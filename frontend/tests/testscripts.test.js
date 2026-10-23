@@ -52,6 +52,9 @@ eval(extractFunc(html, 'testScriptProblem'));
 eval(extractFunc(html, 'testPorSpecSummary'));
 eval(extractFunc(html, 'testCheckSummary'));
 eval(extractFunc(html, 'testStepSummary'));
+// the load-test run parameter (v3.37.0): the run bodies read the count
+eval(html.match(/const TEST_ITERATIONS_MAX = \d+;/)[0].replace('const ', 'var '));
+eval(extractFunc(html, 'testIterationsValue'));
 eval(extractFunc(html, 'testCommandOptions'));
 globalThis.t = s => s;
 globalThis.esc = s => String(s);

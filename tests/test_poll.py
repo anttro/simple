@@ -264,12 +264,12 @@ class TestProactiveChainOwnership(unittest.TestCase):
         take.assert_called_once()
 
     def test_every_run_end_resumes_the_poll(self):
-        # the two worker bodies, their two exception paths and the spawn
-        # failure all call the helper
+        # the two worker bodies, their two exception paths, the spawn failure
+        # and the two load workers (v3.37.0) all call the helper
         import inspect
         src = inspect.getsource(S)
         self.assertEqual(src.count('\n    _sim_resume_poll()'), 2)
-        self.assertEqual(src.count('\n        _sim_resume_poll()'), 3)
+        self.assertEqual(src.count('\n        _sim_resume_poll()'), 5)
 
 
 if __name__ == '__main__':

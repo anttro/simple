@@ -1412,7 +1412,7 @@
 						</div>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-suite-adm" type="checkbox" onchange="testSuiteAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Reset and fully re-initialize the card (ICCID, network state, TERMINAL PROFILE, drain) before the suite starts.  The preset must still match the card's ICCID after the reset; the ADM is verified again for the new card session.  The card's initial proactive commands are consumed by the initialization, so a script cannot catch the first command after the reset (they stay in the proactive log).  A reset later in the run still stops the suite."><input id="test-suite-reset" type="checkbox" onchange="testSuiteResetChanged()"> <span data-l10n="Start with card reset">Start with card reset</span></label>
-						<button id="test-suite-run-btn" data-needs="card" onclick="testSuiteRunCurrent()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Run suite">Run suite</button>
+						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-suite-iterations" type="number" min="1" max="1000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-suite-run-btn" data-needs="card" onclick="testSuiteRunCurrent()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Run suite">Run suite</button>
 						<button onclick="testSuiteExportCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export">Export</button>
 						<button onclick="testSuiteDeleteCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-red-600 dark:text-red-400 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Delete">Delete</button>
 					</div>
@@ -1434,7 +1434,7 @@
 							<input id="test-name" oninput="testNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						</div>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-script-adm" type="checkbox" onchange="testScriptAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
-						<button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
+						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-iterations" type="number" min="1" max="1000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
 						<button id="test-stop-btn" onclick="testStop()" class="hidden px-4 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" data-l10n="Stop">Stop</button>
 						<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
 					</div>
@@ -1959,7 +1959,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.36.0';
+const SIMPLE_VERSION = '3.37.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -7531,6 +7531,7 @@ function testViewShow(view) {
 }
 
 function testRender() {
+	if (!_testIterationsReady) { _testIterationsReady = true; testIterationsInit(); }
 	const views = {suites: 'test-view-suites', suite: 'test-view-suite',
 		script: 'test-view-script', report: 'test-view-report'};
 	Object.keys(views).forEach(v => {
@@ -7542,8 +7543,12 @@ function testRender() {
 	if (banner) {
 		if (running) {
 			const snap = _testRunState || {};
-			const what = snap.suite ? t('Test suite running:') : t('Test script running:');
-			const at = snap.suite ? testSuiteProgress(snap) : ((snap.index + 1) + '/' + snap.total);
+			const load = snap.load && snap.load.enabled ? snap.load : null;
+			const isSuite = !!(snap.suite || (load && load.suite));
+			const what = isSuite ? t('Test suite running:') : t('Test script running:');
+			const at = load
+				? (t('Iteration') + ' ' + (load.iteration || 0) + '/' + load.iterations)
+				: (snap.suite ? testSuiteProgress(snap) : ((snap.index + 1) + '/' + snap.total));
 			banner.textContent = '\u26a0 ' + what + ' ' + (snap.name || '') + ' (' + at + ')';
 			banner.classList.remove('hidden');
 		} else {
@@ -8920,15 +8925,24 @@ function testRenderScriptRun() {
 		stepsEl.innerHTML = '';
 		return;
 	}
+	const load = snap.load && snap.load.enabled ? snap.load : null;
 	let head = esc(snap.name || '');
 	if (snap.status) head += ' · ' + testStatusBadge(snap.status);
 	else if (snap.running) head += ' · ' + esc(t('running'));
+	if (load) {
+		head += ' · ' + esc(t('Iteration')) + ' ' + (load.iteration || 0)
+			+ ' / ' + load.iterations;
+		if (load.done) head += ' · ' + esc(t('done')) + ': ' + load.done;
+	}
 	if (snap.preset) head += ' · ' + esc(t('Preset')) + ': ' + esc(snap.preset);
 	if (snap.scp80_counter) head += ' · counter ' + esc(snap.scp80_counter);
 	if (snap.error) head += ' · ' + esc(snap.error);
 	statusEl.innerHTML = head;
 	statusEl.className = 'text-xs mb-2 text-gray-600 dark:text-slate-300';
-	stepsEl.innerHTML = (snap.steps || []).map(testRunStepHtml).join('');
+	// a load test shows the counter while it runs; only the failure report is
+	// rendered (successful iterations are not tracked)
+	stepsEl.innerHTML = (load && snap.running)
+		? '' : (snap.steps || []).map(testRunStepHtml).join('');
 }
 
 // ── the suite report ──
@@ -8940,16 +8954,28 @@ function testRenderReport() {
 	if (!titleEl || !sumEl || !memEl) return;
 	const snap = _testRunState;
 	const s = snap && snap.suite;
-	if (!s) {
+	// a load test keeps no suite state on success: the run summary is enough
+	const load = snap && snap.load && snap.load.enabled ? snap.load : null;
+	if (!s && !load) {
 		titleEl.textContent = t('No suite run yet.');
 		sumEl.textContent = '';
 		memEl.innerHTML = '';
 		return;
 	}
-	titleEl.innerHTML = esc(s.name || t('Suite')) + ' · '
+	titleEl.innerHTML = esc((s && s.name) || (snap && snap.name) || t('Suite')) + ' · '
 		+ testStatusBadge(snap.status || (snap.running ? 'running' : ''));
 	const parts = [];
-	const su = s.summary;
+	if (load) {
+		parts.push(t('Iteration') + ' ' + (load.iteration || 0) + ' / ' + load.iterations);
+		if (load.done) parts.push(t('done') + ': ' + load.done);
+		if (load.elapsed_ms !== null && load.elapsed_ms !== undefined) {
+			parts.push((load.elapsed_ms / 1000).toFixed(1) + ' s');
+		}
+		if (load.avg_ms !== null && load.avg_ms !== undefined) {
+			parts.push(t('avg') + ' ' + load.avg_ms + ' ms');
+		}
+	}
+	const su = s && s.summary;
 	if (su) {
 		parts.push(t('passed') + ': ' + su.ok, t('warnings') + ': ' + su.warning,
 			t('failed') + ': ' + su.error, t('skipped') + ': ' + su.skipped);
@@ -8957,19 +8983,19 @@ function testRenderReport() {
 		if (su.wall_ms !== undefined && su.wall_ms !== null) parts.push((su.wall_ms / 1000).toFixed(1) + ' s');
 	}
 	if (snap.preset) parts.push(t('Preset') + ': ' + snap.preset);
-	if (s.start_reset) {
+	if (s && s.start_reset) {
 		const r = s.reset || {};
 		let line = t('started with a card reset');
 		if (r.iccid) line += ' (ICCID ' + r.iccid + ')';
 		if (r.ms !== undefined && r.ms !== null) line += ' \u00b7 ' + (r.ms / 1000).toFixed(1) + ' s';
 		parts.push(line);
 	}
-	if (s.counters_before && Object.keys(s.counters_before).length) {
+	if (s && s.counters_before && Object.keys(s.counters_before).length) {
 		const after = s.counters_after || {};
 		parts.push('SCP80: ' + Object.keys(s.counters_before).map(k =>
 			k + ' ' + (s.counters_before[k] || '-') + ' \u2192 ' + (after[k] || '-')).join(', '));
 	}
-	if (s.session_changed) parts.push('\u26a0 ' + t('card session changed mid-suite'));
+	if (s && s.session_changed) parts.push('\u26a0 ' + t('card session changed mid-suite'));
 	if (snap.adm && snap.adm.required) parts.push('ADM: ' + (snap.adm.verified ? t('verified') : t('not verified')));
 	if (snap.error) parts.push(esc(snap.error));
 	sumEl.innerHTML = esc(parts.join(' · '));
@@ -8977,14 +9003,20 @@ function testRenderReport() {
 	// creates fresh <details>, so an expanded Run log would collapse each
 	// time.  Carry the open state across the re-render (the member list is
 	// fixed at run start, so the index is a stable key).
+	const showMembers = !!s && (!load || snap.status === 'error' || snap.status === 'stopped');
 	const openLogs = {};
-	memEl.querySelectorAll('details[data-member]').forEach(d => {
-		openLogs[d.dataset.member] = d.open;
-	});
-	memEl.innerHTML = (s.members || []).map(testReportMemberHtml).join('');
-	memEl.querySelectorAll('details[data-member]').forEach(d => {
-		if (openLogs[d.dataset.member]) d.open = true;
-	});
+	if (showMembers) {
+		memEl.querySelectorAll('details[data-member]').forEach(d => {
+			openLogs[d.dataset.member] = d.open;
+		});
+	}
+	memEl.innerHTML = showMembers
+		? (s.members || []).map(testReportMemberHtml).join('') : '';
+	if (showMembers) {
+		memEl.querySelectorAll('details[data-member]').forEach(d => {
+			if (openLogs[d.dataset.member]) d.open = true;
+		});
+	}
 }
 
 function testReportMemberHtml(m, i) {
@@ -9018,7 +9050,8 @@ function testDownloadText(name, text, mime) {
 }
 
 function testReportExportJson() {
-	if (!_testRunState || !_testRunState.suite) {
+	if (!_testRunState || (!_testRunState.suite
+			&& !(_testRunState.load && _testRunState.load.enabled))) {
 		ioStatus('test-io-status', t('No suite run yet.'));
 		return;
 	}
@@ -9026,7 +9059,8 @@ function testReportExportJson() {
 }
 
 function testReportExportMarkdown() {
-	if (!_testRunState || !_testRunState.suite) {
+	if (!_testRunState || (!_testRunState.suite
+			&& !(_testRunState.load && _testRunState.load.enabled))) {
 		ioStatus('test-io-status', t('No suite run yet.'));
 		return;
 	}
@@ -9132,6 +9166,7 @@ async function testRunStart() {
 	try {
 		const body = {script: {name: cur.name || '', steps: cur.steps,
 			require_adm: !!cur.require_adm}};
+		body.iterations = testIterationsValue('test-iterations');
 		if (cur.id) body.script_id = cur.id;
 		if (presetId) body.preset_id = presetId;
 		_testRunScriptRef = cur;
@@ -9165,6 +9200,7 @@ async function testSuiteRun(i) {
 	}
 	try {
 		const body = {suite_id: s.id};
+		body.iterations = testIterationsValue('test-suite-iterations');
 		if (presetId) body.preset_id = presetId;
 		const resp = await pysimFetch('/api/test/run', body);
 		if (resp.error) { ioStatus('test-io-status', resp.error); return; }
@@ -9178,6 +9214,46 @@ async function testSuiteRun(i) {
 }
 
 function testSuiteRunCurrent() { testSuiteRun(_testSuiteIdx); }
+
+// ===== load testing (v3.37.0) =====
+// The iteration count is a run parameter, not part of the stored script or
+// suite: > 1 repeats the run, the successful iterations are discarded and the
+// first failing iteration's report is kept.
+const TEST_ITERATIONS_MAX = 1000000;
+let _testIterationsReady = false;
+
+function testIterationsInit() {
+	let n = 1;
+	try { n = parseInt(localStorage.getItem('simple_test_iterations'), 10) || 1; }
+	catch (e) { /* private mode */ }
+	if (!(n >= 1)) n = 1;
+	if (n > TEST_ITERATIONS_MAX) n = TEST_ITERATIONS_MAX;
+	['test-iterations', 'test-suite-iterations'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) el.value = String(n);
+	});
+}
+
+function testIterationsChanged(input) {
+	let n = parseInt((input && input.value) || '1', 10);
+	if (!(n >= 1)) n = 1;
+	if (n > TEST_ITERATIONS_MAX) n = TEST_ITERATIONS_MAX;
+	if (input) input.value = String(n);
+	try { localStorage.setItem('simple_test_iterations', String(n)); }
+	catch (e) { /* ignore */ }
+	['test-iterations', 'test-suite-iterations'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el && el !== input) el.value = String(n);
+	});
+}
+
+function testIterationsValue(id) {
+	const el = document.getElementById(id);
+	let n = parseInt((el && el.value) || '1', 10);
+	if (!(n >= 1)) n = 1;
+	if (n > TEST_ITERATIONS_MAX) n = TEST_ITERATIONS_MAX;
+	return n;
+}
 
 
 async function testStop() {
@@ -9269,9 +9345,12 @@ async function testInit() {
 	testRender();
 	try {
 		const st = await pysimFetch('/api/test/status');
-		if (st && st.suite && st.suite.members) {
-			// a suite run (or its finished report): open the report view
-			const idx = testSuites().findIndex(s => s.id === st.suite.id);
+		if (st && ((st.suite && st.suite.members)
+				|| (st.load && st.load.enabled))) {
+			// a suite run (or its finished report, a load run included):
+			// open the report view
+			const idx = st.suite
+				? testSuites().findIndex(s => s.id === st.suite.id) : -1;
 			if (idx >= 0) _testSuiteIdx = idx;
 			_testRunState = st;
 			if (_testView !== 'script') _testView = 'report';
@@ -27212,6 +27291,9 @@ const LANG_RU = {
 	'Move': 'Переместить',
 	'Copy': 'Копировать',
 	'No suite run yet.': 'Набор ещё не запускался.',
+	'Iterations': 'Итерации',
+	'Iteration': 'Итерация',
+	'done': 'выполнено',
 	'Warning': 'Предупреждение',
 	'Text': 'Текст',
 	'id': 'id',
