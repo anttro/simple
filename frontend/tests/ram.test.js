@@ -553,6 +553,59 @@ test('ramOpChanged clears the executed status only on a real op change', () => {
 	assert.ok(!els['ram-install-params'].classList.contains('hidden'));
 });
 
+test('the RAM preset banner is content-driven (no empty amber flash)', () => {
+	// A view / op switch used to un-hide #ram-preset-warning by the op kind
+	// (v3.28.0): with no warning text the empty bordered box stayed visible
+	// until the next status poll rendered it away - the amber block flashing
+	// on every SCP80/RAM view change.  Its visibility belongs to the renderer.
+	const els = fakeRamDocument(['ram-op', 'ram-card-sel', 'ram-preset-warning',
+		'ram-install-params', 'ram-cap-rows', 'ram-compat-rows', 'ram-app-rows',
+		'ram-delete-rows', 'ram-del-package-row', 'ram-preset-cell', 'ram-exec-btn',
+		'ram-batch-panel', 'ram-result', 'ram-explorer', 'ram-steps', 'ram-progress',
+		'sp-preset-warning', 'tar-preset-warning']);
+	els['ram-preset-warning'].classList.add('hidden');
+	const prev = {
+		cards: globalThis.cards,
+		t: globalThis.t,
+		iccid: globalThis._pysimCardIccid,
+		batchFetch: globalThis.ramBatchFetch,
+	};
+	globalThis.cards = [];
+	globalThis._pysimCardIccid = null;   // no card session: no warning text
+	globalThis.t = s => s;
+	globalThis.ramBatchFetch = () => {};
+	// The real renderer, defined where the extracted ramOpChanged finds it
+	// (a plain function body sees only the globals).
+	const src = ['cardsNormIccid', 'spPresetWarning', 'ramIsBatchOp', 'ramPresetIdx',
+		'spPresetIdx', 'tarPresetIdx', 'spPresetWarningRender']
+		.map(f => extractFunc(html, f)).join('\n');
+	const real = new Function(src + '\nreturn spPresetWarningRender;')();
+	let calls = 0;
+	globalThis.spPresetWarningRender = () => { calls++; return real(); };
+	try {
+		_ramOpLast = 'explore';
+		els['ram-op'].value = 'explore';
+		ramOpChanged();
+		assert.strictEqual(calls, 1, 'the content-driven renderer must own the banner');
+		assert.ok(els['ram-preset-warning'].classList.contains('hidden'),
+			'an empty banner must not be un-hidden by the op dispatch');
+		// a batch op keeps it hidden as well (the preset resolves per card)
+		els['ram-op'].value = 'batch';
+		ramOpChanged();
+		assert.ok(els['ram-preset-warning'].classList.contains('hidden'));
+		// the visibility is never toggled here by the op kind again
+		assert.ok(!extractFunc(html, 'ramOpChanged').includes("'ram-preset-warning'"));
+	} finally {
+		globalThis.spPresetWarningRender = () => {};
+		if (prev.cards === undefined) delete globalThis.cards; else globalThis.cards = prev.cards;
+		if (prev.t === undefined) delete globalThis.t; else globalThis.t = prev.t;
+		if (prev.iccid === undefined) delete globalThis._pysimCardIccid;
+		else globalThis._pysimCardIccid = prev.iccid;
+		if (prev.batchFetch === undefined) delete globalThis.ramBatchFetch;
+		else globalThis.ramBatchFetch = prev.batchFetch;
+	}
+});
+
 test('ramRender keeps the selected card preset across rebuilds', () => {
 	const els = fakeRamDocument(['ram-card-sel', 'ram-op', 'ram-install-params', 'ram-result', 'ram-explorer', 'ram-steps', 'ram-progress']);
 	globalThis.cards = [{ name: 'A' }, { name: 'B' }, { name: 'C' }];

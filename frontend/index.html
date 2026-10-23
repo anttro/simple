@@ -1943,7 +1943,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.32.5';
+const SIMPLE_VERSION = '3.32.6';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10180,10 +10180,14 @@ function ramOpChanged() {
 	// The batch resolves the preset per card (by ICCID): its selector and the
 	// single-card Execute button do not apply, and the batch panel takes over.
 	setHidden('ram-preset-cell', isBatch);
-	setHidden('ram-preset-warning', isBatch);
 	setHidden('ram-exec-btn', isBatch);
 	setHidden('ram-batch-panel', !isBatch);
 	if (isBatch) ramBatchFetch();
+	// The preset-mismatch banner is content-driven: spPresetWarningRender owns
+	// its text *and* its visibility (the batch suppression included).  Toggling
+	// `hidden` by the op kind here showed an empty amber box until the next
+	// render - the flash on every RAM view / op switch (v3.32.6).
+	spPresetWarningRender();
 	// The Execute button's .cap gate applies to the install-cap and compat ops.
 	if (typeof pysimApplyAvailability === 'function') pysimApplyAvailability();
 }

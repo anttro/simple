@@ -9,6 +9,18 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.32.6] — 2026-10-23
+
+### Fixed
+
+- The empty amber **preset-mismatch banner** no longer flashes on the SCP80/RAM view.
+  `ramOpChanged()` (v3.28.0) un-hid `#ram-preset-warning` by the operation kind, but the
+  banner's text *and* visibility belong to `spPresetWarningRender()` (which also handles
+  the batch suppression): with no warning text the empty bordered box stayed visible until
+  the next status poll re-hid it — on every RAM view and operation switch.  The visibility
+  is content-driven again; `frontend/tests/ram.test.js` pins it (the pre-fix code fails
+  the test).
+
 ## [3.32.5] — 2026-10-21
 
 ### Fixed
