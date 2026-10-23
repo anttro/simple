@@ -7056,6 +7056,10 @@ _TEST_RUN = {
     'preset': None, 'script_id': None,
     'scp80_counter': None, 'scp80_counters': {},
     'started': None, 'finished': None, 'error': None,
+    # the stuck-card watchdog (v3.37.0): `heartbeat` is the last runner
+    # progress mark; `stuck` makes the final status an error even when the
+    # stop flag ended the loop
+    'stuck': False, 'heartbeat': None,
     # suite runs (v3.22.0): None for a single script; the members list and the
     # report summary live here, plus the run-log buffer/adm state
     'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
@@ -7188,6 +7192,122 @@ def _test_load_iterations(body):
 def _test_state_snapshot():
     with _TEST_LOCK:
         return json.loads(json.dumps(_TEST_RUN))
+
+
+# ─── the stuck-card watchdog (v3.37.0) ───────────────────────────────────
+# pyscard's SCardTransmit is blocking and has no timeout: a card that stops
+# answering (no SW, no driver error) would leave the runner thread inside the
+# step while it holds _CARD_LOCK - Stop cannot take effect, the card monitor
+# waits for the lock and a load test hangs in that iteration.  The watchdog
+# watches the runner's progress heartbeat; after _TEST_STEP_TIMEOUT seconds
+# without one it flags the run stuck (error + stop) and tries to cancel the
+# pending transmit by disconnecting the PC/SC link.  That attempt runs in the
+# background because PC/SC clients may serialize the disconnect behind the
+# pending transmit (pcsc-lite locks the context for both calls): when the
+# cancel works, the blocking call raises and the normal step-failure path
+# finalises the run; when it does not, the driver's own timeout eventually
+# returns and the run still finalises as an error, and the status already
+# explains the wait.  The transport is marked stale so the next equip rebuilds
+# it.
+
+_TEST_STEP_TIMEOUT = 30        # seconds without runner progress => stuck card
+_TEST_WATCHDOG = None
+_TEST_WATCHDOG_ABORTED = None  # heartbeat value already aborted
+
+
+def _test_heartbeat():
+    """Mark runner progress for the watchdog.  A bounded STATUS/drain loop may
+    legitimately run longer than one exchange, so it beats once per attempt; a
+    single exchange beats when its step starts and when it finishes (so the
+    gap before the next step or the cleanup drain is covered)."""
+    with _TEST_LOCK:
+        _TEST_RUN['heartbeat'] = time.time()
+
+
+def _abort_card_transport():
+    """Try to cancel a blocking SCardTransmit, then mark the transport stale.
+
+    The disconnect runs on its own daemon thread: PC/SC clients may serialize
+    it behind the pending transmit (pcsc-lite takes the per-context lock in
+    both calls), so calling it here would block the watchdog instead of
+    cancelling anything.  Where the platform does cancel, the blocked call
+    raises and the normal step-failure path finalises the run; where it does
+    not, the run stays flagged stuck until the driver returns.  Never takes
+    _CARD_LOCK - the stuck runner holds it."""
+    global _TRANSPORT_STALE
+    scc = getattr(_server_ref, 'scc', None) if _server_ref else None
+    con = getattr(getattr(scc, '_tp', None), '_con', None)
+    if con is None:
+        sys.stderr.write('TEST-WATCHDOG: no PC/SC connection to abort\n')
+        _TRANSPORT_STALE = True
+        return False
+
+    def _run():
+        global _TRANSPORT_STALE
+        try:
+            con.disconnect()
+        except Exception as e:
+            sys.stderr.write('TEST-WATCHDOG: PC/SC disconnect failed: %s\n' % e)
+        finally:
+            _TRANSPORT_STALE = True
+
+    threading.Thread(target=_run, name='test-abort', daemon=True).start()
+    return True
+
+
+def _test_watchdog_check(now=None):
+    """One watchdog pass.  The heartbeat is the authority (it is beaten at
+    every step start/finish and inside the bounded drains), so a stale one
+    means the runner is stuck inside a card exchange.  Returns the stuck error
+    string when it acted (once per heartbeat), else None.  Split from the
+    loop so the rule is testable."""
+    global _TEST_WATCHDOG_ABORTED
+    now = time.time() if now is None else now
+    with _TEST_LOCK:
+        if not _TEST_RUN.get('running'):
+            _TEST_WATCHDOG_ABORTED = None
+            return None
+        hb = _TEST_RUN.get('heartbeat')
+        if not hb:
+            return None
+        idle = now - hb
+        if idle < _TEST_STEP_TIMEOUT:
+            return None
+        if _TEST_WATCHDOG_ABORTED == hb:
+            return None
+        _TEST_WATCHDOG_ABORTED = hb
+        steps = _TEST_RUN.get('steps') or []
+        cur = steps[-1] if steps else None
+        index = cur.get('index') if cur is not None else _TEST_RUN.get('index')
+        msg = ('the card stopped responding (step %d, no answer for %d s)'
+               % ((index or 0) + 1, int(idle)))
+        _TEST_RUN['stuck'] = True
+        _TEST_RUN['error'] = msg
+        _TEST_RUN['stop'] = True
+    sys.stderr.write('TEST-WATCHDOG: %s - trying to cancel the pending '
+                     'transmit\n' % msg)
+    _abort_card_transport()
+    return msg
+
+
+def _test_watchdog_loop():
+    while True:
+        time.sleep(1.0)
+        try:
+            _test_watchdog_check()
+        except Exception as e:
+            sys.stderr.write('TEST-WATCHDOG error: %s\n' % e)
+
+
+def _test_watchdog_start():
+    """Start the singleton watchdog thread (idempotent; it exits with the
+    process)."""
+    global _TEST_WATCHDOG
+    if _TEST_WATCHDOG is not None and _TEST_WATCHDOG.is_alive():
+        return
+    _TEST_WATCHDOG = threading.Thread(target=_test_watchdog_loop,
+                                      name='test-watchdog', daemon=True)
+    _TEST_WATCHDOG.start()
 
 
 def _test_suite_refs_error(script_store, suite):
@@ -7506,6 +7626,7 @@ def _test_finish_entry(entry, result):
                 'command', 'drained'):
         if result.get(key) is not None:
             fields[key] = result[key]
+    _test_heartbeat()          # the exchange finished: runner progress
     _test_entry_update(entry, fields)
 
 
@@ -7599,6 +7720,7 @@ def _test_run_status(scc, step):
     data, sw = '', ''
     used = 0
     for n in range(p['attempts']):
+        _test_heartbeat()
         data, sw = _send_status(scc)
         used = n + 1
         _test_log('STATUS %d/%d -> %s' % (used, p['attempts'], sw))
@@ -7687,6 +7809,7 @@ def _test_run_drain(server, step):
     sw = ''
     polls = 0
     for n in range(p['attempts']):
+        _test_heartbeat()
         data, sw = _send_status(scc)
         polls = n + 1
         _test_log('STATUS %d/%d -> %s' % (polls, p['attempts'], sw))
@@ -8316,6 +8439,7 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
     answered = []
     try:
         while len(answered) < max_commands:
+            _test_heartbeat()      # a bounded drain still makes progress
             # fetch_len 0 (a 9100 SW) means "length unknown": fetch the full
             # 255 bytes - `%02x` of 0x100 would emit an odd-length APDU
             fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla,
@@ -8390,6 +8514,7 @@ def _test_run_script(server, script, preset, shared=None):
         entry = _test_entry(step, index)
         with _TEST_LOCK:
             _TEST_RUN['steps'].append(entry)
+            _TEST_RUN['heartbeat'] = time.time()
         # A proactive-drain step is the tool that consumes a pending command
         # (it polls STATUS - the card re-announces the unfetched command -
         # then fetches and answers it), so the guard does not apply to it
@@ -8437,14 +8562,16 @@ def _test_run_script(server, script, preset, shared=None):
                                        'note': str(e)})
             sys.stderr.write('TEST-RUN step %d failed (%s): %s\n'
                              % (index + 1, level, e))
-            if pending is not None:
+            # A stuck card's transport is already being torn down: draining
+            # would only raise again on the dead link.
+            if pending is not None and not _TEST_RUN.get('stuck'):
                 with _CARD_LOCK:
                     drained = _test_drain_pending(scc, pending)
                 _test_entry_update(entry, {k: v for k, v in drained.items() if k != 'note'})
                 pending = None
             if level == 'error':
                 break
-    if pending is not None:
+    if pending is not None and not _TEST_RUN.get('stuck'):
         with _CARD_LOCK:
             drained = _test_drain_pending(scc, pending)
         with _TEST_LOCK:
@@ -8472,7 +8599,11 @@ def _test_run_execute(server, script, preset):
         _TEST_RUN['finished'] = time.time()
         if _TEST_RUN['status'] is None:
             levels = [s.get('status') for s in _TEST_RUN['steps']]
-            if stopped:
+            if _TEST_RUN.get('stuck'):
+                # the watchdog's stop flag ended the loop; the run still
+                # failed (a stuck card is not a user stop)
+                _TEST_RUN['status'] = 'error'
+            elif stopped:
                 _TEST_RUN['status'] = 'stopped'
             elif 'error' in levels:
                 _TEST_RUN['status'] = 'error'
@@ -8511,9 +8642,12 @@ def _test_member_prefix(index, member):
     return '[%d/%d %s %s] ' % (index + 1, total, role, tag)
 
 
-def _test_member_status(steps, stopped):
+def _test_member_status(steps, stopped, stuck=False):
     """A suite member's verdict from its step levels (an error stops that
-    script); a stop request marks the member stopped."""
+    script); a stop request marks the member stopped.  A stuck card is an
+    error even though the watchdog's stop flag ended the script."""
+    if stuck:
+        return 'error'
     if stopped:
         return 'stopped'
     levels = [s.get('status') for s in steps]
@@ -8596,6 +8730,7 @@ def _test_run_spawn(server, target, args, thread_name):
     """The shared run start: the run owns the card from here - suspend the
     background poll, answer a paused interactive command, spawn the worker."""
     global _TEST_THREAD, _TEST_RUNNING, _POLL_TIMER
+    _test_watchdog_start()
     _TEST_RUNNING = True
     if _POLL_TIMER is not None:
         _POLL_TIMER.cancel()
@@ -8631,7 +8766,8 @@ def _test_run_start(server, script, preset, script_id=None, adm_info=None,
             'running': True, 'stop': False, 'name': script['name'], 'status': None,
             'session': getattr(server, 'card_session', 0), 'index': 0,
             'total': len(script['steps']), 'steps': [], 'started': time.time(),
-            'finished': None, 'error': None, 'scp80_counter': None,
+            'finished': None, 'error': None, 'stuck': False,
+            'heartbeat': time.time(), 'scp80_counter': None,
             'scp80_counters': {}, 'script_id': script_id,
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
             'suite': None, 'log': [], 'log_prefix': '',
@@ -8678,6 +8814,7 @@ def _test_suite_execute_once(server, suite, members, preset, preset_id, state,
             member['started'] = time.time()
             _TEST_RUN['steps'] = []
             _TEST_RUN['index'] = 0
+            _TEST_RUN['heartbeat'] = time.time()
             _TEST_RUN['total'] = len(script['steps'])
             _TEST_RUN['log_prefix'] = _test_member_prefix(i, member)
             log_from = len(_TEST_RUN['log'])
@@ -8686,7 +8823,9 @@ def _test_suite_execute_once(server, suite, members, preset, preset_id, state,
             steps = json.loads(json.dumps(_TEST_RUN['steps']))
             log = list(_TEST_RUN['log'][log_from:])
             member.update({
-                'status': _test_member_status(steps, member_stopped),
+                'status': _test_member_status(
+                    steps, member_stopped,
+                    stuck=bool(_TEST_RUN.get('stuck'))),
                 'steps': steps,
                 'log': log[-_TEST_MEMBER_LOG_MAX:],
                 'log_truncated': len(log) > _TEST_MEMBER_LOG_MAX,
@@ -8880,6 +9019,7 @@ def _test_suite_start(server, suite, members, preset, preset_id, adm_info=None,
             'name': suite.get('name') or 'test suite', 'status': None,
             'session': session, 'index': 0, 'total': 0, 'steps': [],
             'started': time.time(), 'finished': None, 'error': None,
+            'stuck': False, 'heartbeat': time.time(),
             'scp80_counter': None, 'scp80_counters': {},
             'script_id': None,
             'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
@@ -8946,7 +9086,9 @@ def _test_load_script_worker(server, script, preset, script_id, iterations):
                     final = 'stopped'
                     break
                 _TEST_RUN.update({'steps': [], 'index': 0, 'status': None,
-                                  'error': None, 'log': [], 'log_prefix': ''})
+                                  'error': None, 'stuck': False,
+                                  'heartbeat': time.time(), 'log': [],
+                                  'log_prefix': ''})
                 _TEST_RUN['load'].update({'iteration': i, 'done': done})
             attempted = i
             if getattr(server, 'card_session', 0) != session:
@@ -8959,7 +9101,9 @@ def _test_load_script_worker(server, script, preset, script_id, iterations):
             _ctx, stopped = _test_run_script(server, script, preset, shared=shared)
             with _TEST_LOCK:
                 levels = [st.get('status') for st in _TEST_RUN['steps']]
-                if stopped:
+                if _TEST_RUN.get('stuck'):
+                    status = 'error'
+                elif stopped:
                     status = 'stopped'
                 elif 'error' in levels:
                     status = 'error'
@@ -9026,6 +9170,7 @@ def _test_load_suite_worker(server, suite, members, preset, preset_id, iteration
                 state = _test_suite_state(suite, members, fresh, preset_id, session)
                 _TEST_RUN.update({'suite': state, 'steps': [], 'index': 0,
                                   'total': 0, 'status': None, 'error': None,
+                                  'stuck': False, 'heartbeat': time.time(),
                                   'log': [], 'log_prefix': ''})
                 _TEST_RUN['load'].update({'iteration': i, 'done': done})
             attempted = i
@@ -9045,15 +9190,17 @@ def _test_load_suite_worker(server, suite, members, preset, preset_id, iteration
                 failed = i
                 final = 'error'
                 break
-            if stopped or status == 'stopped':
-                final = 'stopped'
-                break
+            # an error wins over the stop flag: a stuck card sets both, and
+            # the report must say it failed, not that the operator stopped it
             if status == 'error':
                 failed = i
                 final = 'error'
                 with _TEST_LOCK:
                     if not _TEST_RUN.get('error'):
                         _TEST_RUN['error'] = 'iteration %d failed' % i
+                break
+            if stopped or status == 'stopped':
+                final = 'stopped'
                 break
             if status == 'warning':
                 worst = 'warning'

@@ -242,6 +242,29 @@ between iterations is an error.  The SCP80 counter state is shared across
 iterations, so packets continue from what the previous iteration consumed.
 The iteration count is a run parameter - the stored script/suite is unchanged.
 
+## A card that stops answering
+
+pyscard's `SCardTransmit` is blocking and has no timeout: a card that stops
+answering (no status word, no driver error) would leave the runner inside the
+step while it holds the card lock - Stop could not take effect, the presence
+monitor would wait for the lock, and a load test would hang in that iteration.
+The runner's **watchdog** watches a progress heartbeat: after 30 s without one
+(a bounded STATUS/drain loop beats once per attempt, so a long poll is not
+mistaken for a stuck card) it marks the run `stuck`, sets the error
+`the card stopped responding (step N, no answer for N s)` and the stop flag,
+and **tries** to cancel the blocked transmit by disconnecting the PC/SC link
+on a background thread.  Where PC/SC can cancel it, the blocking call raises,
+the step fails through the ordinary path (`on_fail` applies) and the run
+finalises as an **error** - never as `stopped`, even though the stop flag
+ended the loop.  The disconnect runs in the background because pcsc-lite
+serializes it behind the pending transmit (both take the per-context lock), so
+on that stack the call returns only when the driver's own card timeout fires
+(libccid derives it from the card's ATR); the run is already flagged and the
+status names the step meanwhile.  The transport is marked stale once the
+disconnect returns, so the next **Equip** rebuilds the link.  A physical card
+removal is unaffected: the driver aborts the transmit and the presence monitor
+clears the card session.
+
 ## Document shape
 
 ```json

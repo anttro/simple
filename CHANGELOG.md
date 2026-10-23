@@ -25,6 +25,22 @@ every change carries a descriptive commit message.
   `done`, `failed_iteration`, `elapsed_ms`, `avg_ms`); the count is a run parameter, not
   part of the stored script or suite.
 
+- The **stuck-card watchdog** for test runs.  A card that stops answering (no status
+  word, no driver error) used to leave the runner inside a blocking `SCardTransmit`
+  holding the card lock — *Stop* could not take effect, the presence monitor waited for
+  the lock and a load test hung in that iteration without explanation.  After 30 s
+  without runner progress (a bounded STATUS/drain loop beats once per attempt) the
+  watchdog marks the run `stuck`, records `the card stopped responding (step N, no
+  answer for N s)`, sets the stop flag and **tries** to cancel the blocked transmit by
+  disconnecting the PC/SC link on a background thread.  Where PC/SC can cancel it, the
+  step fails through the ordinary `on_fail` path and the run finalises as an **error**
+  (never `stopped`); where it cannot (pcsc-lite serializes the disconnect behind the
+  pending transmit), the status already names the step until the driver's own card
+  timeout returns.  The transport is marked stale once the disconnect returns, so the
+  next *Equip* rebuilds it.  The status gains `stuck`; the help EN/RU,
+  `docs/test-scripts.md` and `docs/api.md` describe the behaviour and the
+  background-disconnect caveat.
+
 ### Fixed
 
 - The load-test loop closes properly on a raised runner error (it used to leave the run

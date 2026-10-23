@@ -1039,7 +1039,15 @@ The current (or last) run:
 ```
 
 `status` becomes `ok`/`warning`/`error`/`stopped` when the run finishes;
-expected/actual pairs are reported per check.
+expected/actual pairs are reported per check.  A card that stops answering is
+not waited on silently: after 30 s without runner progress the watchdog sets
+`stuck: true`, `stop` and `error` (`the card stopped responding (step N, no
+answer for N s)`) and tries to cancel the blocked transmit by disconnecting
+the PC/SC link on a background thread (pcsc-lite serializes the disconnect
+behind the pending transmit, so the call returns only when the driver's card
+timeout fires).  Once the step returns, the run finalises as `error` - a stuck
+card is a failure, not a user stop - and the next equip rebuilds the link
+(the transport is marked stale).
 
 ### `POST /api/test/stop`
 
