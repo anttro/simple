@@ -9,7 +9,7 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
-## [3.38.1] — 2026-10-24
+## [3.38.1] — 2026-10-25
 
 ### Performance
 
