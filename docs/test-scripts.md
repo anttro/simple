@@ -242,10 +242,10 @@ between iterations is an error.  The SCP80 counter state is shared across
 iterations, so packets continue from what the previous iteration consumed.
 The iteration count is a run parameter - the stored script/suite is unchanged.
 The accepted range is **1 to 1,000,000,000** (the PWA clamps, the server
-answers 400 above it).  While the run repeats, the status line shows the
-elapsed time, the average per completed iteration and the estimated time
-left, recomputed on every poll; the final report keeps the server's
-`elapsed_ms`/`avg_ms`.
+answers 400 above it).  While the run repeats, the run banner (visible on
+every Test-script view) and the result panels show the elapsed time, the
+average per completed iteration and the estimated time left, recomputed on
+every poll; the final report keeps the server's `elapsed_ms`/`avg_ms`.
 
 ## A card that stops answering
 

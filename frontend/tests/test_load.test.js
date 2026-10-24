@@ -25,7 +25,7 @@ function extractFunc(src, name) {
 
 const FNS = ['esc', 'testStatusBadge', 'testRenderScriptRun', 'testRenderReport',
 	'testIterationsInit', 'testIterationsChanged', 'testIterationsValue',
-	'testLoadTiming', 'testDurationText', 'testIterAvgText'];
+	'testLoadTiming', 'testDurationText', 'testIterAvgText', 'testRunBannerText'];
 const code = FNS.map(f => extractFunc(html, f)).join('\n');
 
 function fakeEl(id) {
@@ -51,7 +51,7 @@ function build(els, storage, curRef) {
 			getState: () => _testRunState,
 			testRenderScriptRun, testRenderReport,
 			testIterationsValue, testIterationsChanged, testIterationsInit,
-			testLoadTiming, testDurationText, testIterAvgText,
+			testLoadTiming, testDurationText, testIterAvgText, testRunBannerText,
 		};
 	`);
 	return fn(els, storage, curRef);
@@ -130,6 +130,23 @@ test('the live load timing computes elapsed, average and left', () => {
 	assert.strictEqual(app.testDurationText(null), '');
 	assert.strictEqual(app.testIterAvgText(500), '500 ms');
 	assert.strictEqual(app.testIterAvgText(1500), '1.50 s');
+});
+
+test('the run banner carries the live load timing', () => {
+	const app = build({}, { getItem: () => null, setItem: () => {} }, { value: null });
+	const now = Date.now();
+	const text = app.testRunBannerText({ running: true, name: 'Load suite',
+		load: { enabled: true, suite: true, iterations: 50, iteration: 6, done: 5,
+			started: now / 1000 - 10 } });
+	assert.match(text, /Test suite running: Load suite/);
+	assert.match(text, /Iteration 6\/50/);
+	assert.match(text, /elapsed 0:10/);
+	assert.match(text, /avg 2\.00 s/);
+	assert.match(text, /left ~1:30/);
+	// a non-load run has no timing part (only its position)
+	const plain = app.testRunBannerText({ running: true, name: 'S', index: 2, total: 5 });
+	assert.match(plain, /Test script running: S \(3\/5\)/);
+	assert.ok(!plain.includes('elapsed'), plain);
 });
 
 test('a running load test shows elapsed, average and left', () => {
@@ -221,6 +238,6 @@ test('a successful load run can be exported and reopened after a reload (v3.37.0
 	assert.match(init, /st\.load && st\.load\.enabled/);
 	assert.match(init, /const idx = st\.suite\s*\?/, 'a null suite must not break the reopen');
 	// the banner knows a load suite even when its state is cleared
-	const render = extractFunc(html, 'testRender');
-	assert.match(render, /const isSuite = !!\(snap\.suite \|\| \(load && load\.suite\)\);/);
+	const banner = extractFunc(html, 'testRunBannerText');
+	assert.match(banner, /const isSuite = !!\(snap\.suite \|\| \(load && load\.suite\)\);/);
 });

@@ -7530,6 +7530,33 @@ function testViewShow(view) {
 	navRecord();
 }
 
+// The run banner (visible on every Test-script view): a load run also carries
+// the live timing, so the operator sees the elapsed/average/ETA without
+// opening the script editor's result panel.
+function testRunBannerText(snap) {
+	snap = snap || {};
+	const load = snap.load && snap.load.enabled ? snap.load : null;
+	const isSuite = !!(snap.suite || (load && load.suite));
+	const what = isSuite ? t('Test suite running:') : t('Test script running:');
+	const at = load
+		? (t('Iteration') + ' ' + (load.iteration || 0) + '/' + load.iterations)
+		: (snap.suite ? testSuiteProgress(snap) : ((snap.index + 1) + '/' + snap.total));
+	let text = '\u26a0 ' + what + ' ' + (snap.name || '') + ' (' + at + ')';
+	if (load) {
+		const tm = testLoadTiming(load);
+		if (tm) {
+			const el = testDurationText(tm.elapsed);
+			if (el) text += ' · ' + t('elapsed') + ' ' + el;
+			const av = testIterAvgText(tm.avg);
+			if (av) text += ' · ' + t('avg') + ' ' + av;
+			if (!tm.finished && tm.left !== null) {
+				text += ' · ' + t('left') + ' ~' + testDurationText(tm.left);
+			}
+		}
+	}
+	return text;
+}
+
 function testRender() {
 	if (!_testIterationsReady) { _testIterationsReady = true; testIterationsInit(); }
 	const views = {suites: 'test-view-suites', suite: 'test-view-suite',
@@ -7542,14 +7569,7 @@ function testRender() {
 	const banner = document.getElementById('test-run-banner');
 	if (banner) {
 		if (running) {
-			const snap = _testRunState || {};
-			const load = snap.load && snap.load.enabled ? snap.load : null;
-			const isSuite = !!(snap.suite || (load && load.suite));
-			const what = isSuite ? t('Test suite running:') : t('Test script running:');
-			const at = load
-				? (t('Iteration') + ' ' + (load.iteration || 0) + '/' + load.iterations)
-				: (snap.suite ? testSuiteProgress(snap) : ((snap.index + 1) + '/' + snap.total));
-			banner.textContent = '\u26a0 ' + what + ' ' + (snap.name || '') + ' (' + at + ')';
+			banner.textContent = testRunBannerText(_testRunState || {});
 			banner.classList.remove('hidden');
 		} else {
 			banner.classList.add('hidden');
