@@ -102,7 +102,12 @@ class ReportTests(unittest.TestCase):
         low = text.lower()
         self.assertIn('access denied', low)
         self.assertIn('pcscd', low)
-        self.assertIn('usermod -aG pcscd'.lower(), low)
+        # polkit, not the socket group, is the gate (the socket can be 0666)
+        self.assertIn('polkit', low)
+        self.assertIn('org.debian.pcsc-lite.access_pcsc', low)
+        self.assertIn('org.debian.pcsc-lite.access_card', low)
+        self.assertIn('99-pcscd-allow.rules', low)
+        self.assertIn('0666', low)
         self.assertIn('pcsc_scan', low)
         self.assertIn('0x80100027', text)
 
@@ -136,8 +141,12 @@ class SourcePins(unittest.TestCase):
     def test_the_start_script_probes_access_and_guides(self):
         src = (Path(m.__file__).parent.parent / 'start.sh').read_text()
         self.assertIn('from smartcard.System import readers', src)
-        self.assertIn('usermod -aG pcscd', src)
+        self.assertIn('polkit', src)
+        self.assertIn('org.debian.pcsc-lite.access_pcsc', src)
+        self.assertIn('99-pcscd-allow.rules', src)
         self.assertIn('pcsc_scan', src)
+        # the group route is not the gate (the socket may be 0666)
+        self.assertNotIn('usermod -aG pcscd', src)
         # the old "is pcscd running" heuristic is gone
         self.assertNotIn('pgrep -x pcscd', src)
 

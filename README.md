@@ -800,7 +800,19 @@ its MSVC build chain) is not pulled in.
 
 ### Troubleshooting
 
-- **"Failed to establish context: Access denied"** — the user may not use `pcscd`: add the user to the `pcscd` group (`sudo usermod -a -G pcscd $USER`, then log out/in) or configure the polkit rule; start the service if needed (`sudo systemctl enable --now pcscd`). `start.sh` and the server report this and exit instead of falling back to a serial reader; `pcsc_scan` shows the same error.
+- **"Failed to establish context: Access denied"** — the user may not use `pcscd`.  On a headless/SSH box the socket is often world-writable (`srw-rw-rw- root root`) yet access is still denied: pcscd checks **PolicyKit**, whose default policy allows only *active local* sessions (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`).  Allow the user with `/etc/polkit-1/rules.d/99-pcscd-allow.rules` (replace `YOUR_USER`; any `*.rules` file name works):
+
+  ```js
+  polkit.addRule(function(action, subject) {
+      if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+           action.id == "org.debian.pcsc-lite.access_card") &&
+          subject.user == "YOUR_USER") {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+  then `sudo systemctl restart polkit` (or log out/in).  Start the service if needed (`sudo systemctl enable --now pcscd`); `start.sh` and the server report this and exit instead of falling back to a serial reader, and `pcsc_scan` shows the same error until the rule is active.  If your `pcscd` was built without PolicyKit and the socket is group-owned, adding the user to that group works instead.
 - **"device file /dev/ttyUSB0 does not exist"** — only with an explicit `-d <device>`: the device is not connected (or the path is wrong). Without `-d` the server no longer uses the serial transport.
 - **"no PC/SC reader found"** — connect a reader (`pcsc_scan` lists them) and restart; the server exits instead of starting without a reader.
 - **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport (releasing the old link first). No server restart needed.

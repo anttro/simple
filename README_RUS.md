@@ -784,7 +784,19 @@ pysim-simple-server --http-port 8080
 
 ### Устранение неполадок
 
-- **"Failed to establish context: Access denied"** — у пользователя нет прав на `pcscd`: добавьте его в группу `pcscd` (`sudo usermod -a -G pcscd $USER`, затем выйдите и войдите) или настройте правило polkit; при необходимости запустите службу (`sudo systemctl enable --now pcscd`). `start.sh` и сервер сообщают об этом и завершаются вместо отката на serial-ридер; `pcsc_scan` показывает ту же ошибку.
+- **"Failed to establish context: Access denied"** — у пользователя нет прав на `pcscd`.  На headless/SSH-системе сокет часто доступен всем (`srw-rw-rw- root root`), но доступ всё равно запрещён: pcscd проверяет **PolicyKit**, политика по умолчанию разрешает только *активные локальные* сессии (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`).  Разрешите пользователя в `/etc/polkit-1/rules.d/99-pcscd-allow.rules` (замените `YOUR_USER`; имя файла `*.rules` может быть любым):
+
+  ```js
+  polkit.addRule(function(action, subject) {
+      if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+           action.id == "org.debian.pcsc-lite.access_card") &&
+          subject.user == "YOUR_USER") {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+  затем `sudo systemctl restart polkit` (или выйдите и войдите).  При необходимости запустите службу (`sudo systemctl enable --now pcscd`); `start.sh` и сервер сообщают об этом и завершаются вместо отката на serial-ридер, а `pcsc_scan` показывает ту же ошибку, пока правило не начнёт действовать.  Если `pcscd` собран без PolicyKit и сокет принадлежит отдельной группе, вместо этого можно добавить пользователя в неё.
 - **"device file /dev/ttyUSB0 does not exist"** — только при явном `-d <устройство>`: устройство не подключено (или путь неверен). Без `-d` сервер больше не использует последовательный транспорт.
 - **"no PC/SC reader found"** — подключите ридер (`pcsc_scan` покажет список) и перезапустите; сервер завершается, а не стартует без ридера.
 - **"Service not available" (0x8010001D) / ридер пропал после перезапуска `pcscd`** — сервер восстанавливается сам: сторож перезапускает монитор присутствия pyscard, а следующий equip (автоматически после повторной вставки карты или кнопкой **Equip**) пересоздаёт транспорт PC/SC (сначала освобождая старый линк). Перезапуск сервера не нужен.

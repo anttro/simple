@@ -54,10 +54,13 @@ PY
         )" || {
             echo "Error: PC/SC is not accessible: ${PCSC_ERR:-unknown error}"
             echo "  The server will not fall back to a serial reader silently."
-            echo "  - add the user to the pcscd group: sudo usermod -aG pcscd \"$USER\" (then log out/in),"
-            echo "    or configure the polkit rule that allows the user to use pcscd;"
+            echo "  - pcscd uses PolicyKit (the default allows only active local sessions,"
+            echo "    so SSH/headless is denied even with a 0666 socket).  Allow the user in"
+            echo "    /etc/polkit-1/rules.d/99-pcscd-allow.rules: return polkit.Result.YES for"
+            echo "    org.debian.pcsc-lite.access_pcsc and access_card, subject.user == \"$USER\";"
+            echo "    then 'sudo systemctl restart polkit' (or log out/in);"
             echo "  - 'sudo systemctl start pcscd' if the service is not running;"
-            echo "  - 'pcsc_scan' shows the same 'Access denied' error when access is denied."
+            echo "  - 'pcsc_scan' shows the same 'Access denied' error until the rule is active."
             exit 2
         }
         READER_ARGS="-p 0"

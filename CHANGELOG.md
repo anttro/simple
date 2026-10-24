@@ -32,9 +32,11 @@ every change carries a descriptive commit message.
   the user may not use `pcscd`), the error was swallowed and pySim fell back to
   the serial transport, failing on `/dev/ttyUSB0` while the server still printed
   "listening".  The startup now probes PC/SC and reports **`PC/SC access
-  denied`** (with the `pcscd` group/polkit guidance and the `pcsc_scan`
-  cross-check), **`pcscd is not running`** or **`no PC/SC reader found`**, then
-  exits 2; `start.sh` runs the same access pre-flight before launching.  An
+  denied`** (naming the pcsc-lite PolicyKit actions and the
+  `99-pcscd-allow.rules` rule — a world-writable `pcscd.comm` does not bypass
+  polkit's active-session policy — plus the `pcsc_scan` cross-check),
+  **`pcscd is not running`** or **`no PC/SC reader found`**, then exits 2;
+  `start.sh` runs the same access pre-flight before launching.  An
   explicit `-d <device>` keeps the serial path, and a reader present but no card
   is still a normal cardless start.
 - **`setup.sh`/`setup.bat` recover from an incomplete `.venv`.**  A failed venv

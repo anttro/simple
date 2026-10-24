@@ -65,10 +65,18 @@ def _report_pcsc_unavailable(kind, exc=None):
     if kind == 'access':
         user = os.environ.get('USER') or os.environ.get('LOGNAME') or '$USER'
         sys.stderr.write('INIT: PC/SC access denied - the current user may not use pcscd.\n')
-        sys.stderr.write('  Add the user to the pcscd group: sudo usermod -aG pcscd %s\n' % user)
-        sys.stderr.write('  (then log out and back in), or configure the polkit rule that\n')
-        sys.stderr.write('  allows the user to use pcscd.  `pcsc_scan` shows the same\n')
-        sys.stderr.write('  "SCardEstablishContext: Access denied" error.\n')
+        sys.stderr.write('  pcscd gates access through PolicyKit: the default policy allows\n')
+        sys.stderr.write('  only *active local* sessions, so an SSH/headless session is denied\n')
+        sys.stderr.write('  even when /run/pcscd/pcscd.comm is world-writable (0666).\n')
+        sys.stderr.write('  Allow the user in /etc/polkit-1/rules.d/99-pcscd-allow.rules:\n')
+        sys.stderr.write('    polkit.addRule(function(a, s) {\n')
+        sys.stderr.write('      if ((a.id == "org.debian.pcsc-lite.access_pcsc" ||\n')
+        sys.stderr.write('           a.id == "org.debian.pcsc-lite.access_card") &&\n')
+        sys.stderr.write('          s.user == "%s") return polkit.Result.YES;\n' % user)
+        sys.stderr.write('    });\n')
+        sys.stderr.write('  then restart polkit (sudo systemctl restart polkit) or log out/in;\n')
+        sys.stderr.write('  `pcsc_scan` shows the same "SCardEstablishContext: Access denied"\n')
+        sys.stderr.write('  error until the rule is active.\n')
     elif kind == 'service':
         sys.stderr.write('INIT: pcscd is not running or not reachable.\n')
         sys.stderr.write('  Start it (sudo systemctl start pcscd) and restart the server.\n')
