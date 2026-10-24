@@ -329,7 +329,12 @@ consecutive runs continue correctly.
 | `proactive-drain` | `respond`, `first`, `attempts` 1–1000 (default 3), `interval_ms` (default 200), `require` | drain the card's announced proactive commands and confirm it is idle (see below) |
 
 `path` is `/`-separated: `MF` (or `3F00`) or an ADF name/AID first, then FIDs
-or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.
+or file names - e.g. `MF/7F20/6F07`, `ADF.USIM/EF.TEST`.  The step editor's
+**pick a known file** selector (the same source merge as the APDU builder's
+SELECT picker: the loaded file tree, custom files and the standard
+`uicc_files.json` list, grouped by root, with a filter) fills the path;
+only EFs are listed, and the text field stays authoritative (typing a name
+path or an unlisted file is always possible).
 
 `file-write` sends a direct terminal-side UPDATE BINARY/RECORD - it does **not**
 fire the card's EVENT_REMOTE_FILE_UPDATE (that event reports an update done by

@@ -58,11 +58,25 @@ eval(extractFunc(html, 'testIterationsValue'));
 eval(extractFunc(html, 'testCommandOptions'));
 globalThis.t = s => s;
 globalThis.esc = s => String(s);
+// The file-action picker merges the tree/custom/standard sources in
+// rfmFileEntries(); the editor tests stub a small list (an EF per root plus
+// a DF and an ADF, which the picker must not offer).
+globalThis.rfmFileEntries = () => [
+	{path: 'MF/2FE2', name: 'EF.ICCID', fid: '2FE2', kind: 'ef', root: 'MF', source: 'standard'},
+	{path: 'ADF.USIM/6F7E', name: 'EF.LOCI', fid: '6F7E', kind: 'ef', root: 'ADF.USIM', source: 'standard'},
+	{path: 'ADF.USIM/5F3A', name: 'DF.PHONEBOOK', fid: '5F3A', kind: 'df', root: 'ADF.USIM', source: 'standard'},
+	{path: 'ADF.USIM', name: 'ADF.USIM', fid: '', kind: 'adf', root: 'ADF.USIM', source: 'standard'},
+];
 globalThis.testScripts = () => _testScripts || [];
 globalThis.testSuites = () => _testSuites || [];
 eval(extractFunc(html, 'testFormRow'));
 eval(extractFunc(html, 'testFormInput'));
 eval(extractFunc(html, 'testFormSelect'));
+// the file actions' known-file picker (v3.38.0)
+eval(extractFunc(html, 'testPathEntries'));
+eval(extractFunc(html, 'testPathOptionsHtml'));
+eval(extractFunc(html, 'testPathPick'));
+eval(extractFunc(html, 'testPathFilterInput'));
 // the TERMINAL RESPONSE result tables + the shared result-row helpers
 eval(extractBlock('const TR_RESULTS = [', 'const TR_RESULT_ADD_INFO = [').replace(/^const /gm, 'var '));
 eval(extractBlock('const TR_RESULT_ADD_INFO = [', '// TS 102 223 v18.3.0 Tables 6.1/6.2').replace(/^const /gm, 'var '));
@@ -459,6 +473,55 @@ test('the menu-select step form renders the case select', () => {
 	_testEditStep = { type: 'action', kind: 'menu-select', params: { text: 'My menu' } };
 	testStepRender();
 	assert.match(els['test-step-body'].innerHTML, /<option value="false" selected>/);
+});
+
+test('the file step offers the known-file picker', () => {
+	const els = {
+		'test-step-modal': { classList: { add: () => {}, remove: () => {} } },
+		'test-step-title': {}, 'test-step-body': {},
+		'test-step-error': { classList: { add: () => {}, remove: () => {} } },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	_testEditStep = { type: 'action', kind: 'file-write',
+		params: { path: 'MF/2FE2', data: 'FF' } };
+	_testEditChecks = [];
+	_testEditStepIndex = 0;
+	testStepRender();
+	const body = els['test-step-body'].innerHTML;
+	assert.match(body, /id="test-f-pathpick"/);
+	assert.match(body, /id="test-f-pathfilter"/);
+	assert.match(body, /<option value="MF\/2FE2" selected>/);
+	assert.match(body, /<optgroup label="ADF.USIM">/);
+	// EFs only: the DF and the ADF are not offered
+	assert.ok(!testPathOptionsHtml('', '').includes('5F3A'));
+	assert.ok(!testPathOptionsHtml('', '').includes('value="ADF.USIM"'));
+	// the filter matches the name or the path, the current path stays selected
+	const f = testPathOptionsHtml('loci', 'ADF.USIM/6F7E');
+	assert.ok(f.includes('value="ADF.USIM/6F7E" selected'), f);
+	assert.ok(!f.includes('MF/2FE2'), f);
+	assert.ok(testPathOptionsHtml('nope', '').includes('no matching files'));
+	// the read action gets the same picker
+	_testEditStep = { type: 'action', kind: 'file-read', params: { path: 'MF/2FE2' } };
+	testStepRender();
+	assert.match(els['test-step-body'].innerHTML, /id="test-f-pathpick"/);
+});
+
+test('the path picker fills the path field, the filter rebuilds the list', () => {
+	const els = {
+		'test-f-path': { value: '' },
+		'test-f-pathpick': { innerHTML: '', value: 'ADF.USIM/6F7E' },
+	};
+	globalThis.document = { getElementById: id => els[id] || null };
+	testPathPick(els['test-f-pathpick']);
+	assert.strictEqual(els['test-f-path'].value, 'ADF.USIM/6F7E');
+	els['test-f-path'].value = 'ADF.USIM/6F7E';
+	testPathFilterInput({ value: 'loci' });
+	assert.ok(els['test-f-pathpick'].innerHTML.includes('value="ADF.USIM/6F7E" selected'));
+	assert.ok(!els['test-f-pathpick'].innerHTML.includes('MF/2FE2'));
+	// clearing the filter restores the full list (the path stays selected)
+	testPathFilterInput({ value: '' });
+	assert.ok(els['test-f-pathpick'].innerHTML.includes('MF/2FE2'));
+	assert.ok(els['test-f-pathpick'].innerHTML.includes('value="ADF.USIM/6F7E" selected'));
 });
 
 test('the envelope step collects the source override', () => {

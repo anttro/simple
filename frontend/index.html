@@ -1959,7 +1959,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.37.0';
+const SIMPLE_VERSION = '3.38.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -8344,6 +8344,53 @@ function testFormSelect(id, value, options, onchange) {
 	return html + '</select>';
 }
 
+// The file actions' path picker: the known EFs (the loaded file-manager
+// tree, the custom files and the standard file list, merged by
+// rfmFileEntries) as full canonical paths, grouped by root.  The path field
+// stays authoritative - a pick only fills it (a name path or an unlisted
+// file stays possible).
+function testPathEntries() {
+	return rfmFileEntries().filter(e => e.kind === 'ef');
+}
+
+function testPathOptionsHtml(filter, current) {
+	const f = String(filter || '').toUpperCase();
+	const cur = String(current || '').toUpperCase();
+	const groups = new Map();
+	for (const e of testPathEntries()) {
+		if (f && (e.name + ' ' + e.path).toUpperCase().indexOf(f) < 0) continue;
+		if (!groups.has(e.root)) groups.set(e.root, []);
+		groups.get(e.root).push(e);
+	}
+	let html = '<option value="">' + esc(t('— pick a known file —')) + '</option>';
+	for (const [root, items] of groups) {
+		html += '<optgroup label="' + esc(root) + '">';
+		for (const e of items) {
+			const inRoot = e.path.slice(root.length + 1);
+			html += '<option value="' + esc(e.path) + '"' +
+				(e.path === cur ? ' selected' : '') + '>' +
+				esc(e.name + ' — ' + inRoot) + '</option>';
+		}
+		html += '</optgroup>';
+	}
+	if (!groups.size) {
+		html += '<option value="" disabled>' + esc(t('no matching files')) + '</option>';
+	}
+	return html;
+}
+
+function testPathPick(sel) {
+	const input = document.getElementById('test-f-path');
+	if (input && sel && sel.value) input.value = sel.value;
+}
+
+function testPathFilterInput(input) {
+	const sel = document.getElementById('test-f-pathpick');
+	const path = document.getElementById('test-f-path');
+	if (sel) sel.innerHTML = testPathOptionsHtml(input ? input.value : '',
+		path ? path.value : '');
+}
+
 function testStepRender() {
 	const modal = document.getElementById('test-step-modal');
 	const title = document.getElementById('test-step-title');
@@ -8412,6 +8459,13 @@ function testStepRender() {
 				 {v: 'true', l: t('Case-sensitive')}]));
 		} else if (step.kind === 'file-write' || step.kind === 'file-read') {
 			html += testFormRow('File path', testFormInput('test-f-path', p.path, 'ADF.USIM/EF.EST or MF/2FE2'));
+			html += testFormRow('\u2026 or pick a known file',
+				'<div class="flex gap-2">' +
+				'<input id="test-f-pathfilter" placeholder="filter" oninput="testPathFilterInput(this)" ' +
+				'class="font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 dark:bg-slate-800 w-40">' +
+				'<select id="test-f-pathpick" onchange="testPathPick(this)" ' +
+				'class="flex-1 border border-gray-300 dark:border-slate-600 text-xs rounded px-2 py-1.5 dark:bg-slate-800 font-mono">' +
+				testPathOptionsHtml('', p.path) + '</select></div>');
 			html += testFormRow('Mode', testFormSelect('test-f-mode', p.mode || 'auto', [
 				{v: 'auto', l: t('Auto (by file type)')}, {v: 'binary', l: t('Transparent (binary)')}, {v: 'record', l: t('Record')}]));
 			html += testFormRow('Record number (record mode)', testFormInput('test-f-record', p.record, '1..255'));
@@ -26584,6 +26638,9 @@ const LANG_RU = {
 	'item id or text is required': 'нужен item id или текст пункта',
 	'give the item id or the text, not both': 'укажите item id или текст, но не оба',
 	'… or item text': '… или текст пункта',
+	'… or pick a known file': '… или выберите известный файл',
+	'— pick a known file —': '— выберите известный файл —',
+	'no matching files': 'нет подходящих файлов',
 	'menu item text': 'текст пункта меню',
 	'Match case': 'Учёт регистра',
 	'Case-insensitive (default)': 'Без учёта регистра (по умолчанию)',

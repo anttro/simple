@@ -9,6 +9,19 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.38.0] — 2026-10-24
+
+### Added
+
+- **Known-file picker in the test-script file actions.**  The `UPDATE file` /
+  `READ file` step editor's path field gains the selector the APDU builder's
+  SELECT rows use: the file-manager tree, the custom files and the standard
+  file list (`uicc_files.json`), grouped by root with a filter, filling the
+  path.  Only EFs are offered (the action reads/writes a file; a DF/ADF is not
+  a target); the text field stays authoritative, so a name path or a file the
+  lists do not carry can still be typed, and the picker preselects the current
+  path when it is known.
+
 ## [3.37.0] — 2026-10-23
 
 ### Added
