@@ -34,13 +34,29 @@ class FakeFile:
         self.fid = fid
 
 
+class FakeScc:
+    """Serves READ RECORD for the selected fake PBR file."""
+
+    cla_byte = '00'
+    max_cmd_len = 255
+
+    def __init__(self, lchan):
+        self.lchan = lchan
+        self.sent = []
+
+    def send_apdu_checksw(self, pdu):
+        self.sent.append(pdu)
+        return (self.lchan.files[self.lchan._cur][int(pdu[4:6], 16) - 1], '9000')
+
+
 class FakeLchan:
-    """One selected PBR file: read_record serves its records."""
+    """One selected PBR file: READ RECORD serves its records."""
 
     def __init__(self, files):
         self.files = files          # path -> [record hex]
         self._cur = None
         self.selected_file = None
+        self.scc = FakeScc(self)
 
     def selected_file_num_of_rec(self):
         return len(self.files.get(self._cur) or [])
@@ -101,13 +117,13 @@ class ReadPbrTests(unittest.TestCase):
     def test_a_failing_read_skips_the_file(self):
         app, lchan = _app({'MF/7F10/5F3A/4F30': ['A80AC0034F3A02'],
                            'ADF.USIM/5F3A/4F30': ['A80AC0034F3A02']})
-        orig = lchan.read_record
+        orig = lchan.scc.send_apdu_checksw
 
-        def flaky(n):
+        def flaky(pdu):
             if lchan._cur == 'MF/7F10/5F3A/4F30':
                 raise RuntimeError('6A82')
-            return orig(n)
-        lchan.read_record = flaky
+            return orig(pdu)
+        lchan.scc.send_apdu_checksw = flaky
         pbrs = _read(app)
         self.assertEqual([p['path'] for p in pbrs], ['ADF.USIM/5F3A/4F30'])
 

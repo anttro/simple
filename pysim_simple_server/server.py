@@ -37,7 +37,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.38.0'
+VERSION = '3.38.1'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -483,6 +483,45 @@ def _decode_iccid(data_hex):
     return digits
 
 
+def _read_selected_ef(lchan, kind, rec=None, length=None, offset=0):
+    """Read the currently selected EF **without selecting it again**.
+
+    pySim's ``scc.read_binary``/``scc.read_record`` call ``select_path(ef)``
+    first.  Our callers have already made a parent-scoped selection and hold
+    its FCP, so that second SELECT is redundant (one per file read, one per
+    record).  A transparent file is read in ``max_cmd_len`` chunks from
+    ``offset`` (the whole file when ``length`` is None, using the FCP file
+    size); a record file reads record ``rec`` (1-based) at the FCP's record
+    length.  Returns ``(data, sw)`` like the pySim helpers; falls back to them
+    when the FCP lacks the needed value.
+
+    The caller must select the file first (``_select_path``/``_select_with_parent``)
+    and must not interleave another selection before the read."""
+    scc = getattr(lchan, 'scc', None)
+    if kind == 'record':
+        rec_len = lchan.selected_file_record_len()
+        if scc is not None and rec_len:
+            pdu = scc.cla_byte + 'b2%02x04%02x' % (int(rec), rec_len)
+            return scc.send_apdu_checksw(pdu)
+        return lchan.read_record(rec)
+    size = lchan.selected_file_size()
+    if scc is None or size is None:
+        return lchan.read_binary(length, offset)
+    if length is None:
+        length = size - offset
+    if length <= 0:
+        return '', '9000'
+    total, sw = '', ''
+    chunk = 0
+    while chunk < length:
+        n = min(scc.max_cmd_len, length - chunk)
+        pdu = scc.cla_byte + 'b0%04x%02x' % (offset + chunk, n)
+        data, sw = scc.send_apdu_checksw(pdu)
+        total += data or ''
+        chunk += n
+    return total, sw
+
+
 def _read_iccid(app):
     """Best-effort EF.ICCID (MF/2FE2) read: the E.118 digit string or None.
 
@@ -495,7 +534,7 @@ def _read_iccid(app):
     cleanup = None
     try:
         _, cleanup = _select_path(lchan, 'MF/2FE2', app)
-        data, _sw = lchan.read_binary()
+        data, _sw = _read_selected_ef(lchan, 'transparent')
         return _decode_iccid(data)
     except Exception:
         return None
@@ -536,7 +575,7 @@ def _read_arr(app):
             n = min(lchan.selected_file_num_of_rec() or 1, ARR_RECORD_LIMIT)
             records = []
             for i in range(1, n + 1):
-                rv = lchan.read_record(i)
+                rv = _read_selected_ef(lchan, 'record', i)
                 data = rv[0] if isinstance(rv, tuple) else rv
                 records.append((data or '').upper())
             out.append({'fid': path.rsplit('/', 1)[-1].upper(),
@@ -602,7 +641,7 @@ def _read_pbr(app):
             n = min(lchan.selected_file_num_of_rec() or 1, PBR_RECORD_LIMIT)
             records = []
             for i in range(1, n + 1):
-                rv = lchan.read_record(i)
+                rv = _read_selected_ef(lchan, 'record', i)
                 data = rv[0] if isinstance(rv, tuple) else rv
                 records.append((data or '').upper())
             out.append({'fid': path.rsplit('/', 1)[-1].upper(),
@@ -886,14 +925,14 @@ def _netstate_read(app, keys=None):
                     records = []
                     n = lchan.selected_file_num_of_rec() or 1
                     for i in range(1, n + 1):
-                        rv = lchan.read_record(i)
+                        rv = _read_selected_ef(lchan, 'record', i)
                         data = rv[0] if isinstance(rv, tuple) else rv
                         records.append({'num': i,
                                         'data': (data or '').upper()})
                     entry.update({'present': True, 'kind': 'record',
                                   'records': records})
                 else:
-                    rv = lchan.read_binary()
+                    rv = _read_selected_ef(lchan, 'transparent')
                     data = rv[0] if isinstance(rv, tuple) else rv
                     entry.update({'present': True, 'kind': 'transparent',
                                   'data': (data or '').upper()})

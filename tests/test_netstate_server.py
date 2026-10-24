@@ -13,6 +13,28 @@ from types import SimpleNamespace
 from pysim_simple_server import server
 
 
+class FakeScc:
+    """Serves the selected fake file for direct READ BINARY/RECORD APDUs."""
+
+    cla_byte = '00'
+    max_cmd_len = 255
+
+    def __init__(self, lchan):
+        self.lchan = lchan
+        self.sent = []
+
+    def send_apdu_checksw(self, pdu):
+        self.sent.append(pdu)
+        kind, val = self.lchan.files[self.lchan.selected]
+        if pdu[2:4] == 'b0':
+            off = int(pdu[4:8], 16)
+            ln = int(pdu[8:10], 16)
+            return val[off * 2:(off + ln) * 2], '9000'
+        if pdu[2:4] == 'b2':
+            return val[int(pdu[4:6], 16) - 1], '9000'
+        raise AssertionError('unexpected APDU %s' % pdu)
+
+
 class FakeLchan:
     def __init__(self, files):
         self.files = files          # path -> ('transparent', hex) | ('record', [hex])
@@ -23,6 +45,9 @@ class FakeLchan:
         self.selected_file_type = lambda: 'ef'
         self.selected_file_structure = lambda: self.files[self.selected][0]
         self.selected_file_num_of_rec = lambda: len(self.files[self.selected][1])
+        self.selected_file_record_len = lambda: 2
+        self.selected_file_size = lambda: len(self.files[self.selected][1]) // 2
+        self.scc = FakeScc(self)
         self.read_binary = lambda: (self.files[self.selected][1], '9000')
         self.read_record = lambda i: (self.files[self.selected][1][i - 1], '9000')
 
@@ -68,6 +93,8 @@ class NetStateServerTests(unittest.TestCase):
                           ('select', 'DF.GSM/6F07'),
                           ('select', 'ADF.USIM/6FCD'),
                           ('select', 'ADF.USIM/6FE4')])
+        # v3.38.1: the reads use the selected file directly - no second SELECT
+        self.assertEqual(lchan.scc.sent, ['00b0000003', '00b2010402', '00b2020402'])
 
     def test_install_builds_the_state_and_network(self):
         files = {'imsi': {'name': 'EF.IMSI', 'fid': '6F07', 'present': True,

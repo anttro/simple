@@ -9,6 +9,22 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.38.1] — 2026-10-24
+
+### Performance
+
+- **Equip/initialization reads no longer select the file twice.**  pySim's
+  `scc.read_binary`/`scc.read_record` call `select_path(ef)` first, but the
+  ICCID, network-state, EF.ARR and EF.PBR readers had already made a
+  parent-scoped selection and held its FCP.  A new `_read_selected_ef()` reads
+  the selected file directly — READ BINARY chunked at `max_cmd_len`, READ
+  RECORD at the FCP record length — removing one SELECT per file read and one
+  per record (~106 files + 94 records on the bench card: ~0.7 s of the ~3.4 s
+  traced startup init).  The pySim helpers stay as the fallback when the FCP
+  lacks the size/record length.
+- The startup TERMINAL PROFILE drain uses the chain's final SW, so an idle
+  chain no longer costs one extra STATUS poll (~128 ms).
+
 ## [3.38.0] — 2026-10-24
 
 ### Added

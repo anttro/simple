@@ -293,7 +293,11 @@ def main():
                 sys.stderr.write('INIT: drain STATUS -> %s\n' % st_sw)
                 if not st_sw.startswith('91'):
                     break
-                _handle_proactive_chain(scc, st_sw)
+                chain_sw = _handle_proactive_chain(scc, st_sw)
+                # the chain's trailing STATUS already proved the card idle;
+                # polling once more only costs an APDU (v3.38.1)
+                if chain_sw and not chain_sw.startswith('91'):
+                    break
             _tlog('terminal_profile_drain: %.0fms' % ((time.time() - t_phase) * 1000))
         except Exception as e:
             if _is_pcsc_error(e):

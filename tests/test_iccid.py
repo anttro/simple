@@ -32,6 +32,21 @@ class FakeFile:
         self.applications = {}
 
 
+class FakeScc:
+    cla_byte = '00'
+    max_cmd_len = 255
+
+    def __init__(self, lchan):
+        self.lchan = lchan
+        self.sent = []
+
+    def send_apdu_checksw(self, pdu):
+        self.sent.append(pdu)
+        if self.lchan.error:
+            raise self.lchan.error
+        return self.lchan.data, '9000'
+
+
 class FakeLchan:
     def __init__(self, mf, data=None, error=None):
         self.selected_file = mf
@@ -39,6 +54,10 @@ class FakeLchan:
         self.error = error
         self.selects = []
         self.probes = []
+        self.scc = FakeScc(self)
+
+    def selected_file_size(self):
+        return len(self.data or '') // 2
 
     def select_file(self, f, app=None):
         self.selected_file = f
@@ -94,6 +113,8 @@ class ReadIccidTest(unittest.TestCase):
         self.assertIs(lchan.selected_file, iccid)
         self.assertEqual([f.name for f in lchan.selects], ['MF', 'EF.ICCID'])
         self.assertEqual(lchan.probes, [])
+        # one READ BINARY, no second SELECT (v3.38.1)
+        self.assertEqual(lchan.scc.sent, ['00b000000a'])
 
     def test_missing_model_entry_is_probed_and_detached(self):
         app, lchan, mf, _ = make_app(with_iccid=False)
