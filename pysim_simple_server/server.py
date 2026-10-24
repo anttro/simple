@@ -7164,7 +7164,7 @@ def _test_command_type(name):
     return _TEST_COMMAND_TYPES.get((name or '').upper())
 
 
-_TEST_LOAD_MAX = 1000000
+_TEST_LOAD_MAX = 1000000000
 
 
 def _test_load_state(iterations, suite=False):

@@ -241,6 +241,8 @@ a manual stop ends it after the current iteration, and a card session change
 between iterations is an error.  The SCP80 counter state is shared across
 iterations, so packets continue from what the previous iteration consumed.
 The iteration count is a run parameter - the stored script/suite is unchanged.
+The accepted range is **1 to 1,000,000,000** (the PWA clamps, the server
+answers 400 above it).
 
 ## A card that stops answering
 

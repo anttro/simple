@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// the editor's cap, read from the source so the stub cannot drift
+const ITERATIONS_MAX = parseInt(html.match(/const TEST_ITERATIONS_MAX = (\d+);/)[1], 10);
 
 function extractFunc(src, name) {
 	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
@@ -34,7 +36,7 @@ function build(els, storage, curRef) {
 	const fn = new Function('els', 'storage', 'curRef', `
 		var _testRunState = null;
 		var _testRunScriptRef = curRef.value;
-		var TEST_ITERATIONS_MAX = 1000000;
+		var TEST_ITERATIONS_MAX = ${ITERATIONS_MAX};
 		var _testIterationsReady = false;
 		var localStorage = storage;
 		var document = { getElementById: id => els[id] || null };
@@ -63,8 +65,10 @@ test('the iteration count clamps and persists (v3.37.0)', () => {
 	els['test-iterations'].value = '5';
 	assert.strictEqual(app.testIterationsValue('test-iterations'), 5);
 	assert.strictEqual(app.testIterationsValue('missing'), 1);
-	els['test-iterations'].value = '99999999';
-	assert.strictEqual(app.testIterationsValue('test-iterations'), 1000000);
+	els['test-iterations'].value = String(ITERATIONS_MAX + 1);
+	assert.strictEqual(app.testIterationsValue('test-iterations'), ITERATIONS_MAX);
+	els['test-iterations'].value = String(ITERATIONS_MAX);
+	assert.strictEqual(app.testIterationsValue('test-iterations'), ITERATIONS_MAX);
 	els['test-iterations'].value = 'nope';
 	assert.strictEqual(app.testIterationsValue('test-iterations'), 1);
 
@@ -86,9 +90,9 @@ test('the run bodies carry the iterations (v3.37.0)', () => {
 	assert.match(script, /body\.iterations = testIterationsValue\('test-iterations'\)/);
 	const suite = extractFunc(html, 'testSuiteRun');
 	assert.match(suite, /body\.iterations = testIterationsValue\('test-suite-iterations'\)/);
-	// the inputs live next to the two run buttons
-	assert.match(html, /id="test-iterations" type="number" min="1" max="1000000"/);
-	assert.match(html, /id="test-suite-iterations" type="number" min="1" max="1000000"/);
+	// the inputs live next to the two run buttons, with the raised cap
+	assert.ok(html.includes('id="test-iterations" type="number" min="1" max="' + ITERATIONS_MAX + '"'));
+	assert.ok(html.includes('id="test-suite-iterations" type="number" min="1" max="' + ITERATIONS_MAX + '"'));
 });
 
 test('a running load test shows the counter, not the steps (v3.37.0)', () => {

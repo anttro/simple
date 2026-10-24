@@ -22,6 +22,15 @@ every change carries a descriptive commit message.
   lists do not carry can still be typed, and the picker preselects the current
   path when it is known.
 
+### Changed
+
+- The load-test **iteration cap is raised to 1,000,000,000** (from 1,000,000) in
+  both layers: the PWA's `TEST_ITERATIONS_MAX` and the two field `max`
+  attributes, and the server's `_TEST_LOAD_MAX`.  The value is well inside the
+  JavaScript safe-integer range (2^53-1), so the counters and the progress
+  display stay exact; the practical ceiling is the run duration (at 50 ms per
+  iteration the cap is ~1.6 years).
+
 ## [3.37.0] — 2026-10-23
 
 ### Added

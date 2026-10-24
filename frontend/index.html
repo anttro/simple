@@ -1412,7 +1412,7 @@
 						</div>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-suite-adm" type="checkbox" onchange="testSuiteAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300" data-l10n-title="Reset and fully re-initialize the card (ICCID, network state, TERMINAL PROFILE, drain) before the suite starts.  The preset must still match the card's ICCID after the reset; the ADM is verified again for the new card session.  The card's initial proactive commands are consumed by the initialization, so a script cannot catch the first command after the reset (they stay in the proactive log).  A reset later in the run still stops the suite."><input id="test-suite-reset" type="checkbox" onchange="testSuiteResetChanged()"> <span data-l10n="Start with card reset">Start with card reset</span></label>
-						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-suite-iterations" type="number" min="1" max="1000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-suite-run-btn" data-needs="card" onclick="testSuiteRunCurrent()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Run suite">Run suite</button>
+						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-suite-iterations" type="number" min="1" max="1000000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-suite-run-btn" data-needs="card" onclick="testSuiteRunCurrent()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Run suite">Run suite</button>
 						<button onclick="testSuiteExportCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Export">Export</button>
 						<button onclick="testSuiteDeleteCurrent()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-red-600 dark:text-red-400 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Delete">Delete</button>
 					</div>
@@ -1434,7 +1434,7 @@
 							<input id="test-name" oninput="testNameChanged()" class="w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800">
 						</div>
 						<label class="flex items-center gap-1 text-sm text-gray-700 dark:text-slate-300"><input id="test-script-adm" type="checkbox" onchange="testScriptAdmChanged()"> <span data-l10n="ADM required">ADM required</span></label>
-						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-iterations" type="number" min="1" max="1000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
+						<label class="flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400"><span data-l10n="Iterations">Iterations</span><input id="test-iterations" type="number" min="1" max="1000000000" value="1" oninput="testIterationsChanged(this)" class="w-20 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800"></label> <button id="test-run-btn" data-needs="card" onclick="testRunStart()" class="px-4 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Start">Start</button>
 						<button id="test-stop-btn" onclick="testStop()" class="hidden px-4 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" data-l10n="Stop">Stop</button>
 						<button onclick="testClearReport()" class="px-3 py-1.5 text-sm rounded bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-l10n="Clear report">Clear report</button>
 					</div>
@@ -9273,7 +9273,7 @@ function testSuiteRunCurrent() { testSuiteRun(_testSuiteIdx); }
 // The iteration count is a run parameter, not part of the stored script or
 // suite: > 1 repeats the run, the successful iterations are discarded and the
 // first failing iteration's report is kept.
-const TEST_ITERATIONS_MAX = 1000000;
+const TEST_ITERATIONS_MAX = 1000000000;
 let _testIterationsReady = false;
 
 function testIterationsInit() {

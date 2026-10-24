@@ -1006,7 +1006,7 @@ on every stop** as long as the card is in the reader; a card reset (session
 change) stops the suite, skips the remaining members and is flagged in the
 report.
 
-`iterations` (optional, 1-1,000,000, default 1) repeats the script or the
+`iterations` (optional, 1-1,000,000,000, default 1) repeats the script or the
 whole suite: successful iterations are discarded (only the counter and the
 timing are kept; the per-step log is not retained), the first iteration that
 ends in an **error** stops the loop and keeps that iteration's report, a
