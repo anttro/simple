@@ -7,7 +7,7 @@ import traceback
 from http.server import ThreadingHTTPServer
 from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
-from pySim.exceptions import NoCardError
+from pySim.exceptions import NoCardError, ReaderError
 from pySim.log import PySimLogger
 from pySim.cards import UiccCardBase
 
@@ -22,6 +22,107 @@ from .server import PysimHandler, StderrApduTracer, _LoggingApduTracer, VERSION,
 
 
 _server_start = 0
+
+# PC/SC hresults (pyscard's exceptions carry them; the messages are often
+# empty, so the hresult is the reliable signal).
+_PCSC_E_UNKNOWN_READER = 0x80100009
+_PCSC_E_NO_SERVICE = 0x8010001D
+_PCSC_E_SERVICE_STOPPED = 0x8010001E
+_PCSC_E_NO_ACCESS = 0x80100027
+_PCSC_E_NO_READERS_AVAILABLE = 0x8010002E
+
+
+class PcscUnavailable(RuntimeError):
+    """The PC/SC stack cannot be used (kind: access/service/reader)."""
+
+    def __init__(self, kind, cause=None):
+        super().__init__(kind)
+        self.kind = kind
+        self.cause = cause
+
+
+def _pcsc_error_kind(exc):
+    """Classify a pyscard failure: 'access', 'service', 'reader' or None.
+
+    ``SCARD_E_NO_ACCESS`` is the "Access denied" a user without permission to
+    pcscd gets; the message is a fallback because some pyscard paths raise a
+    CardConnectionException with an empty message and only the hresult."""
+    hr = getattr(exc, 'hresult', None)
+    msg = str(exc or '').lower()
+    if hr == _PCSC_E_NO_ACCESS or 'access denied' in msg or 'access is denied' in msg:
+        return 'access'
+    if hr in (_PCSC_E_NO_SERVICE, _PCSC_E_SERVICE_STOPPED) or \
+            'resource manager is not running' in msg or 'service not available' in msg:
+        return 'service'
+    if hr in (_PCSC_E_UNKNOWN_READER, _PCSC_E_NO_READERS_AVAILABLE) or \
+            'no smart card readers' in msg:
+        return 'reader'
+    return None
+
+
+def _report_pcsc_unavailable(kind, exc=None):
+    """Print an actionable reason instead of starting a readerless server."""
+    if kind == 'access':
+        user = os.environ.get('USER') or os.environ.get('LOGNAME') or '$USER'
+        sys.stderr.write('INIT: PC/SC access denied - the current user may not use pcscd.\n')
+        sys.stderr.write('  Add the user to the pcscd group: sudo usermod -aG pcscd %s\n' % user)
+        sys.stderr.write('  (then log out and back in), or configure the polkit rule that\n')
+        sys.stderr.write('  allows the user to use pcscd.  `pcsc_scan` shows the same\n')
+        sys.stderr.write('  "SCardEstablishContext: Access denied" error.\n')
+    elif kind == 'service':
+        sys.stderr.write('INIT: pcscd is not running or not reachable.\n')
+        sys.stderr.write('  Start it (sudo systemctl start pcscd) and restart the server.\n')
+    else:
+        sys.stderr.write('INIT: no PC/SC reader found.\n')
+        sys.stderr.write('  Connect a reader (pcsc_scan lists them) and restart the server.\n')
+    if exc is not None:
+        hr = getattr(exc, 'hresult', None)
+        detail = str(exc) or type(exc).__name__
+        if hr not in (None, -1):
+            detail += ' (hresult=0x%08X)' % hr
+        sys.stderr.write('  (%s)\n' % detail)
+
+
+def _probe_pcsc_reader(retries=3, sleep_fn=time.sleep, readers_fn=None):
+    """Return the first PC/SC reader name or raise PcscUnavailable.
+
+    ``SCARD_E_NO_ACCESS``/service failures are raised immediately (retrying
+    cannot fix permissions or a stopped service); an empty list is retried
+    (USB enumeration) and reported as 'reader' after the last attempt."""
+    if readers_fn is None:
+        from smartcard.System import readers as readers_fn
+    last = None
+    for attempt in range(retries):
+        try:
+            found = readers_fn()
+        except Exception as exc:
+            last = exc
+            kind = _pcsc_error_kind(exc)
+            if kind in ('access', 'service'):
+                raise PcscUnavailable(kind, exc) from exc
+        else:
+            if found:
+                return str(found[0])
+            last = None
+        if attempt + 1 < retries:
+            sys.stderr.write('INIT: no PC/SC reader yet, retrying in 2s...\n')
+            sleep_fn(2)
+    raise PcscUnavailable('reader', last)
+
+
+def _serial_arg_given(argv=None):
+    """True when the operator explicitly chose the serial reader (-d/--device).
+
+    The default (-d is /dev/ttyUSB0 in pySim's parser) must not masquerade as
+    an explicit choice: only a flag on the command line counts."""
+    argv = sys.argv[1:] if argv is None else argv
+    for arg in argv:
+        if arg in ('-d', '--device') or arg.startswith('--device='):
+            return True
+        if arg.startswith('-d') and not arg.startswith('--') and len(arg) > 2:
+            return True
+    return False
+
 
 def _log_stdout(msg):
     elapsed = time.time() - _server_start
@@ -164,22 +265,18 @@ def main():
     rs = None
     sim_menu = None
     event_list = None
-    # Auto-detect PC/SC reader if none was explicitly specified.
-    # Handles late pcscd startup and USB enumeration delays.
-    if opts.pcsc_dev is None and opts.pcsc_regex is None:
+    # Auto-detect the PC/SC reader unless one was named explicitly or the
+    # operator chose the serial transport (-d).  A PC/SC access denial or a
+    # missing service must be reported - silently falling back to the serial
+    # reader left the server "listening" without a usable card link (v3.38.1).
+    if opts.pcsc_dev is None and opts.pcsc_regex is None and not _serial_arg_given():
         try:
-            from smartcard.System import readers
-            for attempt in range(3):
-                r = readers()
-                if r:
-                    sys.stderr.write('INIT: PC/SC reader detected: %s\n' % r[0])
-                    opts.pcsc_dev = 0
-                    break
-                if attempt < 2:
-                    sys.stderr.write('INIT: no PC/SC readers found, retrying in 2s...\n')
-                    time.sleep(2)
-        except Exception:
-            pass  # smartcard module not available or pcscd unreachable
+            reader = _probe_pcsc_reader()
+        except PcscUnavailable as e:
+            _report_pcsc_unavailable(e.kind, e.cause)
+            return 2
+        sys.stderr.write('INIT: PC/SC reader detected: %s\n' % reader)
+        opts.pcsc_dev = 0
 
     try:
         kwargs = {}
@@ -223,7 +320,15 @@ def main():
             # defaults, which made VERIFY go out with CLA A0 on a UICC).
             scc = card._scc
             scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
-    except Exception:
+    except ReaderError as e:
+        sys.stderr.write('INIT: no PC/SC reader found: %s\n' % e)
+        sys.stderr.write('  Connect the reader (pcsc_scan lists them) and restart the server.\n')
+        return 2
+    except Exception as e:
+        kind = _pcsc_error_kind(e)
+        if kind:
+            _report_pcsc_unavailable(kind, e)
+            return 2
         print("Warning: reader/card initialization failed:", file=sys.stderr)
         traceback.print_exc()
     ch = CardHandler(sl) if sl else None
@@ -438,4 +543,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

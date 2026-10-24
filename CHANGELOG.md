@@ -25,6 +25,19 @@ every change carries a descriptive commit message.
 - The startup TERMINAL PROFILE drain uses the chain's final SW, so an idle
   chain no longer costs one extra STATUS poll (~128 ms).
 
+### Fixed
+
+- **A PC/SC access denial is reported instead of a silent serial fallback.**
+  When no reader was named and `readers()` failed (e.g. `SCARD_E_NO_ACCESS` —
+  the user may not use `pcscd`), the error was swallowed and pySim fell back to
+  the serial transport, failing on `/dev/ttyUSB0` while the server still printed
+  "listening".  The startup now probes PC/SC and reports **`PC/SC access
+  denied`** (with the `pcscd` group/polkit guidance and the `pcsc_scan`
+  cross-check), **`pcscd is not running`** or **`no PC/SC reader found`**, then
+  exits 2; `start.sh` runs the same access pre-flight before launching.  An
+  explicit `-d <device>` keeps the serial path, and a reader present but no card
+  is still a normal cardless start.
+
 ## [3.38.0] — 2026-10-24
 
 ### Added

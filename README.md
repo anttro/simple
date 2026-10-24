@@ -759,7 +759,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
 | `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
 
-`start.sh` asks for the first PC/SC reader when `pcscd` is running; otherwise the server still auto-detects a PC/SC reader itself, and with none present pysim falls back to its serial default `/dev/ttyUSB0` (pass `-d <device>` for a serial/FTDI reader). `start.bat` always passes `-p 0` (PC/SC is built into Windows). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no reader is found the server still starts ("Reader: none") — initialize the card later via the **Equip** button.
+`start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the group/polkit guidance and exits — the server **no longer falls back to a serial reader silently**. With access, the server auto-detects the first PC/SC reader; `start.bat` always passes `-p 0` (PC/SC is built into Windows). An explicit serial/FTDI reader is still possible with `-d <device>` (the pre-flight check is skipped). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
 
 ### Manual installation (Linux/macOS)
 
@@ -799,8 +799,9 @@ its MSVC build chain) is not pulled in.
 
 ### Troubleshooting
 
-- **"Failed to establish context: Access denied"** — `pcscd` isn't running or the user lacks permission: `sudo systemctl enable --now pcscd && sudo usermod -a -G pcscd $USER`.
-- **"device file /dev/ttyUSB0 does not exist"** — no serial reader; connect a USB reader or pass `-d` explicitly. The server still starts without a reader.
+- **"Failed to establish context: Access denied"** — the user may not use `pcscd`: add the user to the `pcscd` group (`sudo usermod -a -G pcscd $USER`, then log out/in) or configure the polkit rule; start the service if needed (`sudo systemctl enable --now pcscd`). `start.sh` and the server report this and exit instead of falling back to a serial reader; `pcsc_scan` shows the same error.
+- **"device file /dev/ttyUSB0 does not exist"** — only with an explicit `-d <device>`: the device is not connected (or the path is wrong). Without `-d` the server no longer uses the serial transport.
+- **"no PC/SC reader found"** — connect a reader (`pcsc_scan` lists them) and restart; the server exits instead of starting without a reader.
 - **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport (releasing the old link first). No server restart needed.
 - **"Card was removed" errors / auto-equip fails after a card swap** — a card insertion marks the PC/SC link for a rebuild (so the **first** attempt already uses a fresh link — on Windows the old one cannot connect after a swap), the auto-equip retries up to 3 times, and **every failed attempt rebuilds the transport** before the next one. A card removed while the server initializes at startup leaves it cardless with one line (no traceback), and the next insertion equips normally. The swallowed init error (with its traceback) is now printed as `AUTO-EQUIP: init output:`, and a card that is present but produced no card is a failure, not a silent "card gone". The watchdog re-arms with a doubling delay (5 s up to 60 s) while a card is present; a removed card clears the card state completely, so handlers answer "no card" instead of transmitting over the dead card.
 
