@@ -24,7 +24,8 @@ function extractFunc(src, name) {
 }
 
 const FNS = ['esc', 'testStatusBadge', 'testRenderScriptRun', 'testRenderReport',
-	'testIterationsInit', 'testIterationsChanged', 'testIterationsValue'];
+	'testIterationsInit', 'testIterationsChanged', 'testIterationsValue',
+	'testLoadTiming', 'testDurationText', 'testIterAvgText'];
 const code = FNS.map(f => extractFunc(html, f)).join('\n');
 
 function fakeEl(id) {
@@ -50,6 +51,7 @@ function build(els, storage, curRef) {
 			getState: () => _testRunState,
 			testRenderScriptRun, testRenderReport,
 			testIterationsValue, testIterationsChanged, testIterationsInit,
+			testLoadTiming, testDurationText, testIterAvgText,
 		};
 	`);
 	return fn(els, storage, curRef);
@@ -106,6 +108,60 @@ test('a running load test shows the counter, not the steps (v3.37.0)', () => {
 	assert.match(els['test-run-status'].innerHTML, /Iteration 3 \/ 100/);
 	assert.match(els['test-run-status'].innerHTML, /done: 2/);
 	assert.strictEqual(els['test-run-steps'].innerHTML, '', 'steps are not tracked');
+});
+
+test('the live load timing computes elapsed, average and left', () => {
+	const app = build({}, { getItem: () => null, setItem: () => {} }, { value: null });
+	assert.deepStrictEqual(
+		app.testLoadTiming({ enabled: true, started: 940, done: 10, iterations: 100 }, 1000000),
+		{ elapsed: 60000, avg: 6000, left: 540000, finished: false });
+	// no completed iteration yet: elapsed only (no bogus average/ETA)
+	const early = app.testLoadTiming({ enabled: true, started: 940, done: 0, iterations: 10 }, 1000000);
+	assert.strictEqual(early.elapsed, 60000);
+	assert.strictEqual(early.avg, null);
+	assert.strictEqual(early.left, null);
+	// a finished run uses the server's final numbers and has no estimate
+	assert.deepStrictEqual(
+		app.testLoadTiming({ enabled: true, started: 1, finished: 2, elapsed_ms: 5000, avg_ms: 500 }, 1000000),
+		{ elapsed: 5000, avg: 500, left: null, finished: true });
+	assert.strictEqual(app.testLoadTiming({ enabled: false }, 1000000), null);
+	assert.strictEqual(app.testDurationText(60000), '1:00');
+	assert.strictEqual(app.testDurationText(3661000), '1:01:01');
+	assert.strictEqual(app.testDurationText(null), '');
+	assert.strictEqual(app.testIterAvgText(500), '500 ms');
+	assert.strictEqual(app.testIterAvgText(1500), '1.50 s');
+});
+
+test('a running load test shows elapsed, average and left', () => {
+	const els = { 'test-run-status': fakeEl('test-run-status'),
+		'test-run-steps': fakeEl('test-run-steps') };
+	const app = build(els, { getItem: () => null, setItem: () => {} },
+		{ value: { id: 's1' } });
+	const now = Date.now();
+	app.setState({ running: true, script_id: 's1', name: 'S', steps: [],
+		load: { enabled: true, iterations: 100, iteration: 11, done: 10,
+			started: now / 1000 - 60 } });
+	app.testRenderScriptRun();
+	const head = els['test-run-status'].innerHTML;
+	assert.match(head, /elapsed 1:00/);
+	assert.match(head, /avg 6\.00 s/);
+	assert.match(head, /left ~9:00/);
+});
+
+test('the running load suite summary shows the live timing', () => {
+	const els = { 'test-report-title': fakeEl('test-report-title'),
+		'test-report-summary': fakeEl('test-report-summary'),
+		'test-report-members': fakeEl('test-report-members') };
+	const app = build(els, { getItem: () => null, setItem: () => {} }, { value: null });
+	const now = Date.now();
+	app.setState({ running: true, status: null, name: 'Load suite',
+		load: { enabled: true, iterations: 50, iteration: 6, done: 5,
+			started: now / 1000 - 10 }, suite: null });
+	app.testRenderReport();
+	const sum = els['test-report-summary'].innerHTML;
+	assert.match(sum, /elapsed 0:10/);
+	assert.match(sum, /avg 2\.00 s/);
+	assert.match(sum, /left ~1:30/);
 });
 
 test('a load-test failure shows the failing iteration steps (v3.37.0)', () => {

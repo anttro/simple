@@ -8964,6 +8964,40 @@ function testRenderRun(snapshot) {
 
 // The single-script result, under the step list (the current style; not
 // preserved - the report view belongs to suite runs).
+// ── load-test timing ──
+// The live stats of a repeated run: elapsed so far, the average per
+// completed iteration and the estimate left.  While the run is active they
+// are computed from load.started (Unix seconds) and the completed count;
+// once it has finished the server's elapsed_ms/avg_ms are used.
+function testLoadTiming(load, nowMs) {
+	if (!load || !load.enabled || !load.started) return null;
+	if (load.finished) {
+		return { elapsed: load.elapsed_ms, avg: load.avg_ms, left: null, finished: true };
+	}
+	const now = (nowMs === undefined ? Date.now() : nowMs) / 1000;
+	const elapsed = Math.max(0, now - load.started) * 1000;
+	const done = load.done || 0;
+	if (!done) return { elapsed: elapsed, avg: null, left: null, finished: false };
+	const avg = elapsed / done;
+	const total = load.iterations || 0;
+	return { elapsed: elapsed, avg: avg, left: Math.max(0, total - done) * avg,
+		finished: false };
+}
+
+function testDurationText(ms) {
+	if (ms === null || ms === undefined || !isFinite(ms) || ms < 0) return '';
+	const s = Math.round(ms / 1000);
+	const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+	const mm = String(m).padStart(2, '0');
+	const ss = String(sec).padStart(2, '0');
+	return h ? h + ':' + mm + ':' + ss : m + ':' + ss;
+}
+
+function testIterAvgText(ms) {
+	if (ms === null || ms === undefined || !isFinite(ms)) return '';
+	return ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms';
+}
+
 function testRenderScriptRun() {
 	const statusEl = document.getElementById('test-run-status');
 	const stepsEl = document.getElementById('test-run-steps');
@@ -8987,6 +9021,16 @@ function testRenderScriptRun() {
 		head += ' · ' + esc(t('Iteration')) + ' ' + (load.iteration || 0)
 			+ ' / ' + load.iterations;
 		if (load.done) head += ' · ' + esc(t('done')) + ': ' + load.done;
+		const tm = testLoadTiming(load);
+		if (tm) {
+			const el = testDurationText(tm.elapsed);
+			if (el) head += ' · ' + esc(t('elapsed')) + ' ' + esc(el);
+			const av = testIterAvgText(tm.avg);
+			if (av) head += ' · ' + esc(t('avg')) + ' ' + esc(av);
+			if (!tm.finished && tm.left !== null) {
+				head += ' · ' + esc(t('left')) + ' ~' + esc(testDurationText(tm.left));
+			}
+		}
 	}
 	if (snap.preset) head += ' · ' + esc(t('Preset')) + ': ' + esc(snap.preset);
 	if (snap.scp80_counter) head += ' · counter ' + esc(snap.scp80_counter);
@@ -9022,6 +9066,17 @@ function testRenderReport() {
 	if (load) {
 		parts.push(t('Iteration') + ' ' + (load.iteration || 0) + ' / ' + load.iterations);
 		if (load.done) parts.push(t('done') + ': ' + load.done);
+		// live stats while it runs; the final elapsed/avg follow once done
+		if (!load.finished) {
+			const tm = testLoadTiming(load);
+			if (tm) {
+				const el = testDurationText(tm.elapsed);
+				if (el) parts.push(t('elapsed') + ' ' + el);
+				const av = testIterAvgText(tm.avg);
+				if (av) parts.push(t('avg') + ' ' + av);
+				if (tm.left !== null) parts.push(t('left') + ' ~' + testDurationText(tm.left));
+			}
+		}
 		if (load.elapsed_ms !== null && load.elapsed_ms !== undefined) {
 			parts.push((load.elapsed_ms / 1000).toFixed(1) + ' s');
 		}
@@ -26437,6 +26492,8 @@ const LANG_RU = {
 	'No timing data': 'Нет данных о времени',
 	'min': 'мин',
 	'avg': 'сред',
+	'elapsed': 'прошло',
+	'left': 'осталось',
 	'max': 'макс',
 	'Phone': 'Телефон',
 	'TR Config': 'Конфигурация TR',

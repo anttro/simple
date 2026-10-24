@@ -21,6 +21,12 @@ every change carries a descriptive commit message.
   a target); the text field stays authoritative, so a name path or a file the
   lists do not carry can still be typed, and the picker preselects the current
   path when it is known.
+- The **live load-test stats** now include the timing: while a script or suite
+  run repeats, the status line shows the **elapsed time**, the **average per
+  completed iteration** and the **estimated time left**, recomputed on every
+  status poll (`testLoadTiming`; the final report keeps the server's
+  `elapsed_ms`/`avg_ms`).  No completed iteration yet means no bogus
+  average/estimate - only the elapsed time.
 
 ### Changed
 
