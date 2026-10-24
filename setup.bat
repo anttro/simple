@@ -34,10 +34,35 @@ echo Found Git
 git --version
 echo.
 
-REM Create venv
+REM Create the venv.  A failed creation leaves a partial .venv behind: remove
+REM it so the next run starts over (v3.38.1).
+set "VENV_OK="
+if exist "%VENV_DIR%" (
+    set "VENV_OK=1"
+    if not exist "%VENV_DIR%\Scripts\activate.bat" set "VENV_OK="
+    if not exist "%VENV_DIR%\Scripts\python.exe" set "VENV_OK="
+    if not exist "%VENV_DIR%\Scripts\pip.exe" set "VENV_OK="
+    if not defined VENV_OK (
+        echo Removing an incomplete virtual environment (a previous setup did not finish)...
+        rmdir /s /q "%VENV_DIR%"
+    )
+)
 if not exist "%VENV_DIR%" (
     echo Creating virtual environment...
     python -m venv "%VENV_DIR%"
+    if !errorlevel! neq 0 (
+        if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%"
+        echo Error: could not create the virtual environment.
+        echo   Make sure the Python installation includes venv and pip.
+        echo   Run the Python installer, choose Modify, enable pip/venv, then run setup.bat again.
+        pause
+        exit /b 1
+    )
+)
+if not exist "%VENV_DIR%\Scripts\activate.bat" (
+    echo Error: the virtual environment has no Scripts\activate.bat.
+    pause
+    exit /b 1
 )
 call "%VENV_DIR%\Scripts\activate.bat"
 

@@ -37,6 +37,13 @@ every change carries a descriptive commit message.
   exits 2; `start.sh` runs the same access pre-flight before launching.  An
   explicit `-d <device>` keeps the serial path, and a reader present but no card
   is still a normal cardless start.
+- **`setup.sh`/`setup.bat` recover from an incomplete `.venv`.**  A failed venv
+  creation (e.g. the Debian/Ubuntu `python3-venv` package missing) left the
+  directory behind; the next run saw `.venv` and skipped creation, then tried to
+  activate a venv without `activate`/`pip`.  The scripts now validate
+  `bin/activate`/`bin/python`/`bin/pip` (`Scripts\…` on Windows), remove an
+  incomplete directory and create it again; a creation failure removes the
+  partial directory and points at the venv package.  The READMEs note it.
 
 ## [3.38.0] — 2026-10-24
 

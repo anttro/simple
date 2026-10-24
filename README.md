@@ -748,6 +748,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 ### Prerequisites
 
 - **Python 3.9+** with `pip`, and **Git** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks).
+- **Python venv support** — `setup.sh` creates `.venv`; if that fails with `ensurepip is not available` (Debian/Ubuntu ship the venv module separately), install it (`sudo apt install python3-venv`) and run `./setup.sh` again.  An incomplete `.venv` left by the failed run is removed automatically.
 - **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them).
 - **Windows** — use **Python 3.13 (strongly recommended)**: `pyscard` has precompiled wheels up to 3.13 and the SCP81 TLS-PSK listener needs 3.13+. On 3.14 `pyscard` and some pysim dependency wheels are not available and build from source (needs MSVC C++ Build Tools). 3.9–3.12 run the app but not the SCP81 PSK listener. The SMPP bridge (`smpp.twisted3`) is intentionally skipped on Windows.
 
@@ -755,7 +756,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 
 | Script | What it does |
 |--------|-------------|
-| `setup.sh` / `setup.bat` | Creates `.venv/`, installs pysim and the server. Run once after cloning or after unzipping the release package. |
+| `setup.sh` / `setup.bat` | Creates `.venv/` (or repairs an incomplete one), installs pysim and the server. Run once after cloning or after unzipping the release package. |
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
 | `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
 

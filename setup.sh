@@ -14,10 +14,24 @@ command -v git >/dev/null 2>&1 || { echo "Error: Git is required but not found. 
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 echo "Found Python $PY_VER"
 
-# Create venv
+# Create the venv.  A failed creation (missing venv/ensurepip) leaves a partial
+# .venv behind: validate it and remove it so the next run starts over (v3.38.1).
+if [ -d "$VENV_DIR" ] && { [ ! -f "$VENV_DIR/bin/activate" ] || [ ! -x "$VENV_DIR/bin/python" ] || [ ! -x "$VENV_DIR/bin/pip" ]; }; then
+    echo "Removing an incomplete virtual environment (a previous setup did not finish)..."
+    rm -rf "$VENV_DIR"
+fi
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    if ! python3 -m venv "$VENV_DIR"; then
+        rm -rf "$VENV_DIR"
+        echo "Error: could not create the virtual environment."
+        echo "  The Python venv/ensurepip component is missing or broken."
+        echo "    Debian/Ubuntu: sudo apt install python3-venv"
+        echo "    Fedora:        sudo dnf install python3-libs"
+        echo "    Arch:          venv and ensurepip are part of python"
+        echo "  Install it and run ./setup.sh again."
+        exit 1
+    fi
 fi
 source "$VENV_DIR/bin/activate"
 PIP="$VENV_DIR/bin/pip"
