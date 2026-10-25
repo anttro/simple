@@ -9,7 +9,43 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
-## [3.38.2] — 2026-10-25
+## [3.39.0] — 2026-10-26
+
+### Added
+
+- **EF.SST tri-state editor.**  The SIM service table (TS 51.011 10.3.7, two
+  bits per service — allocated + activated) now edits per service as
+  *deleted / allocated-off / on*, preserving unmodelled pairs and the file
+  length; it stops being read-only.
+- **Cross-file Services editor** (a new Card-reader pill): SST / UST / EST /
+  IST shown side by side from a curated 161-row feature cross-reference, a
+  column rendered only for a file present on the card, per-file Save buttons,
+  and a **Check filesystem** action (with a throbber) that verifies the
+  declared services against the card's actual files.
+- **Path-exact filesystem check.**  Each feature's files are resolved by
+  (symbolic name, root) → canonical path through `uicc_files.json`, probed at
+  that exact path, and reported in both directions (declared-but-missing,
+  present-but-undeclared) plus an "unchecked" bucket for files not yet in the
+  registry.
+
+### Changed
+
+- **EF resolution is DF-context aware.**  `efDfFromPath` derives the parent DF
+  and `efFindDecoder`/`efFindEncoder` resolve DF → name → FID, so same-name/
+  same-FID files in different DFs are distinct; EF.ECC gained a USIM
+  linear-fixed decoder beside the SIM transparent one, and EF.AD is registered
+  per DF.
+- **The file manager selects files by canonical path** (not node name), so two
+  same-named files under different DFs (EF.ECC/EF.AD, the DF.PHONEBOOK copies)
+  are distinguishable, and snapshot/profile paths root ADFs by AID are
+  normalized (`A0000000871002`→USIM, `…1004`→ISIM, `…100B`→USIM-non-IMSI).
+- **The USIM service table is complete**: UST 147–150 (5MBS UE pre-configuration,
+  Operator Controlled Signal Threshold per Access Technology, A2X, IMS Data
+  Channel Indication) were missing.
+- **`uicc_files.json`** gained the 13 optional files pySim does not model
+  (DF.MExE, DF.SoLSA, DF.BCAST, DF.ACDC, DF.TV, DF.A2X and their children),
+  emitted with distinct (name, path) so same-FID files in other DFs stay
+  separate.
 
 ### Fixed
 
@@ -21,6 +57,8 @@ every change carries a descriptive commit message.
   127.0.0.1.  `start.sh` and `start.bat` now parse both flags (space and `=`
   forms, the last value wins like argparse) and echo the effective address;
   the defaults are unchanged.
+- eCall Data's `EF.FDN` reference was a typo (`6F3A` is EF.ADN); corrected to
+  EF.SDN 6F49 / EF.FDN 6F3B.
 
 ## [3.38.1] — 2026-10-25
 
