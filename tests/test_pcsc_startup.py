@@ -150,6 +150,21 @@ class SourcePins(unittest.TestCase):
         # the old "is pcscd running" heuristic is gone
         self.assertNotIn('pgrep -x pcscd', src)
 
+    def test_the_start_message_names_the_requested_address(self):
+        src = (Path(m.__file__).parent.parent / 'start.sh').read_text()
+        self.assertIn('--http-host=*) HTTP_HOST="${arg#*=}"', src)
+        self.assertIn('--http-port=*) HTTP_PORT="${arg#*=}"', src)
+        self.assertIn('http://$HTTP_HOST:$HTTP_PORT', src)
+        # the old hardcoded address is gone (the defaults are named separately)
+        self.assertNotIn('http://127.0.0.1:8080', src)
+
+    def test_the_start_bat_message_names_the_requested_address(self):
+        src = (Path(m.__file__).parent.parent / 'start.bat').read_text()
+        self.assertIn('--http-host=', src)
+        self.assertIn('--http-port=', src)
+        self.assertIn('%HTTP_HOST%:%HTTP_PORT%', src)
+        self.assertNotIn('http://127.0.0.1:8080', src)
+
 
 if __name__ == '__main__':
     unittest.main()

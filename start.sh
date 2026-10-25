@@ -10,6 +10,24 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 
+# The address the opening line names (v3.38.2).  The server parses the same
+# flags; start.sh passes its own --http-port 8080 before "$@", so a later user
+# value wins (argparse keeps the last one) - mirror that here.
+HTTP_HOST=127.0.0.1
+HTTP_PORT=8080
+PREV_ARG=""
+for arg in "$@"; do
+    case "$PREV_ARG" in
+        --http-host) HTTP_HOST="$arg" ;;
+        --http-port) HTTP_PORT="$arg" ;;
+    esac
+    case "$arg" in
+        --http-host=*) HTTP_HOST="${arg#*=}" ;;
+        --http-port=*) HTTP_PORT="${arg#*=}" ;;
+    esac
+    PREV_ARG="$arg"
+done
+
 # Console + log file.  The log contains card keys and request payloads (test
 # cards) - it is gitignored and must not be committed.
 LOG_FILE="$SCRIPT_DIR/simple_lastrun.log"
@@ -73,7 +91,7 @@ if [ -f "$VENV_DIR/bin/pysim-simple-server" ]; then
 elif command -v pysim-simple-server &> /dev/null; then
     SERVER="pysim-simple-server"
 elif [ -f "$SCRIPT_DIR/pysim_simple_server/__main__.py" ]; then
-    echo "Starting pysim-simple-server from source on http://127.0.0.1:8080"
+    echo "Starting pysim-simple-server from source on http://$HTTP_HOST:$HTTP_PORT"
     echo "Log: simple_lastrun.log (overwritten on each start)."
     cd "$SCRIPT_DIR" && python3 -m pysim_simple_server --http-port 8080 $READER_ARGS "$@"
     exit $?
@@ -84,7 +102,7 @@ else
     exit 1
 fi
 
-echo "Starting pysim-simple-server on http://127.0.0.1:8080"
+echo "Starting pysim-simple-server on http://$HTTP_HOST:$HTTP_PORT"
 echo "Log: simple_lastrun.log (overwritten on each start)."
 echo "Press Ctrl+C to stop."
 echo "Extra arguments are passed to the server (e.g. ./start.sh --gsmtap)."

@@ -9,6 +9,19 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.38.2] — 2026-10-25
+
+### Fixed
+
+- **The start scripts name the address they were asked to bind.**  The opening
+  `Starting pysim-simple-server on http://127.0.0.1:8080` line was hardcoded
+  while `--http-host`/`--http-port` were passed through to the server:
+  `./start.sh --http-host 10.0.28.161` bound correctly (the server's own
+  `listening on` banner named the address), but the first line still said
+  127.0.0.1.  `start.sh` and `start.bat` now parse both flags (space and `=`
+  forms, the last value wins like argparse) and echo the effective address;
+  the defaults are unchanged.
+
 ## [3.38.1] — 2026-10-25
 
 ### Performance

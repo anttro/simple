@@ -12,15 +12,41 @@ set VENV_DIR=%~dp0.venv
 set LOG=%~dp0simple_lastrun.log
 set PYTHONUNBUFFERED=1
 
+REM The address the opening line names (v3.38.2).  The server parses the same
+REM flags; this mirrors its last-one-wins rule for the echo.  %* is not
+REM affected by SHIFT, so the server still receives every argument.
+set "HTTP_HOST=127.0.0.1"
+set "HTTP_PORT=8080"
+:parse_http_args
+if "%~1"=="" goto http_args_done
+if /i "%~1"=="--http-host" (
+    set "HTTP_HOST=%~2"
+    shift
+    shift
+    goto parse_http_args
+)
+if /i "%~1"=="--http-port" (
+    set "HTTP_PORT=%~2"
+    shift
+    shift
+    goto parse_http_args
+)
+set "ARG=%~1"
+if /i "%ARG:~0,12%"=="--http-host=" set "HTTP_HOST=%ARG:~12%"
+if /i "%ARG:~0,12%"=="--http-port=" set "HTTP_PORT=%ARG:~12%"
+shift
+goto parse_http_args
+:http_args_done
+
 if exist "%VENV_DIR%\Scripts\pysim-simple-server.exe" (
-    echo Starting pysim-simple-server from venv on http://127.0.0.1:8080
+    echo Starting pysim-simple-server from venv on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
     "%VENV_DIR%\Scripts\pysim-simple-server.exe" --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
 )
 
 if exist "%~dp0pysim_simple_server\__main__.py" (
-    echo Starting pysim-simple-server from source on http://127.0.0.1:8080
+    echo Starting pysim-simple-server from source on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
     python -m pysim_simple_server --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
@@ -28,7 +54,7 @@ if exist "%~dp0pysim_simple_server\__main__.py" (
 
 where pysim-simple-server >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Starting pysim-simple-server on http://127.0.0.1:8080
+    echo Starting pysim-simple-server on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
     pysim-simple-server --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
