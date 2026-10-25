@@ -1176,6 +1176,13 @@
 			<div id="pysim-services-note" class="mb-2 text-xs text-amber-600 dark:text-amber-400"></div>
 			<div id="pysim-services-grid" class="overflow-x-auto"></div>
 			<div id="pysim-services-save" class="flex flex-wrap gap-x-4 gap-y-2 mt-3"></div>
+			<div class="mt-4 border-t border-gray-200 dark:border-slate-700 pt-3">
+				<div class="flex items-center gap-2">
+					<button id="pysim-services-fs-btn" data-needs="card" onclick="pysimServicesFsCheck()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Check filesystem">Check filesystem</button>
+					<span id="pysim-services-fs-status" class="text-xs font-mono text-gray-500 dark:text-slate-400" style="min-height:1.2em"></span>
+				</div>
+				<div id="pysim-services-fs-report" class="mt-2"></div>
+			</div>
 		</div>
 
 	</div>
@@ -16068,6 +16075,7 @@ function pysimFsSetSort(mode) {
 async function pysimFsRefresh() {
 	const detailEl = document.getElementById('pysim-fs-detail');
 	detailEl.classList.add('hidden');
+	_pysimFsProbed = false;
 	const data = await pysimFetch('/api/tree', { name: 'MF' });
 	pysimFsTreeRoot = {
 		name: data.name || 'MF',
@@ -16121,6 +16129,10 @@ async function pysimFsLoadChildren(node) {
 }
 
 let _pysimFsProbe = null;
+// Whether the tree's presence state comes from a completed probe (a refresh
+// resets it): /api/tree lists the model's files without testing them, so a
+// loaded tree alone says nothing about what the card actually has.
+let _pysimFsProbed = false;
 
 function pysimFsSelectBody(node) {
 	const body = { name: node.name, fid: node.fid, parent_sel: getParentSel(node), parent_path: getParentPath(node) };
@@ -16196,6 +16208,7 @@ async function pysimFsProbeAll() {
 		+ probe.present + ' ' + t('present') + ', ' + probe.absent + ' ' + t('absent') + ' (' + secs + 's)';
 	if (error) summary = t('Error') + ': ' + error + ' — ' + summary;
 	else if (probe.stop) summary = t('Stopped') + ' — ' + summary;
+	_pysimFsProbed = !probe.stop && !error;
 	_pysimFsProbe = null;
 	pysimFsProbeUi(summary, false);
 }
@@ -23288,6 +23301,192 @@ const SERVICES_FILES = [
 
 const SERVICES_TABLES = { ust: EF_UST_SERVICES, est: EF_EST_SERVICES, ist: EF_IST_SERVICES };
 
+// Feature -> the FID(s) its Filesystem cell declares, transcribed from
+// docs/services-editor.md §A (the merged "Filesystem" column, legend in §B):
+//   every FID the cell mentions, in order - `EF.FDN 6F3B (+ EF.EXT2 6F4B)`
+//   -> ['6F3B', '6F4B'], `DF.GRAPHICS 5F50 -> EF.IMG 4F20` -> ['5F50', '4F20']
+//   (a DF's FID counts: the DF itself is the file the service gates),
+//   `EF.NIA 6F51 (SIM) / 6FD3 (USIM)` -> both trees' FIDs.
+// `capability` cells (procedural/terminal-side features with no file of their
+// own) map to [] - their parenthetical references (a gate, a title, a URI
+// set) are informational, not a file the service declares - and so do the
+// §A.4 RFU/reserved rows, which are not features and therefore absent here.
+// The map is keyed by feature name because that is the cross-reference's key
+// (the editor's row identity); SERVICES_FILES above is the four *service
+// table* descriptors, so the name is taken.  Coverage is pinned by
+// frontend/tests/services.test.js.
+//
+// The check is deliberately FID-level, not (DF, FID)-exact (docs/decoded-
+// editing.md finding 6 asks for DF-scoped resolution; this first pass accepts
+// the coarser rule, visible to the user as the report's note): the known
+// collisions - 6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST,
+// 6FD7 MSK/GBANL, 5F3B DF.GSM-ACCESS/DF.MULTIMEDIA - are matched by FID
+// anywhere in the card's tree, so a file carrying a colliding FID can explain
+// a service it does not actually gate.
+const SERVICES_FS_MAP = {
+	'CHV1 disable function': [],
+	'Local Phone Book (ADN)': ['6F3A', '5F3A', '4F30'],
+	'Fixed Dialling Numbers (FDN)': ['6F3B', '6F4B'],
+	'Short Message Storage (SMS)': ['6F3C'],
+	'Advice of Charge (AoC)': ['6F39', '6F37', '6F41'],
+	'Capability Configuration Parameters (CCP)': ['6F3D'],
+	'Capability Configuration Parameters 2 (CCP2)': ['6F4F'],
+	'PLMN selector': ['6F30'],
+	'MSISDN': ['6F40'],
+	'Extension 1': ['6F4A'],
+	'Extension 2': ['6F4B'],
+	'SMS Parameters (SMSP)': ['6F42'],
+	'Last Number Dialled (LND)': ['6F44'],
+	'Cell Broadcast Message Identifier (CBMI)': ['6F45'],
+	'Group Identifier Level 1 (GID1)': ['6F3E'],
+	'Group Identifier Level 2 (GID2)': ['6F3F'],
+	'Service Provider Name (SPN)': ['6F46'],
+	'Service Dialling Numbers (SDN)': ['6F49', '6F4C'],
+	'Extension 3': ['6F4C'],
+	'VGCS Group Identifier List': ['6FB1', '6FB2'],
+	'VBS Group Identifier List': ['6FB3', '6FB4'],
+	'enhanced Multi-Level Precedence and Pre-emption (eMLPP)': ['6FB5'],
+	'Automatic Answer for eMLPP (AAeM)': ['6FB6'],
+	'Data download via SMS-CB': [],
+	'Data download via SMS-PP': [],
+	'Menu selection': [],
+	'Call control (by SIM/USIM)': [],
+	'Proactive SIM': [],
+	'Cell Broadcast Message Identifier Ranges (CBMIR)': ['6F50'],
+	'Barred Dialling Numbers (BDN)': ['6F4D', '6F4E', '6F55'],
+	'Extension 4': ['6F4E', '6F55'],
+	'De-personalisation Control Keys (DCK)': ['6F2C'],
+	'Co-operative Network List (CNL)': ['6F32'],
+	'Short Message Status Reports (SMSR)': ['6F47'],
+	'Network\'s indication of alerting in the MS (NIA)': ['6F51', '6FD3'],
+	'MO-SMS control (by SIM/USIM)': [],
+	'GPRS': ['6F52', '7F20'],
+	'Image (IMG)': ['5F50', '4F20'],
+	'SoLSA': ['5F70', '4F30', '4F31'],
+	'USSD string data object supported in Call Control': [],
+	'RUN AT COMMAND command': [],
+	'User controlled PLMN selector with Access Technology': ['6F60'],
+	'Operator controlled PLMN selector with Access Technology': ['6F61'],
+	'HPLMN selector with Access Technology': ['6F62'],
+	'CPBCCH Information': ['6F63', '4F63'],
+	'Investigation Scan': ['6F64', '4F64'],
+	'Extended Capability Configuration Parameters (ECCP)': ['6F4F'],
+	'MExE': ['5F3C', '4F40'],
+	'PLMN Network Name (PNN)': ['6FC5'],
+	'Operator PLMN List (OPL)': ['6FC6'],
+	'Mailbox Dialling Numbers (MBDN)': ['6FC7', '6FC8'],
+	'Message Waiting Indication Status (MWIS)': ['6FCA', '6FC9'],
+	'Call Forwarding Indication Status (CFIS)': ['6FCB', '6FCC'],
+	'Service Provider Display Information (SPDI)': ['6FCD'],
+	'Multimedia Messaging Service (MMS)': ['6FCE'],
+	'Extension 8': ['6FCF'],
+	'MMS User Connectivity Parameters': ['6FD0', '6FD2', '6FD1'],
+	'Outgoing Call Information (OCI and OCT)': ['6F81', '6F83'],
+	'Incoming Call Information (ICI and ICT)': ['6F80', '6F82'],
+	'GSM Access': ['5F3B'],
+	'Enabled Services Table': ['6F56'],
+	'APN Control List (ACL)': ['6F57'],
+	'GSM security context': ['4F20', '4F52', '5F3B'],
+	'Extension 5': ['6F4E'],
+	'Call control on GPRS by USIM': [],
+	'Pseudonym': ['4F41', '5F40'],
+	'User Controlled PLMN selector for I-WLAN access': ['4F42'],
+	'Operator Controlled PLMN selector for I-WLAN access': ['4F43'],
+	'User controlled WSID list': ['4F44'],
+	'Operator controlled WSID list': ['4F45'],
+	'VGCS security': ['6FD4'],
+	'VBS security': ['6FD5'],
+	'WLAN Reauthentication Identity': ['4F46'],
+	'Multimedia Messages Storage': ['4F47', '4F48', '5F3B'],
+	'Generic Bootstrapping Architecture (GBA)': ['6FD6', '6FD5', '6FDA', '6FD7', '6FDD'],
+	'MBMS security': ['6FD7', '6FD8'],
+	'Data download via USSD and USSD application mode': [],
+	'Equivalent HPLMN': ['6FD9'],
+	'Additional TERMINAL PROFILE after UICC activation': [],
+	'Equivalent HPLMN Presentation Indication': ['6FDB'],
+	'Last RPLMN Selection Indication': ['6FDC'],
+	'OMA BCAST Smart Card Profile': ['5F80'],
+	'GBA-based Local Key Establishment Mechanism': [],
+	'Terminal Applications': [],
+	'Service Provider Name Icon': ['6FDE'],
+	'PLMN Network Name Icon': ['6FDF'],
+	'Connectivity Parameters for USIM IP connections': ['6FE2'],
+	'Home I-WLAN Specific Identifier List': ['4F47'],
+	'I-WLAN Equivalent HPLMN Presentation Indication': ['4F48'],
+	'I-WLAN HPLMN Priority Indication': ['4F49'],
+	'I-WLAN Last Registered PLMN': ['4F4A'],
+	'EPS Mobility Management Information': ['6FE3', '6FE4'],
+	'Allowed CSG Lists and corresponding indications': ['4F81', '4F82', '4F83'],
+	'Call control on EPS PDN connection by USIM': [],
+	'HPLMN Direct Access': ['4F4B'],
+	'eCall Data': ['6F49', '6F3B'],
+	'Operator CSG Lists and corresponding indications': ['4F84', '4F85', '4F86'],
+	'Support for SM-over-IP': [],
+	'Support of CSG Display Control': [],
+	'Communication Control for IMS': [],
+	'Extended Terminal Applications': [],
+	'Support of UICC access to IMS': [],
+	'Non-Access Stratum configuration by USIM': ['6FE8'],
+	'PWS configuration by USIM': ['6FEC'],
+	'URI support by UICC': [],
+	'Extended EARFCN support': [],
+	'ProSe': ['5F90', '4F10'],
+	'USAT Application Pairing': ['6FF1', '6FF0', '6FF2'],
+	'Media Type support': [],
+	'IMS call disconnection cause': [],
+	'URI support for MO SHORT MESSAGE CONTROL': [],
+	'ePDG configuration Information support': ['6FF4'],
+	'ePDG configuration Information configured': ['6FF3'],
+	'ACDC support': ['5FA0', '4F01'],
+	'MCPTT': ['5F3D', '4F01'],
+	'ePDG configuration Information for Emergency Service support': ['6FF6'],
+	'ePDG configuration Information for Emergency Service configured': ['6FF5'],
+	'eCall Data over IMS': ['6FEF', '6FED'],
+	'URI support for SMS-PP DOWNLOAD': [],
+	'From Preferred': ['6FF7'],
+	'IMS configuration data': ['6FF8'],
+	'TV configuration': ['6FFB', '5FB0'],
+	'3GPP PS Data Off': ['6FF9'],
+	'3GPP PS Data Off Service List': ['6FFA'],
+	'V2X': ['5F3E', '4F01', '4F02'],
+	'XCAP Configuration Data': ['6FFC'],
+	'EARFCN list for MTC/NB-IOT UEs': ['6FFD'],
+	'5GS Mobility Management Information': ['5FC0', '4F01', '4F02'],
+	'5G Security Parameters': ['4F05', '4F03', '4F04'],
+	'Subscription identifier privacy support': [],
+	'SUCI calculation by the USIM': ['4F07'],
+	'UAC Access Identities support': ['4F06'],
+	'Expect control plane-based Steering of Roaming information during initial registration in VPLMN': [],
+	'Call control on PDU Session by USIM': [],
+	'5GS Operator PLMN List': ['4F08'],
+	'Support for SUPI of type NSI or GLI or GCI': ['4F09'],
+	'3GPP PS Data Off separate Home and Roaming lists': [],
+	'Support for URSP by USIM': ['4F0B'],
+	'5G Security Parameters extended': [],
+	'MuD and MiD configuration data': ['6FFE'],
+	'Support for Trusted non-3GPP access networks by USIM': [],
+	'Support for multiple records of NAS security context storage for multiple registration': ['4F03', '4F04'],
+	'Pre-configured CAG information list': ['4F0D'],
+	'SOR-CMCI storage in USIM': ['4F0E'],
+	'5G ProSe': ['5FF0', '4F01'],
+	'Storage of disaster roaming information in USIM': ['4F0F'],
+	'Pre-configured eDRX parameters': ['4F10'],
+	'5G NSWO support': ['4F11'],
+	'PWS configuration for SNPN in USIM': ['4F01', '5FE0'],
+	'Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access': ['4F15'],
+	'K_AUSF derivation configuration': ['4F16'],
+	'Network Identifier for SNPN (NID)': ['4F02', '5FE0'],
+	'5MBS UE pre-configuration': ['5FF1', '4F01'],
+	'Operator Controlled Signal Threshold per Access Technology': ['6F02'],
+	'A2X': ['5F3F', '4F01'],
+	'IMS Data Channel Indication': ['6F0B'],
+	'P-CSCF address': ['6F09'],
+	'HTTP Digest': [],
+	'Support of P-CSCF discovery for IMS Local Break Out': [],
+	'WebRTC URI': ['6FFA'],
+	'IMS Data Channel indication': ['6F0B'],
+};
+
 function servicesDecode(key, bytes) {
 	if (key === 'sst') return efDecSst(bytes);
 	return efDecServiceTable(bytes, SERVICES_TABLES[key]);
@@ -23406,11 +23605,143 @@ function servicesFileBytes(key, values, files) {
 	return efEncServiceTable(servicesTableValues(values, key, f.hex), f.hex, table);
 }
 
+// --- filesystem check (docs/services-editor.md §B) ---
+// Three pure pieces: which features the card declares (from the same decoded
+// service tables the grid renders), which FIDs the card actually has (from
+// the file manager's probed tree) and the mismatch report between the two.
+
+// Feature names whose service bit is set in at least one of the present
+// service files - the "declared" side of the check.  A file that is absent
+// from the card leaves its column null (servicesFeatureState), so it declares
+// nothing; EF.SST counts only at 'on' (allocated + activated), as the editor
+// renders it.
+function servicesFsDeclared(files) {
+	const dec = key => (files && files[key] && files[key].present) ? files[key].dec : null;
+	const sstDec = dec('sst'), ustDec = dec('ust'), estDec = dec('est'), istDec = dec('ist');
+	const out = [];
+	for (const f of SERVICES_CROSS_REF) {
+		const st = servicesFeatureState(f, sstDec, ustDec, estDec, istDec);
+		if (st.sst === 'on' || st.ust === true || st.est === true || st.ist === true) out.push(f.f);
+	}
+	return out;
+}
+
+// FIDs present on the card: any node of the file-manager tree that the probe
+// confirmed (exists === true), DFs included - a service gating a whole DF
+// declares the DF's FID.  A node that was never probed (exists === null) is
+// not counted, so an unprobed tree reports nothing as present, and a DF
+// confirmed absent is not descended into.
+function servicesFsPresentFids(root) {
+	const out = [];
+	const seen = {};
+	const walk = node => {
+		for (const ch of ((node && node.children) || [])) {
+			const fid = String(ch.fid || '').toUpperCase();
+			if (ch.exists === true && /^[0-9A-F]{4}$/.test(fid) && !seen[fid]) {
+				seen[fid] = true;
+				out.push(fid);
+			}
+			if (ch.isDir && ch.exists !== false) walk(ch);
+		}
+	};
+	walk(root);
+	return out;
+}
+
+// File names per FID from the same tree, for the report: a FID may carry one
+// name per DF (the collisions the note names), so the value is a list.
+function servicesFsFidNames(root) {
+	const names = {};
+	const walk = node => {
+		for (const ch of ((node && node.children) || [])) {
+			const fid = String(ch.fid || '').toUpperCase();
+			if (/^[0-9A-F]{4}$/.test(fid) && ch.name) {
+				if (!names[fid]) names[fid] = [];
+				if (names[fid].indexOf(ch.name) < 0) names[fid].push(ch.name);
+			}
+			if (ch.isDir && ch.exists !== false) walk(ch);
+		}
+	};
+	walk(root);
+	return names;
+}
+
+// The mismatch report, deterministic and DOM-free:
+//   missing: [{ feature, fids }] - declared features with absent files, in
+//            cross-reference order, `fids` in the map's (doc) order;
+//   extra:   [{ fid, features }] - present FIDs no declared feature explains,
+//            sorted by FID, `features` = every feature mapping that FID (all
+//            of them undeclared).  A FID that any declared feature maps is
+//            explained and not reported: several features legitimately share
+//            one file (4F01 under the 5G/ACDC/MCPTT DFs, 6F4A/6F4B across
+//            EXT1/EXT2 and BDN), and the FID-level rule cannot tell which DF
+//            the present file sits in.
+function servicesFsReport(declared, presentFids) {
+	const declaredSet = {};
+	for (const name of (declared || [])) declaredSet[name] = true;
+	const presentSet = {};
+	for (const fid of (presentFids || [])) presentSet[String(fid).toUpperCase()] = true;
+	const missing = [];
+	const byFid = {};
+	for (const f of SERVICES_CROSS_REF) {
+		const fids = SERVICES_FS_MAP[f.f] || [];
+		for (const fid of fids) {
+			if (!byFid[fid]) byFid[fid] = [];
+			byFid[fid].push(f.f);
+		}
+		if (!declaredSet[f.f]) continue;
+		const absent = fids.filter(fid => !presentSet[fid]);
+		if (absent.length) missing.push({ feature: f.f, fids: absent });
+	}
+	const extra = Object.keys(byFid).sort()
+		.filter(fid => presentSet[fid] && !byFid[fid].some(name => declaredSet[name]))
+		.map(fid => ({ fid: fid, features: byFid[fid] }));
+	return { missing: missing, extra: extra };
+}
+
+function servicesFsReportHtml(report, names) {
+	const note = '<div class="text-xs text-gray-500 dark:text-slate-400 mt-1">' +
+		esc(t('The check is FID-level: a FID is counted anywhere in the card\'s tree, so the collisions across DFs (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) are not disambiguated.')) + '</div>';
+	const head = (text, n) => '<div class="text-xs font-medium mt-2">' + esc(text) + ' (' + n + ')</div>';
+	const item = text => '<li>' + text + '</li>';
+	// the tree's own name(s) for the FID, when the check loaded it
+	const fidLabel = fid => {
+		const list = names && names[fid];
+		return '<span class="font-mono">' + esc(fid) + '</span>' +
+			((list && list.length) ? ' (' + esc(list.join(' / ')) + ')' : '');
+	};
+	const fidList = fids => fids.map(fidLabel).join(', ');
+	if (!report || (!report.missing.length && !report.extra.length)) {
+		return '<div class="text-xs text-emerald-600 dark:text-emerald-400">' +
+			esc(t('The filesystem matches the declared services')) + '</div>' + note;
+	}
+	let html = '';
+	if (report.missing.length) {
+		html += head(t('Declared services whose files are missing'), report.missing.length);
+		html += '<ul class="list-disc ml-4">';
+		for (const m of report.missing) html += item(esc(m.feature) + ': ' + fidList(m.fids));
+		html += '</ul>';
+	}
+	if (report.extra.length) {
+		html += head(t('Present files whose service is not declared'), report.extra.length);
+		html += '<ul class="list-disc ml-4">';
+		for (const e of report.extra) html += item(fidLabel(e.fid) + ': ' + esc(e.features.join(', ')));
+		html += '</ul>';
+	}
+	return html + note;
+}
+
 // Presence + contents cached per card session, like the EF.ARR copies
 // (pysimArrEnsure): the four files are read on open, again on Refresh and
 // after a card-session change.
 let _pysimServicesCache = null;
 let _pysimServicesBusy = false;
+// The last filesystem-check report, kept so a re-render (language switch) can
+// redraw it; cleared with the cache on a card-session change.  The names map
+// annotates the report's FIDs with the tree's file names.
+let _pysimServicesFsReport = null;
+let _pysimServicesFsNames = null;
+let _pysimServicesFsBusy = false;
 
 async function pysimServicesReadFile(spec) {
 	try {
@@ -23454,8 +23785,57 @@ async function pysimServicesOpen(force) {
 // A card-session change drops the cached reads and the rendered grid.
 function pysimServicesReset() {
 	_pysimServicesCache = null;
+	_pysimServicesFsReport = null;
+	_pysimServicesFsNames = null;
 	pysimServicesRender();
 	if (isViewVisible('pysim-sub-services')) pysimServicesOpen();
+}
+
+function pysimServicesFsRender() {
+	const el = document.getElementById('pysim-services-fs-report');
+	if (!el) return;
+	el.innerHTML = _pysimServicesFsReport ? servicesFsReportHtml(_pysimServicesFsReport, _pysimServicesFsNames) : '';
+}
+
+// "Check filesystem": compare the declared services with the card's probed
+// tree.  The file manager loads its tree lazily and only probes presence on
+// demand, so the check runs the full probe once per tree (a loaded but
+// unprobed tree claims every listed file as present - /api/tree does not test
+// it).
+async function pysimServicesFsCheck() {
+	const statusEl = document.getElementById('pysim-services-fs-status');
+	const reportEl = document.getElementById('pysim-services-fs-report');
+	if (_pysimServicesFsBusy || !reportEl) return;
+	const setStatus = text => { if (statusEl) statusEl.textContent = text; };
+	if (_pysimFsProbe) { setStatus(t('A file probe is already running')); return; }
+	_pysimServicesFsBusy = true;
+	_pysimServicesFsReport = null;
+	_pysimServicesFsNames = null;
+	reportEl.innerHTML = '';
+	setStatus(t('Loading...'));
+	try {
+		const cache = await pysimServicesEnsure();
+		if (!cache || !cache.files || !pysimServicesColumns(cache.files).length) {
+			reportEl.innerHTML = '<div class="text-xs text-gray-500 dark:text-slate-400">' +
+				esc(t('No service table found on this card')) + '</div>';
+			return;
+		}
+		if (!pysimFsTreeRoot) await pysimFsRefresh();
+		if (!_pysimFsProbed) {
+			setStatus(t('Probing:'));
+			await pysimFsProbeAll();
+		}
+		_pysimServicesFsReport = servicesFsReport(
+			servicesFsDeclared(cache.files), servicesFsPresentFids(pysimFsTreeRoot));
+		_pysimServicesFsNames = servicesFsFidNames(pysimFsTreeRoot);
+		pysimServicesFsRender();
+	} catch (e) {
+		reportEl.innerHTML = '<div class="text-xs text-amber-600 dark:text-amber-400">' +
+			esc(t('Error') + ': ' + ((e && e.message) ? e.message : String(e))) + '</div>';
+	} finally {
+		setStatus('');
+		_pysimServicesFsBusy = false;
+	}
 }
 
 // The form's per-row state: { <feature index>: { sst: 'on'|'off', ust: bool, ... } }
@@ -23547,6 +23927,7 @@ function pysimServicesRender() {
 		grid.innerHTML = '';
 		if (noteEl) noteEl.innerHTML = '';
 		if (saveEl) saveEl.innerHTML = '';
+		pysimServicesFsRender();
 		return;
 	}
 	const notes = SERVICES_FILES.filter(spec => !(cache.files[spec.key] && cache.files[spec.key].present))
@@ -23557,6 +23938,7 @@ function pysimServicesRender() {
 	if (noteEl) noteEl.innerHTML = notes.join('');
 	grid.innerHTML = pysimServicesGridHtml(cache.files, current);
 	if (saveEl) saveEl.innerHTML = pysimServicesSaveRowHtml(cache.files);
+	pysimServicesFsRender();
 	pysimApplyAvailability();
 }
 
@@ -27227,6 +27609,12 @@ const LANG_RU = {
 	'Save to': 'Сохранить в',
 	'No change': 'Без изменений',
 	'Not found on the card': 'не найдено на карте',
+	'Check filesystem': 'Проверить файловую систему',
+	'Declared services whose files are missing': 'Заявленные сервисы, файлы которых отсутствуют',
+	'Present files whose service is not declared': 'Присутствующие файлы, сервис которых не заявлен',
+	'The filesystem matches the declared services': 'Файловая система соответствует заявленным сервисам',
+	'A file probe is already running': 'Опрос файлов уже выполняется',
+	'The check is FID-level: a FID is counted anywhere in the card\'s tree, so the collisions across DFs (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) are not disambiguated.': 'Проверка выполняется на уровне FID: FID учитывается в любом месте дерева карты, поэтому совпадения FID в разных DF (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) не различаются.',
 	'No service table found on this card': 'На этой карте не найдено ни одной таблицы сервисов',
 	'Stop': 'Остановить',
 	'Probing:': 'Проверка:',

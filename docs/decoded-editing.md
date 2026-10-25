@@ -300,14 +300,19 @@ de-allocates.
   Each button writes only that file via `/api/write`; an unchanged file is
   skipped and the panel reports each write's result (there is no atomic
   cross-file write).
-- **Filesystem check**: many services declare a DF or EF (ADN -> EF.ADN 6F3A,
-  SPN -> EF.SPN 6F46, GSM Access -> DF.GSM, GPRS -> EF.KcGPRS, …); a second
-  curated table maps a feature to the file(s) it requires.  A **Check** action
-  probes the equipped card for those files (reusing the file-manager presence
-  state / a targeted SELECT) and flags mismatches — a declared service whose
+- **Filesystem check** (implemented, step 4b): many services declare a DF or EF
+  (ADN -> EF.ADN 6F3A, SPN -> EF.SPN 6F46, GSM Access -> DF.GSM-ACCESS 5F3B,
+  GPRS -> EF.KcGPRS, …); a second curated table (`SERVICES_FS_MAP`, keyed by
+  feature name) maps a feature to the FID(s) its `Filesystem` cell declares.
+  A **Check filesystem** action writes the services, probes the file-manager
+  tree once (`pysimFsProbeAll`) and flags mismatches — a declared service whose
   file is absent, or a present file whose service is not declared.  Services
   that map to a capability rather than a file (CHV1 disable, Proactive SIM,
-  …) carry no file check.  The result is cached per `card_session`.
+  …) carry no file check.  This first pass matches **FID-level**, not
+  (DF, FID)-exact as finding 6 asks: the documented FID collisions are not
+  disambiguated and the report says so (`docs/services-editor.md` §B.0).  The
+  last report is kept in memory and dropped with the cached reads on a
+  card-session change.
 
 ### 6.1 Candidates for the same cross-application treatment
 

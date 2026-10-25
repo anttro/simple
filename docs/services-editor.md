@@ -9,8 +9,9 @@
 >
 > Step 4a (the cross-file Services editor: §A's cross-reference, read, render,
 > per-file save) is implemented against §A; the counts below were verified
-> against the PWA's constants by `frontend/tests/services.test.js`.  §B (the
-> filesystem check) is **not** implemented yet.
+> against the PWA's constants by `frontend/tests/services.test.js`.  Step 4b
+> (§B, the filesystem check) is implemented as well - see §B.0 for the
+> representation and the FID-level rule it uses.
 
 **Counts:** SST **59** / UST **150** / IST **22** / EST **3** services →
 **164 feature rows** (10 SIM-only, 85 USIM-only, 5 ISIM-only, 61 shared,
@@ -132,7 +133,7 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 93 | Allowed CSG Lists and corresponding indications | | 86 | | | USIM-only | EF.ACSGL 4F81 · EF.CSGT 4F82 · EF.HNBN 4F83 |
 | 94 | Call control on EPS PDN connection by USIM | | 87 | | | USIM-only | capability |
 | 95 | HPLMN Direct Access | | 88 | | | USIM-only | EF.HPLMNDAI 4F4B |
-| 96 | eCall Data | | 89 | | | USIM-only | EF.SDN 6F49 (+ EF.FDN 6F3A) |
+| 96 | eCall Data | | 89 | | | USIM-only | EF.SDN 6F49 (+ EF.FDN 6F3B) |
 | 97 | Operator CSG Lists and corresponding indications | | 90 | | | USIM-only | EF.OCSGL 4F84 · EF.OCSGT 4F85 · EF.OHNBN 4F86 |
 | 98 | Support for SM-over-IP | | 91 | 8 | | shared | capability (ISIM-related: EF.PSISMSC 6FE5) |
 | 99 | Support of CSG Display Control | | 92 | | | USIM-only | capability |
@@ -226,6 +227,49 @@ The FS column in §A is deliverable B, merged for readability. Legend:
 - `?` — no clear file found in either source; needs a human decision.
 - `—` — RFU/reserved.
 
+### B.0 Implemented check (`SERVICES_FS_MAP` + the Check filesystem action)
+
+`frontend/index.html` carries the column as `SERVICES_FS_MAP`, a map keyed by
+the §A feature name (the cross-reference's row identity) whose value is the
+list of **every FID the cell mentions**, in the cell's order:
+
+- `EF.FDN 6F3B (+ EF.EXT2 6F4B)` → `['6F3B', '6F4B']`
+- `DF.GRAPHICS 5F50 → EF.IMG 4F20` → `['5F50', '4F20']` (a DF's FID counts:
+  the DF itself is the file the service gates)
+- `EF.NIA 6F51 (SIM) / 6FD3 (USIM)` → both trees' FIDs
+- `capability` → `[]`; the parenthetical references a capability cell carries
+  (`gate: EF.CBMID 6F48`, `menu title: EF.SUME 6F54`, the URI set, `SUCI data`)
+  are informational — the service does not declare a file of its own.  The
+  §A.4 RFU/reserved rows are not features and therefore have no entry.
+
+The **Check filesystem** button (Services pill, needs a card) reads the four
+service tables, probes the file manager's tree once (`pysimFsProbeAll`; the
+`/api/tree` model lists files without testing them, so a loaded-but-unprobed
+tree proves nothing), and compares the two sides:
+
+- `missing` — a **declared** feature (any of its service bits set in a present
+  file; EF.SST only at *allocated + activated*, the state the editor shows)
+  whose mapped FIDs are absent from the card.  In §A order.
+- `extra` — a **present** FID that no declared feature maps.  Sorted by FID,
+  naming every feature that maps it (all of them undeclared).  A FID **any**
+  declared feature maps counts as explained and is not reported: several
+  features share one file (`4F01` under the ACDC/MCS/5GS/V2X/5G ProSe/5MBS/A2X
+  DFs, `6F4A`/`6F4B` across EXT1/EXT2 and BDN) and the rule cannot tell which
+  DF the present copy sits in.
+
+The check is **FID-level, not (DF, FID)-exact** (this first pass; finding 6 in
+`docs/decoded-editing.md` asks for DF-scoped resolution).  The FID collisions
+of Notes §3 — `6F4E` EXT4/EXT5, `6F4F` ECCP/CCP2, `6F07` IMSI/IST, `6F38`
+SST/UST, `6FD7` MSK/GBANL, `5F3B` DF.GSM-ACCESS/DF.MULTIMEDIA — are therefore
+not disambiguated, and the report says so.  `EF.PBR 4F30` also exists in
+several DFs, so a present `4F30` explains `ADN`/`SoLSA` regardless of which
+copy it is.
+
+The pure pieces (`servicesFsDeclared`, `servicesFsPresentFids`,
+`servicesFsReport`, `servicesFsReportHtml`) are DOM-free and unit-tested; the
+last report is kept in memory and redrawn on a language switch, and it is
+dropped with the cached reads on a card-session change.
+
 ### B.1 `capability` entries (no single file)
 
 CHV1 disable · Data download via SMS-PP · Data download via SMS-CB (gate
@@ -251,7 +295,7 @@ The three initially-unresolved mappings were settled from the spec text
 - **eCall Data (89)** — no dedicated EF: the eCall test/reconfiguration
   numbers live in **EF.SDN 6F49** ("If service n° 4 and/or n° 89 is available
   this file shall be present … eCall test and reconfiguration numbers") and
-  EF.FDN 6F3A (the eCall procedures).
+  EF.FDN 6F3B (the eCall procedures).
 - **eCall Data over IMS (112)** — the eCall test/reconfiguration **URIs** live
   in **EF.SDNURI 6FEF** (and EF.FDNURI 6FED).
 - **EARFCN list for MTC/NB-IOT UEs (121)** — **EF.EARFCNList 6FFD** (§4.2.112,
