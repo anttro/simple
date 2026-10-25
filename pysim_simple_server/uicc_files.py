@@ -11,6 +11,11 @@ classes - the same model pySim assembles at equip time:
 It ships as ``frontend/uicc_files.json`` so the SIM/USIM RFM SELECT picker has
 a file list offline (no card, no server); when a card is equipped the picker
 merges the live tree over it and hides probed-absent files.
+The optional / service-gated files pySim's model does not carry (the SoLSA,
+MExE, BCAST, ACDC, TV and A2X DFs, EF.LRPLMNSI, EF.IAL, EF.IPD, EF.TVCONFIG,
+EF.3GPPPSDATAOFF) are appended from ``SUPPLEMENT`` with their spec locations -
+the decoded-editing filesystem check resolves a file by its (name, root), so a
+same-FID file under another DF must stay a distinct entry.
 ``tests/test_uicc_files.py`` regenerates the list and fails when pySim adds or
 renames files, so the asset cannot silently drift.
 
@@ -53,6 +58,62 @@ def _entry(fid_path, sym_path, name, fid, kind, root, aid=None):
     if aid:
         out['aid'] = aid.upper()
     return out
+
+
+# Files the pySim model does not carry (optional / service-gated), with their
+# spec locations: TS 31.102 4.2.86 (EF.LRPLMNSI), 4.2.100 (EF.IAL), 4.2.102
+# (EF.IPD), 4.2.108 (EF.TVCONFIG), 4.2.109 (EF.3GPPPSDATAOFF), 4.4.1
+# (DF.SoLSA), 4.4.4 (DF.MExE), 4.4.7 (DF.BCAST - its files are OMA BCAST, so
+# the DF is listed alone), 4.4.9 (DF.ACDC), 4.4.10 (DF.TV - EF.TVUSD is a
+# variable 4Fxx, omitted) and 4.6.6 (DF.A2X); the FID map is
+# docs/uicc/UICC_FILES.md 4.13.  Entries are (root, parent FID chain, fid,
+# name); a DF is a 'DF.' name and precedes its children so the symbolic chain
+# can be resolved.
+SUPPLEMENT = (
+    ('ADF.USIM', (), '6FDC', 'EF.LRPLMNSI'),
+    ('ADF.USIM', (), '6FF0', 'EF.IAL'),
+    ('ADF.USIM', (), '6FF2', 'EF.IPD'),
+    ('ADF.USIM', (), '6FF9', 'EF.3GPPPSDATAOFF'),
+    ('ADF.USIM', (), '6FFB', 'EF.TVCONFIG'),
+    ('ADF.USIM', (), '5F3C', 'DF.MExE'),
+    ('ADF.USIM', ('5F3C',), '4F40', 'EF.MExE-ST'),
+    ('ADF.USIM', ('5F3C',), '4F41', 'EF.ORPK'),
+    ('ADF.USIM', ('5F3C',), '4F42', 'EF.ARPK'),
+    ('ADF.USIM', ('5F3C',), '4F43', 'EF.TPRPK'),
+    ('ADF.USIM', (), '5F70', 'DF.SoLSA'),
+    ('ADF.USIM', ('5F70',), '4F30', 'EF.SAI'),
+    ('ADF.USIM', ('5F70',), '4F31', 'EF.SLL'),
+    ('ADF.USIM', (), '5F80', 'DF.BCAST'),
+    ('ADF.USIM', (), '5FA0', 'DF.ACDC'),
+    ('ADF.USIM', ('5FA0',), '4F01', 'EF.ACDC_LIST'),
+    ('ADF.USIM', (), '5FB0', 'DF.TV'),
+    ('MF', ('7F10',), '5F3F', 'DF.A2X'),
+    ('MF', ('7F10', '5F3F'), '4F01', 'EF.AST'),
+    ('MF', ('7F10', '5F3F'), '4F02', 'EF.A2X_CONFIG'),
+)
+
+# The non-IMSI USIM application repeats the ADF.USIM files under its own root
+# (the walk emits it as a separate ADF with the same file set).
+USIM_ROOT = 'ADF.USIM'
+USIM_MIRROR = 'ADF.USIM-NON-IMSI'
+
+
+def _add_supplement(out, seen, sym_by_path):
+    """Append SUPPLEMENT, mirroring the ADF.USIM files under the non-IMSI root."""
+    for root, parents, fid, name in SUPPLEMENT:
+        roots = [root]
+        if root == USIM_ROOT and USIM_MIRROR in seen:
+            roots.append(USIM_MIRROR)
+        for target in roots:
+            key = '/'.join((target,) + tuple(parents) + (fid,)).upper()
+            if key in seen:
+                continue
+            parent_key = '/'.join((target,) + tuple(parents)).upper()
+            sym = '%s/%s' % (sym_by_path.get(parent_key, parent_key), name)
+            seen.add(key)
+            out.append(_entry(key, sym, name, fid,
+                              'df' if name.startswith('DF.') else 'ef', target))
+            sym_by_path[key] = sym
 
 
 def _walk(node, fid_path, sym_path, root, out, seen):
@@ -116,6 +177,8 @@ def build():
         seen.add(key)
         out.append(_entry(key, adf.name, adf.name, '', 'adf', adf.name, app.aid))
         _walk(adf, key, adf.name, adf.name, out, seen)
+    # The optional / service-gated files pySim's model does not carry.
+    _add_supplement(out, seen, {e['path']: e['sym'] for e in out})
     # Stable order: MF first, then the ADFs alphabetically; DFs before their EFs
     # is implicit in the walk, paths sort consistently inside a root.
     out.sort(key=lambda e: (0 if e['root'] == 'MF' else 1, e['root'], e['path']))

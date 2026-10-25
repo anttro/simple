@@ -72,6 +72,60 @@ class TestUiccFilesAsset(unittest.TestCase):
                 self.assertRegex(f['fid'], r'^[0-9A-F]{4}$')
                 self.assertTrue(f['name'].startswith(('EF.', 'DF.')))
 
+    def test_optional_files_missing_from_the_pysim_model(self):
+        """The service-gated files pySim does not model (the SUPPLEMENT)."""
+        files = _load()['files']
+        by_path = {f['path']: f for f in files}
+        expected = {
+            # TS 31.102 4.2.86 / 4.2.100 / 4.2.102 / 4.2.108 / 4.2.109
+            'ADF.USIM/6FDC': 'EF.LRPLMNSI',
+            'ADF.USIM/6FF0': 'EF.IAL',
+            'ADF.USIM/6FF2': 'EF.IPD',
+            'ADF.USIM/6FF9': 'EF.3GPPPSDATAOFF',
+            'ADF.USIM/6FFB': 'EF.TVCONFIG',
+            # 4.4.4 DF.MExE
+            'ADF.USIM/5F3C': 'DF.MExE',
+            'ADF.USIM/5F3C/4F40': 'EF.MExE-ST',
+            'ADF.USIM/5F3C/4F41': 'EF.ORPK',
+            'ADF.USIM/5F3C/4F42': 'EF.ARPK',
+            'ADF.USIM/5F3C/4F43': 'EF.TPRPK',
+            # 4.4.1 DF.SoLSA
+            'ADF.USIM/5F70': 'DF.SoLSA',
+            'ADF.USIM/5F70/4F30': 'EF.SAI',
+            'ADF.USIM/5F70/4F31': 'EF.SLL',
+            # 4.4.7 / 4.4.9 / 4.4.10
+            'ADF.USIM/5F80': 'DF.BCAST',
+            'ADF.USIM/5FA0': 'DF.ACDC',
+            'ADF.USIM/5FA0/4F01': 'EF.ACDC_LIST',
+            'ADF.USIM/5FB0': 'DF.TV',
+            # 4.6.6 DF.A2X (DF.TELECOM)
+            'MF/7F10/5F3F': 'DF.A2X',
+            'MF/7F10/5F3F/4F01': 'EF.AST',
+            'MF/7F10/5F3F/4F02': 'EF.A2X_CONFIG',
+        }
+        for path, name in expected.items():
+            self.assertIn(path, by_path)
+            self.assertEqual(by_path[path]['name'], name)
+            self.assertEqual(by_path[path]['root'], path.split('/')[0])
+            self.assertEqual(by_path[path]['kind'],
+                             'df' if name.startswith('DF.') else 'ef')
+        # The same FID under another DF stays a distinct entry (name, path).
+        self.assertEqual(by_path['ADF.USIM/5F3A/4F30']['name'], 'EF.PBR')
+        self.assertEqual(by_path['MF/7F10/5F3A/4F30']['name'], 'EF.PBR')
+        # The ADF.USIM files are mirrored under the non-IMSI USIM root.
+        for path, name in expected.items():
+            if not path.startswith('ADF.USIM/'):
+                continue
+            mirror = 'ADF.USIM-NON-IMSI' + path[len('ADF.USIM'):]
+            self.assertIn(mirror, by_path)
+            self.assertEqual(by_path[mirror]['name'], name)
+            self.assertEqual(by_path[mirror]['root'], 'ADF.USIM-NON-IMSI')
+        # (name, root) resolves each SUPPLEMENT file to exactly one path.
+        for path, name in expected.items():
+            root = path.split('/')[0]
+            self.assertEqual([f['path'] for f in files
+                              if f['name'] == name and f['root'] == root], [path])
+
 
 if __name__ == '__main__':
     unittest.main()

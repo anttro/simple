@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-23",
+ "generated": "2026-10-25",
  "files": [
   {
    "path": "MF/2F00",
@@ -157,6 +157,30 @@
    "path": "MF/7F10/5F3E/4F02",
    "name": "EF.V2X_CONFIG",
    "sym": "MF/DF.TELECOM/DF.V2X/EF.V2X_CONFIG",
+   "fid": "4F02",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3F",
+   "name": "DF.A2X",
+   "sym": "MF/DF.TELECOM/DF.A2X",
+   "fid": "5F3F",
+   "kind": "df",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3F/4F01",
+   "name": "EF.AST",
+   "sym": "MF/DF.TELECOM/DF.A2X/EF.AST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "MF"
+  },
+  {
+   "path": "MF/7F10/5F3F/4F02",
+   "name": "EF.A2X_CONFIG",
+   "sym": "MF/DF.TELECOM/DF.A2X/EF.A2X_CONFIG",
    "fid": "4F02",
    "kind": "ef",
    "root": "MF"
@@ -1031,6 +1055,46 @@
    "root": "ADF.USIM"
   },
   {
+   "path": "ADF.USIM/5F3C",
+   "name": "DF.MExE",
+   "sym": "ADF.USIM/DF.MExE",
+   "fid": "5F3C",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3C/4F40",
+   "name": "EF.MExE-ST",
+   "sym": "ADF.USIM/DF.MExE/EF.MExE-ST",
+   "fid": "4F40",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3C/4F41",
+   "name": "EF.ORPK",
+   "sym": "ADF.USIM/DF.MExE/EF.ORPK",
+   "fid": "4F41",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3C/4F42",
+   "name": "EF.ARPK",
+   "sym": "ADF.USIM/DF.MExE/EF.ARPK",
+   "fid": "4F42",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F3C/4F43",
+   "name": "EF.TPRPK",
+   "sym": "ADF.USIM/DF.MExE/EF.TPRPK",
+   "fid": "4F43",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
    "path": "ADF.USIM/5F40",
    "name": "DF.WLAN",
    "sym": "ADF.USIM/DF.WLAN",
@@ -1183,6 +1247,38 @@
    "root": "ADF.USIM"
   },
   {
+   "path": "ADF.USIM/5F70",
+   "name": "DF.SoLSA",
+   "sym": "ADF.USIM/DF.SoLSA",
+   "fid": "5F70",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F70/4F30",
+   "name": "EF.SAI",
+   "sym": "ADF.USIM/DF.SoLSA/EF.SAI",
+   "fid": "4F30",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F70/4F31",
+   "name": "EF.SLL",
+   "sym": "ADF.USIM/DF.SoLSA/EF.SLL",
+   "fid": "4F31",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5F80",
+   "name": "DF.BCAST",
+   "sym": "ADF.USIM/DF.BCAST",
+   "fid": "5F80",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
    "path": "ADF.USIM/5F90",
    "name": "DF.ProSe",
    "sym": "ADF.USIM/DF.ProSe",
@@ -1300,6 +1396,30 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
    "fid": "4F14",
    "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FA0",
+   "name": "DF.ACDC",
+   "sym": "ADF.USIM/DF.ACDC",
+   "fid": "5FA0",
+   "kind": "df",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FA0/4F01",
+   "name": "EF.ACDC_LIST",
+   "sym": "ADF.USIM/DF.ACDC/EF.ACDC_LIST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/5FB0",
+   "name": "DF.TV",
+   "sym": "ADF.USIM/DF.TV",
+   "fid": "5FB0",
+   "kind": "df",
    "root": "ADF.USIM"
   },
   {
@@ -2263,6 +2383,14 @@
    "root": "ADF.USIM"
   },
   {
+   "path": "ADF.USIM/6FDC",
+   "name": "EF.LRPLMNSI",
+   "sym": "ADF.USIM/EF.LRPLMNSI",
+   "fid": "6FDC",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
    "path": "ADF.USIM/6FDD",
    "name": "EF.NAFKCA",
    "sym": "ADF.USIM/EF.NAFKCA",
@@ -2359,10 +2487,26 @@
    "root": "ADF.USIM"
   },
   {
+   "path": "ADF.USIM/6FF0",
+   "name": "EF.IAL",
+   "sym": "ADF.USIM/EF.IAL",
+   "fid": "6FF0",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
    "path": "ADF.USIM/6FF1",
    "name": "EF.IPS",
    "sym": "ADF.USIM/EF.IPS",
    "fid": "6FF1",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF2",
+   "name": "EF.IPD",
+   "sym": "ADF.USIM/EF.IPD",
+   "fid": "6FF2",
    "kind": "ef",
    "root": "ADF.USIM"
   },
@@ -2411,6 +2555,22 @@
    "name": "EF.IMSConfigData",
    "sym": "ADF.USIM/EF.IMSConfigData",
    "fid": "6FF8",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FF9",
+   "name": "EF.3GPPPSDATAOFF",
+   "sym": "ADF.USIM/EF.3GPPPSDATAOFF",
+   "fid": "6FF9",
+   "kind": "ef",
+   "root": "ADF.USIM"
+  },
+  {
+   "path": "ADF.USIM/6FFB",
+   "name": "EF.TVCONFIG",
+   "sym": "ADF.USIM/EF.TVCONFIG",
+   "fid": "6FFB",
    "kind": "ef",
    "root": "ADF.USIM"
   },
@@ -2524,6 +2684,46 @@
    "name": "EF.InvScan",
    "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.InvScan",
    "fid": "4F64",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3C",
+   "name": "DF.MExE",
+   "sym": "ADF.USIM-non-IMSI/DF.MExE",
+   "fid": "5F3C",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3C/4F40",
+   "name": "EF.MExE-ST",
+   "sym": "ADF.USIM-non-IMSI/DF.MExE/EF.MExE-ST",
+   "fid": "4F40",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3C/4F41",
+   "name": "EF.ORPK",
+   "sym": "ADF.USIM-non-IMSI/DF.MExE/EF.ORPK",
+   "fid": "4F41",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3C/4F42",
+   "name": "EF.ARPK",
+   "sym": "ADF.USIM-non-IMSI/DF.MExE/EF.ARPK",
+   "fid": "4F42",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F3C/4F43",
+   "name": "EF.TPRPK",
+   "sym": "ADF.USIM-non-IMSI/DF.MExE/EF.TPRPK",
+   "fid": "4F43",
    "kind": "ef",
    "root": "ADF.USIM-NON-IMSI"
   },
@@ -2680,6 +2880,38 @@
    "root": "ADF.USIM-NON-IMSI"
   },
   {
+   "path": "ADF.USIM-NON-IMSI/5F70",
+   "name": "DF.SoLSA",
+   "sym": "ADF.USIM-non-IMSI/DF.SoLSA",
+   "fid": "5F70",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F70/4F30",
+   "name": "EF.SAI",
+   "sym": "ADF.USIM-non-IMSI/DF.SoLSA/EF.SAI",
+   "fid": "4F30",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F70/4F31",
+   "name": "EF.SLL",
+   "sym": "ADF.USIM-non-IMSI/DF.SoLSA/EF.SLL",
+   "fid": "4F31",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5F80",
+   "name": "DF.BCAST",
+   "sym": "ADF.USIM-non-IMSI/DF.BCAST",
+   "fid": "5F80",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
    "path": "ADF.USIM-NON-IMSI/5F90",
    "name": "DF.ProSe",
    "sym": "ADF.USIM-non-IMSI/DF.ProSe",
@@ -2797,6 +3029,30 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
    "fid": "4F14",
    "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FA0",
+   "name": "DF.ACDC",
+   "sym": "ADF.USIM-non-IMSI/DF.ACDC",
+   "fid": "5FA0",
+   "kind": "df",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FA0/4F01",
+   "name": "EF.ACDC_LIST",
+   "sym": "ADF.USIM-non-IMSI/DF.ACDC/EF.ACDC_LIST",
+   "fid": "4F01",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/5FB0",
+   "name": "DF.TV",
+   "sym": "ADF.USIM-non-IMSI/DF.TV",
+   "fid": "5FB0",
+   "kind": "df",
    "root": "ADF.USIM-NON-IMSI"
   },
   {
@@ -3752,6 +4008,14 @@
    "root": "ADF.USIM-NON-IMSI"
   },
   {
+   "path": "ADF.USIM-NON-IMSI/6FDC",
+   "name": "EF.LRPLMNSI",
+   "sym": "ADF.USIM-non-IMSI/EF.LRPLMNSI",
+   "fid": "6FDC",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
    "path": "ADF.USIM-NON-IMSI/6FDD",
    "name": "EF.NAFKCA",
    "sym": "ADF.USIM-non-IMSI/EF.NAFKCA",
@@ -3848,10 +4112,26 @@
    "root": "ADF.USIM-NON-IMSI"
   },
   {
+   "path": "ADF.USIM-NON-IMSI/6FF0",
+   "name": "EF.IAL",
+   "sym": "ADF.USIM-non-IMSI/EF.IAL",
+   "fid": "6FF0",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
    "path": "ADF.USIM-NON-IMSI/6FF1",
    "name": "EF.IPS",
    "sym": "ADF.USIM-non-IMSI/EF.IPS",
    "fid": "6FF1",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF2",
+   "name": "EF.IPD",
+   "sym": "ADF.USIM-non-IMSI/EF.IPD",
+   "fid": "6FF2",
    "kind": "ef",
    "root": "ADF.USIM-NON-IMSI"
   },
@@ -3900,6 +4180,22 @@
    "name": "EF.IMSConfigData",
    "sym": "ADF.USIM-non-IMSI/EF.IMSConfigData",
    "fid": "6FF8",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FF9",
+   "name": "EF.3GPPPSDATAOFF",
+   "sym": "ADF.USIM-non-IMSI/EF.3GPPPSDATAOFF",
+   "fid": "6FF9",
+   "kind": "ef",
+   "root": "ADF.USIM-NON-IMSI"
+  },
+  {
+   "path": "ADF.USIM-NON-IMSI/6FFB",
+   "name": "EF.TVCONFIG",
+   "sym": "ADF.USIM-non-IMSI/EF.TVCONFIG",
+   "fid": "6FFB",
    "kind": "ef",
    "root": "ADF.USIM-NON-IMSI"
   },
