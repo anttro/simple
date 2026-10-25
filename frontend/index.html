@@ -23301,191 +23301,207 @@ const SERVICES_FILES = [
 
 const SERVICES_TABLES = { ust: EF_UST_SERVICES, est: EF_EST_SERVICES, ist: EF_IST_SERVICES };
 
-// Feature -> the FID(s) its Filesystem cell declares, transcribed from
-// docs/services-editor.md §A (the merged "Filesystem" column, legend in §B):
-//   every FID the cell mentions, in order - `EF.FDN 6F3B (+ EF.EXT2 6F4B)`
-//   -> ['6F3B', '6F4B'], `DF.GRAPHICS 5F50 -> EF.IMG 4F20` -> ['5F50', '4F20']
-//   (a DF's FID counts: the DF itself is the file the service gates),
-//   `EF.NIA 6F51 (SIM) / 6FD3 (USIM)` -> both trees' FIDs.
+// Feature -> the *symbolic* files its Filesystem cell declares, transcribed
+// from docs/services-editor.md §A (the merged "Filesystem" column, legend in
+// §B): the file names only - `EF.FDN 6F3B (+ EF.EXT2 6F4B)` -> ['EF.FDN',
+// 'EF.EXT2'], `DF.GRAPHICS 5F50 -> EF.IMG 4F20` -> ['DF.GRAPHICS', 'EF.IMG']
+// (a DF's own name counts: the DF is the file the service gates), `EF.NIA 6F51
+// (SIM) / 6FD3 (USIM)` -> ['EF.NIA'] (one name, a different path per tree).
+// The names are the standard file list's (frontend/uicc_files.json) `name`
+// values, so a role resolves to a path through (name, root) - the FID alone
+// is ambiguous across applications (EF.PBR and EF.SAI are both 4F30, EF.SST
+// and EF.UST are both 6F38).
 // `capability` cells (procedural/terminal-side features with no file of their
 // own) map to [] - their parenthetical references (a gate, a title, a URI
 // set) are informational, not a file the service declares - and so do the
 // §A.4 RFU/reserved rows, which are not features and therefore absent here.
 // The map is keyed by feature name because that is the cross-reference's key
 // (the editor's row identity); SERVICES_FILES above is the four *service
-// table* descriptors, so the name is taken.  Coverage is pinned by
-// frontend/tests/services.test.js.
-//
-// The check is deliberately FID-level, not (DF, FID)-exact (docs/decoded-
-// editing.md finding 6 asks for DF-scoped resolution; this first pass accepts
-// the coarser rule, visible to the user as the report's note): the known
-// collisions - 6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST,
-// 6FD7 MSK/GBANL, 5F3B DF.GSM-ACCESS/DF.MULTIMEDIA - are matched by FID
-// anywhere in the card's tree, so a file carrying a colliding FID can explain
-// a service it does not actually gate.
+// table* descriptors, so the name is taken.  Coverage and the (name, root)
+// resolution are pinned by frontend/tests/services.test.js.
 const SERVICES_FS_MAP = {
 	'CHV1 disable function': [],
-	'Local Phone Book (ADN)': ['6F3A', '5F3A', '4F30'],
-	'Fixed Dialling Numbers (FDN)': ['6F3B', '6F4B'],
-	'Short Message Storage (SMS)': ['6F3C'],
-	'Advice of Charge (AoC)': ['6F39', '6F37', '6F41'],
-	'Capability Configuration Parameters (CCP)': ['6F3D'],
-	'Capability Configuration Parameters 2 (CCP2)': ['6F4F'],
-	'PLMN selector': ['6F30'],
-	'MSISDN': ['6F40'],
-	'Extension 1': ['6F4A'],
-	'Extension 2': ['6F4B'],
-	'SMS Parameters (SMSP)': ['6F42'],
-	'Last Number Dialled (LND)': ['6F44'],
-	'Cell Broadcast Message Identifier (CBMI)': ['6F45'],
-	'Group Identifier Level 1 (GID1)': ['6F3E'],
-	'Group Identifier Level 2 (GID2)': ['6F3F'],
-	'Service Provider Name (SPN)': ['6F46'],
-	'Service Dialling Numbers (SDN)': ['6F49', '6F4C'],
-	'Extension 3': ['6F4C'],
-	'VGCS Group Identifier List': ['6FB1', '6FB2'],
-	'VBS Group Identifier List': ['6FB3', '6FB4'],
-	'enhanced Multi-Level Precedence and Pre-emption (eMLPP)': ['6FB5'],
-	'Automatic Answer for eMLPP (AAeM)': ['6FB6'],
+	'Local Phone Book (ADN)': ['EF.ADN', 'DF.PHONEBOOK', 'EF.PBR'],
+	'Fixed Dialling Numbers (FDN)': ['EF.FDN', 'EF.EXT2'],
+	'Short Message Storage (SMS)': ['EF.SMS'],
+	'Advice of Charge (AoC)': ['EF.ACM', 'EF.ACMmax', 'EF.PUCT'],
+	'Capability Configuration Parameters (CCP)': ['EF.CCP'],
+	'Capability Configuration Parameters 2 (CCP2)': ['EF.CCP2'],
+	'PLMN selector': ['EF.PLMNsel'],
+	'MSISDN': ['EF.MSISDN'],
+	'Extension 1': ['EF.EXT1'],
+	'Extension 2': ['EF.EXT2'],
+	'SMS Parameters (SMSP)': ['EF.SMSP'],
+	'Last Number Dialled (LND)': ['EF.LND'],
+	'Cell Broadcast Message Identifier (CBMI)': ['EF.CBMI'],
+	'Group Identifier Level 1 (GID1)': ['EF.GID1'],
+	'Group Identifier Level 2 (GID2)': ['EF.GID2'],
+	'Service Provider Name (SPN)': ['EF.SPN'],
+	'Service Dialling Numbers (SDN)': ['EF.SDN', 'EF.EXT3'],
+	'Extension 3': ['EF.EXT3'],
+	'VGCS Group Identifier List': ['EF.VGCS', 'EF.VGCSS'],
+	'VBS Group Identifier List': ['EF.VBS', 'EF.VBSS'],
+	'enhanced Multi-Level Precedence and Pre-emption (eMLPP)': ['EF.eMLPP'],
+	'Automatic Answer for eMLPP (AAeM)': ['EF.AAeM'],
 	'Data download via SMS-CB': [],
 	'Data download via SMS-PP': [],
 	'Menu selection': [],
 	'Call control (by SIM/USIM)': [],
 	'Proactive SIM': [],
-	'Cell Broadcast Message Identifier Ranges (CBMIR)': ['6F50'],
-	'Barred Dialling Numbers (BDN)': ['6F4D', '6F4E', '6F55'],
-	'Extension 4': ['6F4E', '6F55'],
-	'De-personalisation Control Keys (DCK)': ['6F2C'],
-	'Co-operative Network List (CNL)': ['6F32'],
-	'Short Message Status Reports (SMSR)': ['6F47'],
-	'Network\'s indication of alerting in the MS (NIA)': ['6F51', '6FD3'],
+	'Cell Broadcast Message Identifier Ranges (CBMIR)': ['EF.CBMIR'],
+	'Barred Dialling Numbers (BDN)': ['EF.BDN', 'EF.EXT4'],
+	'Extension 4': ['EF.EXT4'],
+	'De-personalisation Control Keys (DCK)': ['EF.DCK'],
+	'Co-operative Network List (CNL)': ['EF.CNL'],
+	'Short Message Status Reports (SMSR)': ['EF.SMSR'],
+	'Network\'s indication of alerting in the MS (NIA)': ['EF.NIA'],
 	'MO-SMS control (by SIM/USIM)': [],
-	'GPRS': ['6F52', '7F20'],
-	'Image (IMG)': ['5F50', '4F20'],
-	'SoLSA': ['5F70', '4F30', '4F31'],
+	'GPRS': ['EF.KcGPRS', 'DF.GSM'],
+	'Image (IMG)': ['DF.GRAPHICS', 'EF.IMG'],
+	'SoLSA': ['DF.SoLSA', 'EF.SAI', 'EF.SLL'],
 	'USSD string data object supported in Call Control': [],
 	'RUN AT COMMAND command': [],
-	'User controlled PLMN selector with Access Technology': ['6F60'],
-	'Operator controlled PLMN selector with Access Technology': ['6F61'],
-	'HPLMN selector with Access Technology': ['6F62'],
-	'CPBCCH Information': ['6F63', '4F63'],
-	'Investigation Scan': ['6F64', '4F64'],
-	'Extended Capability Configuration Parameters (ECCP)': ['6F4F'],
-	'MExE': ['5F3C', '4F40'],
-	'PLMN Network Name (PNN)': ['6FC5'],
-	'Operator PLMN List (OPL)': ['6FC6'],
-	'Mailbox Dialling Numbers (MBDN)': ['6FC7', '6FC8'],
-	'Message Waiting Indication Status (MWIS)': ['6FCA', '6FC9'],
-	'Call Forwarding Indication Status (CFIS)': ['6FCB', '6FCC'],
-	'Service Provider Display Information (SPDI)': ['6FCD'],
-	'Multimedia Messaging Service (MMS)': ['6FCE'],
-	'Extension 8': ['6FCF'],
-	'MMS User Connectivity Parameters': ['6FD0', '6FD2', '6FD1'],
-	'Outgoing Call Information (OCI and OCT)': ['6F81', '6F83'],
-	'Incoming Call Information (ICI and ICT)': ['6F80', '6F82'],
-	'GSM Access': ['5F3B'],
-	'Enabled Services Table': ['6F56'],
-	'APN Control List (ACL)': ['6F57'],
-	'GSM security context': ['4F20', '4F52', '5F3B'],
-	'Extension 5': ['6F4E'],
+	'User controlled PLMN selector with Access Technology': ['EF.PLMNwAcT'],
+	'Operator controlled PLMN selector with Access Technology': ['EF.OPLMNwAcT'],
+	'HPLMN selector with Access Technology': ['EF.HPLMNwAcT'],
+	'CPBCCH Information': ['EF.CPBCCH'],
+	'Investigation Scan': ['EF.InvScan'],
+	'Extended Capability Configuration Parameters (ECCP)': ['EF.ECCP'],
+	'MExE': ['DF.MExE', 'EF.MExE-ST'],
+	'PLMN Network Name (PNN)': ['EF.PNN'],
+	'Operator PLMN List (OPL)': ['EF.OPL'],
+	'Mailbox Dialling Numbers (MBDN)': ['EF.MBDN', 'EF.EXT6'],
+	'Message Waiting Indication Status (MWIS)': ['EF.MWIS', 'EF.MBI'],
+	'Call Forwarding Indication Status (CFIS)': ['EF.CFIS', 'EF.EXT7'],
+	'Service Provider Display Information (SPDI)': ['EF.SPDI'],
+	'Multimedia Messaging Service (MMS)': ['EF.MMSN'],
+	'Extension 8': ['EF.EXT8'],
+	'MMS User Connectivity Parameters': ['EF.MMSICP', 'EF.MMSUCP', 'EF.MMSUP'],
+	'Outgoing Call Information (OCI and OCT)': ['EF.OCI', 'EF.OCT'],
+	'Incoming Call Information (ICI and ICT)': ['EF.ICI', 'EF.ICT'],
+	'GSM Access': ['DF.GSM-ACCESS'],
+	'Enabled Services Table': ['EF.EST'],
+	'APN Control List (ACL)': ['EF.ACL'],
+	'GSM security context': ['EF.Kc', 'EF.KcGPRS', 'DF.GSM-ACCESS'],
+	'Extension 5': ['EF.EXT5'],
 	'Call control on GPRS by USIM': [],
-	'Pseudonym': ['4F41', '5F40'],
-	'User Controlled PLMN selector for I-WLAN access': ['4F42'],
-	'Operator Controlled PLMN selector for I-WLAN access': ['4F43'],
-	'User controlled WSID list': ['4F44'],
-	'Operator controlled WSID list': ['4F45'],
-	'VGCS security': ['6FD4'],
-	'VBS security': ['6FD5'],
-	'WLAN Reauthentication Identity': ['4F46'],
-	'Multimedia Messages Storage': ['4F47', '4F48', '5F3B'],
-	'Generic Bootstrapping Architecture (GBA)': ['6FD6', '6FD5', '6FDA', '6FD7', '6FDD'],
-	'MBMS security': ['6FD7', '6FD8'],
+	'Pseudonym': ['EF.Pseudo', 'DF.WLAN'],
+	'User Controlled PLMN selector for I-WLAN access': ['EF.UPLMNWLAN'],
+	'Operator Controlled PLMN selector for I-WLAN access': ['EF.OPLMNWLAN'],
+	'User controlled WSID list': ['EF.UWSIDL'],
+	'Operator controlled WSID list': ['EF.OWSIDL'],
+	'VGCS security': ['EF.VGCSCA'],
+	'VBS security': ['EF.VBSCA'],
+	'WLAN Reauthentication Identity': ['EF.WRI'],
+	'Multimedia Messages Storage': ['EF.MML', 'EF.MMDF', 'DF.MULTIMEDIA'],
+	'Generic Bootstrapping Architecture (GBA)': ['EF.GBABP', 'EF.GBANL', 'EF.NAFKCA'],
+	'MBMS security': ['EF.MSK', 'EF.MUK'],
 	'Data download via USSD and USSD application mode': [],
-	'Equivalent HPLMN': ['6FD9'],
+	'Equivalent HPLMN': ['EF.EHPLMN'],
 	'Additional TERMINAL PROFILE after UICC activation': [],
-	'Equivalent HPLMN Presentation Indication': ['6FDB'],
-	'Last RPLMN Selection Indication': ['6FDC'],
-	'OMA BCAST Smart Card Profile': ['5F80'],
+	'Equivalent HPLMN Presentation Indication': ['EF.EHPLMNPI'],
+	'Last RPLMN Selection Indication': ['EF.LRPLMNSI'],
+	'OMA BCAST Smart Card Profile': ['DF.BCAST'],
 	'GBA-based Local Key Establishment Mechanism': [],
 	'Terminal Applications': [],
-	'Service Provider Name Icon': ['6FDE'],
-	'PLMN Network Name Icon': ['6FDF'],
-	'Connectivity Parameters for USIM IP connections': ['6FE2'],
-	'Home I-WLAN Specific Identifier List': ['4F47'],
-	'I-WLAN Equivalent HPLMN Presentation Indication': ['4F48'],
-	'I-WLAN HPLMN Priority Indication': ['4F49'],
-	'I-WLAN Last Registered PLMN': ['4F4A'],
-	'EPS Mobility Management Information': ['6FE3', '6FE4'],
-	'Allowed CSG Lists and corresponding indications': ['4F81', '4F82', '4F83'],
+	'Service Provider Name Icon': ['EF.SPNI'],
+	'PLMN Network Name Icon': ['EF.PNNI'],
+	'Connectivity Parameters for USIM IP connections': ['EF.NCP-IP'],
+	'Home I-WLAN Specific Identifier List': ['EF.HWSIDL'],
+	'I-WLAN Equivalent HPLMN Presentation Indication': ['EF.WEHPLMNPI'],
+	'I-WLAN HPLMN Priority Indication': ['EF.WHPI'],
+	'I-WLAN Last Registered PLMN': ['EF.WLRPLMN'],
+	'EPS Mobility Management Information': ['EF.EPSLOCI', 'EF.EPSNSC'],
+	'Allowed CSG Lists and corresponding indications': ['EF.ACSGL', 'EF.CSGT', 'EF.HNBN'],
 	'Call control on EPS PDN connection by USIM': [],
-	'HPLMN Direct Access': ['4F4B'],
-	'eCall Data': ['6F49', '6F3B'],
-	'Operator CSG Lists and corresponding indications': ['4F84', '4F85', '4F86'],
+	'HPLMN Direct Access': ['EF.HPLMNDAI'],
+	'eCall Data': ['EF.SDN', 'EF.FDN'],
+	'Operator CSG Lists and corresponding indications': ['EF.OCSGL', 'EF.OCSGT', 'EF.OHNBN'],
 	'Support for SM-over-IP': [],
 	'Support of CSG Display Control': [],
 	'Communication Control for IMS': [],
 	'Extended Terminal Applications': [],
 	'Support of UICC access to IMS': [],
-	'Non-Access Stratum configuration by USIM': ['6FE8'],
-	'PWS configuration by USIM': ['6FEC'],
+	'Non-Access Stratum configuration by USIM': ['EF.NASCONFIG'],
+	'PWS configuration by USIM': ['EF.PWS'],
 	'URI support by UICC': [],
 	'Extended EARFCN support': [],
-	'ProSe': ['5F90', '4F10'],
-	'USAT Application Pairing': ['6FF1', '6FF0', '6FF2'],
+	'ProSe': ['DF.ProSe', 'EF.PST'],
+	'USAT Application Pairing': ['EF.IPS', 'EF.IAL', 'EF.IPD'],
 	'Media Type support': [],
 	'IMS call disconnection cause': [],
 	'URI support for MO SHORT MESSAGE CONTROL': [],
-	'ePDG configuration Information support': ['6FF4'],
-	'ePDG configuration Information configured': ['6FF3'],
-	'ACDC support': ['5FA0', '4F01'],
-	'MCPTT': ['5F3D', '4F01'],
-	'ePDG configuration Information for Emergency Service support': ['6FF6'],
-	'ePDG configuration Information for Emergency Service configured': ['6FF5'],
-	'eCall Data over IMS': ['6FEF', '6FED'],
+	'ePDG configuration Information support': ['EF.ePDGSelection'],
+	'ePDG configuration Information configured': ['EF.ePDGId'],
+	'ACDC support': ['DF.ACDC', 'EF.ACDC_LIST'],
+	'MCPTT': ['DF.MCS', 'EF.MST'],
+	'ePDG configuration Information for Emergency Service support': ['EF.ePDGSelectionEm'],
+	'ePDG configuration Information for Emergency Service configured': ['EF.ePDGIdEm'],
+	'eCall Data over IMS': ['EF.SDNURI', 'EF.FDNURI'],
 	'URI support for SMS-PP DOWNLOAD': [],
-	'From Preferred': ['6FF7'],
-	'IMS configuration data': ['6FF8'],
-	'TV configuration': ['6FFB', '5FB0'],
-	'3GPP PS Data Off': ['6FF9'],
-	'3GPP PS Data Off Service List': ['6FFA'],
-	'V2X': ['5F3E', '4F01', '4F02'],
-	'XCAP Configuration Data': ['6FFC'],
-	'EARFCN list for MTC/NB-IOT UEs': ['6FFD'],
-	'5GS Mobility Management Information': ['5FC0', '4F01', '4F02'],
-	'5G Security Parameters': ['4F05', '4F03', '4F04'],
+	'From Preferred': ['EF.FromPreferred'],
+	'IMS configuration data': ['EF.IMSConfigData'],
+	'TV configuration': ['EF.TVCONFIG', 'DF.TV'],
+	'3GPP PS Data Off': ['EF.3GPPPSDATAOFF'],
+	'3GPP PS Data Off Service List': ['EF.3GPPPSDATAOFFservicelist'],
+	'V2X': ['DF.V2X', 'EF.VST', 'EF.V2X_CONFIG'],
+	'XCAP Configuration Data': ['EF.XCAPConfigData'],
+	'EARFCN list for MTC/NB-IOT UEs': ['EF.EARFCNList'],
+	'5GS Mobility Management Information': ['DF.5GS', 'EF.5GS3GPPLOCI', 'EF.5GSN3GPPLOCI'],
+	'5G Security Parameters': ['EF.5GAUTHKEYS', 'EF.5GS3GPPNSC', 'EF.5GSN3GPPNSC'],
 	'Subscription identifier privacy support': [],
-	'SUCI calculation by the USIM': ['4F07'],
-	'UAC Access Identities support': ['4F06'],
+	'SUCI calculation by the USIM': ['EF.SUCI_Calc_Info'],
+	'UAC Access Identities support': ['EF.UAC_AIC'],
 	'Expect control plane-based Steering of Roaming information during initial registration in VPLMN': [],
 	'Call control on PDU Session by USIM': [],
-	'5GS Operator PLMN List': ['4F08'],
-	'Support for SUPI of type NSI or GLI or GCI': ['4F09'],
+	'5GS Operator PLMN List': ['EF.OPL5G'],
+	'Support for SUPI of type NSI or GLI or GCI': ['EF.SUPI_NAI'],
 	'3GPP PS Data Off separate Home and Roaming lists': [],
-	'Support for URSP by USIM': ['4F0B'],
+	'Support for URSP by USIM': ['EF.URSP'],
 	'5G Security Parameters extended': [],
-	'MuD and MiD configuration data': ['6FFE'],
+	'MuD and MiD configuration data': ['EF.MuDMiDConfigData'],
 	'Support for Trusted non-3GPP access networks by USIM': [],
-	'Support for multiple records of NAS security context storage for multiple registration': ['4F03', '4F04'],
-	'Pre-configured CAG information list': ['4F0D'],
-	'SOR-CMCI storage in USIM': ['4F0E'],
-	'5G ProSe': ['5FF0', '4F01'],
-	'Storage of disaster roaming information in USIM': ['4F0F'],
-	'Pre-configured eDRX parameters': ['4F10'],
-	'5G NSWO support': ['4F11'],
-	'PWS configuration for SNPN in USIM': ['4F01', '5FE0'],
-	'Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access': ['4F15'],
-	'K_AUSF derivation configuration': ['4F16'],
-	'Network Identifier for SNPN (NID)': ['4F02', '5FE0'],
-	'5MBS UE pre-configuration': ['5FF1', '4F01'],
-	'Operator Controlled Signal Threshold per Access Technology': ['6F02'],
-	'A2X': ['5F3F', '4F01'],
-	'IMS Data Channel Indication': ['6F0B'],
-	'P-CSCF address': ['6F09'],
+	'Support for multiple records of NAS security context storage for multiple registration': ['EF.5GS3GPPNSC', 'EF.5GSN3GPPNSC'],
+	'Pre-configured CAG information list': ['EF.CAG'],
+	'SOR-CMCI storage in USIM': ['EF.SOR-CMCI'],
+	'5G ProSe': ['DF.5G_ProSe', 'EF.5G_PROSE_ST'],
+	'Storage of disaster roaming information in USIM': ['EF.DRI'],
+	'Pre-configured eDRX parameters': ['EF.5GSEDRX'],
+	'5G NSWO support': ['EF.5GNSWO_CONF'],
+	'PWS configuration for SNPN in USIM': ['EF.PWS_SNPN', 'DF.SNPN'],
+	'Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access': ['EF.MCHPPLMN'],
+	'K_AUSF derivation configuration': ['EF.KAUSF_DERIVATION'],
+	'Network Identifier for SNPN (NID)': ['EF.NID', 'DF.SNPN'],
+	'5MBS UE pre-configuration': ['DF.5MBSUECONFIG', 'EF.5MBSUECONFIG'],
+	'Operator Controlled Signal Threshold per Access Technology': ['EF.OCST'],
+	'A2X': ['DF.A2X', 'EF.AST', 'EF.A2X_CONFIG'],
+	'IMS Data Channel Indication': ['EF.IMSDCI'],
+	'P-CSCF address': ['EF.P-CSCF'],
 	'HTTP Digest': [],
 	'Support of P-CSCF discovery for IMS Local Break Out': [],
-	'WebRTC URI': ['6FFA'],
-	'IMS Data Channel indication': ['6F0B'],
+	'WebRTC URI': ['EF.WebRTCURI'],
+	'IMS Data Channel indication': ['EF.IMSDCI'],
 };
+
+// The application whose service table declares a feature (the report's
+// `tree`): EF.SST lists the SIM (MF) services, EF.UST/EF.EST the USIM's,
+// EF.IST the ISIM's.
+const SERVICES_FS_TREES = { sst: 'MF', ust: 'ADF.USIM', est: 'ADF.USIM', ist: 'ADF.ISIM' };
+// Report order of the trees: the SIM's first, then the applications.
+const SERVICES_FS_TREE_ORDER = ['MF', 'ADF.USIM', 'ADF.ISIM'];
+// A USIM/ISIM-declared file may live in the common DF.TELECOM subtree instead
+// of the application's own DF (TS 31.102 4.6.0: DF.MULTIMEDIA '5F3B',
+// DF.MCS '5F3D', DF.V2X '5F3E', DF.A2X '5F3F', DF.GRAPHICS '5F50' are
+// children of DF.TELECOM, i.e. MF paths), so a role that has no path under
+// the declaring application's root falls back to the MF tree.
+//
+// The exceptions are the files TS 31.102 4.5 lists as *mappings* of a
+// DF.PHONEBOOK file into DF.TELECOM ("in case of a present GSM application"):
+// EF.ADN '6F3A', EF.EXT1 '6F4A' and EF.ECCP '6F4F' under DF.TELECOM are the
+// GSM application's backwards-compatible copies, so a USIM/ISIM declaration
+// (whose phonebook lives in DF.PHONEBOOK, EF.PBR-referenced) must not expect
+// them.  A SIM (SST) declaration does, and resolves them in the MF tree.
+const SERVICES_FS_GSM_MAPPED = ['EF.ADN', 'EF.EXT1', 'EF.ECCP'];
 
 function servicesDecode(key, bytes) {
 	if (key === 'sst') return efDecSst(bytes);
@@ -23606,127 +23622,215 @@ function servicesFileBytes(key, values, files) {
 }
 
 // --- filesystem check (docs/services-editor.md §B) ---
-// Three pure pieces: which features the card declares (from the same decoded
-// service tables the grid renders), which FIDs the card actually has (from
-// the file manager's probed tree) and the mismatch report between the two.
+// The check is path-exact: a feature's symbolic files (SERVICES_FS_MAP) are
+// resolved through the standard file list's (name, root) -> path index, and
+// compared with the paths the card's probed tree confirms.  The pure pieces
+// are DOM/fetch-free: the index builder, the per-tree declaration sets, the
+// present-path collector and the report.
 
-// Feature names whose service bit is set in at least one of the present
-// service files - the "declared" side of the check.  A file that is absent
-// from the card leaves its column null (servicesFeatureState), so it declares
-// nothing; EF.SST counts only at 'on' (allocated + activated), as the editor
-// renders it.
-function servicesFsDeclared(files) {
-	const dec = key => (files && files[key] && files[key].present) ? files[key].dec : null;
-	const sstDec = dec('sst'), ustDec = dec('ust'), estDec = dec('est'), istDec = dec('ist');
-	const out = [];
+// The (name, root) key of the path index.  Both sides are uppercased so a
+// card's tree names and the standard list's names compare directly.
+function servicesFsPathKey(name, root) {
+	return String(name || '').toUpperCase() + '|' + String(root || '').toUpperCase();
+}
+
+// Canonical form of a path: uppercase, so the registry's and the tree's
+// paths compare directly.
+function servicesFsNormPath(path) {
+	return String(path || '').toUpperCase();
+}
+
+// NAME|ROOT -> canonical path, from the standard file list
+// (frontend/uicc_files.json, loaded by uiccStdFilesLoad).  A name is unique
+// per root except for EF.SUCI_Calc_Info under ADF.USIM, which pySim models
+// twice (DF.5GS/4F07, the UST service 125 file, and the eSIM profile
+// package's DF.SAIP/4F01 copy) - the list's first entry wins, which is the
+// DF.5GS one (the list is sorted, so this is deterministic).
+function servicesPathIndexBuild(files) {
+	const index = new Map();
+	for (const e of (files || [])) {
+		if (!e || !e.name || !e.root || !e.path) continue;
+		const key = servicesFsPathKey(e.name, e.root);
+		if (!index.has(key)) index.set(key, servicesFsNormPath(e.path));
+	}
+	return index;
+}
+
+let _servicesFsIndex = null;
+
+// The path index, loaded once per page from the standard file list (static
+// and precached by the service worker, so the check works without a server
+// round-trip for the list itself).
+async function servicesPathIndex() {
+	if (!_servicesFsIndex) _servicesFsIndex = servicesPathIndexBuild(await uiccStdFilesLoad());
+	return _servicesFsIndex;
+}
+
+// The path a role resolves to in a declaring tree: the tree's own root first,
+// then the common DF.TELECOM subtree (the MF tree) for a USIM/ISIM-declared
+// role - except the GSM application's mapped copies, which only a SIM
+// declaration expects (see SERVICES_FS_GSM_MAPPED).  undefined when the
+// standard list has no such file (the report's `unchecked`).
+function servicesFsRolePath(index, role, root) {
+	if (!index) return undefined;
+	const own = index.get(servicesFsPathKey(role, root));
+	if (own) return own;
+	if (root === 'MF') return undefined;
+	if (SERVICES_FS_GSM_MAPPED.indexOf(String(role || '').toUpperCase()) >= 0) return undefined;
+	return index.get(servicesFsPathKey(role, 'MF'));
+}
+
+// Feature names the card declares, per declaring tree: { MF: [...],
+// 'ADF.USIM': [...], 'ADF.ISIM': [...] } - the same decoded tables the grid
+// renders, in cross-reference order.  A tree is present only while its
+// service table is on the card (without one the card declares nothing there,
+// and every file of that area would look unused); EF.SST counts a feature
+// only at 'on' (allocated + activated), as the editor renders it.
+function servicesFsDeclaredTrees(files) {
+	const dec = key => (files && files[key] && files[key].present) ? (files[key].dec || null) : null;
+	const decs = { sst: dec('sst'), ust: dec('ust'), est: dec('est'), ist: dec('ist') };
+	const out = {};
 	for (const f of SERVICES_CROSS_REF) {
-		const st = servicesFeatureState(f, sstDec, ustDec, estDec, istDec);
-		if (st.sst === 'on' || st.ust === true || st.est === true || st.ist === true) out.push(f.f);
+		const st = servicesFeatureState(f, decs.sst, decs.ust, decs.est, decs.ist);
+		for (const spec of SERVICES_FILES) {
+			if (!decs[spec.key]) continue;
+			if (spec.key === 'sst' ? st.sst !== 'on' : st[spec.key] !== true) continue;
+			const root = SERVICES_FS_TREES[spec.key];
+			const list = out[root] || (out[root] = []);
+			if (list.indexOf(f.f) < 0) list.push(f.f);
+		}
 	}
 	return out;
 }
 
-// FIDs present on the card: any node of the file-manager tree that the probe
+// Paths present on the card: every node of the file-manager tree the probe
 // confirmed (exists === true), DFs included - a service gating a whole DF
-// declares the DF's FID.  A node that was never probed (exists === null) is
-// not counted, so an unprobed tree reports nothing as present, and a DF
-// confirmed absent is not descended into.
-function servicesFsPresentFids(root) {
+// declares the DF's path.  A node that was never probed (exists === null) is
+// not counted, and an absent DF is not descended into (the probe does not
+// fetch its children either).
+function servicesFsPresentPaths(root) {
 	const out = [];
-	const seen = {};
+	const seen = new Set();
 	const walk = node => {
 		for (const ch of ((node && node.children) || [])) {
-			const fid = String(ch.fid || '').toUpperCase();
-			if (ch.exists === true && /^[0-9A-F]{4}$/.test(fid) && !seen[fid]) {
-				seen[fid] = true;
-				out.push(fid);
+			if (ch.exists === true) {
+				const p = servicesFsNormPath(pysimFsNodePath(ch));
+				if (p && !seen.has(p)) {
+					seen.add(p);
+					out.push(p);
+				}
 			}
 			if (ch.isDir && ch.exists !== false) walk(ch);
 		}
 	};
 	walk(root);
 	return out;
-}
-
-// File names per FID from the same tree, for the report: a FID may carry one
-// name per DF (the collisions the note names), so the value is a list.
-function servicesFsFidNames(root) {
-	const names = {};
-	const walk = node => {
-		for (const ch of ((node && node.children) || [])) {
-			const fid = String(ch.fid || '').toUpperCase();
-			if (/^[0-9A-F]{4}$/.test(fid) && ch.name) {
-				if (!names[fid]) names[fid] = [];
-				if (names[fid].indexOf(ch.name) < 0) names[fid].push(ch.name);
-			}
-			if (ch.isDir && ch.exists !== false) walk(ch);
-		}
-	};
-	walk(root);
-	return names;
 }
 
 // The mismatch report, deterministic and DOM-free:
-//   missing: [{ feature, fids }] - declared features with absent files, in
-//            cross-reference order, `fids` in the map's (doc) order;
-//   extra:   [{ fid, features }] - present FIDs no declared feature explains,
-//            sorted by FID, `features` = every feature mapping that FID (all
-//            of them undeclared).  A FID that any declared feature maps is
-//            explained and not reported: several features legitimately share
-//            one file (4F01 under the 5G/ACDC/MCPTT DFs, 6F4A/6F4B across
-//            EXT1/EXT2 and BDN), and the FID-level rule cannot tell which DF
-//            the present file sits in.
-function servicesFsReport(declared, presentFids) {
-	const declaredSet = {};
-	for (const name of (declared || [])) declaredSet[name] = true;
-	const presentSet = {};
-	for (const fid of (presentFids || [])) presentSet[String(fid).toUpperCase()] = true;
-	const missing = [];
-	const byFid = {};
-	for (const f of SERVICES_CROSS_REF) {
-		const fids = SERVICES_FS_MAP[f.f] || [];
-		for (const fid of fids) {
-			if (!byFid[fid]) byFid[fid] = [];
-			byFid[fid].push(f.f);
-		}
-		if (!declaredSet[f.f]) continue;
-		const absent = fids.filter(fid => !presentSet[fid]);
-		if (absent.length) missing.push({ feature: f.f, fids: absent });
+//   missing:   [{ feature, tree, paths }] - a declared feature whose resolved
+//              paths are absent, in cross-reference order then
+//              SERVICES_FS_TREE_ORDER, `paths` in the map's (doc) role order;
+//              `tree` is the application whose service table declares it;
+//   extra:     [{ path, role, tree, features }] - a present path whose mapped
+//              features are declared in none of the checked trees, sorted by
+//              path; `tree` is the path's own root and `features` every
+//              feature mapping that path (all of them undeclared).  A path
+//              any declared feature maps is explained and not reported: several
+//              features share one file (the 5G DFs' 4F01/4F02, EXT2 across
+//              FDN/Bdn, the DF.TELECOM DFs a USIM service gates);
+//   unchecked: [{ feature, tree, roles }] - a declared feature whose roles
+//              resolve to no path in that tree at all (the standard list is
+//              missing the file: DF.GRAPHICS/EF.IMG, the DF.TELECOM copies of
+//              DF.SoLSA/DF.MExE, EF.3GPPPSDATAOFFservicelist), so its presence
+//              cannot be verified - reported instead of guessed.
+// A role the list has for another root only is skipped, not a failure: a
+// feature's files are the union of its applications' files (ADN's EF.ADN is
+// the SIM's, its USIM copy is DF.PHONEBOOK + EF.PBR).
+function servicesFsReport(declaredByTree, index, presentPaths) {
+	const declared = declaredByTree || {};
+	const present = new Set((presentPaths || []).map(servicesFsNormPath));
+	const trees = SERVICES_FS_TREE_ORDER.filter(root => Array.isArray(declared[root]));
+	const declaredIn = {};
+	const allDeclared = new Set();
+	for (const root of trees) {
+		declaredIn[root] = new Set(declared[root]);
+		for (const name of declared[root]) allDeclared.add(name);
 	}
-	const extra = Object.keys(byFid).sort()
-		.filter(fid => presentSet[fid] && !byFid[fid].some(name => declaredSet[name]))
-		.map(fid => ({ fid: fid, features: byFid[fid] }));
-	return { missing: missing, extra: extra };
+	const missing = [];
+	const unchecked = [];
+	const reverse = new Map();
+	for (const f of SERVICES_CROSS_REF) {
+		const roles = SERVICES_FS_MAP[f.f] || [];
+		if (!roles.length) continue;
+		for (const root of trees) {
+			const paths = [];
+			for (const role of roles) {
+				const path = servicesFsRolePath(index, role, root);
+				if (!path) continue;
+				if (paths.indexOf(path) < 0) paths.push(path);
+				let rev = reverse.get(path);
+				if (!rev) {
+					rev = { path: path, role: role, tree: path.split('/')[0], features: [] };
+					reverse.set(path, rev);
+				}
+				if (rev.features.indexOf(f.f) < 0) rev.features.push(f.f);
+			}
+			if (!declaredIn[root].has(f.f)) continue;
+			if (!paths.length) {
+				unchecked.push({ feature: f.f, tree: root, roles: roles.slice() });
+				continue;
+			}
+			const absent = paths.filter(path => !present.has(path));
+			if (absent.length) missing.push({ feature: f.f, tree: root, paths: absent });
+		}
+	}
+	const extra = Array.from(reverse.values())
+		.filter(e => present.has(e.path) && !e.features.some(name => allDeclared.has(name)))
+		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+		.map(e => ({ path: e.path, role: e.role, tree: e.tree, features: e.features.slice() }));
+	return { missing: missing, extra: extra, unchecked: unchecked };
 }
 
-function servicesFsReportHtml(report, names) {
+function servicesFsReportHtml(report) {
 	const note = '<div class="text-xs text-gray-500 dark:text-slate-400 mt-1">' +
-		esc(t('The check is FID-level: a FID is counted anywhere in the card\'s tree, so the collisions across DFs (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) are not disambiguated.')) + '</div>';
+		esc(t('The check is path-exact: each service file is resolved to its full path in the standard file list, so a file with the same FID under another DF no longer explains it.')) + '</div>';
 	const head = (text, n) => '<div class="text-xs font-medium mt-2">' + esc(text) + ' (' + n + ')</div>';
 	const item = text => '<li>' + text + '</li>';
-	// the tree's own name(s) for the FID, when the check loaded it
-	const fidLabel = fid => {
-		const list = names && names[fid];
-		return '<span class="font-mono">' + esc(fid) + '</span>' +
-			((list && list.length) ? ' (' + esc(list.join(' / ')) + ')' : '');
-	};
-	const fidList = fids => fids.map(fidLabel).join(', ');
-	if (!report || (!report.missing.length && !report.extra.length)) {
+	const pathLabel = path => '<span class="font-mono">' + esc(path) + '</span>';
+	const missing = (report && report.missing) || [];
+	const extra = (report && report.extra) || [];
+	const unchecked = (report && report.unchecked) || [];
+	if (!missing.length && !extra.length && !unchecked.length) {
 		return '<div class="text-xs text-emerald-600 dark:text-emerald-400">' +
 			esc(t('The filesystem matches the declared services')) + '</div>' + note;
 	}
 	let html = '';
-	if (report.missing.length) {
-		html += head(t('Declared services whose files are missing'), report.missing.length);
+	if (missing.length) {
+		html += head(t('Declared services whose files are missing'), missing.length);
 		html += '<ul class="list-disc ml-4">';
-		for (const m of report.missing) html += item(esc(m.feature) + ': ' + fidList(m.fids));
+		for (const m of missing) {
+			html += item(esc(m.feature) + ' (' + esc(m.tree) + '): ' + m.paths.map(pathLabel).join(', '));
+		}
 		html += '</ul>';
 	}
-	if (report.extra.length) {
-		html += head(t('Present files whose service is not declared'), report.extra.length);
+	if (extra.length) {
+		html += head(t('Present files whose service is not declared'), extra.length);
 		html += '<ul class="list-disc ml-4">';
-		for (const e of report.extra) html += item(fidLabel(e.fid) + ': ' + esc(e.features.join(', ')));
+		for (const e of extra) {
+			html += item(pathLabel(e.path) + ' (' + esc(e.role) + '): ' + esc(e.features.join(', ')));
+		}
 		html += '</ul>';
+	}
+	if (unchecked.length) {
+		html += head(t('Declared services that cannot be checked'), unchecked.length);
+		html += '<ul class="list-disc ml-4">';
+		for (const u of unchecked) {
+			html += item(esc(u.feature) + ' (' + esc(u.tree) + '): ' + esc(u.roles.join(', ')));
+		}
+		html += '</ul>';
+		html += '<div class="text-xs text-gray-500 dark:text-slate-400">' +
+			esc(t('The standard file list has no path for these files, so their presence cannot be verified.')) + '</div>';
 	}
 	return html + note;
 }
@@ -23737,10 +23841,9 @@ function servicesFsReportHtml(report, names) {
 let _pysimServicesCache = null;
 let _pysimServicesBusy = false;
 // The last filesystem-check report, kept so a re-render (language switch) can
-// redraw it; cleared with the cache on a card-session change.  The names map
-// annotates the report's FIDs with the tree's file names.
+// redraw it; cleared with the cache on a card-session change.  It carries the
+// resolved paths itself, so a redraw needs no card or file list.
 let _pysimServicesFsReport = null;
-let _pysimServicesFsNames = null;
 let _pysimServicesFsBusy = false;
 
 async function pysimServicesReadFile(spec) {
@@ -23786,7 +23889,6 @@ async function pysimServicesOpen(force) {
 function pysimServicesReset() {
 	_pysimServicesCache = null;
 	_pysimServicesFsReport = null;
-	_pysimServicesFsNames = null;
 	pysimServicesRender();
 	if (isViewVisible('pysim-sub-services')) pysimServicesOpen();
 }
@@ -23794,14 +23896,16 @@ function pysimServicesReset() {
 function pysimServicesFsRender() {
 	const el = document.getElementById('pysim-services-fs-report');
 	if (!el) return;
-	el.innerHTML = _pysimServicesFsReport ? servicesFsReportHtml(_pysimServicesFsReport, _pysimServicesFsNames) : '';
+	el.innerHTML = _pysimServicesFsReport ? servicesFsReportHtml(_pysimServicesFsReport) : '';
 }
 
 // "Check filesystem": compare the declared services with the card's probed
-// tree.  The file manager loads its tree lazily and only probes presence on
-// demand, so the check runs the full probe once per tree (a loaded but
-// unprobed tree claims every listed file as present - /api/tree does not test
-// it).
+// tree, path-exactly.  The file manager loads its tree lazily and only probes
+// presence on demand, so the check runs the full probe once per tree (a
+// loaded but unprobed tree claims every listed file as present - /api/tree
+// does not test it).  The standard file list's (name, root) index turns each
+// feature's symbolic files into paths the probe's results can be compared
+// with.
 async function pysimServicesFsCheck() {
 	const statusEl = document.getElementById('pysim-services-fs-status');
 	const reportEl = document.getElementById('pysim-services-fs-report');
@@ -23810,7 +23914,6 @@ async function pysimServicesFsCheck() {
 	if (_pysimFsProbe) { setStatus(t('A file probe is already running')); return; }
 	_pysimServicesFsBusy = true;
 	_pysimServicesFsReport = null;
-	_pysimServicesFsNames = null;
 	reportEl.innerHTML = '';
 	setStatus(t('Loading...'));
 	try {
@@ -23825,9 +23928,15 @@ async function pysimServicesFsCheck() {
 			setStatus(t('Probing:'));
 			await pysimFsProbeAll();
 		}
+		const index = await servicesPathIndex();
+		if (!index.size) {
+			reportEl.innerHTML = '<div class="text-xs text-amber-600 dark:text-amber-400">' +
+				esc(t('The standard file list could not be loaded')) + '</div>';
+			return;
+		}
 		_pysimServicesFsReport = servicesFsReport(
-			servicesFsDeclared(cache.files), servicesFsPresentFids(pysimFsTreeRoot));
-		_pysimServicesFsNames = servicesFsFidNames(pysimFsTreeRoot);
+			servicesFsDeclaredTrees(cache.files), index,
+			servicesFsPresentPaths(pysimFsTreeRoot));
 		pysimServicesFsRender();
 	} catch (e) {
 		reportEl.innerHTML = '<div class="text-xs text-amber-600 dark:text-amber-400">' +
@@ -24973,12 +25082,14 @@ function efFidFromPath(path) {
 
 // The ADF roots a snapshot/profile path uses are the DF name (an AID) the card
 // reports in its FCI, e.g. A0000000871002FF49FF0589 - but the decoders key
-// their DF-specific entries by the symbolic name.  The two standard
-// application RIDs (TS 101 220; ADF.USIM / ADF.ISIM per TS 31.102/31.103 §4)
-// fold onto those names, whatever the AID's PIX is.
+// their DF-specific entries by the symbolic name.  The standard application
+// RIDs (TS 101 220; ADF.USIM / ADF.ISIM per TS 31.102/31.103 §4, and the
+// non-IMSI USIM of TS 31.102 Annex N, which repeats the ADF.USIM file set
+// under its own root) fold onto those names, whatever the AID's PIX is.
 const EF_ADF_RIDS = [
 	['A0000000871002', 'ADF.USIM'],
 	['A0000000871004', 'ADF.ISIM'],
+	['A000000087100B', 'ADF.USIM-NON-IMSI'],
 ];
 
 // The parent DF of a canonical path: "MF/7F20/6FAD" -> "7F20",
@@ -27614,7 +27725,10 @@ const LANG_RU = {
 	'Present files whose service is not declared': 'Присутствующие файлы, сервис которых не заявлен',
 	'The filesystem matches the declared services': 'Файловая система соответствует заявленным сервисам',
 	'A file probe is already running': 'Опрос файлов уже выполняется',
-	'The check is FID-level: a FID is counted anywhere in the card\'s tree, so the collisions across DFs (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) are not disambiguated.': 'Проверка выполняется на уровне FID: FID учитывается в любом месте дерева карты, поэтому совпадения FID в разных DF (6F4E EXT4/EXT5, 6F4F ECCP/CCP2, 6F07 IMSI/IST, 6F38 SST/UST) не различаются.',
+	'Declared services that cannot be checked': 'Заявленные сервисы, которые нельзя проверить',
+	'The standard file list has no path for these files, so their presence cannot be verified.': 'В стандартном списке файлов нет пути для этих файлов, поэтому их наличие проверить нельзя.',
+	'The standard file list could not be loaded': 'Не удалось загрузить стандартный список файлов',
+	'The check is path-exact: each service file is resolved to its full path in the standard file list, so a file with the same FID under another DF no longer explains it.': 'Проверка точна по пути: каждый файл сервиса сопоставляется с полным путём в стандартном списке файлов, поэтому файл с тем же FID в другом DF больше не считается объяснением.',
 	'No service table found on this card': 'На этой карте не найдено ни одной таблицы сервисов',
 	'Stop': 'Остановить',
 	'Probing:': 'Проверка:',

@@ -303,16 +303,24 @@ de-allocates.
 - **Filesystem check** (implemented, step 4b): many services declare a DF or EF
   (ADN -> EF.ADN 6F3A, SPN -> EF.SPN 6F46, GSM Access -> DF.GSM-ACCESS 5F3B,
   GPRS -> EF.KcGPRS, …); a second curated table (`SERVICES_FS_MAP`, keyed by
-  feature name) maps a feature to the FID(s) its `Filesystem` cell declares.
-  A **Check filesystem** action writes the services, probes the file-manager
-  tree once (`pysimFsProbeAll`) and flags mismatches — a declared service whose
-  file is absent, or a present file whose service is not declared.  Services
-  that map to a capability rather than a file (CHV1 disable, Proactive SIM,
-  …) carry no file check.  This first pass matches **FID-level**, not
-  (DF, FID)-exact as finding 6 asks: the documented FID collisions are not
-  disambiguated and the report says so (`docs/services-editor.md` §B.0).  The
-  last report is kept in memory and dropped with the cached reads on a
-  card-session change.
+  feature name) maps a feature to the **symbolic files** its `Filesystem` cell
+  declares, resolved through the standard file list's `(name, root) -> path`
+  index — path-exact, so the same FID under another DF (EF.PBR/EF.SAI both
+  4F30, EF.SST/EF.UST both 6F38) no longer explains a service.  A **Check
+  filesystem** action probes the file-manager tree once
+  (`pysimFsProbeAll`) and flags mismatches — a declared service whose file is
+  absent, or a present file whose service is not declared in any checked tree;
+  a declared feature the standard list cannot resolve is reported separately as
+  *unchecked*.  Services that map to a capability rather than a file (CHV1
+  disable, Proactive SIM, …) carry no file check.  The declarations are read
+  per application (SST -> MF, UST/EST -> ADF.USIM, IST -> ADF.ISIM) and a
+  USIM/ISIM role may resolve into the common DF.TELECOM subtree (the MF tree),
+  except the GSM application's mapped copies (EF.ADN/EF.EXT1/EF.ECCP, TS 31.102
+  4.5).  The follow-ups are the `ADF.USIM-NON-IMSI` root alias and the files
+  missing from the standard list (`DF.GRAPHICS`/`EF.IMG`, the DF.TELECOM
+  DF.SoLSA/DF.MExE, EF.3GPPPSDATAOFFservicelist) — `docs/services-editor.md`
+  §B.0.  The last report is kept in memory (it carries its resolved paths) and
+  dropped with the cached reads on a card-session change.
 
 ### 6.1 Candidates for the same cross-application treatment
 

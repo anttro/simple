@@ -400,6 +400,9 @@ test('efDfFromPath folds an ADF AID root onto its symbolic ADF name', () => {
 	assert.strictEqual(efDfFromPath('a0000000871002ff49ff0589/6fad'), 'ADF.USIM');
 	assert.strictEqual(efDfFromPath('A0000000871004/6F07'), 'ADF.ISIM');
 	assert.strictEqual(efDfFromPath('A0000000871004FF49FF0589/6F07'), 'ADF.ISIM');
+	// the non-IMSI USIM (TS 31.102 Annex N) repeats the ADF.USIM file set
+	assert.strictEqual(efDfFromPath('A000000087100B/6F38'), 'ADF.USIM-NON-IMSI');
+	assert.strictEqual(efDfFromPath('a000000087100bff49ff0589/6f38'), 'ADF.USIM-NON-IMSI');
 	// an unrelated AID is not an ADF name: it passes through as itself
 	assert.strictEqual(efDfFromPath('A0000000090003FFFF/6F07'), 'A0000000090003FFFF');
 	assert.strictEqual(efDfFromPath('F0414C46416001/6F07'), 'F0414C46416001');

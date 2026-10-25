@@ -45,14 +45,16 @@ const FNS = [
 	'servicesSstAllocated', 'servicesSstPreserved', 'servicesBitsPreserved', 'servicesSstValues',
 	'servicesTableValues', 'servicesFileBytes', 'pysimServicesColumns', 'pysimServicesGridHtml',
 	'pysimServicesSaveRowHtml', 'pysimServicesCollect',
-	'servicesFsDeclared', 'servicesFsPresentFids', 'servicesFsFidNames', 'servicesFsReport',
-	'servicesFsReportHtml',
+	'servicesFsDeclaredTrees', 'servicesFsPresentPaths', 'servicesFsReport',
+	'servicesFsReportHtml', 'servicesFsPathKey', 'servicesFsNormPath', 'servicesFsRolePath',
+	'servicesPathIndexBuild', 'pysimFsNodePath',
 ];
 
 let code = 'var _pysimServicesCache = null;\nvar _pysimServicesBusy = false;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES',
-	'SERVICES_CROSS_REF', 'SERVICES_FILES', 'SERVICES_FS_MAP', 'SERVICES_TABLES']) {
+	'SERVICES_CROSS_REF', 'SERVICES_FILES', 'SERVICES_FS_MAP', 'SERVICES_FS_TREES',
+	'SERVICES_FS_TREE_ORDER', 'SERVICES_FS_GSM_MAPPED', 'SERVICES_TABLES']) {
 	code += extractConst(html, c);
 }
 code += 'globalThis.esc = s => String(s);\nglobalThis.t = k => k;\n';
@@ -305,20 +307,24 @@ test('an absent file yields no bytes', () => {
 	assert.strictEqual(servicesFileBytes('ust', {}, {}), null);
 });
 
-// ---- filesystem check: the feature -> FID table (docs/services-editor.md §B) ----
+// ---- filesystem check: the feature -> symbolic files table (docs/services-editor.md §B) ----
 
 const UICC_FILES = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'uicc_files.json'), 'utf8'));
+const FS_INDEX = servicesPathIndexBuild(UICC_FILES.files);
+const fsResolve = (role, root) => FS_INDEX.get(servicesFsPathKey(role, root));
 
-test('SERVICES_FS_MAP covers every feature exactly once and carries 4-hex FIDs', () => {
+test('SERVICES_FS_MAP covers every feature exactly once and carries symbolic file names', () => {
 	const names = SERVICES_CROSS_REF.map(f => f.f);
 	assert.deepStrictEqual(Object.keys(SERVICES_FS_MAP), names,
 		'one entry per cross-reference row, in table order');
 	let backed = 0, capability = 0;
-	for (const [name, fids] of Object.entries(SERVICES_FS_MAP)) {
-		assert.ok(Array.isArray(fids), 'not an array: ' + name);
-		assert.strictEqual(new Set(fids).size, fids.length, 'duplicate FID: ' + name);
-		for (const fid of fids) assert.match(fid, /^[0-9A-F]{4}$/, name + ': ' + fid);
-		if (fids.length) backed++; else capability++;
+	for (const [name, roles] of Object.entries(SERVICES_FS_MAP)) {
+		assert.ok(Array.isArray(roles), 'not an array: ' + name);
+		assert.strictEqual(new Set(roles).size, roles.length, 'duplicate role: ' + name);
+		// the standard file list's own names, never FIDs: a FID is ambiguous
+		// across applications (4F30 = EF.PBR and EF.SAI)
+		for (const role of roles) assert.match(role, /^(EF|DF)\.[A-Za-z0-9_+.-]+$/, name + ': ' + role);
+		if (roles.length) backed++; else capability++;
 	}
 	// docs/services-editor.md §B.1 lists 34 `capability` cells; the remaining
 	// 127 rows declare at least one file.
@@ -339,31 +345,124 @@ test('the capability features carry no file check', () => {
 	}
 });
 
-test('the well-known files map to their documented FIDs', () => {
-	assert.deepStrictEqual(SERVICES_FS_MAP['Fixed Dialling Numbers (FDN)'], ['6F3B', '6F4B']);
-	assert.deepStrictEqual(SERVICES_FS_MAP['Service Provider Name (SPN)'], ['6F46']);
-	assert.deepStrictEqual(SERVICES_FS_MAP['GSM Access'], ['5F3B']);
-	// ADN: the EF plus the USIM's DF.PHONEBOOK and EF.PBR
-	assert.ok(SERVICES_FS_MAP['Local Phone Book (ADN)'].includes('6F3A'));
-	assert.ok(SERVICES_FS_MAP['Short Message Storage (SMS)'].includes('6F3C'));
-	assert.deepStrictEqual(SERVICES_FS_MAP['Image (IMG)'], ['5F50', '4F20']);
-	assert.deepStrictEqual(SERVICES_FS_MAP['Advice of Charge (AoC)'], ['6F39', '6F37', '6F41']);
-	assert.deepStrictEqual(SERVICES_FS_MAP['Extension 4'], ['6F4E', '6F55'],
-		'both trees\' FIDs, per the doc\'s "(SIM) / 6F55 (USIM)"');
+test('the well-known features map to their documented files', () => {
+	assert.deepStrictEqual(SERVICES_FS_MAP['Fixed Dialling Numbers (FDN)'], ['EF.FDN', 'EF.EXT2']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['Service Provider Name (SPN)'], ['EF.SPN']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['GSM Access'], ['DF.GSM-ACCESS']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['Local Phone Book (ADN)'], ['EF.ADN', 'DF.PHONEBOOK', 'EF.PBR']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['SoLSA'], ['DF.SoLSA', 'EF.SAI', 'EF.SLL']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['MExE'], ['DF.MExE', 'EF.MExE-ST']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['A2X'], ['DF.A2X', 'EF.AST', 'EF.A2X_CONFIG']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['Advice of Charge (AoC)'], ['EF.ACM', 'EF.ACMmax', 'EF.PUCT']);
+	assert.deepStrictEqual(SERVICES_FS_MAP['Extension 4'], ['EF.EXT4'],
+		'one name: the SIM and the USIM copy have different FIDs but the same name');
 });
 
-test('every mapped FID is a known file (pySim\'s cardless list or the documented gap)', () => {
-	const known = new Set(UICC_FILES.files.map(e => e.fid));
-	const mapped = new Set();
-	for (const fids of Object.values(SERVICES_FS_MAP)) for (const fid of fids) mapped.add(fid);
-	// docs/services-editor.md §5: files UICC_FILES.md documents but pySim's
-	// model does not carry (the FS check probes the card, so they are not a
-	// blocker there).  6FDC/6FF0/6FF2 are also outside pySim's profile.
-	const gap = new Set(['4F31', '4F40', '5F3C', '5F3F', '5F70', '5F80', '5FA0', '5FB0',
-		'6FDC', '6FF0', '6FF2', '6FF9', '6FFB']);
-	assert.deepStrictEqual(Array.from(mapped).filter(fid => !known.has(fid)).sort(),
-		Array.from(gap).sort(), 'mapped FIDs outside the cardless list');
-	assert.ok(mapped.size >= 150, 'distinct mapped FIDs: ' + mapped.size);
+test('a role outside its feature\'s declaring tree lives in the shared DF.TELECOM subtree', () => {
+	// A UST/IST-gated DF may be a child of DF.TELECOM (TS 31.102 4.6.0), i.e.
+	// an MF path - the resolver's fallback.  Anything else would be a mapping
+	// error, and the GSM application's mapped copies (EF.ADN/EF.EXT1/EF.ECCP)
+	// are deliberately not expected there.
+	const features = new Set();
+	for (const f of SERVICES_CROSS_REF) {
+		const trees = [];
+		if (f.sst !== null) trees.push('MF');
+		if (f.ust !== null || f.est !== null) trees.push('ADF.USIM');
+		if (f.ist !== null) trees.push('ADF.ISIM');
+		for (const role of (SERVICES_FS_MAP[f.f] || [])) {
+			if (trees.some(root => fsResolve(role, root))) continue;
+			const path = fsResolve(role, 'MF');
+			if (!path) continue;                     // a registry gap, pinned above
+			assert.match(path, /^MF\/7F10\//, f.f + ': ' + role + ' -> ' + path);
+			assert.ok(SERVICES_FS_GSM_MAPPED.indexOf(role) < 0, f.f + ': ' + role);
+			features.add(f.f);
+		}
+	}
+	assert.deepStrictEqual(Array.from(features),
+		['Multimedia Messages Storage', 'MCPTT', 'V2X', 'A2X']);
+});
+
+test('every mapped role is a standard file, except the documented registry gaps', () => {	// The names that resolve in none of the checked trees: files the standard
+	// list does not carry yet (pySim omits DF.GRAPHICS and the DF.TELECOM
+	// copies of DF.SoLSA/DF.MExE; EF.3GPPPSDATAOFFservicelist is a pySim TODO).
+	// The report lists these as `unchecked` instead of guessing a path.
+	const gaps = {
+		'Image (IMG)': ['DF.GRAPHICS', 'EF.IMG'],
+		'3GPP PS Data Off Service List': ['EF.3GPPPSDATAOFFservicelist'],
+	};
+	const unresolved = {};
+	for (const [name, roles] of Object.entries(SERVICES_FS_MAP)) {
+		for (const role of roles) {
+			if (SERVICES_FS_TREE_ORDER.some(root => fsResolve(role, root))) continue;
+			(unresolved[name] = unresolved[name] || []).push(role);
+		}
+	}
+	assert.deepStrictEqual(unresolved, gaps);
+	// a mapped role that does resolve resolves through exactly one list entry
+	for (const roles of Object.values(SERVICES_FS_MAP)) {
+		for (const role of roles) {
+			for (const root of SERVICES_FS_TREE_ORDER) {
+				const path = fsResolve(role, root);
+				if (!path) continue;
+				const entries = UICC_FILES.files.filter(f => f.name === role
+					&& f.root.toUpperCase() === root && f.path.toUpperCase() === path);
+				assert.strictEqual(entries.length, 1, role + ' ' + root + ' -> ' + path);
+			}
+		}
+	}
+});
+
+// ---- filesystem check: the (name, root) -> path index ----
+
+test('servicesPathIndexBuild keys the standard list by (name, root)', () => {
+	assert.ok(FS_INDEX.size >= 200, 'indexed files: ' + FS_INDEX.size);
+	// every value is one of the list's paths, and the list's roots are the keys
+	for (const [key, path] of FS_INDEX) {
+		const [name, root] = key.split('|');
+		assert.ok(UICC_FILES.files.some(f => f.name.toUpperCase() === name && f.root.toUpperCase() === root
+			&& f.path.toUpperCase() === path), key + ' -> ' + path);
+	}
+	assert.deepStrictEqual(servicesPathIndexBuild(null), new Map());
+	assert.deepStrictEqual(servicesPathIndexBuild([null, {}, { name: 'EF.X' }]), new Map());
+	// case-insensitive on both sides
+	assert.strictEqual(FS_INDEX.get(servicesFsPathKey('ef.spn', 'mf')), 'MF/7F20/6F46');
+});
+
+test('the same FID under different names resolves to its own path', () => {
+	// EF.PBR and EF.SAI are both 4F30
+	assert.strictEqual(fsResolve('EF.PBR', 'ADF.USIM'), 'ADF.USIM/5F3A/4F30');
+	assert.strictEqual(fsResolve('EF.SAI', 'ADF.USIM'), 'ADF.USIM/5F70/4F30');
+	// EF.PBR exists in both trees, under different parents
+	assert.strictEqual(fsResolve('EF.PBR', 'MF'), 'MF/7F10/5F3A/4F30');
+	// a DF.TELECOM child resolves in the MF tree
+	assert.strictEqual(fsResolve('DF.A2X', 'MF'), 'MF/7F10/5F3F');
+	assert.strictEqual(fsResolve('EF.A2X_CONFIG', 'MF'), 'MF/7F10/5F3F/4F02');
+	// EF.SST and EF.UST are both 6F38
+	assert.strictEqual(fsResolve('EF.UST', 'ADF.USIM'), 'ADF.USIM/6F38');
+	assert.strictEqual(fsResolve('EF.IST', 'ADF.ISIM'), 'ADF.ISIM/6F07');
+	// the one duplicate (name, root): pySim models EF.SUCI_Calc_Info twice
+	// under ADF.USIM (DF.5GS/4F07 - the UST 125 file - and the eSIM profile
+	// package's DF.SAIP/4F01); the list's first entry, DF.5GS, wins
+	const suci = UICC_FILES.files.filter(f => f.name === 'EF.SUCI_Calc_Info' && f.root === 'ADF.USIM');
+	assert.strictEqual(suci.length, 2);
+	assert.strictEqual(fsResolve('EF.SUCI_Calc_Info', 'ADF.USIM'), 'ADF.USIM/5FC0/4F07');
+});
+
+test('servicesFsRolePath falls back to the shared DF.TELECOM subtree', () => {
+	// DF.MCS is a child of DF.TELECOM (TS 31.102 4.6.0): a UST declaration
+	// resolves it in the MF tree
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'DF.MCS', 'ADF.USIM'), 'MF/7F10/5F3D');
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'EF.MST', 'ADF.USIM'), 'MF/7F10/5F3D/4F01');
+	// an own-tree path wins over the fallback
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'EF.FDN', 'ADF.USIM'), 'ADF.USIM/6F3B');
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'EF.FDN', 'MF'), 'MF/7F10/6F3B');
+	// the GSM application's mapped copies are not expected by a USIM
+	// declaration (TS 31.102 4.5) ...
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'EF.ADN', 'ADF.USIM'), undefined);
+	assert.ok(SERVICES_FS_GSM_MAPPED.indexOf('EF.ADN') >= 0);
+	// ... and a SIM (MF) declaration never falls back to an application
+	assert.strictEqual(servicesFsRolePath(FS_INDEX, 'DF.SoLSA', 'MF'), undefined);
+	assert.strictEqual(servicesFsRolePath(null, 'EF.SPN', 'MF'), undefined);
 });
 
 // ---- filesystem check: the report ----
@@ -375,130 +474,188 @@ const svcFiles = (sst, ust, est, ist) => ({
 	ist: ist ? { present: true, dec: ist } : { present: false },
 });
 
-test('servicesFsPresentFids collects the probed nodes\' FIDs, recursively', () => {
-	const root = {
-		children: [
-			{ name: 'MF/7F20', fid: '7f20', isDir: true, exists: true, children: [
-				{ name: 'EF.SPN', fid: '6f46', exists: true },
-				{ name: 'EF.LND', fid: '6F44', exists: false },
-				{ name: 'EF.ADN', fid: '6F3A', exists: true },
-			] },
-			{ name: 'EF.ICCID', fid: '2FE2', exists: null },      // never probed
-			{ name: 'DF.GSM-ACCESS', fid: '5F3B', isDir: false, exists: true },
-			{ name: 'no fid', exists: true },
-			{ name: 'MF/2F06', fid: '2F06', isDir: true, exists: false, children: [
-				{ name: 'EF.SST', fid: '6F38', exists: true },   // under an absent DF
-			] },
-		],
+// A file-manager tree with parent links (pysimFsNodePath walks up them).
+function fsTree(children) {
+	const mk = (spec, parent) => {
+		const node = {
+			name: spec.name, fid: spec.fid, isDir: !!spec.isDir, exists: spec.exists,
+			children: null, parent: parent,
+		};
+		if (spec.children) node.children = spec.children.map(c => mk(c, node));
+		return node;
 	};
-	assert.deepStrictEqual(servicesFsPresentFids(root), ['7F20', '6F46', '6F3A', '5F3B']);
-	assert.deepStrictEqual(servicesFsPresentFids(null), []);
-	// the same walk supplies the report's file names, one list per collided FID
-	assert.deepStrictEqual(servicesFsFidNames(root), {
-		'7F20': ['MF/7F20'], '6F46': ['EF.SPN'], '6F44': ['EF.LND'], '6F3A': ['EF.ADN'],
-		'2FE2': ['EF.ICCID'], '5F3B': ['DF.GSM-ACCESS'], '2F06': ['MF/2F06'],
-	});
-	assert.deepStrictEqual(servicesFsFidNames(null), {});
+	const root = { name: 'MF', path: 'MF', fid: '3F00', isDir: true, exists: true, parent: null, children: null };
+	root.children = (children || []).map(c => mk(c, root));
+	return root;
+}
+
+test('servicesFsPresentPaths collects the probed nodes\' canonical paths', () => {
+	const root = fsTree([
+		{ name: 'DF.TELECOM', fid: '7F10', isDir: true, exists: true, children: [
+			{ name: 'EF.SMS', fid: '6f3c', exists: true },
+			{ name: 'EF.LND', fid: '6F44', exists: false },
+		] },
+		{ name: 'EF.ICCID', fid: '2FE2', exists: null },          // never probed
+		{ name: 'ADF.USIM', isDir: true, exists: true, children: [
+			{ name: 'EF.UST', fid: '6F38', exists: true },
+		] },
+		{ name: 'DF.ABSENT', fid: '5F80', isDir: true, exists: false, children: [
+			{ name: 'EF.BCAST', fid: '4F01', exists: true },       // under an absent DF
+		] },
+	]);
+	assert.deepStrictEqual(servicesFsPresentPaths(root),
+		['MF/7F10', 'MF/7F10/6F3C', 'ADF.USIM', 'ADF.USIM/6F38']);
+	assert.deepStrictEqual(servicesFsPresentPaths(null), []);
 });
 
-test('servicesFsDeclared reads the union of the present service files', () => {
+test('servicesFsDeclaredTrees groups the declared features by declaring application', () => {
 	const files = svcFiles(
 		sstDec({ 3: [1, 1], 4: [1, 0] }),   // FDN on, SMS allocated-off
 		bitDec([2, 10]),                    // UST FDN + SMS
 		null,                               // no EF.EST on the card
 		bitDec([6]));                       // IST SMS
-	const declared = servicesFsDeclared(files);
-	assert.ok(declared.includes('Fixed Dialling Numbers (FDN)'), declared.join(' | '));
-	assert.ok(declared.includes('Short Message Storage (SMS)'), declared.join(' | '));
-	// an allocated-off SST service declares nothing on its own
-	const off = servicesFsDeclared(svcFiles(sstDec({ 4: [1, 0] }), null, null, null));
-	assert.deepStrictEqual(off, []);
-	// no files at all: nothing declared
-	assert.deepStrictEqual(servicesFsDeclared(svcFiles(null, null, null, null)), []);
+	const trees = servicesFsDeclaredTrees(files);
+	assert.deepStrictEqual(Object.keys(trees), ['MF', 'ADF.USIM', 'ADF.ISIM']);
+	assert.ok(trees.MF.includes('Fixed Dialling Numbers (FDN)'), trees.MF.join(' | '));
+	assert.ok(!trees.MF.includes('Short Message Storage (SMS)'), 'an allocated-off SST service declares nothing');
+	assert.ok(trees['ADF.USIM'].includes('Fixed Dialling Numbers (FDN)'));
+	assert.ok(trees['ADF.USIM'].includes('Short Message Storage (SMS)'));
+	assert.ok(trees['ADF.ISIM'].includes('Short Message Storage (SMS)'));
+	// the tree's own order: cross-reference order, deduplicated
+	assert.deepStrictEqual(trees['ADF.USIM'], ['Fixed Dialling Numbers (FDN)', 'Short Message Storage (SMS)']);
+	// a tree whose service table is absent is not checked at all
+	assert.deepStrictEqual(servicesFsDeclaredTrees(svcFiles(null, bitDec([2]), null, null)),
+		{ 'ADF.USIM': ['Fixed Dialling Numbers (FDN)'] });
+	assert.deepStrictEqual(servicesFsDeclaredTrees(svcFiles(null, null, null, null)), {});
 });
 
-test('servicesFsReport: a declared feature with an absent file', () => {
-	const rep = servicesFsReport(['Fixed Dialling Numbers (FDN)'], ['6F3B']);
-	assert.deepStrictEqual(rep.missing, [{ feature: 'Fixed Dialling Numbers (FDN)', fids: ['6F4B'] }]);
+const fsReport = (declaredByTree, present) => servicesFsReport(declaredByTree, FS_INDEX, present);
+
+test('servicesFsReport: a declared feature with an absent path', () => {
+	const rep = fsReport({ MF: ['Fixed Dialling Numbers (FDN)'] }, ['MF/7F10/6F3B']);
+	assert.deepStrictEqual(rep.missing,
+		[{ feature: 'Fixed Dialling Numbers (FDN)', tree: 'MF', paths: ['MF/7F10/6F4B'] }]);
 	assert.deepStrictEqual(rep.extra, []);
-	// both files gone
-	assert.deepStrictEqual(servicesFsReport(['Fixed Dialling Numbers (FDN)'], []).missing,
-		[{ feature: 'Fixed Dialling Numbers (FDN)', fids: ['6F3B', '6F4B'] }]);
+	assert.deepStrictEqual(rep.unchecked, []);
+	// both files gone, in the map's (doc) role order
+	assert.deepStrictEqual(fsReport({ MF: ['Fixed Dialling Numbers (FDN)'] }, []).missing,
+		[{ feature: 'Fixed Dialling Numbers (FDN)', tree: 'MF', paths: ['MF/7F10/6F3B', 'MF/7F10/6F4B'] }]);
 });
 
-test('servicesFsReport: a present file whose service is undeclared', () => {
-	const rep = servicesFsReport([], ['6F3C']);
+test('servicesFsReport: the same FID in another DF no longer explains a service', () => {
+	// EF.PBR and EF.SAI are both 4F30: a card holding the phonebook copy but
+	// no DF.SoLSA leaves SoLSA's paths missing
+	const rep = fsReport({ 'ADF.USIM': ['SoLSA'] }, ['ADF.USIM/5F3A', 'ADF.USIM/5F3A/4F30']);
+	assert.deepStrictEqual(rep.missing, [{ feature: 'SoLSA', tree: 'ADF.USIM',
+		paths: ['ADF.USIM/5F70', 'ADF.USIM/5F70/4F30', 'ADF.USIM/5F70/4F31'] }]);
+	// the phonebook paths are present but ADN is not declared
+	assert.deepStrictEqual(rep.extra.map(e => e.path), ['ADF.USIM/5F3A', 'ADF.USIM/5F3A/4F30']);
+	assert.deepStrictEqual(rep.extra[1],
+		{ path: 'ADF.USIM/5F3A/4F30', role: 'EF.PBR', tree: 'ADF.USIM', features: ['Local Phone Book (ADN)'] });
+	// with the SoLSA paths present the report is clean
+	const ok = fsReport({ 'ADF.USIM': ['SoLSA', 'Local Phone Book (ADN)'] },
+		['ADF.USIM/5F70', 'ADF.USIM/5F70/4F30', 'ADF.USIM/5F70/4F31', 'ADF.USIM/5F3A', 'ADF.USIM/5F3A/4F30']);
+	assert.deepStrictEqual(ok, { missing: [], extra: [], unchecked: [] });
+});
+
+test('servicesFsReport: ADN\'s USIM files are the phonebook pair, not the GSM copy', () => {
+	// TS 31.102 4.5: EF.ADN under DF.TELECOM is the GSM application's mapping
+	const usim = fsReport({ 'ADF.USIM': ['Local Phone Book (ADN)'] }, ['ADF.USIM/5F3A', 'ADF.USIM/5F3A/4F30']);
+	assert.deepStrictEqual(usim, { missing: [], extra: [], unchecked: [] });
+	// ... so a USIM card without the mapped 6F3A is not missing anything
+	assert.deepStrictEqual(fsReport({ 'ADF.USIM': ['Local Phone Book (ADN)'] }, ['ADF.USIM/5F3A/4F30']).missing,
+		[{ feature: 'Local Phone Book (ADN)', tree: 'ADF.USIM', paths: ['ADF.USIM/5F3A'] }]);
+	// the SIM declaration does expect it
+	const sim = fsReport({ MF: ['Local Phone Book (ADN)'] }, ['MF/7F10/5F3A', 'MF/7F10/5F3A/4F30']);
+	assert.deepStrictEqual(sim.missing,
+		[{ feature: 'Local Phone Book (ADN)', tree: 'MF', paths: ['MF/7F10/6F3A'] }]);
+	assert.deepStrictEqual(sim.extra, []);
+});
+
+test('servicesFsReport: a UST-declared DF.TELECOM file resolves in the MF tree', () => {
+	// MCPTT's DF.MCS is a child of DF.TELECOM (TS 31.102 4.6.0)
+	assert.deepStrictEqual(fsReport({ 'ADF.USIM': ['MCPTT'] }, ['MF/7F10/5F3D', 'MF/7F10/5F3D/4F01']),
+		{ missing: [], extra: [], unchecked: [] });
+	assert.deepStrictEqual(fsReport({ 'ADF.USIM': ['MCPTT'] }, []).missing,
+		[{ feature: 'MCPTT', tree: 'ADF.USIM', paths: ['MF/7F10/5F3D', 'MF/7F10/5F3D/4F01'] }]);
+});
+
+test('servicesFsReport: a declared feature the standard list cannot resolve is unchecked', () => {
+	const rep = fsReport({ 'ADF.USIM': ['Image (IMG)'] }, []);
+	assert.deepStrictEqual(rep, { missing: [], extra: [], unchecked: [
+		{ feature: 'Image (IMG)', tree: 'ADF.USIM', roles: ['DF.GRAPHICS', 'EF.IMG'] }] });
+	// a capability row has no files and is never unchecked
+	assert.deepStrictEqual(fsReport({ MF: ['CHV1 disable function'] }, []),
+		{ missing: [], extra: [], unchecked: [] });
+	// a tree the card does not have declares nothing there
+	assert.deepStrictEqual(fsReport({}, []), { missing: [], extra: [], unchecked: [] });
+});
+
+test('servicesFsReport: a shared file is explained by any declared feature', () => {
+	// DF.GSM-ACCESS is gated by both "GSM Access" and "GSM security context";
+	// declaring either one explains the present path
+	const present = ['ADF.USIM/5F3B', 'ADF.USIM/5F3B/4F20', 'ADF.USIM/5F3B/4F52'];
+	assert.deepStrictEqual(fsReport({ 'ADF.USIM': ['GSM security context'] }, present),
+		{ missing: [], extra: [], unchecked: [] });
+	// with neither declared the path is an extra, naming every mapping feature
+	assert.deepStrictEqual(fsReport({ 'ADF.USIM': [] }, ['ADF.USIM/5F3B']).extra,
+		[{ path: 'ADF.USIM/5F3B', role: 'DF.GSM-ACCESS', tree: 'ADF.USIM',
+			features: ['GSM Access', 'GSM security context'] }]);
+	// a lower-case present path matches the list's upper-case one
+	assert.deepStrictEqual(fsReport({ MF: ['Service Provider Name (SPN)'] }, ['mf/7f20/6f46']),
+		{ missing: [], extra: [], unchecked: [] });
+});
+
+test('servicesFsReport: a present path whose service is undeclared', () => {
+	const rep = fsReport({ MF: [] }, ['MF/7F10/6F3C']);
 	assert.deepStrictEqual(rep.missing, []);
-	assert.deepStrictEqual(rep.extra, [{ fid: '6F3C', features: ['Short Message Storage (SMS)'] }]);
-	// a FID several features map lists all of them, in table order
-	assert.deepStrictEqual(servicesFsReport([], ['4F02']).extra,
-		[{ fid: '4F02', features: ['V2X', '5GS Mobility Management Information', 'Network Identifier for SNPN (NID)'] }]);
-});
-
-test('servicesFsReport: an empty pair reports no mismatch', () => {
-	assert.deepStrictEqual(servicesFsReport([], []), { missing: [], extra: [] });
-	// a declared feature whose files are all present is not a mismatch either
-	assert.deepStrictEqual(servicesFsReport(['Service Provider Name (SPN)'], ['6F46']),
-		{ missing: [], extra: [] });
-});
-
-test('servicesFsReport: a capability feature is never flagged', () => {
-	const rep = servicesFsReport(['CHV1 disable function', 'Proactive SIM', 'Menu selection'], []);
-	assert.deepStrictEqual(rep, { missing: [], extra: [] });
-});
-
-test('servicesFsReport: a shared feature flags on its own mapped FIDs', () => {
-	// SMS is declared and present; ADN is declared, nothing of it is on the card
-	const rep = servicesFsReport(['Local Phone Book (ADN)', 'Short Message Storage (SMS)'], ['6F3C']);
-	assert.deepStrictEqual(rep.missing, [{ feature: 'Local Phone Book (ADN)', fids: ['6F3A', '5F3A', '4F30'] }]);
-	assert.deepStrictEqual(rep.extra, [], 'the present SMS file is explained by its declared service');
-	// a present FID any declared feature maps is explained by it
-	assert.deepStrictEqual(servicesFsReport(['MCPTT'], ['4F01']),
-		{ missing: [{ feature: 'MCPTT', fids: ['5F3D'] }], extra: [] });
-	// 4F01 present while nothing that maps it is declared: one extra entry
-	assert.deepStrictEqual(servicesFsReport([], ['4F01']).extra[0].fid, '4F01');
-	assert.ok(servicesFsReport([], ['4F01']).extra[0].features.includes('ACDC support'));
+	assert.deepStrictEqual(rep.extra,
+		[{ path: 'MF/7F10/6F3C', role: 'EF.SMS', tree: 'MF', features: ['Short Message Storage (SMS)'] }]);
+	// extra is sorted by path, and a path without a mapped feature is ignored
+	const extra = fsReport({ MF: ['Service Provider Name (SPN)'] },
+		['MF/7F20/6F45', 'MF/7F10/6F44', 'MF/7F10/6F3C', 'MF/7F20/6F46', 'MF/2F06']).extra;
+	assert.deepStrictEqual(extra.map(e => e.path), ['MF/7F10/6F3C', 'MF/7F10/6F44', 'MF/7F20/6F45']);
+	assert.deepStrictEqual(extra[2].features, ['Cell Broadcast Message Identifier (CBMI)']);
 });
 
 test('servicesFsReport is deterministic and order-stable', () => {
-	const declared = ['Service Provider Name (SPN)', 'Fixed Dialling Numbers (FDN)'];
-	const present = ['6f3b', '6F46'];
-	const a = servicesFsReport(declared, present);
-	const b = servicesFsReport(declared.slice().reverse(), present);
+	const present = ['ADF.USIM/6F3B'];
+	const a = fsReport({ 'ADF.USIM': ['Service Provider Name (SPN)', 'Fixed Dialling Numbers (FDN)'] }, present);
+	const b = fsReport({ 'ADF.USIM': ['Fixed Dialling Numbers (FDN)', 'Service Provider Name (SPN)'] }, present);
 	assert.deepStrictEqual(a, b, 'cross-reference order, not input order');
-	assert.deepStrictEqual(a.missing, [{ feature: 'Fixed Dialling Numbers (FDN)', fids: ['6F4B'] }]);
-	// the lower-case present FIDs matched
-	assert.deepStrictEqual(a.extra, []);
-	// extra is sorted by FID
-	const extra = servicesFsReport(['Service Provider Name (SPN)'], ['6F81', '6F3C', '6F45']).extra;
-	assert.deepStrictEqual(extra.map(e => e.fid), ['6F3C', '6F45', '6F81']);
+	assert.deepStrictEqual(a.missing, [
+		{ feature: 'Fixed Dialling Numbers (FDN)', tree: 'ADF.USIM', paths: ['ADF.USIM/6F4B'] },
+		{ feature: 'Service Provider Name (SPN)', tree: 'ADF.USIM', paths: ['ADF.USIM/6F46'] },
+	]);
 });
 
-test('servicesFsReportHtml renders the two headings, the match line and the note', () => {
-	const note = 'FID-level';
-	const empty = servicesFsReportHtml(servicesFsReport([], []));
+test('servicesFsReportHtml renders the paths and the notes', () => {
+	const note = 'path-exact';
+	const empty = servicesFsReportHtml(fsReport({ MF: [] }, []));
 	assert.ok(empty.includes('The filesystem matches the declared services'), empty);
 	assert.ok(empty.includes(note), empty);
-	const rep = servicesFsReport(['Fixed Dialling Numbers (FDN)'], ['6F3C']);
+	assert.ok(servicesFsReportHtml(null).includes('The filesystem matches the declared services'));
+	const rep = fsReport({ MF: ['Fixed Dialling Numbers (FDN)'] }, ['MF/7F10/6F3C']);
 	const html = servicesFsReportHtml(rep);
 	assert.ok(html.includes('Declared services whose files are missing'), html);
 	assert.ok(html.includes('Fixed Dialling Numbers (FDN)'), html);
-	assert.ok(html.includes('6F4B'), html);
+	assert.ok(html.includes('MF/7F10/6F4B'), 'the missing path is shown');
 	assert.ok(html.includes('Present files whose service is not declared'), html);
-	assert.ok(html.includes('6F3C'), html);
+	assert.ok(html.includes('MF/7F10/6F3C'), 'the extra path is shown');
+	assert.ok(html.includes('EF.SMS'), 'the extra path names its role');
 	assert.ok(html.includes('Short Message Storage (SMS)'), html);
 	assert.ok(html.includes(note), html);
 	assert.ok(!html.includes('The filesystem matches the declared services'), html);
 	// a single-sided report renders only its own heading
-	const one = servicesFsReportHtml(servicesFsReport(['Fixed Dialling Numbers (FDN)'], ['6F3B']));
+	const one = servicesFsReportHtml(fsReport({ MF: ['Fixed Dialling Numbers (FDN)'] }, ['MF/7F10/6F3B']));
 	assert.ok(one.includes('Declared services whose files are missing'), one);
 	assert.ok(!one.includes('Present files whose service is not declared'), one);
-	// the tree's names annotate the FIDs when the check passes its names map
-	const named = servicesFsReportHtml(rep, { '6F3C': ['EF.SMS'], '6F4B': ['EF.EXT2'] });
-	assert.ok(named.includes('6F4B') && named.includes('(EF.EXT2)'), named);
-	assert.ok(named.includes('6F3C') && named.includes('(EF.SMS)'), named);
-	// ... and a FID the map lacks stays bare
-	assert.ok(!named.includes('6F3A ('), named);
+	assert.ok(!one.includes('Declared services that cannot be checked'), one);
+	// the unchecked bucket names the roles and explains itself
+	const unc = servicesFsReportHtml(fsReport({ 'ADF.USIM': ['Image (IMG)'] }, []));
+	assert.ok(unc.includes('Declared services that cannot be checked'), unc);
+	assert.ok(unc.includes('Image (IMG)') && unc.includes('DF.GRAPHICS') && unc.includes('EF.IMG'), unc);
+	assert.ok(unc.includes('cannot be verified'), unc);
 });
 
 // ---- filesystem check: the wiring ----
@@ -518,11 +675,20 @@ test('the check probes the tree once per loaded session and keeps the report acr
 	assert.match(html, /_pysimFsProbed = !probe\.stop && !error;/);
 	assert.match(html, /async function pysimFsRefresh\(\) \{[\s\S]{0,200}_pysimFsProbed = false;/);
 	// the check loads the tree if missing, probes when unprobed, and renders
-	// the pure report
+	// the pure report from the per-tree declarations, the standard list's path
+	// index and the tree's present paths
 	const fn = extractFunc(html, 'pysimServicesFsCheck');
 	assert.ok(fn.indexOf('await pysimFsRefresh()') > 0, fn);
 	assert.ok(fn.indexOf('await pysimFsProbeAll()') > 0, fn);
+	assert.ok(fn.indexOf('servicesFsDeclaredTrees(cache.files)') > 0, fn);
+	assert.ok(fn.indexOf('await servicesPathIndex()') > 0, fn);
+	assert.ok(fn.indexOf('index.size') > 0, 'an unloadable list is an error, not a wall of unchecked rows');
+	assert.ok(fn.indexOf('servicesFsPresentPaths(pysimFsTreeRoot)') > 0, fn);
 	assert.ok(fn.indexOf('servicesFsReport(') > 0, fn);
+	// the path index is loaded once from the standard file list
+	const loader = extractFunc(html, 'servicesPathIndex');
+	assert.ok(loader.indexOf('uiccStdFilesLoad()') > 0, loader);
+	assert.ok(loader.indexOf('servicesPathIndexBuild(') > 0, loader);
 	// the grid's render redraws the kept report (language switch)
 	const render = extractFunc(html, 'pysimServicesRender');
 	assert.ok(render.indexOf('pysimServicesFsRender()') > 0, render);

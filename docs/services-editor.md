@@ -10,8 +10,8 @@
 > Step 4a (the cross-file Services editor: §A's cross-reference, read, render,
 > per-file save) is implemented against §A; the counts below were verified
 > against the PWA's constants by `frontend/tests/services.test.js`.  Step 4b
-> (§B, the filesystem check) is implemented as well - see §B.0 for the
-> representation and the FID-level rule it uses.
+> (§B, the filesystem check) is implemented as well — see §B.0 for the
+> representation and the path-exact `(name, root)` rule it uses.
 
 **Counts:** SST **59** / UST **150** / IST **22** / EST **3** services →
 **164 feature rows** (10 SIM-only, 85 USIM-only, 5 ISIM-only, 61 shared,
@@ -231,44 +231,83 @@ The FS column in §A is deliverable B, merged for readability. Legend:
 
 `frontend/index.html` carries the column as `SERVICES_FS_MAP`, a map keyed by
 the §A feature name (the cross-reference's row identity) whose value is the
-list of **every FID the cell mentions**, in the cell's order:
+list of **symbolic file names the cell mentions**, in the cell's order:
 
-- `EF.FDN 6F3B (+ EF.EXT2 6F4B)` → `['6F3B', '6F4B']`
-- `DF.GRAPHICS 5F50 → EF.IMG 4F20` → `['5F50', '4F20']` (a DF's FID counts:
-  the DF itself is the file the service gates)
-- `EF.NIA 6F51 (SIM) / 6FD3 (USIM)` → both trees' FIDs
+- `EF.FDN 6F3B (+ EF.EXT2 6F4B)` → `['EF.FDN', 'EF.EXT2']`
+- `DF.GRAPHICS 5F50 → EF.IMG 4F20` → `['DF.GRAPHICS', 'EF.IMG']` (a DF's own
+  name counts: the DF is the file the service gates)
+- `EF.NIA 6F51 (SIM) / 6FD3 (USIM)` → `['EF.NIA']` — one name, a different
+  path per tree
 - `capability` → `[]`; the parenthetical references a capability cell carries
   (`gate: EF.CBMID 6F48`, `menu title: EF.SUME 6F54`, the URI set, `SUCI data`)
   are informational — the service does not declare a file of its own.  The
   §A.4 RFU/reserved rows are not features and therefore have no entry.
 
+The names are the standard file list's (`frontend/uicc_files.json`, built from
+pySim by `pysim_simple_server/uicc_files.py`) `name` values, so the check can
+resolve them **path-exactly**: a FID alone is ambiguous across applications
+(`4F30` is EF.PBR *and* EF.SAI, `6F38` EF.SST *and* EF.UST, `6F4E` EF.EXT4
+under DF.TELECOM *and* EF.EXT5 under ADF.USIM).  `servicesPathIndexBuild()`
+turns the list into a `NAME|ROOT → path` index (uppercased both sides; the one
+duplicate — pySim models `EF.SUCI_Calc_Info` twice under ADF.USIM, in DF.5GS
+`4F07` and in the eSIM profile package's DF.SAIP `4F01` — takes the list's
+first entry, the DF.5GS one).  `servicesPathIndex()` loads it once per page
+through `uiccStdFilesLoad()`.
+
 The **Check filesystem** button (Services pill, needs a card) reads the four
 service tables, probes the file manager's tree once (`pysimFsProbeAll`; the
 `/api/tree` model lists files without testing them, so a loaded-but-unprobed
-tree proves nothing), and compares the two sides:
+tree proves nothing), collects the tree's **present paths** (every node with
+`exists === true`, DFs included, as canonical `pysimFsNodePath` paths) and
+compares the two sides:
 
-- `missing` — a **declared** feature (any of its service bits set in a present
-  file; EF.SST only at *allocated + activated*, the state the editor shows)
-  whose mapped FIDs are absent from the card.  In §A order.
-- `extra` — a **present** FID that no declared feature maps.  Sorted by FID,
-  naming every feature that maps it (all of them undeclared).  A FID **any**
-  declared feature maps counts as explained and is not reported: several
-  features share one file (`4F01` under the ACDC/MCS/5GS/V2X/5G ProSe/5MBS/A2X
-  DFs, `6F4A`/`6F4B` across EXT1/EXT2 and BDN) and the rule cannot tell which
-  DF the present copy sits in.
+- **declared per tree** — `servicesFsDeclaredTrees()`: EF.SST declares in the
+  **MF** tree, EF.UST/EF.EST in **ADF.USIM**, EF.IST in **ADF.ISIM** (the state
+  the editor shows: EF.SST only at *allocated + activated*).  A tree whose
+  service table is not on the card declares nothing there (its declarations
+  are unknown, so it is not checked at all).
+- `missing` — a declared feature whose resolved paths are absent, in §A order
+  then MF / ADF.USIM / ADF.ISIM; each entry carries the declaring `tree` and
+  the absent `paths` (in the cell's order).
+- `extra` — a present path whose mapped features are declared in **none** of
+  the checked trees, sorted by path, with the path's own `tree`, its `role`
+  name and every mapping feature.  A path **any** declared feature maps is
+  explained: several features share one file (DF.GSM-ACCESS across "GSM
+  Access"/"GSM security context", EXT2 across FDN/Extension 2, the 5G DFs'
+  `4F01`/`4F02`) and a declaration in one application may gate a file of
+  another (a UST service gating a DF.TELECOM DF — see below).
+- `unchecked` — a declared feature with **no** path at all: the standard list
+  is missing the file, so its presence cannot be verified.  Today:
+  `Image (IMG)` (`DF.GRAPHICS`/`EF.IMG` — pySim does not model DF.GRAPHICS),
+  `SoLSA` and `MExE` in the MF tree (the DF.TELECOM copies of DF.SoLSA/DF.MExE
+  are not in the list) and `3GPP PS Data Off Service List`
+  (EF.3GPPPSDATAOFFservicelist).  Reported instead of guessed — the follow-up
+  is to add those files to `SUPPLEMENT` in `pysim_simple_server/uicc_files.py`.
 
-The check is **FID-level, not (DF, FID)-exact** (this first pass; finding 6 in
-`docs/decoded-editing.md` asks for DF-scoped resolution).  The FID collisions
-of Notes §3 — `6F4E` EXT4/EXT5, `6F4F` ECCP/CCP2, `6F07` IMSI/IST, `6F38`
-SST/UST, `6FD7` MSK/GBANL, `5F3B` DF.GSM-ACCESS/DF.MULTIMEDIA — are therefore
-not disambiguated, and the report says so.  `EF.PBR 4F30` also exists in
-several DFs, so a present `4F30` explains `ADN`/`SoLSA` regardless of which
-copy it is.
+**Resolution per declaring tree.**  A role resolves in the declaring tree's
+root first, then — for a USIM/ISIM declaration — in the **MF** tree, because
+several UST-gated DFs are children of the common DF.TELECOM (TS 31.102 4.6.0:
+DF.MULTIMEDIA `5F3B`, DF.MCS `5F3D`, DF.V2X `5F3E`, DF.A2X `5F3F`,
+DF.GRAPHICS `5F50`), i.e. `MF/7F10/…` paths.  The exceptions
+(`SERVICES_FS_GSM_MAPPED`) are the files TS 31.102 4.5 lists as *mappings* of a
+DF.PHONEBOOK file into DF.TELECOM "in case of a present GSM application" —
+EF.ADN `6F3A`, EF.EXT1 `6F4A`, EF.ECCP `6F4F`: a USIM declaration's phonebook
+is DF.PHONEBOOK + EF.PBR (ADR's `EF.ADN` is the SIM's file), so those are
+never expected in a USIM/ISIM tree.  A role the list knows for another root
+only is skipped, not a failure — a feature's files are the union of its
+applications' files (ADN = EF.ADN for the SIM, DF.PHONEBOOK + EF.PBR for the
+USIM).
 
-The pure pieces (`servicesFsDeclared`, `servicesFsPresentFids`,
-`servicesFsReport`, `servicesFsReportHtml`) are DOM-free and unit-tested; the
-last report is kept in memory and redrawn on a language switch, and it is
-dropped with the cached reads on a card-session change.
+**Not covered (follow-ups):** `ADF.USIM-NON-IMSI` — the list mirrors the
+ADF.USIM files under that root, but a card's tree names the application
+`ADF.USIM-non-IMSI`, so a non-IMSI USIM card's UST/EST paths are not matched
+yet (resolve it as an alias of ADF.USIM); and the registry gaps listed above.
+
+The pure pieces (`servicesFsDeclaredTrees`, `servicesFsPresentPaths`,
+`servicesPathIndexBuild`, `servicesFsRolePath`, `servicesFsReport`,
+`servicesFsReportHtml`) are DOM/fetch-free and unit-tested; the last report is
+kept in memory (it carries its resolved paths) and redrawn on a language
+switch, and it is dropped with the cached reads on a card-session change.
 
 ### B.1 `capability` entries (no single file)
 
@@ -371,19 +410,31 @@ carries **147–150** (5MBS UE pre-configuration / Operator Controlled Signal
 Threshold per Access Technology / A2X / IMS Data Channel Indication), matching
 `UICC_FILES.md` §6.1 and TS 31.102 §4.2.8, so the tables above are complete.
 
-### 5. Source-coverage gaps (cardless list only)
+### 5. Source-coverage gaps (the standard file list)
 
-The Services editor is **card-only**: it probes the equipped card by FID and
-writes via `/api/write`, so it does **not** depend on `frontend/uicc_files.json`
-(that is the *cardless* standard-file list feeding the SELECT picker and the
-test-script file picker).  The FS check probes the card directly, so the files
-below missing from `uicc_files.json` are not a blocker — they matter only if a
-cardless picker must offer them: EF.IMG 4F20 / DF.GRAPHICS 5F50, DF.MExE 5F3C +
-EF.MExE-ST/ORPK/ARPK/TPRPK 4F40–4F43, DF.SoLSA 5F70 + EF.SAI 4F30/EF.SLL 4F31,
-DF.BCAST 5F80, DF.ACDC 5FA0 + EF.ACDC_LIST 4F01, DF.TV 5FB0 + EF.TVUSD,
-EF.TVCONFIG 6FFB, EF.3GPPPSDATAOFF 6FF9 / EF.3GPPPSDATAOFFservicelist 6FFA,
-EF.IAL 6FF0 / EF.IPD 6FF2 (pairing), EF.PSISMSC 6FE5, and the 5G/A2X/5MBS
-DFs (5FC0/5F3F/5F3E/5FF0/5FF1/5FE0).
+The Services editor is **card-only**: it probes the equipped card's service
+tables by path and writes via `/api/write`.  The **FS check** additionally
+needs the *cardless* standard file list (`frontend/uicc_files.json`) to resolve
+a feature's symbolic files to paths (`(name, root) -> path`, §B.0) — the card's
+own tree supplies presence, the list supplies the paths.  Part 1 of step 4b
+added the service-gated files pySim's model omits to `SUPPLEMENT`
+(`pysim_simple_server/uicc_files.py`): EF.LRPLMNSI, EF.IAL, EF.IPD,
+EF.TVCONFIG, EF.3GPPPSDATAOFF, DF.MExE + its files, DF.SoLSA + EF.SAI/EF.SLL,
+DF.BCAST, DF.ACDC + EF.ACDC_LIST, DF.TV, DF.A2X + EF.AST/EF.A2X_CONFIG.
+
+Still missing from the list, and therefore reported as *unchecked* by the
+check (a declared feature whose files have no path) rather than guessed:
+
+- **DF.GRAPHICS 5F50 → EF.IMG 4F20** — the DF.TELECOM child (TS 31.102 4.6.0);
+  pySim's SIM model does not carry DF.GRAPHICS at all.
+- **DF.SoLSA 5F70 / DF.MExE 5F3C under DF.TELECOM** — the list carries them
+  under ADF.USIM only, so an *SST* declaration of SoLSA (service 40) or MExE
+  (49) cannot be checked in the MF tree.
+- **EF.3GPPPSDATAOFFservicelist 6FFA** — a pySim TODO.
+
+A non-IMSI USIM (`ADF.USIM-NON-IMSI`) is mirrored in the list, but a card's
+tree names the application `ADF.USIM-non-IMSI`; resolving the two as one root
+is the follow-up (§B.0).
 
 ### 6. Deliberately unmapped
 
