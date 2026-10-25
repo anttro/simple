@@ -573,7 +573,7 @@ test('F8: the ADN-family entries name their extension EF and use it in refusals'
 // Wave 2 fixtures.
 const UST_ONE = '00000010';                  // service 29
 const UST_MULTI = '010204';                  // services 1, 10, 19
-const UST_UNMODELLED = '000000' + '10' + '00'.repeat(14) + 'FC'; // 29 + bits 147-152
+const UST_UNMODELLED = '000000' + '10' + '00'.repeat(14) + 'C0'; // 29 + bits 151-152 (above the 150-service table)
 const EST_FF = 'FFFF';
 const ACC_ONE = '8001';                      // classes 15 and 0
 const AD_HEX = '00' + '0000' + '03' + 'AABB'; // op normal, info 0000, MNC 3, RFU
@@ -615,14 +615,14 @@ test('service tables: encode/decode round-trips and unmodelled bits', () => {
 	assert.strictEqual(entry.enc({ services: unmodelled }, UST_UNMODELLED), UST_UNMODELLED);
 	// unchecking everything clears the table bits but keeps the unmodelled byte
 	assert.strictEqual(entry.enc({ services: [] }, UST_UNMODELLED),
-		'000000' + '00' + '00'.repeat(14) + 'FC');
+		'000000' + '00' + '00'.repeat(14) + 'C0');
 	// length is kept
 	assert.strictEqual(entry.enc({ services: efDecServiceTable(efBytes('00000010' + '00'), EF_UST_SERVICES).services },
 		'0000001000'), '0000001000');
 });
 
 test('service tables: unknown services and a too-short table are refused', () => {
-	assert.throws(() => efEncServiceTable({ services: [{ n: 147, name: 'RFU' }] },
+	assert.throws(() => efEncServiceTable({ services: [{ n: 151, name: 'RFU' }] },
 		'FF'.repeat(19), EF_UST_SERVICES), /Unknown service/);
 	assert.throws(() => efEncServiceTable({ services: [{ n: 9, name: 'MSISDN' }] },
 		'00', EF_UST_SERVICES), /too short for service/);

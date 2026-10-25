@@ -181,9 +181,12 @@ OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
    USIM) make the fid-only decoder fallback unsafe; the name-based lookup is
    the primary one and encoders should not be fid-only where a collision is
    possible.  **Name collisions across DFs** also exist — EF.ECC and EF.AD
-   (DF.GSM vs ADF.USIM) — where both the name *and* the FID collide, the
-   resolver needs the DF context (the file's canonical path, whose parent
-   segment is the DF): resolve by DF first, then name, then FID.
+   (DF.GSM vs ADF.USIM) — where both the name *and* the FID collide.  The
+   specs key files by **FID within their DF**, not by symbolic name (names are
+   a derived display label), so the resolver must be **(DF, FID)-first**: the
+   parent DF + FID is the authoritative key, and the name is only a label.
+   The FS check in the Services editor follows the same rule — it probes a
+   (DF, FID), never a name.
 7. **Text coding is per file.**  Annex A (TS 102 221) for SPN/ADN/SUUME;
    the Network Name IE (TS 24.008 10.5.3.5a) for PNN, where the first byte is
    `0x80 | spare` for packed GSM 7-bit and `0x90` for UCS-2 — the real-card

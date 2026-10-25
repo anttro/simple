@@ -7,8 +7,8 @@
 > registry `docs/uicc/UICC_FILES.md` and the standard file tree
 > `frontend/uicc_files.json`.
 
-**Counts:** SST **59** / UST **146** / IST **22** / EST **3** services →
-**160 feature rows** (10 SIM-only, 81 USIM-only, 5 ISIM-only, 61 shared,
+**Counts:** SST **59** / UST **150** / IST **22** / EST **3** services →
+**164 feature rows** (10 SIM-only, 85 USIM-only, 5 ISIM-only, 61 shared,
 3 RFU/reserved). Reconciliation is exact; see Notes §4.
 
 ---
@@ -127,7 +127,7 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 93 | Allowed CSG Lists and corresponding indications | | 86 | | | USIM-only | EF.ACSGL 4F81 · EF.CSGT 4F82 · EF.HNBN 4F83 |
 | 94 | Call control on EPS PDN connection by USIM | | 87 | | | USIM-only | capability |
 | 95 | HPLMN Direct Access | | 88 | | | USIM-only | EF.HPLMNDAI 4F4B |
-| 96 | eCall Data | | 89 | | | USIM-only | ? |
+| 96 | eCall Data | | 89 | | | USIM-only | EF.SDN 6F49 (+ EF.FDN 6F3A) |
 | 97 | Operator CSG Lists and corresponding indications | | 90 | | | USIM-only | EF.OCSGL 4F84 · EF.OCSGT 4F85 · EF.OHNBN 4F86 |
 | 98 | Support for SM-over-IP | | 91 | 8 | | shared | capability (ISIM-related: EF.PSISMSC 6FE5) |
 | 99 | Support of CSG Display Control | | 92 | | | USIM-only | capability |
@@ -137,7 +137,7 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 103 | Non-Access Stratum configuration by USIM | | 96 | | | USIM-only | EF.NASCONFIG 6FE8 |
 | 104 | PWS configuration by USIM | | 97 | | | USIM-only | EF.PWS 6FEC |
 | 105 | URI support by UICC | | 99 | 11 | | shared | capability (URI files: EF.FDNURI 6FED · EF.BDNURI 6FEE · EF.SDNURI 6FEF) |
-| 106 | Extended EARFCN support | | 100 | | | USIM-only | EF.EARFCNList 6FFD |
+| 106 | Extended EARFCN support | | 100 | | | USIM-only | capability |
 | 107 | ProSe | | 101 | | | USIM-only | DF.ProSe 5F90 → EF.PST 4F10 |
 | 108 | USAT Application Pairing | | 102 | | | USIM-only | EF.IPS 6FF1 (+ EF.IAL 6FF0 · EF.IPD 6FF2) |
 | 109 | Media Type support | | 103 | 12 | | shared | capability |
@@ -149,7 +149,7 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 115 | MCPTT | | 109 | 15 | | shared | DF.MCS 5F3D → EF.MST 4F01 (USIM) |
 | 116 | ePDG configuration Information for Emergency Service support | | 110 | | | USIM-only | EF.ePDGSelectionEm 6FF6 |
 | 117 | ePDG configuration Information for Emergency Service configured | | 111 | | | USIM-only | EF.ePDGIdEm 6FF5 |
-| 118 | eCall Data over IMS | | 112 | | | USIM-only | ? |
+| 118 | eCall Data over IMS | | 112 | | | USIM-only | EF.SDNURI 6FEF (+ EF.FDNURI 6FED) |
 | 119 | URI support for SMS-PP DOWNLOAD | | 113 | 16 | | shared | capability |
 | 120 | From Preferred | | 114 | 17 | | shared | EF.FromPreferred 6FF7 |
 | 121 | IMS configuration data | | 115 | 18 | | shared | EF.IMSConfigData 6FF8 |
@@ -158,7 +158,7 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 124 | 3GPP PS Data Off Service List | | 118 | | | USIM-only | EF.3GPPPSDATAOFFservicelist 6FFA |
 | 125 | V2X | | 119 | | | USIM-only | DF.V2X 5F3E → EF.VST 4F01 · EF.V2X_CONFIG 4F02 |
 | 126 | XCAP Configuration Data | | 120 | 19 | | shared | EF.XCAPConfigData 6FFC |
-| 127 | EARFCN list for MTC/NB-IOT UEs | | 121 | | | USIM-only | ? |
+| 127 | EARFCN list for MTC/NB-IOT UEs | | 121 | | | USIM-only | EF.EARFCNList 6FFD |
 | 128 | 5GS Mobility Management Information | | 122 | | | USIM-only | DF.5GS 5FC0 → EF.5GS3GPPLOCI 4F01 · EF.5GSN3GPPLOCI 4F02 |
 | 129 | 5G Security Parameters | | 123 | | | USIM-only | EF.5GAUTHKEYS 4F05 (+ EF.5GS3GPPNSC 4F03 · EF.5GSN3GPPNSC 4F04) |
 | 130 | Subscription identifier privacy support | | 124 | | | USIM-only | capability (SUCI data: EF.SUCI_Calc_Info 4F07, gated by 125) |
@@ -184,6 +184,10 @@ Names are canonicalised; wording aliases are listed in Notes §1.
 | 150 | Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access | | 144 | | | USIM-only | EF.MCHPPLMN 4F15 |
 | 151 | K_AUSF derivation configuration | | 145 | | | USIM-only | EF.KAUSF_DERIVATION 4F16 |
 | 152 | Network Identifier for SNPN (NID) | | 146 | | | USIM-only | EF.NID 4F02 (DF.SNPN 5FE0) |
+| 153 | 5MBS UE pre-configuration | | 147 | | | USIM-only | DF.5MBSUECONFIG 5FF1 → EF.5MBSUECONFIG 4F01 |
+| 154 | Operator Controlled Signal Threshold per Access Technology | | 148 | | | USIM-only | EF.OCST 6F02 |
+| 155 | A2X | | 149 | | | USIM-only | DF.A2X 5F3F → EF.AST 4F01 |
+| 156 | IMS Data Channel Indication | | 150 | | | USIM-only | EF.IMSDCI 6F0B |
 
 ### A.3 ISIM-only features
 
@@ -234,13 +238,20 @@ EF.SOR-CMCI 4F0E) · PS Data Off separate Home/Roaming (EF.3GPPPSDATAOFFservicel
 6FFA) · 5G Security Parameters extended (EF.5GAUTHKEYS 4F05) · Trusted non-3GPP
 access · HTTP Digest · P-CSCF discovery Local Break Out (EF.P-CSCF 6F09).
 
-### B.2 `?` entries (unresolved file mapping)
+### B.2 Resolved against TS 31.102 v18.10.0
 
-| Feature | UST # | Note |
-|---|---|---|
-| eCall Data | 89 | No EF_eCall in UICC_FILES.md; the file, if any, is not pinned. |
-| eCall Data over IMS | 112 | Same as above (IMS variant). |
-| EARFCN list for MTC/NB-IOT UEs | 121 | Distinct from "Extended EARFCN support" (100 → EF.EARFCNList 6FFD); UICC_FILES.md pins no MTC/NB-IoT-specific EARFCN list file. |
+The three initially-unresolved mappings were settled from the spec text
+(`docs/uicc/ts_131102*.txt`):
+
+- **eCall Data (89)** — no dedicated EF: the eCall test/reconfiguration
+  numbers live in **EF.SDN 6F49** ("If service n° 4 and/or n° 89 is available
+  this file shall be present … eCall test and reconfiguration numbers") and
+  EF.FDN 6F3A (the eCall procedures).
+- **eCall Data over IMS (112)** — the eCall test/reconfiguration **URIs** live
+  in **EF.SDNURI 6FEF** (and EF.FDNURI 6FED).
+- **EARFCN list for MTC/NB-IOT UEs (121)** — **EF.EARFCNList 6FFD** (§4.2.112,
+  whose clause title is literally "EARFCN list for MTC/NB-IOT UEs").
+  "Extended EARFCN support" (100) is a **capability** with no file.
 
 ---
 
@@ -300,33 +311,30 @@ FIDs); the editor's DF-context selection must do the same.
 - **SST 59:** 56 non-RFU service numbers (SST 1–59 minus {8,20,50}) spread over
   the 57 rows of §A.1 (one of those rows, CCP2, carries no SST number) + 3
   RFU/reserved slots (8, 20, 50) = 59. ✓
-- **UST 146:** 46 shared-with-SIM + 15 shared-with-ISIM + 81 USIM-only (1 in
-  §A.1 = CCP2, 80 in §A.2) + 4 RFU/reserved (26, 33, 50, 98) = 146. ✓
+- **UST 150:** 46 shared-with-SIM + 15 shared-with-ISIM + 85 USIM-only (1 in
+  §A.1 = CCP2, 84 in §A.2) + 4 RFU/reserved (26, 33, 50, 98) = 150. ✓
 - **IST 22:** 2 shared with SIM (SMS 6, SMSR 7) + 15 shared with USIM
   (2,4,8,9,10,11,12,13,14,15,16,17,18,19,21) + 5 ISIM-only (1,3,5,20,22) = 22. ✓
 - **EST 3:** FDN (1), BDN (2), ACL (3) — all present. ✓
 
-**Discrepancy to resolve:** the PWA's `EF_UST_SERVICES` constant has **146**
-entries, but `UICC_FILES.md` §6.1 pins the UST table through **n°150**. The four
-services present in the spec summary but missing from the PWA constant are:
-**147** 5MBS UE pre-config, **148** Operator-controlled signal threshold,
-**149** A2X, **150** IMS Data Channel Indication. (148 would map to EF.OCST 6F02,
-147 to DF.5MBSUECONFIG 5FF1 → EF.5MBSUECONFIG 4F01, 149 to DF.A2X 5F3F →
-EF.AST 4F01, and 150 to EF.IMSDCI 6F0B — the USIM copy of the ISIM file already
-listed for IST 22.) These four are **not** in the tables above; add them to
-`EF_UST_SERVICES` (and re-verify the count line) or document the omission.
+The PWA's `EF_UST_SERVICES` constant previously stopped at **146**; it now
+carries **147–150** (5MBS UE pre-configuration / Operator Controlled Signal
+Threshold per Access Technology / A2X / IMS Data Channel Indication), matching
+`UICC_FILES.md` §6.1 and TS 31.102 §4.2.8, so the tables above are complete.
 
-### 5. Source-coverage gaps
+### 5. Source-coverage gaps (cardless list only)
 
-A few files/DFs are cited from `UICC_FILES.md` but are absent from
-`frontend/uicc_files.json` (they are real spec files, just not emitted by the
-cardless tree builder): EF.IMG 4F20 / DF.GRAPHICS 5F50, DF.MExE 5F3C +
+The Services editor is **card-only**: it probes the equipped card by FID and
+writes via `/api/write`, so it does **not** depend on `frontend/uicc_files.json`
+(that is the *cardless* standard-file list feeding the SELECT picker and the
+test-script file picker).  The FS check probes the card directly, so the files
+below missing from `uicc_files.json` are not a blocker — they matter only if a
+cardless picker must offer them: EF.IMG 4F20 / DF.GRAPHICS 5F50, DF.MExE 5F3C +
 EF.MExE-ST/ORPK/ARPK/TPRPK 4F40–4F43, DF.SoLSA 5F70 + EF.SAI 4F30/EF.SLL 4F31,
 DF.BCAST 5F80, DF.ACDC 5FA0 + EF.ACDC_LIST 4F01, DF.TV 5FB0 + EF.TVUSD,
 EF.TVCONFIG 6FFB, EF.3GPPPSDATAOFF 6FF9 / EF.3GPPPSDATAOFFservicelist 6FFA,
-EF.IAL 6FF0 / EF.IPD 6FF2 (pairing), and EF.PSISMSC 6FE5. If the FS check must
-resolve *every* FID against `uicc_files.json` alone, these need adding there
-first (or the check must also consult UICC_FILES.md).
+EF.IAL 6FF0 / EF.IPD 6FF2 (pairing), EF.PSISMSC 6FE5, and the 5G/A2X/5MBS
+DFs (5FC0/5F3F/5F3E/5FF0/5FF1/5FE0).
 
 ### 6. Deliberately unmapped
 

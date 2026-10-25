@@ -689,8 +689,8 @@ test('the bits field renders a filtered checkbox grid and collects {n,name}', ()
 	assert.match(out, /class="pysim-dec-bits /);
 	assert.match(out, /pysim-dec-bits-filter/);
 	assert.match(out, /data-bit="29" data-bit-name="Data download via SMS-CB" checked/);
-	// the whole UST table is rendered (146 services)
-	assert.strictEqual((out.match(/data-bit="/g) || []).length, 146);
+	// the whole UST table is rendered (150 services)
+	assert.strictEqual((out.match(/data-bit="/g) || []).length, 150);
 	// ACC: 15 editable classes (10 is always written 0), 15 and 0 checked
 	const acc = efDecEditHtml(efDecEditModel('EF.ACC', '6f78', { kind: 'transparent', data: ACC_ONE }), ACC_ONE);
 	assert.strictEqual((acc.match(/data-bit="/g) || []).length, 15);
