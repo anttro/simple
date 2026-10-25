@@ -16260,13 +16260,15 @@ function pysimFsFindNode(name, root) {
 }
 
 // Decoder availability for the selected file, resolved exactly like the
-// decoded view does (name from the tree node, FID fallback) — the content is
-// not needed, so the Read decoded pill can be gated before any read.
+// decoded view does (name from the tree node, FID fallback, and the parent DF
+// when the node's path is known — EF.ECC/EF.AD differ between DFs) — the
+// content is not needed, so the Read decoded pill can be gated before any read.
 function pysimFsHasDecoder() {
 	if (!pysimFsSelected) return false;
 	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	return !!efFindDecoder(node && node.name, fid);
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	return !!efFindDecoder(node && node.name, fid, df);
 }
 
 // Encoder availability for the selected file (Edit decoded), resolved the
@@ -16275,7 +16277,8 @@ function pysimFsHasEncoder() {
 	if (!pysimFsSelected) return false;
 	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	return !!efFindEncoder(node && node.name, fid);
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	return !!efFindEncoder(node && node.name, fid, df);
 }
 
 // Find a node by its canonical path ("MF/7F20/6F46", "ADF.USIM/6F07"), so
@@ -16431,7 +16434,8 @@ function pysimFsDecodedHtml(node, data) {
 	const name = (node && node.name) || null;
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected || '') ? pysimFsSelected : null);
 	const content = data.records ? { kind: 'record', records: data.records } : { kind: 'transparent', data: data.data };
-	const dec = efDecodeFile(node && node.name, fid, content);
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	const dec = efDecodeFile(node && node.name, fid, content, df);
 	let html = '';
 	if (!dec || !dec.fn) {
 		html += '<div class="text-xs text-yellow-600 dark:text-yellow-500 mb-1">' + esc(t('No decoder for this file')) + ' — ' + esc(t('showing raw data')) + '</div>';
@@ -16531,7 +16535,8 @@ async function pysimFsDecEdit() {
 		const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null);
 		const content = data.records ? { kind: 'record', records: data.records }
 			: { kind: 'transparent', data: data.data };
-		const model = efDecEditModel(node && node.name, fid, content);
+		const model = efDecEditModel(node && node.name, fid, content,
+			node ? efDfFromPath(pysimFsNodePath(node)) : '');
 		if (!model) {
 			statusEl.textContent = t('No decoded editor for this file');
 			pysimFsPillsEnabled(true);
@@ -16656,7 +16661,8 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 		return;
 	}
 	const entry = model.entry || efFindEncoder(node && node.name,
-		(node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null));
+		(node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null),
+		node ? efDfFromPath(pysimFsNodePath(node)) : '');
 	if (!entry) { statusEl.textContent = t('No decoded editor for this file'); return; }
 	const root = out.querySelector('.pysim-dec-edit');
 	try {
@@ -21161,7 +21167,7 @@ function profilerRenderSnapshotFiles(s) {
 				'<div class="text-xs font-mono leading-relaxed text-gray-600 dark:text-slate-400 break-all">' + profilerFciPreviewItems(f.fciHex, { arr: snapArr, path: f.path }) + '</div></div>';
 			html += '</div>';
 		}
-		const dec = f.content ? efDecodeFile(f.name, efFidFromPath(f.path), f.content) : null;
+		const dec = f.content ? efDecodeFile(f.name, efFidFromPath(f.path), f.content, efDfFromPath(f.path)) : null;
 		html += '<div class="text-xs text-gray-500 dark:text-slate-400 mt-1 mb-0.5">' + esc(t('Contents')) + '</div>';
 		if (!f.content) {
 			html += '<div class="text-xs text-gray-400 dark:text-slate-500">' + esc(t('Not captured')) + '</div>';
@@ -23009,7 +23015,8 @@ function profilerRenderReport(results, labels) {
 			} else if (profilerRawDataCheck(c)) {
 				const isContent = c.label === 'content' || /^content\.rec\d+$/.test(c.label);
 				const dd = isContent && typeof efContentDiff === 'function'
-					? efContentDiff(r.name, efFidFromPath(r.path), String(c.expected), String(c.actual)) : null;
+					? efContentDiff(r.name, efFidFromPath(r.path), String(c.expected), String(c.actual),
+						efDfFromPath(r.path)) : null;
 				const inputCls = 'flex-1 min-w-0 font-mono text-xs border border-gray-300 dark:border-slate-600 rounded px-2 py-1 bg-gray-100 dark:bg-slate-800';
 				html += '<div class="mt-1">';
 				html += '<div class="text-xs text-red-600 font-mono pl-2">' + esc(c.label) + '</div>';
@@ -23106,6 +23113,7 @@ const EF_FIELD_LABELS = {
 	update_status: 'Update status', access_tech: 'Access technology', p_tmsi_signature: 'P-TMSI signature',
 	master: 'Master EF', iap: 'IAP (EF.IAP)', links: 'Links', files: 'Files', note: 'Note',
 	ext1: 'Extension record', cmi: 'Comparison method pointer',
+	code: 'Emergency call code', category: 'Emergency service category',
 };
 
 const EF_GSM7_EXT = { 0x0A: '\n', 0x14: '^', 0x28: '{', 0x29: '}', 0x2F: '\\', 0x3C: '[', 0x3D: '~', 0x3E: ']', 0x40: '|', 0x65: '\u20ac' };
@@ -23548,6 +23556,10 @@ function efDecCbmir(b) {
 	return ranges.length ? { ranges: ranges } : { raw: efHex(b) };
 }
 
+// TS 51.011 10.3.27 EF.ECC (DF.GSM): transparent, 3-byte records of the
+// emergency call code (2 bytes BCD) + the emergency category.  The ADF.USIM
+// file of the same name/FID is a different format - efDecEccUsim below - so
+// the registry keys the two by their DF, not by name/FID.
 function efDecEcc(b) {
 	if (efAllFf(b)) return { empty: true };
 	const recs = [];
@@ -23559,6 +23571,35 @@ function efDecEcc(b) {
 	}
 	if (!recs.length) return { raw: efHex(b) };
 	return recs.length === 1 ? recs[0] : { numbers: recs };
+}
+
+// TS 31.102 4.2.21 EF.ECC (ADF.USIM): linear fixed, one record = X+4 bytes -
+// the Emergency Call Code (3 bytes, 4 bits per digit with the digit's LSB
+// first, unused nibbles 'F'), the optional Alpha Identifier (X bytes, SMS
+// 7-bit or a UCS-2 option - efAnnexA) and the Emergency Service Category
+// (byte X+4, coded per TS 24.008's Service Category value).
+const EF_ECC_CATEGORIES = [
+	[0x01, 'police'], [0x02, 'ambulance'], [0x04, 'fire brigade'],
+	[0x08, 'marine guard'], [0x10, 'mountain rescue'],
+	[0x20, 'manual eCall'], [0x40, 'automatic eCall'],
+];
+
+function efDecEccUsim(b) {
+	if (efAllFf(b)) return { empty: true };
+	if (b.length < 4) return { raw: efHex(b) };
+	// the code is mandatory: an all-FF code marks an unused record (pySim's
+	// EF_ECC decodes such a record as None too)
+	if (efAllFf(b.subarray(0, 3))) return { empty: true };
+	const cat = b[b.length - 1];
+	const kinds = EF_ECC_CATEGORIES.filter(c => cat & c[0]).map(c => c[1]);
+	const out = {
+		code: efSwapNibbles(efHex(b.subarray(0, 3))).replace(/[fF]+$/, ''),
+		category: kinds.length ? kinds.join(', ')
+			: '0x' + cat.toString(16).toUpperCase().padStart(2, '0'),
+	};
+	const alpha = efAnnexA(efRstripFf(b.subarray(3, b.length - 1)));
+	if (alpha) out.alpha = alpha;
+	return out;
 }
 
 function efDecOpl(b) {
@@ -23966,8 +24007,17 @@ const EF_DECODERS = [
 	{ name: 'EF.CBMI', fid: '6f45', fn: efDecCbmi },
 	{ name: 'EF.CBMID', fid: '6f48', fn: efDecCbmi },
 	{ name: 'EF.CBMIR', fid: '6f50', fn: efDecCbmir },
-	{ name: 'EF.ECC', fid: '6fb7', fn: efDecEcc },
-	{ name: 'EF.AD', fid: '6fad', fn: efDecAd },
+	// EF.ECC and EF.AD collide in BOTH name and FID: DF.GSM's (TS 51.011)
+	// and ADF.USIM's (TS 31.102) files of that name are different formats,
+	// so their entries carry the parent DF - the resolver checks a known DF
+	// first (without one the first entry, the SIM form, still answers).
+	{ name: 'EF.ECC', df: '7F20', fid: '6fb7', fn: efDecEcc },
+	{ name: 'EF.ECC', df: 'ADF.USIM', fid: '6fb7', fn: efDecEccUsim },
+	// efDecAd reads the 3+X SIM, 4+X USIM and 3+X ISIM forms by length, so
+	// the three EF.AD entries share one decoder and differ only in their DF.
+	{ name: 'EF.AD', df: '7F20', fid: '6fad', fn: efDecAd },
+	{ name: 'EF.AD', df: 'ADF.USIM', fid: '6fad', fn: efDecAd },
+	{ name: 'EF.AD', df: 'ADF.ISIM', fid: '6fad', fn: efDecAd },
 	{ name: 'EF.ACL', fid: '6f57', fn: efDecAcl },
 	{ name: 'EF.SMSP', fid: '6f42', fn: efDecSmsp },
 	{ name: 'EF.SMS', fid: '6f3c', fn: efDecSms },
@@ -23992,18 +24042,37 @@ const EF_DECODERS = [
 	{ name: 'EF.PBR', fid: '4f30', fn: efDecPbr },
 ];
 
-function efFindDecoder(name, fid) {
+// Resolution is DF-aware: a file's spec identity is (parent DF, FID) - the
+// symbolic name is only a display label, and EF.ECC/EF.AD carry the same name
+// AND FID in DF.GSM and ADF.USIM.  With a known `df` the entry carrying it
+// wins; otherwise (and for every other file) the historical name-then-FID
+// lookup applies unchanged.
+function efFindDecoder(name, fid, df) {
 	let n = (name || '').toUpperCase();
 	if (n.includes('/')) n = n.split('/').pop();
-	for (const d of EF_DECODERS) if (d.name.toUpperCase() === n) return d;
 	const f = (fid || '').toLowerCase();
-	if (f) for (const d of EF_DECODERS) if (d.fid === f) return d;
+	const d = (df || '').toUpperCase();
+	if (d) {
+		for (const e of EF_DECODERS) if (e.df && e.df === d && e.name.toUpperCase() === n) return e;
+		if (f) for (const e of EF_DECODERS) if (e.df && e.df === d && e.fid === f) return e;
+	}
+	for (const e of EF_DECODERS) if (e.name.toUpperCase() === n) return e;
+	if (f) for (const e of EF_DECODERS) if (e.fid === f) return e;
 	return null;
 }
 
 function efFidFromPath(path) {
 	const seg = (path || '').split('/').pop();
 	return /^[0-9a-fA-F]{4}$/.test(seg) ? seg.toUpperCase() : null;
+}
+
+// The parent DF of a canonical path: "MF/7F20/6FAD" -> "7F20",
+// "ADF.USIM/6FAD" -> "ADF.USIM", "MF/ADF.USIM/6FAD" -> "ADF.USIM"; a bare FID
+// (no parent segment) has no DF context and yields ''.
+function efDfFromPath(path) {
+	const segs = String(path || '').split('/').filter(Boolean);
+	if (segs.length < 2) return '';
+	return segs[segs.length - 2].toUpperCase();
 }
 
 // ---- content encoders (the decoded editor) ----
@@ -25099,7 +25168,12 @@ const EF_ENCODERS = [
 	{ name: 'EF.ACC', fid: '6f78', enc: efEncAcc, fields: EF_ACC_FIELDS },
 	{ name: 'EF.PHASE', fid: '6fae', enc: efEncPhase, model: efPhaseModel, fields: EF_PHASE_FIELDS },
 	{ name: 'EF.HPPLMN', fid: '6f31', enc: efEncHpplmn, fields: EF_HPPLMN_FIELDS },
-	{ name: 'EF.AD', fid: '6fad', enc: efEncAd, model: efAdModel, fields: EF_AD_FIELDS },
+	// EF.AD collides in name and FID across DF.GSM / ADF.USIM / ADF.ISIM:
+	// efEncAd keeps the record length it was given (3+X or 4+X), so the
+	// entries differ only in their DF.
+	{ name: 'EF.AD', df: '7F20', fid: '6fad', enc: efEncAd, model: efAdModel, fields: EF_AD_FIELDS },
+	{ name: 'EF.AD', df: 'ADF.USIM', fid: '6fad', enc: efEncAd, model: efAdModel, fields: EF_AD_FIELDS },
+	{ name: 'EF.AD', df: 'ADF.ISIM', fid: '6fad', enc: efEncAd, model: efAdModel, fields: EF_AD_FIELDS },
 	{ name: 'EF.SPN', fid: '6f46', enc: efEncSpn, fields: EF_SPN_FIELDS },
 	{ name: 'EF.PLMNsel', fid: '6f30', enc: efEncPlmnOnly, list: EF_PLMN_ONLY_LIST },
 	{ name: 'EF.PLMNwAcT', fid: '6f60', enc: efEncPlmnList, list: EF_PLMN_LIST },
@@ -25125,19 +25199,25 @@ const EF_ENCODERS = [
 // SIM layout has no editor yet).
 const EF_READONLY_NAMES = ['EF.SST'];
 
-function efFindEncoder(name, fid) {
+function efFindEncoder(name, fid, df) {
 	let n = (name || '').toUpperCase();
 	if (n.includes('/')) n = n.split('/').pop();
-	for (const e of EF_ENCODERS) if (e.name.toUpperCase() === n) return e;
 	const f = (fid || '').toLowerCase();
+	const d = (df || '').toUpperCase();
+	// DF-first, like efFindDecoder
+	if (d) {
+		for (const e of EF_ENCODERS) if (e.df && e.df === d && e.name.toUpperCase() === n) return e;
+		if (f) for (const e of EF_ENCODERS) if (e.df && e.df === d && e.fid === f) return e;
+	}
+	for (const e of EF_ENCODERS) if (e.name.toUpperCase() === n) return e;
 	if (f && EF_READONLY_NAMES.indexOf(n) === -1) {
 		for (const e of EF_ENCODERS) if (e.fid === f) return e;
 	}
 	return null;
 }
 
-function efHasEncoder(name, fid) {
-	return !!efFindEncoder(name, fid);
+function efHasEncoder(name, fid, df) {
+	return !!efFindEncoder(name, fid, df);
 }
 
 // ---- content decoding, flattening and diffs ----
@@ -25147,8 +25227,8 @@ function efDecodeBytes(fn, bytes) {
 }
 
 // content: {kind:'transparent', data:'HEX'} | {kind:'record', records:[{num,data}]}
-function efDecodeFile(name, fid, content) {
-	const dec = efFindDecoder(name, fid);
+function efDecodeFile(name, fid, content, df) {
+	const dec = efFindDecoder(name, fid, df);
 	if (!dec) return null;
 	const out = { ef: dec.name, fn: dec.fn, data: null, records: null, empty: false };
 	if (!content) return out;
@@ -25164,8 +25244,8 @@ function efDecodeFile(name, fid, content) {
 	return out;
 }
 
-function efDecodeHex(name, fid, hex) {
-	const dec = efFindDecoder(name, fid);
+function efDecodeHex(name, fid, hex, df) {
+	const dec = efFindDecoder(name, fid, df);
 	if (!dec || !dec.fn) return null;
 	return efDecodeBytes(dec.fn, efBytes(hex || ''));
 }
@@ -25279,9 +25359,9 @@ function efRenderFieldsHtml(rows) {
 
 // Mismatching decoded fields for a content check; null when the file has no
 // decoder or either side fails to decode.
-function efContentDiff(name, fid, expectedHex, actualHex) {
-	const exp = efDecodeHex(name, fid, expectedHex);
-	const act = efDecodeHex(name, fid, actualHex);
+function efContentDiff(name, fid, expectedHex, actualHex, df) {
+	const exp = efDecodeHex(name, fid, expectedHex, df);
+	const act = efDecodeHex(name, fid, actualHex, df);
 	if (exp === null || act === null || efIsRawOnly(exp) || efIsRawOnly(act)) return null;
 	const rows = efDiffData(exp, act);
 	return { rows: rows, sameDecoded: rows.length === 0 };
@@ -25337,10 +25417,10 @@ function efDecItemsFromHex(entry, hex) {
 }
 
 // content: {kind:'transparent', data:'HEX'} | {kind:'record', records:[{num,data}]}
-function efDecEditModel(name, fid, content) {
-	const entry = efFindEncoder(name, fid);
+function efDecEditModel(name, fid, content, df) {
+	const entry = efFindEncoder(name, fid, df);
 	if (!entry) return null;
-	const dec = efFindDecoder(name, fid);
+	const dec = efFindDecoder(name, fid, df);
 	const modelValues = hex => entry.custom
 		? entry.custom.model(hex)
 		: efDecModelFor(entry, dec, hex);
@@ -25592,7 +25672,8 @@ function pysimFsDecAddRow() {
 	if (!pysimFsSelected) return;
 	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	const entry = efFindEncoder(node && node.name, fid);
+	const entry = efFindEncoder(node && node.name, fid,
+		node ? efDfFromPath(pysimFsNodePath(node)) : '');
 	if (!entry || !entry.list) return;
 	const out = document.getElementById('pysim-fs-content');
 	const rows = out && out.querySelector('.pysim-dec-rows');
@@ -25623,7 +25704,8 @@ function pysimFsDecAddItem(btn) {
 	if (!box || !pysimFsSelected) return;
 	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
 	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	const entry = efFindEncoder(node && node.name, fid);
+	const entry = efFindEncoder(node && node.name, fid,
+		node ? efDfFromPath(pysimFsNodePath(node)) : '');
 	if (!entry || !entry.items) return;
 	const first = (entry.items.tags || [])[0];
 	box.insertAdjacentHTML('beforeend', efDecItemRowHtml(entry, { tag: first ? first.tag : '43' }));

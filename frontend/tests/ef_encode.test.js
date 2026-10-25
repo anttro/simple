@@ -218,6 +218,36 @@ test('EF.SPN and the ADN family share the encoder registry with the PLMN list', 
 	assert.strictEqual(efFindEncoder('EF.PLMNwAcT', null).list, efFindEncoder('EF.HPLMNwAcT', null).list);
 });
 
+test('the encoder resolver is DF-first: every EF.AD form shares one encoder', () => {
+	// EF.AD collides in name AND FID: one entry per DF (DF.GSM 3+X,
+	// ADF.USIM 4+X, ADF.ISIM 3+X), all over the same length-preserving codec
+	const sim = efFindEncoder('EF.AD', '6fad', '7F20');
+	const usim = efFindEncoder('EF.AD', '6fad', 'ADF.USIM');
+	const isim = efFindEncoder('EF.AD', '6fad', 'ADF.ISIM');
+	for (const e of [sim, usim, isim]) {
+		assert.strictEqual(e.enc, efEncAd);
+		assert.strictEqual(e.model, efAdModel);
+		assert.strictEqual(e.fields, EF_AD_FIELDS);
+	}
+	assert.notStrictEqual(sim, isim);
+	// without a DF the historical name-first lookup answers (DF.GSM's entry)
+	assert.strictEqual(efFindEncoder('EF.AD', '6fad'), sim);
+	assert.strictEqual(efFindEncoder('EF.AD', '6fad', 'ADF.NOPE'), sim);
+	// EF.ECC stays read-only in either DF, EF.SST in the SIM layout, and the
+	// shared 6F38 FID must not hand SST the UST encoder
+	assert.strictEqual(efHasEncoder('EF.ECC', '6fb7', '7F20'), false);
+	assert.strictEqual(efHasEncoder('EF.ECC', '6fb7', 'ADF.USIM'), false);
+	assert.strictEqual(efHasEncoder('EF.SST', '6f38', '7F20'), false);
+	assert.strictEqual(efHasEncoder('EF.UST', '6f38', 'ADF.USIM'), true);
+	assert.strictEqual(efFindEncoder('EF.NOPE', 'abcd', 'ADF.USIM'), null);
+	// the SIM 3+X and USIM 4+X forms keep their length on an untouched save
+	for (const hex of ['00' + '0000', '00' + '0000' + '02' + 'AABB', AD_HEX, 'FF'.repeat(6)]) {
+		for (const e of [sim, usim]) {
+			assert.strictEqual(e.enc(e.model(efDecAd(efBytes(hex))), hex), hex.toUpperCase(), hex);
+		}
+	}
+});
+
 test('encoder validation errors go through t() when the runtime provides it', () => {
 	globalThis.t = k => (k === 'Select at least one access technology' ? 'Выберите технологию' : k);
 	try {

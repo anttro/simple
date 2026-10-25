@@ -52,7 +52,7 @@ const FNS = [
 	'efDecRecordsHtml', 'efDecEditHtml',
 	'efDecCollectValues', 'efDecCollectRows', 'efDecCollectItems',
 	'efBitsSelected', 'pysimFsDecBitsFilter', 'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
-	'pysimFsDecRemoveItem', 'pysimFsFindNode',
+	'pysimFsDecRemoveItem', 'pysimFsFindNode', 'pysimFsNodePath', 'efDfFromPath',
 	'pysimFsHasDecoder', 'pysimFsHasEncoder', 'pysimFsDecSave', 'pysimFsDecEdit',
 	'pysimFsPillsEnabled', 'pysimFsSyncContentVisibility', 'gsm7Decode',
 	'gsm7TextToSeptets', 'gsm7Encode',
@@ -269,6 +269,19 @@ test('pysimFsHasEncoder resolves the selected file by name or FID', () => {
 	assert.strictEqual(pysimFsHasEncoder(), false);
 	pysimFsSelected = null;
 	assert.strictEqual(pysimFsHasEncoder(), false);
+});
+
+test('the file-manager resolver call sites pass the node\'s parent DF', () => {
+	// the DF context comes from the node's canonical path; these five sites
+	// gate/read/edit a selected file and must resolve the same entry
+	assert.ok(html.includes('return !!efFindDecoder(node && node.name, fid, df);'));
+	assert.ok(html.includes('return !!efFindEncoder(node && node.name, fid, df);'));
+	assert.ok(html.includes("const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';"));
+	assert.ok(html.includes('const model = efDecEditModel(node && node.name, fid, content,'));
+	for (const fn of ['pysimFsDecSave', 'pysimFsDecAddRow', 'pysimFsDecAddItem']) {
+		assert.ok(/efFindEncoder\([^;]*efDfFromPath\(pysimFsNodePath\(node\)\)/s.test(extractFunc(html, fn)),
+			fn + ' resolves the entry with the node DF');
+	}
 });
 
 test('the Edit decoded button is encoder-gated next to Edit raw', () => {

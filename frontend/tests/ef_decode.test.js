@@ -26,13 +26,13 @@ const FNS = [
 	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efBcdAddressLen', 'efPlmn', 'efPlmnAct', 'efPnnText',
 	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecSst', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
-	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecOpl', 'efDecAd', 'efDecAcl',
+	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecEccUsim', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efSmspDaNumber', 'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
 	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
-	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDecodeBytes',
+	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDfFromPath', 'efDecodeBytes',
 	'efDecodeFile', 'efDecodeHex', 'efIsRawOnly', 'efFieldLabel', 'efPrimitive', 'efFlatten',
 	'efDiffData', 'efDataSummary', 'efContentDiff', 'gsm7Decode', 'efRenderFieldsHtml',
-	'pysimFsDecodedHtml', 'profilerRenderReport', 'profilerLabelText', 'profilerResultAspects',
+	'pysimFsDecodedHtml', 'pysimFsNodePath', 'profilerRenderReport', 'profilerLabelText', 'profilerResultAspects',
 	'profilerAspectSummary', 'profilerMatchedRecordsText', 'profilerRawDataCheck', 'profilerCustomNameForPath',
 	'pysimCustomNormPath',
 ];
@@ -45,6 +45,7 @@ for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'FCP_ARR_AM_BITS']) {
 for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_PBR_KINDS']) {
 	code += html.match(new RegExp('const ' + c + ' = \\{.*\\};'))[0].replace('const ', 'var ') + '\n';
 }
+code += html.match(/const EF_ECC_CATEGORIES = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
 code += html.match(/const EF_FIELD_LABELS = \{[\s\S]*?\n\};/)[0].replace('const ', 'var ') + '\n';
 code += html.match(/const EF_DECODERS = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
 code += 'var pysimCustomFiles = [];\nvar pysimFsSelected = \'EF.IMSI\';\n';
@@ -357,6 +358,70 @@ test('decoder registry resolves by name first, then FID; unknown returns null', 
 	assert.strictEqual(efFidFromPath('ADF.USIM'), null);
 });
 
+test('efDfFromPath reads the parent DF of a canonical path', () => {
+	assert.strictEqual(efDfFromPath('MF/7F20/6FAD'), '7F20');
+	assert.strictEqual(efDfFromPath('ADF.USIM/6FAD'), 'ADF.USIM');
+	assert.strictEqual(efDfFromPath('MF/ADF.USIM/6FAD'), 'ADF.USIM');
+	assert.strictEqual(efDfFromPath('mf/7f20/6fad'), '7F20');
+	assert.strictEqual(efDfFromPath('MF/7F10/5F3A/4F30'), '5F3A');
+	// a bare FID (and a bare root) carries no DF context
+	assert.strictEqual(efDfFromPath('6FAD'), '');
+	assert.strictEqual(efDfFromPath('MF'), '');
+	assert.strictEqual(efDfFromPath('ADF.USIM'), '');
+	assert.strictEqual(efDfFromPath(''), '');
+	assert.strictEqual(efDfFromPath(null), '');
+	// the two halves of the spec identity come from the same path
+	assert.strictEqual(efFidFromPath('MF/7F20/6FAD'), '6FAD');
+});
+
+test('the decoder resolver is DF-first: EF.ECC is the SIM or the USIM file', () => {
+	// EF.ECC collides in name AND FID: only the parent DF separates the
+	// TS 51.011 transparent form from the TS 31.102 linear-fixed one
+	assert.strictEqual(efFindDecoder('EF.ECC', '6fb7', '7F20').fn, efDecEcc);
+	assert.strictEqual(efFindDecoder('EF.ECC', '6fb7', 'ADF.USIM').fn, efDecEccUsim);
+	assert.strictEqual(efFindDecoder('EF.ECC', '6fb7', 'adf.usim').fn, efDecEccUsim);
+	assert.strictEqual(efFindDecoder(null, '6FB7', 'ADF.USIM').fn, efDecEccUsim);
+	// without a DF the historical name-then-FID lookup answers (the first
+	// entry, the DF.GSM form, is unchanged behaviour)
+	assert.strictEqual(efFindDecoder('EF.ECC', '6fb7').fn, efDecEcc);
+	assert.strictEqual(efFindDecoder('EF.ECC', null).fn, efDecEcc);
+	// a DF carrying no entry of its own falls back to the generic lookup
+	assert.strictEqual(efFindDecoder('EF.ECC', '6fb7', 'ADF.ISIM').fn, efDecEcc);
+	// the FID fallback stays inside the DF
+	assert.strictEqual(efFindDecoder('EF.NOPE', '6FB7', 'ADF.USIM').fn, efDecEccUsim);
+	assert.strictEqual(efFindDecoder('EF.NOPE', 'abcd', 'ADF.USIM'), null);
+	// every EF.AD form has its own DF-keyed entry over one decoder
+	assert.strictEqual(efFindDecoder('EF.AD', '6fad', '7F20').fn, efDecAd);
+	assert.strictEqual(efFindDecoder('EF.AD', '6fad', 'ADF.USIM').fn, efDecAd);
+	assert.strictEqual(efFindDecoder('EF.AD', '6fad', 'ADF.ISIM').fn, efDecAd);
+	assert.strictEqual(efFindDecoder('EF.AD', '6fad', 'ADF.ISIM').df, 'ADF.ISIM');
+	// files without a collision are unaffected by the DF context
+	assert.strictEqual(efFindDecoder('EF.IMSI', '6f07', 'ADF.USIM').name, 'EF.IMSI');
+	assert.strictEqual(efFindDecoder(null, '2fe2', 'MF').name, 'EF.ICCID');
+});
+
+test('EF.ECC (USIM) decodes a X+4 record: code, alpha and service category', () => {
+	// pySim's EF_ECC vectors (TS 31.102 4.2.21): 3 BCD code bytes, the
+	// optional annex A alpha, then the category byte
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F1FF01')), { code: '911', category: 'police' });
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F3FF02')), { code: '913', category: 'ambulance' });
+	// code 112 = 11 F2 FF (odd digit count, F padded)
+	assert.deepStrictEqual(efDecEccUsim(efBytes('11F2FF40')), { code: '112', category: 'automatic eCall' });
+	// with the optional alpha identifier (X = 3, GSM 7-bit octets)
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F1FF424F4204')),
+		{ code: '911', category: 'fire brigade', alpha: 'BOB' });
+	// a UCS-2 (0x80-prefixed) alpha, and two category bits at once
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F1FF800042004F004205')),
+		{ code: '911', category: 'police, fire brigade', alpha: 'BOB' });
+	// an unmodelled category byte stays visible as its hex value
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F1FF80')), { code: '911', category: '0x80' });
+	// unused records: all FF, or the mandatory code all FF
+	assert.deepStrictEqual(efDecEccUsim(efBytes('FFFFFFFFFFFF')), { empty: true });
+	assert.deepStrictEqual(efDecEccUsim(efBytes('FFFFFF02')), { empty: true });
+	// shorter than the mandatory fields: raw fallback, never a throw
+	assert.deepStrictEqual(efDecEccUsim(efBytes('19F1FF')), { raw: '19F1FF' });
+});
+
 test('efDecodeFile handles transparent and record content', () => {
 	const t = efDecodeFile('EF.IMSI', null, { kind: 'transparent', data: '082982608200002080' });
 	assert.strictEqual(typeof t.fn, 'function');
@@ -396,6 +461,26 @@ test('efDiffData reports only differing fields; efContentDiff decodes both sides
 
 test('efFlatten skips the all-FF empty marker', () => {
 	assert.deepStrictEqual(efFlatten({ empty: true }), []);
+});
+
+test('pysimFsDecodedHtml decodes EF.ECC by the selected node\'s parent DF', () => {
+	// ADF.USIM's EF.ECC is the linear-fixed X+4 form (code/alpha/category)
+	const usim = { name: 'ADF.USIM', children: [] };
+	const usimEcc = { name: 'EF.ECC', fid: '6FB7', parent: usim };
+	usim.children.push(usimEcc);
+	const usimHtml = pysimFsDecodedHtml(usimEcc, { success: true, records: [{ num: 1, data: '19F1FF01' }] });
+	assert.ok(usimHtml.includes('Emergency call code'));
+	assert.ok(usimHtml.includes('911'));
+	assert.ok(usimHtml.includes('police'));
+	// DF.GSM's EF.ECC keeps the transparent code + category decode
+	const gsm = { name: 'DF.GSM', fid: '7F20', children: [] };
+	const gsmEcc = { name: 'EF.ECC', fid: '6FB7', parent: gsm };
+	gsm.children.push(gsmEcc);
+	const gsmHtml = pysimFsDecodedHtml(gsmEcc, { success: true, data: '19F101' });
+	assert.ok(gsmHtml.includes('Number'));
+	assert.ok(gsmHtml.includes('911'));
+	assert.ok(gsmHtml.includes('Emergency category'));
+	assert.ok(!gsmHtml.includes('Emergency call code'));
 });
 
 test('efDiffData names an all-FF side Empty (all FF)', () => {
