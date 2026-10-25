@@ -67,7 +67,8 @@ editing candidates.
 | EF.SST | 6F38 | TS 51.011 10.3.7 | X ≥ 1 | **2 bits/service** (allocated + activated) | S6 (pending) | decoder fixed; editor later |
 | EF.EST | 6F56 | TS 31.102 4.2.47 | X ≥ 1 | enabled-service bits (3 services) | S6 | **3.34** |
 | EF.LI | 6F05 | TS 31.102 4.2.1 | 2n | ISO 639 letters (2 B each) | S6 | 3.35 |
-| EF.LP / EF.PL | 6F05 / 2F05 | TS 51.011 10.3.1 / 10.1.2 | 1–n | **1 byte per language** (DCS language coding) | S6 | 3.35 |
+| EF.LP | 6F05 | TS 51.011 10.3.1 | n | **1 byte per language** (SMS 7-bit) | S6 | 3.35 |
+| EF.PL | 2F05 | TS 102 221 13.3 | 2n | ISO 639 letters (2 B each, like LI) | S6 | 3.35 |
 | EF.SPN | 6F46 | TS 31.102 4.2.12 | 17 B | condition byte + Annex A text | S2 | **3.33** |
 | EF.PLMNsel | 6F30 | TS 51.011 10.3.4 | 3n (n ≥ 8) | PLMN list | S4 | **3.34** |
 | EF.FPLMN | 6F7B | TS 31.102 4.2.16 | 3n (n ≥ 4) | PLMN list (FFFFFF holes anywhere) | S4 | **3.34** |
@@ -82,7 +83,8 @@ editing candidates.
 | EF.ACC | 6F78 | TS 31.102 4.2.15 | 2 B | class bits (b8…b1 = 15…8 / 7…0; ACC 10 written 0) | S6 | **3.34** |
 | EF.PHASE | 6FAE | TS 51.011 10.3.19 | 1 B | phase id (00/02/03) | S1 | **3.34** |
 | EF.HPPLMN | 6F31 | TS 31.102 4.2.6 | 1 B | search-period multiplier | S1 | **3.34** |
-| EF.AD | 6FAD | TS 31.102 4.2.18 | 4+X | op-mode byte enum, info, MNC length (may be 0 or absent) | S1 | **3.34** |
+| EF.AD (SIM) | 6FAD | TS 51.011 10.3.18 | 3+X | op-mode byte + additional info (no MNC length) | S1 | **3.34** |
+| EF.AD (USIM) | 6FAD | TS 31.102 4.2.18 | 4+X | op-mode byte + info + MNC length (may be 0) | S1 | **3.34** |
 | EF.CBMI | 6F45 | TS 31.102 4.2.14 | 2n | CB message ids | S6 | **3.34** |
 | EF.CBMID | 6F48 | TS 31.102 4.2.20 | 2n | CB message ids | S6 | **3.34** |
 | EF.CBMIR | 6F50 | TS 31.102 4.2.22 | 4n | CB id ranges | S6 | **3.34** |
@@ -126,6 +128,28 @@ must not be edited from a workbench without a dedicated flow (Keys, DCK,
 network parameters, START-HFN).  Nothing in the survey forces a new shape
 beyond S9/S10.
 
+### 2.4 SIM ↔ USIM format divergence
+
+Some features are represented by a different file (or the same FID with a
+different structure) in the SIM (DF.GSM, TS 51.011) and USIM (ADF.USIM,
+TS 31.102) applications.  Three groups:
+
+| group | SIM | USIM | purpose |
+|---|---|---|---|
+| A — same FID + name, different format | EF.ECC 6FB7 transparent 3n (code+ESC) | EF.ECC 6FB7 linear X+4 (code+alpha+ESC) | emergency codes |
+| A | EF.AD 6FAD 3+X (no MNC length) | EF.AD 6FAD 4+X (+ MNC length) | administrative data |
+| B — same FID, different name + format | EF.SST 6F38 (2-bit) | EF.UST 6F38 (1-bit) | service table |
+| B | EF.LP 6F05 (1 B/lang) | EF.LI 6F05 (2 B/lang) | language preference |
+| C — different FID + name + format | EF.PLMNsel 6F30 (3n, no AcT) | EF.PLMNwAcT 6F60 (5n, +AcT) | user PLMN selector |
+| C | EF.Kc/KcGPRS 6F20/6F52 (9 B) | EF.Keys/KeysPS 6F08/6F09 (33 B) | ciphering keys |
+| C | EF.CCP 6F3D (14 B) | EF.CCP2 6F4F (X≥15) | bearer capability |
+
+Group A is the only one where the *name and FID both* collide, so those two
+(EF.ECC, EF.AD) are what the DF-context resolver (finding 6) is for; groups B
+and C are already disambiguated by name.  EF.HPLMNwAcT (a list) vs the SIM
+EF.HPPLMN (a 1-byte search period) is a related-but-different pair, and
+OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
+
 ## 3. Findings (defects and constraints the survey exposed)
 
 1. **EF.BDN is X+15, not X+14.**  The shared ADN codec assumes the last two
@@ -133,10 +157,16 @@ beyond S9/S10.
    (`X+15`, TS 31.102 4.2.44).  The read-only decoded view currently
    mis-parses BDN records, and the v3.33.0 encoder would corrupt them.  The
    codec must take the layout (ADN vs BDN) and preserve the CMI pointer.
-2. **EF.ECC has two layouts.**  SIM: transparent 3n (TS 51.011 10.3.27);
-   USIM: linear fixed X+4 (TS 31.102 4.2.21).  The decoder implements the SIM
-   layout only; on a USIM the alpha bytes are read as more codes.  A
-   structure-aware decode is needed before an ECC editor.
+2. **EF.ECC is two different files, not one file with two layouts.**  They
+   share the FID `6FB7` **and the name `EF.ECC`**, but live in different DFs
+   under different specs: DF.GSM — transparent 3n, code(2 BCD) + category
+   (TS 51.011 10.3.27); ADF.USIM — linear fixed X+4, code(3 BCD) + alpha
+   (Annex A) + category (TS 31.102 4.2.21).  The decoder implements the SIM
+   file only; on a USIM the alpha bytes are read as more codes.  They also
+   need **different editors** (a plain code list vs a record form with a text
+   alpha), so they are two registry entries, resolved by the DF context —
+   not a name/FID lookup, which is ambiguous here (the name *and* the FID
+   collide).
 3. **S8 is not one shape.**  PNN (flat tag+length+value TLVs) is the simple
    case.  DIR/ARR/PBR nest TLVs and cross-reference other files; they need
    either a tree editor or a structured read-only view first.
@@ -150,7 +180,10 @@ beyond S9/S10.
 6. **FID collisions across DFs** (e.g. 6F02 = EF.IMPI in ISIM and EF.OCST in
    USIM) make the fid-only decoder fallback unsafe; the name-based lookup is
    the primary one and encoders should not be fid-only where a collision is
-   possible.
+   possible.  **Name collisions across DFs** also exist — EF.ECC and EF.AD
+   (DF.GSM vs ADF.USIM) — where both the name *and* the FID collide, the
+   resolver needs the DF context (the file's canonical path, whose parent
+   segment is the DF): resolve by DF first, then name, then FID.
 7. **Text coding is per file.**  Annex A (TS 102 221) for SPN/ADN/SUUME;
    the Network Name IE (TS 24.008 10.5.3.5a) for PNN, where the first byte is
    `0x80 | spare` for packed GSM 7-bit and `0x90` for UCS-2 — the real-card
@@ -168,9 +201,11 @@ beyond S9/S10.
     or absent (3-byte SIM form).  The decoder and encoder follow this now.
 11. **The IMSI parity/type nibble** (TS 24.008 10.5.1.4) is 9 for an odd digit
     count and 1 for an even one; the first encoder always wrote 9.
-12. **SIM EF.LP/EF.PL use the 1-byte DCS language coding**, unlike the USIM
-    EF.LI's 2-byte ISO 639 letters — the shared decoder is wrong for the SIM
-    files (queued with the language work).
+12. **The SIM/USIM language files differ in width.**  EF.LP (SIM, DF.GSM,
+    6F05) is 1 byte per language (SMS 7-bit); EF.LI (USIM, ADF.USIM, 6F05) is
+    the 2-byte ISO 639 pair; EF.PL (MF, 2F05) is 2 bytes, like LI — not 1
+    byte.  The shared decoder is wrong for EF.LP only (queued with the
+    language work).
 13. **EF.SMSP's parameter indicators are a five-bit presence map with inverted
     meaning** (TS 31.102 §4.2.27: bit 1 DA, 2 SCA, 3 PID, 4 DCS, 5 VP; bit = 1
     means *absent*; bits 6–8 reserved = 1).  The decoder had the bits shifted
@@ -201,8 +236,10 @@ beyond S9/S10.
 - **v3.36.0** — LI/LP/PL (the SIM files need the 1-byte DCS language coding
   and a name-dependent decoder), GID1/GID2 (the clause states no coding —
   verify TS 31.101 first), SPDI (the A3 > 80 wrapper), OPL (PNN record
-  select), ECC (SIM and USIM — needs a structure-aware decode), SUUME,
-  IMPI/DOMAIN/IMPU, ACL; EXT1–EXT5 as a read-only structured view.
+  select), ECC (**two files, two editors** — DF.GSM transparent code list vs
+  ADF.USIM record form with an alpha; needs the DF-context resolver from
+  finding 6), SUUME, IMPI/DOMAIN/IMPU, ACL; EXT1–EXT5 as a read-only
+  structured view.
 - **Postponed by decision (read-only; do not implement without confirmation)**
   — EF.DIR, EF.ARR, EF.SMS, EF.PBR: they rarely need manual changes and the
   decoded view is enough.
@@ -222,3 +259,66 @@ beyond S9/S10.
 - **No capability by accident**: a file without an encoder must never show
   the editor (gating test), and a schema/label drift guard keeps the editors
   and decoders aligned.
+
+## 6. Cross-file "Services" editor (proposal)
+
+A file-agnostic service editor for the Card reader tab, in addition to the
+per-file decoded editors (which stay independent).  It presents the four
+service tables side by side and writes them back consistently, so EF.SST's
+allocated/activated layout no longer needs its own per-file grid (SST stays
+read-only in the per-file editor).
+
+- **Scope**: EF.SST (DF.GSM, 2 bits/service: allocated + activated), EF.UST
+  (ADF.USIM, 1 bit), EF.EST (ADF.USIM, a 3-bit *enabled* subset of UST:
+  FDN/BDN/ACL = UST 2/6/35) and EF.IST (ADF.ISIM, 1 bit, IMS services).
+- **The numbering does not align across files**: SST and UST (and EST/IST)
+  use different service-number -> name maps, so the editor is driven by a
+  curated **feature cross-reference** (by name), not by service number.  Each
+  feature row belongs to *SIM-only*, *USIM-only*, *ISIM-only* or *shared*
+  (e.g. FDN = SST 3 / UST 2 / EST 1; SMS = SST 4 / UST 10).  The table is
+  spec-derived and pinned by a test, like the event/TR vectors.
+- **Card-aware and probed**: on open, the editor resolves the four files on
+  the current card (the file-manager presence state, or a targeted probe) and
+  renders a column per file that exists; an absent file (a card without ISIM
+  has no EF.IST) hides that column and its feature rows entirely.  Presence is
+  cached per `card_session`, like the EF.ARR copies.
+- **Semantics**: "enabled" = UST bit set = SST *allocated* **and** *activated*.
+  SST's intermediate "allocated but not activated" state has no UST
+  equivalent, so the SIM column is a per-feature toggle between *on*
+  (allocated + activated) and *off* (allocated but not activated) — the
+  Services editor never de-allocates, so a card-wide change keeps the SIM
+  able to re-enable the service.  Explicit *deletion* (clearing the allocation
+  bit) is the per-file EF.SST editor's job: its grid is a tri-state per
+  service (deleted / allocated-off / on).
+- **Write, per file**: the merged form carries the intended bytes for every
+  visible file, but writing is explicit and separate — one button per file
+  ("Save to EF.SST", "Save to EF.UST", "Save to EF.EST", "Save to EF.IST").
+  Each button writes only that file via `/api/write`; an unchanged file is
+  skipped and the panel reports each write's result (there is no atomic
+  cross-file write).
+- **Filesystem check**: many services declare a DF or EF (ADN -> EF.ADN 6F3A,
+  SPN -> EF.SPN 6F46, GSM Access -> DF.GSM, GPRS -> EF.KcGPRS, …); a second
+  curated table maps a feature to the file(s) it requires.  A **Check** action
+  probes the equipped card for those files (reusing the file-manager presence
+  state / a targeted SELECT) and flags mismatches — a declared service whose
+  file is absent, or a present file whose service is not declared.  Services
+  that map to a capability rather than a file (CHV1 disable, Proactive SIM,
+  …) carry no file check.  The result is cached per `card_session`.
+
+### 6.1 Candidates for the same cross-application treatment
+
+The cross-file pattern of the Services editor generalises to the other
+SIM/USIM feature pairs (group C in §2.4), where one operator action should
+update both applications consistently:
+
+- **PLMN selectors** — EF.PLMNsel (SIM, no AcT) ↔ EF.PLMNwAcT (USIM, +AcT):
+  a shared PLMN list, the SIM side dropping the AcT and the USIM side
+  re-applying it (AcT is not expressible on the SIM side).
+- **Language preferences** — EF.LP (SIM, 1 B/lang) ↔ EF.LI (USIM, 2 B/lang)
+  ↔ EF.PL (MF, 2 B/lang): a shared ordered language list re-encoded per file.
+- **Bearer capabilities** — EF.CCP (SIM) ↔ EF.CCP2 (USIM): a shared
+  bearer-capability record re-encoded per file's layout.
+
+None of these are committed; they are recorded here so the DF-context resolver
+and the per-file encoders are shaped with them in mind (group A/C files must
+not be fid-only).
