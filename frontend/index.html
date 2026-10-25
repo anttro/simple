@@ -1106,6 +1106,7 @@
 				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-pysim-sub="files" data-l10n="File manager">File manager</button>
 			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-pysim-sub="cmd" data-l10n="pySim command line">pySim command line</button>
 			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-pysim-sub="apdu" data-l10n="Raw APDU">Raw APDU</button>
+			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-pysim-sub="services" data-needs="card" data-l10n="Services">Services</button>
 		</div>
 
 		<div id="pysim-sub-files">
@@ -1164,6 +1165,17 @@
 				<button data-needs="card" onclick="pysimApdu()" class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
 			</div>
 			<textarea id="pysim-apdu-output" rows="5" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 bg-gray-100 dark:bg-slate-800"></textarea>
+		</div>
+
+		<div id="pysim-sub-services" class="hidden">
+			<div class="flex items-center gap-2 mb-2">
+				<span class="text-sm font-medium" data-l10n="Services">Services</span>
+				<button id="pysim-services-refresh-btn" data-needs="card" onclick="pysimServicesOpen(true)" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Refresh">Refresh</button>
+				<span id="pysim-services-status" class="text-xs font-mono text-gray-500 dark:text-slate-400" style="min-height:1.2em"></span>
+			</div>
+			<div id="pysim-services-note" class="mb-2 text-xs text-amber-600 dark:text-amber-400"></div>
+			<div id="pysim-services-grid" class="overflow-x-auto"></div>
+			<div id="pysim-services-save" class="flex flex-wrap gap-x-4 gap-y-2 mt-3"></div>
 		</div>
 
 	</div>
@@ -15799,12 +15811,13 @@ function pysimSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !isActive);
 		btn.classList.toggle('dark:text-slate-300', !isActive);
 	});
-	['cmd', 'apdu', 'files'].forEach(s => {
+	['cmd', 'apdu', 'files', 'services'].forEach(s => {
 		document.getElementById('pysim-sub-' + s).classList.toggle('hidden', s !== name);
 	});
 	pysimHelpAnchor = {cmd:'pysim-cmdline', apdu:'raw-apdu', files:'file-manager'}[name] || 'card-reader';
 	setHelpAnchor(pysimHelpAnchor);
 	if (name === 'files') pysimFsFitTree();
+	if (name === 'services') pysimServicesOpen();
 	navRecord();
 }
 
@@ -18207,6 +18220,7 @@ async function pysimResetCardData(refreshStatus) {
 	stkMenuClose();
 	stkMenuStack = [];
 	pysimFsRefresh();
+	pysimServicesReset();
 	stkCheckMenu();
 	pysimEventsRender();
 	pysimProactiveLogRender();
@@ -23084,6 +23098,506 @@ const EF_EST_SERVICES = {1: "Fixed Dialling Numbers (FDN)", 2: "Barred Dialling 
 // TS 31.102 §4.4.2.1 EF_PBR primitive tags (the phonebook kinds).
 const EF_PBR_KINDS = { 0xC0: 'EF.ADN', 0xC1: 'EF.IAP', 0xC2: 'EF.EXT1', 0xC3: 'EF.SNE', 0xC4: 'EF.ANR', 0xC5: 'EF.PBC', 0xC6: 'EF.GRP', 0xC7: 'EF.AAS', 0xC8: 'EF.GAS', 0xC9: 'EF.UID', 0xCA: 'EF.EMAIL', 0xCB: 'EF.CCP1', 0xCC: 'EF.PURI' };
 
+// ===== cross-file Services editor (EF.SST / EF.UST / EF.EST / EF.IST) =====
+// The four service tables number the same feature differently (and some
+// features exist in one application only), so the editor is driven by a
+// curated feature cross-reference rather than by service number:
+//   EF.SST  DF.GSM     6F38  2 bits/service (allocated + activated), TS 51.011 10.3.7
+//   EF.UST  ADF.USIM   6F38  1 bit/service, TS 31.102 4.2.8
+//   EF.EST  ADF.USIM   6F56  the enabled subset of UST, TS 31.102 4.2.47
+//   EF.IST  ADF.ISIM   6F07  1 bit/service, TS 31.103 4.2.7
+// The table is a transcription of docs/services-editor.md §A.1-§A.3 (the
+// RFU/reserved slots of §A.4 are not features), and its completeness - every
+// non-RFU service number of every file appears in exactly one row - is pinned
+// by frontend/tests/services.test.js.  cls: 'shared' | 'sim' | 'usim' | 'isim'.
+const SERVICES_CROSS_REF = [
+	{ f: 'CHV1 disable function', sst: 1, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Local Phone Book (ADN)', sst: 2, ust: 1, est: null, ist: null, cls: 'shared' },
+	{ f: 'Fixed Dialling Numbers (FDN)', sst: 3, ust: 2, est: 1, ist: null, cls: 'shared' },
+	{ f: 'Short Message Storage (SMS)', sst: 4, ust: 10, est: null, ist: 6, cls: 'shared' },
+	{ f: 'Advice of Charge (AoC)', sst: 5, ust: 13, est: null, ist: null, cls: 'shared' },
+	{ f: 'Capability Configuration Parameters (CCP)', sst: 6, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Capability Configuration Parameters 2 (CCP2)', sst: null, ust: 14, est: null, ist: null, cls: 'usim' },
+	{ f: 'PLMN selector', sst: 7, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'MSISDN', sst: 9, ust: 21, est: null, ist: null, cls: 'shared' },
+	{ f: 'Extension 1', sst: 10, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Extension 2', sst: 11, ust: 3, est: null, ist: null, cls: 'shared' },
+	{ f: 'SMS Parameters (SMSP)', sst: 12, ust: 12, est: null, ist: null, cls: 'shared' },
+	{ f: 'Last Number Dialled (LND)', sst: 13, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Cell Broadcast Message Identifier (CBMI)', sst: 14, ust: 15, est: null, ist: null, cls: 'shared' },
+	{ f: 'Group Identifier Level 1 (GID1)', sst: 15, ust: 17, est: null, ist: null, cls: 'shared' },
+	{ f: 'Group Identifier Level 2 (GID2)', sst: 16, ust: 18, est: null, ist: null, cls: 'shared' },
+	{ f: 'Service Provider Name (SPN)', sst: 17, ust: 19, est: null, ist: null, cls: 'shared' },
+	{ f: 'Service Dialling Numbers (SDN)', sst: 18, ust: 4, est: null, ist: null, cls: 'shared' },
+	{ f: 'Extension 3', sst: 19, ust: 5, est: null, ist: null, cls: 'shared' },
+	{ f: 'VGCS Group Identifier List', sst: 21, ust: 57, est: null, ist: null, cls: 'shared' },
+	{ f: 'VBS Group Identifier List', sst: 22, ust: 58, est: null, ist: null, cls: 'shared' },
+	{ f: 'enhanced Multi-Level Precedence and Pre-emption (eMLPP)', sst: 23, ust: 24, est: null, ist: null, cls: 'shared' },
+	{ f: 'Automatic Answer for eMLPP (AAeM)', sst: 24, ust: 25, est: null, ist: null, cls: 'shared' },
+	{ f: 'Data download via SMS-CB', sst: 25, ust: 29, est: null, ist: null, cls: 'shared' },
+	{ f: 'Data download via SMS-PP', sst: 26, ust: 28, est: null, ist: null, cls: 'shared' },
+	{ f: 'Menu selection', sst: 27, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Call control (by SIM/USIM)', sst: 28, ust: 30, est: null, ist: null, cls: 'shared' },
+	{ f: 'Proactive SIM', sst: 29, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Cell Broadcast Message Identifier Ranges (CBMIR)', sst: 30, ust: 16, est: null, ist: null, cls: 'shared' },
+	{ f: 'Barred Dialling Numbers (BDN)', sst: 31, ust: 6, est: 2, ist: null, cls: 'shared' },
+	{ f: 'Extension 4', sst: 32, ust: 7, est: null, ist: null, cls: 'shared' },
+	{ f: 'De-personalisation Control Keys (DCK)', sst: 33, ust: 36, est: null, ist: null, cls: 'shared' },
+	{ f: 'Co-operative Network List (CNL)', sst: 34, ust: 37, est: null, ist: null, cls: 'shared' },
+	{ f: 'Short Message Status Reports (SMSR)', sst: 35, ust: 11, est: null, ist: 7, cls: 'shared' },
+	{ f: 'Network\'s indication of alerting in the MS (NIA)', sst: 36, ust: 56, est: null, ist: null, cls: 'shared' },
+	{ f: 'MO-SMS control (by SIM/USIM)', sst: 37, ust: 31, est: null, ist: null, cls: 'shared' },
+	{ f: 'GPRS', sst: 38, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'Image (IMG)', sst: 39, ust: 22, est: null, ist: null, cls: 'shared' },
+	{ f: 'SoLSA', sst: 40, ust: 23, est: null, ist: null, cls: 'shared' },
+	{ f: 'USSD string data object supported in Call Control', sst: 41, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'RUN AT COMMAND command', sst: 42, ust: 32, est: null, ist: null, cls: 'shared' },
+	{ f: 'User controlled PLMN selector with Access Technology', sst: 43, ust: 20, est: null, ist: null, cls: 'shared' },
+	{ f: 'Operator controlled PLMN selector with Access Technology', sst: 44, ust: 42, est: null, ist: null, cls: 'shared' },
+	{ f: 'HPLMN selector with Access Technology', sst: 45, ust: 43, est: null, ist: null, cls: 'shared' },
+	{ f: 'CPBCCH Information', sst: 46, ust: 39, est: null, ist: null, cls: 'shared' },
+	{ f: 'Investigation Scan', sst: 47, ust: 40, est: null, ist: null, cls: 'shared' },
+	{ f: 'Extended Capability Configuration Parameters (ECCP)', sst: 48, ust: null, est: null, ist: null, cls: 'sim' },
+	{ f: 'MExE', sst: 49, ust: 41, est: null, ist: null, cls: 'shared' },
+	{ f: 'PLMN Network Name (PNN)', sst: 51, ust: 45, est: null, ist: null, cls: 'shared' },
+	{ f: 'Operator PLMN List (OPL)', sst: 52, ust: 46, est: null, ist: null, cls: 'shared' },
+	{ f: 'Mailbox Dialling Numbers (MBDN)', sst: 53, ust: 47, est: null, ist: null, cls: 'shared' },
+	{ f: 'Message Waiting Indication Status (MWIS)', sst: 54, ust: 48, est: null, ist: null, cls: 'shared' },
+	{ f: 'Call Forwarding Indication Status (CFIS)', sst: 55, ust: 49, est: null, ist: null, cls: 'shared' },
+	{ f: 'Service Provider Display Information (SPDI)', sst: 56, ust: 51, est: null, ist: null, cls: 'shared' },
+	{ f: 'Multimedia Messaging Service (MMS)', sst: 57, ust: 52, est: null, ist: null, cls: 'shared' },
+	{ f: 'Extension 8', sst: 58, ust: 53, est: null, ist: null, cls: 'shared' },
+	{ f: 'MMS User Connectivity Parameters', sst: 59, ust: 55, est: null, ist: null, cls: 'shared' },
+	{ f: 'Outgoing Call Information (OCI and OCT)', sst: null, ust: 8, est: null, ist: null, cls: 'usim' },
+	{ f: 'Incoming Call Information (ICI and ICT)', sst: null, ust: 9, est: null, ist: null, cls: 'usim' },
+	{ f: 'GSM Access', sst: null, ust: 27, est: null, ist: null, cls: 'usim' },
+	{ f: 'Enabled Services Table', sst: null, ust: 34, est: null, ist: null, cls: 'usim' },
+	{ f: 'APN Control List (ACL)', sst: null, ust: 35, est: 3, ist: null, cls: 'usim' },
+	{ f: 'GSM security context', sst: null, ust: 38, est: null, ist: null, cls: 'usim' },
+	{ f: 'Extension 5', sst: null, ust: 44, est: null, ist: null, cls: 'usim' },
+	{ f: 'Call control on GPRS by USIM', sst: null, ust: 54, est: null, ist: null, cls: 'usim' },
+	{ f: 'Pseudonym', sst: null, ust: 59, est: null, ist: null, cls: 'usim' },
+	{ f: 'User Controlled PLMN selector for I-WLAN access', sst: null, ust: 60, est: null, ist: null, cls: 'usim' },
+	{ f: 'Operator Controlled PLMN selector for I-WLAN access', sst: null, ust: 61, est: null, ist: null, cls: 'usim' },
+	{ f: 'User controlled WSID list', sst: null, ust: 62, est: null, ist: null, cls: 'usim' },
+	{ f: 'Operator controlled WSID list', sst: null, ust: 63, est: null, ist: null, cls: 'usim' },
+	{ f: 'VGCS security', sst: null, ust: 64, est: null, ist: null, cls: 'usim' },
+	{ f: 'VBS security', sst: null, ust: 65, est: null, ist: null, cls: 'usim' },
+	{ f: 'WLAN Reauthentication Identity', sst: null, ust: 66, est: null, ist: null, cls: 'usim' },
+	{ f: 'Multimedia Messages Storage', sst: null, ust: 67, est: null, ist: null, cls: 'usim' },
+	{ f: 'Generic Bootstrapping Architecture (GBA)', sst: null, ust: 68, est: null, ist: 2, cls: 'shared' },
+	{ f: 'MBMS security', sst: null, ust: 69, est: null, ist: null, cls: 'usim' },
+	{ f: 'Data download via USSD and USSD application mode', sst: null, ust: 70, est: null, ist: null, cls: 'usim' },
+	{ f: 'Equivalent HPLMN', sst: null, ust: 71, est: null, ist: null, cls: 'usim' },
+	{ f: 'Additional TERMINAL PROFILE after UICC activation', sst: null, ust: 72, est: null, ist: null, cls: 'usim' },
+	{ f: 'Equivalent HPLMN Presentation Indication', sst: null, ust: 73, est: null, ist: null, cls: 'usim' },
+	{ f: 'Last RPLMN Selection Indication', sst: null, ust: 74, est: null, ist: null, cls: 'usim' },
+	{ f: 'OMA BCAST Smart Card Profile', sst: null, ust: 75, est: null, ist: null, cls: 'usim' },
+	{ f: 'GBA-based Local Key Establishment Mechanism', sst: null, ust: 76, est: null, ist: 4, cls: 'shared' },
+	{ f: 'Terminal Applications', sst: null, ust: 77, est: null, ist: null, cls: 'usim' },
+	{ f: 'Service Provider Name Icon', sst: null, ust: 78, est: null, ist: null, cls: 'usim' },
+	{ f: 'PLMN Network Name Icon', sst: null, ust: 79, est: null, ist: null, cls: 'usim' },
+	{ f: 'Connectivity Parameters for USIM IP connections', sst: null, ust: 80, est: null, ist: null, cls: 'usim' },
+	{ f: 'Home I-WLAN Specific Identifier List', sst: null, ust: 81, est: null, ist: null, cls: 'usim' },
+	{ f: 'I-WLAN Equivalent HPLMN Presentation Indication', sst: null, ust: 82, est: null, ist: null, cls: 'usim' },
+	{ f: 'I-WLAN HPLMN Priority Indication', sst: null, ust: 83, est: null, ist: null, cls: 'usim' },
+	{ f: 'I-WLAN Last Registered PLMN', sst: null, ust: 84, est: null, ist: null, cls: 'usim' },
+	{ f: 'EPS Mobility Management Information', sst: null, ust: 85, est: null, ist: null, cls: 'usim' },
+	{ f: 'Allowed CSG Lists and corresponding indications', sst: null, ust: 86, est: null, ist: null, cls: 'usim' },
+	{ f: 'Call control on EPS PDN connection by USIM', sst: null, ust: 87, est: null, ist: null, cls: 'usim' },
+	{ f: 'HPLMN Direct Access', sst: null, ust: 88, est: null, ist: null, cls: 'usim' },
+	{ f: 'eCall Data', sst: null, ust: 89, est: null, ist: null, cls: 'usim' },
+	{ f: 'Operator CSG Lists and corresponding indications', sst: null, ust: 90, est: null, ist: null, cls: 'usim' },
+	{ f: 'Support for SM-over-IP', sst: null, ust: 91, est: null, ist: 8, cls: 'shared' },
+	{ f: 'Support of CSG Display Control', sst: null, ust: 92, est: null, ist: null, cls: 'usim' },
+	{ f: 'Communication Control for IMS', sst: null, ust: 93, est: null, ist: 9, cls: 'shared' },
+	{ f: 'Extended Terminal Applications', sst: null, ust: 94, est: null, ist: null, cls: 'usim' },
+	{ f: 'Support of UICC access to IMS', sst: null, ust: 95, est: null, ist: 10, cls: 'shared' },
+	{ f: 'Non-Access Stratum configuration by USIM', sst: null, ust: 96, est: null, ist: null, cls: 'usim' },
+	{ f: 'PWS configuration by USIM', sst: null, ust: 97, est: null, ist: null, cls: 'usim' },
+	{ f: 'URI support by UICC', sst: null, ust: 99, est: null, ist: 11, cls: 'shared' },
+	{ f: 'Extended EARFCN support', sst: null, ust: 100, est: null, ist: null, cls: 'usim' },
+	{ f: 'ProSe', sst: null, ust: 101, est: null, ist: null, cls: 'usim' },
+	{ f: 'USAT Application Pairing', sst: null, ust: 102, est: null, ist: null, cls: 'usim' },
+	{ f: 'Media Type support', sst: null, ust: 103, est: null, ist: 12, cls: 'shared' },
+	{ f: 'IMS call disconnection cause', sst: null, ust: 104, est: null, ist: 13, cls: 'shared' },
+	{ f: 'URI support for MO SHORT MESSAGE CONTROL', sst: null, ust: 105, est: null, ist: 14, cls: 'shared' },
+	{ f: 'ePDG configuration Information support', sst: null, ust: 106, est: null, ist: null, cls: 'usim' },
+	{ f: 'ePDG configuration Information configured', sst: null, ust: 107, est: null, ist: null, cls: 'usim' },
+	{ f: 'ACDC support', sst: null, ust: 108, est: null, ist: null, cls: 'usim' },
+	{ f: 'MCPTT', sst: null, ust: 109, est: null, ist: 15, cls: 'shared' },
+	{ f: 'ePDG configuration Information for Emergency Service support', sst: null, ust: 110, est: null, ist: null, cls: 'usim' },
+	{ f: 'ePDG configuration Information for Emergency Service configured', sst: null, ust: 111, est: null, ist: null, cls: 'usim' },
+	{ f: 'eCall Data over IMS', sst: null, ust: 112, est: null, ist: null, cls: 'usim' },
+	{ f: 'URI support for SMS-PP DOWNLOAD', sst: null, ust: 113, est: null, ist: 16, cls: 'shared' },
+	{ f: 'From Preferred', sst: null, ust: 114, est: null, ist: 17, cls: 'shared' },
+	{ f: 'IMS configuration data', sst: null, ust: 115, est: null, ist: 18, cls: 'shared' },
+	{ f: 'TV configuration', sst: null, ust: 116, est: null, ist: null, cls: 'usim' },
+	{ f: '3GPP PS Data Off', sst: null, ust: 117, est: null, ist: null, cls: 'usim' },
+	{ f: '3GPP PS Data Off Service List', sst: null, ust: 118, est: null, ist: null, cls: 'usim' },
+	{ f: 'V2X', sst: null, ust: 119, est: null, ist: null, cls: 'usim' },
+	{ f: 'XCAP Configuration Data', sst: null, ust: 120, est: null, ist: 19, cls: 'shared' },
+	{ f: 'EARFCN list for MTC/NB-IOT UEs', sst: null, ust: 121, est: null, ist: null, cls: 'usim' },
+	{ f: '5GS Mobility Management Information', sst: null, ust: 122, est: null, ist: null, cls: 'usim' },
+	{ f: '5G Security Parameters', sst: null, ust: 123, est: null, ist: null, cls: 'usim' },
+	{ f: 'Subscription identifier privacy support', sst: null, ust: 124, est: null, ist: null, cls: 'usim' },
+	{ f: 'SUCI calculation by the USIM', sst: null, ust: 125, est: null, ist: null, cls: 'usim' },
+	{ f: 'UAC Access Identities support', sst: null, ust: 126, est: null, ist: null, cls: 'usim' },
+	{ f: 'Expect control plane-based Steering of Roaming information during initial registration in VPLMN', sst: null, ust: 127, est: null, ist: null, cls: 'usim' },
+	{ f: 'Call control on PDU Session by USIM', sst: null, ust: 128, est: null, ist: null, cls: 'usim' },
+	{ f: '5GS Operator PLMN List', sst: null, ust: 129, est: null, ist: null, cls: 'usim' },
+	{ f: 'Support for SUPI of type NSI or GLI or GCI', sst: null, ust: 130, est: null, ist: null, cls: 'usim' },
+	{ f: '3GPP PS Data Off separate Home and Roaming lists', sst: null, ust: 131, est: null, ist: null, cls: 'usim' },
+	{ f: 'Support for URSP by USIM', sst: null, ust: 132, est: null, ist: null, cls: 'usim' },
+	{ f: '5G Security Parameters extended', sst: null, ust: 133, est: null, ist: null, cls: 'usim' },
+	{ f: 'MuD and MiD configuration data', sst: null, ust: 134, est: null, ist: 21, cls: 'shared' },
+	{ f: 'Support for Trusted non-3GPP access networks by USIM', sst: null, ust: 135, est: null, ist: null, cls: 'usim' },
+	{ f: 'Support for multiple records of NAS security context storage for multiple registration', sst: null, ust: 136, est: null, ist: null, cls: 'usim' },
+	{ f: 'Pre-configured CAG information list', sst: null, ust: 137, est: null, ist: null, cls: 'usim' },
+	{ f: 'SOR-CMCI storage in USIM', sst: null, ust: 138, est: null, ist: null, cls: 'usim' },
+	{ f: '5G ProSe', sst: null, ust: 139, est: null, ist: null, cls: 'usim' },
+	{ f: 'Storage of disaster roaming information in USIM', sst: null, ust: 140, est: null, ist: null, cls: 'usim' },
+	{ f: 'Pre-configured eDRX parameters', sst: null, ust: 141, est: null, ist: null, cls: 'usim' },
+	{ f: '5G NSWO support', sst: null, ust: 142, est: null, ist: null, cls: 'usim' },
+	{ f: 'PWS configuration for SNPN in USIM', sst: null, ust: 143, est: null, ist: null, cls: 'usim' },
+	{ f: 'Multiplier Coefficient for Higher Priority PLMN search via NG-RAN satellite access', sst: null, ust: 144, est: null, ist: null, cls: 'usim' },
+	{ f: 'K_AUSF derivation configuration', sst: null, ust: 145, est: null, ist: null, cls: 'usim' },
+	{ f: 'Network Identifier for SNPN (NID)', sst: null, ust: 146, est: null, ist: null, cls: 'usim' },
+	{ f: '5MBS UE pre-configuration', sst: null, ust: 147, est: null, ist: null, cls: 'usim' },
+	{ f: 'Operator Controlled Signal Threshold per Access Technology', sst: null, ust: 148, est: null, ist: null, cls: 'usim' },
+	{ f: 'A2X', sst: null, ust: 149, est: null, ist: null, cls: 'usim' },
+	{ f: 'IMS Data Channel Indication', sst: null, ust: 150, est: null, ist: null, cls: 'usim' },
+	{ f: 'P-CSCF address', sst: null, ust: null, est: null, ist: 1, cls: 'isim' },
+	{ f: 'HTTP Digest', sst: null, ust: null, est: null, ist: 3, cls: 'isim' },
+	{ f: 'Support of P-CSCF discovery for IMS Local Break Out', sst: null, ust: null, est: null, ist: 5, cls: 'isim' },
+	{ f: 'WebRTC URI', sst: null, ust: null, est: null, ist: 20, cls: 'isim' },
+	{ f: 'IMS Data Channel indication', sst: null, ust: null, est: null, ist: 22, cls: 'isim' },
+];
+
+// The four files in the editor's column order, each addressed by its
+// canonical (DF, FID) path: the symbolic name alone is ambiguous across
+// applications (6F38 is EF.SST under DF.GSM and EF.UST under ADF.USIM, 6F07
+// is EF.IST under ADF.ISIM and EF.IMSI elsewhere) - docs/decoded-editing.md
+// finding 6.
+const SERVICES_FILES = [
+	{ key: 'sst', label: 'EF.SST', path: 'DF.GSM/6F38' },
+	{ key: 'ust', label: 'EF.UST', path: 'ADF.USIM/6F38' },
+	{ key: 'est', label: 'EF.EST', path: 'ADF.USIM/6F56' },
+	{ key: 'ist', label: 'EF.IST', path: 'ADF.ISIM/6F07' },
+];
+
+const SERVICES_TABLES = { ust: EF_UST_SERVICES, est: EF_EST_SERVICES, ist: EF_IST_SERVICES };
+
+function servicesDecode(key, bytes) {
+	if (key === 'sst') return efDecSst(bytes);
+	return efDecServiceTable(bytes, SERVICES_TABLES[key]);
+}
+
+// Service numbers of a file that the cross-reference does not model: the
+// spec's RFU/reserved slots (SST 8/20/50, UST 26/33/50/98).  Their bits are
+// copied from the file's own bytes on save, so the editor never rewrites a
+// service it does not show (the per-file editors own those slots).
+function servicesUnmodelled(key) {
+	const table = key === 'sst' ? EF_SST_SERVICES : (SERVICES_TABLES[key] || {});
+	const modelled = {};
+	for (const f of SERVICES_CROSS_REF) if (f[key] !== null && f[key] !== undefined) modelled[f[key]] = true;
+	return Object.keys(table).map(Number).filter(n => !modelled[n]);
+}
+
+// Per-feature edit state from the four decoded tables.  EF.SST is tri-state on
+// the card; the Services editor collapses it to 'on' (allocated and activated)
+// and 'off' (allocated-off *and* deleted render alike), because it never
+// de-allocates - explicit deletion is the per-file EF.SST editor's job.  A
+// null means the feature has no number in that file (or the file is absent).
+function servicesSstState(dec, n) {
+	if (!dec || n === null || n === undefined) return null;
+	for (const s of (dec.services || [])) {
+		if (Number(s.n) !== Number(n)) continue;
+		return (s.allocated && s.activated) ? 'on' : 'off';
+	}
+	return 'off';   // not in the decoded list: the card has the service deleted
+}
+
+function servicesBitState(dec, n) {
+	if (!dec || n === null || n === undefined) return null;
+	for (const s of (dec.services || [])) if (Number(s.n) === Number(n)) return true;
+	return false;
+}
+
+function servicesFeatureState(feature, sstDec, ustDec, estDec, istDec) {
+	return {
+		sst: servicesSstState(sstDec, feature.sst),
+		ust: servicesBitState(ustDec, feature.ust),
+		est: servicesBitState(estDec, feature.est),
+		ist: servicesBitState(istDec, feature.ist),
+	};
+}
+
+// The card's allocation bit for an SST service, read straight from the file
+// bytes (TS 51.011 10.3.7: service n -> byte (n-1)>>2, pair start
+// 2*((n-1)&3), the first bit of the pair allocated).
+function servicesSstAllocated(origHex, n) {
+	const b = efBytes(origHex || '');
+	const idx = (n - 1) >> 2;
+	if (n < 1 || idx >= b.length) return false;
+	return !!(b[idx] & (1 << (2 * ((n - 1) & 3))));
+}
+
+// Original pairs of the unmodelled SST slots, so a save reproduces them.
+function servicesSstPreserved(origHex) {
+	const b = efBytes(origHex || '');
+	const out = [];
+	for (const n of servicesUnmodelled('sst')) {
+		const idx = (n - 1) >> 2;
+		if (idx >= b.length) continue;
+		const allocated = !!(b[idx] & (1 << (2 * ((n - 1) & 3))));
+		const activated = !!(b[idx] & (1 << (2 * ((n - 1) & 3) + 1)));
+		if (allocated || activated) out.push({ n: n, allocated: allocated, activated: activated });
+	}
+	return out;
+}
+
+// Original bits of the unmodelled 1-bit slots, so a save reproduces them.
+function servicesBitsPreserved(key, origHex) {
+	const b = efBytes(origHex || '');
+	const out = [];
+	for (const n of servicesUnmodelled(key)) {
+		const idx = (n - 1) >> 3;
+		if (idx >= b.length) continue;
+		if (b[idx] & (1 << ((n - 1) & 7))) out.push({ n: n });
+	}
+	return out;
+}
+
+// efEncSst() entries from the form's per-row state: 'on' allocates and
+// activates; 'off' keeps the allocation the card had (allocated-off) and
+// leaves an already-deleted pair deleted - the Services editor only ever sets
+// on or allocated-off, so a save never de-allocates a service.
+function servicesSstValues(values, origHex) {
+	const out = [];
+	SERVICES_CROSS_REF.forEach((f, i) => {
+		if (f.sst === null || f.sst === undefined) return;
+		const v = values && values[i] ? values[i].sst : undefined;
+		if (v === 'on') out.push({ n: f.sst, allocated: true, activated: true });
+		else if (servicesSstAllocated(origHex, f.sst)) out.push({ n: f.sst, allocated: true, activated: false });
+	});
+	return { services: out.concat(servicesSstPreserved(origHex)) };
+}
+
+// efEncServiceTable() entries (UST / EST / IST) from the form's per-row state.
+function servicesTableValues(values, key, origHex) {
+	const out = [];
+	SERVICES_CROSS_REF.forEach((f, i) => {
+		const n = f[key];
+		if (n === null || n === undefined) return;
+		if (values && values[i] && values[i][key]) out.push({ n: n });
+	});
+	return { services: out.concat(servicesBitsPreserved(key, origHex)) };
+}
+
+// New bytes for one file: the form's state over the file's own original bytes
+// (the encoders keep every bit they do not model and the file length).
+function servicesFileBytes(key, values, files) {
+	const f = files && files[key];
+	if (!f || !f.present) return null;
+	if (key === 'sst') return efEncSst(servicesSstValues(values, f.hex), f.hex);
+	const table = SERVICES_TABLES[key];
+	if (!table) return null;
+	return efEncServiceTable(servicesTableValues(values, key, f.hex), f.hex, table);
+}
+
+// Presence + contents cached per card session, like the EF.ARR copies
+// (pysimArrEnsure): the four files are read on open, again on Refresh and
+// after a card-session change.
+let _pysimServicesCache = null;
+let _pysimServicesBusy = false;
+
+async function pysimServicesReadFile(spec) {
+	try {
+		const data = await pysimFetch('/api/read', { path: spec.path, mode: 'raw' });
+		if (!data || data.success !== true || typeof data.data !== 'string') {
+			return { present: false, error: (data && (data.error || data.sw)) || '' };
+		}
+		const hex = String(data.data).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+		if (!hex) return { present: false, error: '' };
+		return { present: true, hex: hex, dec: servicesDecode(spec.key, efBytes(hex)) };
+	} catch (e) {
+		return { present: false, error: (e && e.message) ? e.message : String(e) };
+	}
+}
+
+async function pysimServicesEnsure(force) {
+	if (!force && _pysimServicesCache && _pysimServicesCache.session === _pysimCardSession) return _pysimServicesCache;
+	const files = {};
+	for (const spec of SERVICES_FILES) files[spec.key] = await pysimServicesReadFile(spec);
+	_pysimServicesCache = { session: _pysimCardSession, files: files };
+	return _pysimServicesCache;
+}
+
+async function pysimServicesOpen(force) {
+	const grid = document.getElementById('pysim-services-grid');
+	if (!grid) return;
+	const statusEl = document.getElementById('pysim-services-status');
+	if (statusEl) statusEl.textContent = t('Loading...');
+	grid.innerHTML = '';
+	let cache;
+	try {
+		cache = await pysimServicesEnsure(!!force);
+	} catch (e) {
+		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
+		return;
+	}
+	if (statusEl) statusEl.textContent = '';
+	pysimServicesRender();
+}
+
+// A card-session change drops the cached reads and the rendered grid.
+function pysimServicesReset() {
+	_pysimServicesCache = null;
+	pysimServicesRender();
+	if (isViewVisible('pysim-sub-services')) pysimServicesOpen();
+}
+
+// The form's per-row state: { <feature index>: { sst: 'on'|'off', ust: bool, ... } }
+function pysimServicesCollect() {
+	const values = {};
+	const grid = document.getElementById('pysim-services-grid');
+	if (!grid || !grid.querySelectorAll) return values;
+	grid.querySelectorAll('[data-svc]').forEach(el => {
+		const row = Number(el.getAttribute('data-row'));
+		const key = el.getAttribute('data-svc');
+		if (!Number.isInteger(row) || !key) return;
+		if (!values[row]) values[row] = {};
+		values[row][key] = el.type === 'checkbox' ? !!el.checked : String(el.value);
+	});
+	return values;
+}
+
+function pysimServicesColumns(files) {
+	return SERVICES_FILES.filter(spec => files && files[spec.key] && files[spec.key].present);
+}
+
+// Table HTML for the present files' columns.  `current` is the live form state
+// (a re-render must not discard pending edits); without it the cells start
+// from the card's decode.
+function pysimServicesGridHtml(files, current) {
+	const cols = pysimServicesColumns(files);
+	if (!cols.length) {
+		return '<div class="text-xs text-gray-500 dark:text-slate-400">' + esc(t('No service table found on this card')) + '</div>';
+	}
+	const dec = key => (files[key] || {}).dec;
+	const sstDec = dec('sst'), ustDec = dec('ust'), estDec = dec('est'), istDec = dec('ist');
+	const inputCls = 'border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 text-xs dark:bg-slate-800';
+	let html = '<table class="text-xs w-full border border-gray-200 dark:border-slate-700">' +
+		'<thead><tr class="text-left text-gray-500 dark:text-slate-400">' +
+		'<th class="px-2 py-1">' + esc(t('Feature')) + '</th>';
+	for (const spec of cols) {
+		html += '<th class="px-2 py-1 w-28">' + esc(t(spec.key.toUpperCase())) + '</th>';
+	}
+	html += '</tr></thead><tbody>';
+	for (let i = 0; i < SERVICES_CROSS_REF.length; i++) {
+		const f = SERVICES_CROSS_REF[i];
+		// a feature row is shown only while one of its files is on the card
+		if (!cols.some(spec => f[spec.key] !== null && f[spec.key] !== undefined)) continue;
+		const st = servicesFeatureState(f, sstDec, ustDec, estDec, istDec);
+		html += '<tr class="border-t border-gray-200 dark:border-slate-700">' +
+			'<td class="px-2 py-1">' + esc(f.f) + '</td>';
+		for (const spec of cols) {
+			html += '<td class="px-2 py-1 text-center">';
+			if (f[spec.key] === null || f[spec.key] === undefined) {
+				html += '<span class="text-gray-400">\u2014</span>';
+			} else if (spec.key === 'sst') {
+				const cur = current && current[i] ? current[i].sst : undefined;
+				const val = cur || st.sst;
+				html += '<select data-svc="sst" data-row="' + i + '" class="' + inputCls + '">' +
+					'<option value="on"' + (val === 'on' ? ' selected' : '') + '>' + esc(t('on')) + '</option>' +
+					'<option value="off"' + (val !== 'on' ? ' selected' : '') + '>' + esc(t('allocated-off')) + '</option>' +
+					'</select>';
+			} else {
+				const cur = current && current[i] ? current[i][spec.key] : undefined;
+				const val = cur === undefined ? !!st[spec.key] : !!cur;
+				html += '<input type="checkbox" data-svc="' + spec.key + '" data-row="' + i + '"' + (val ? ' checked' : '') + '>';
+			}
+			html += '</td>';
+		}
+		html += '</tr>';
+	}
+	return html + '</tbody></table>';
+}
+
+// One explicit Save per present file: there is no atomic cross-file write.
+function pysimServicesSaveRowHtml(files) {
+	return pysimServicesColumns(files).map(spec =>
+		'<div class="flex items-center gap-2">' +
+		'<button id="pysim-services-save-' + spec.key + '" data-needs="card" onclick="pysimServicesSave(\'' + spec.key + '\')" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">' +
+		esc(t('Save to') + ' ' + spec.label) + '</button>' +
+		'<span id="pysim-services-save-status-' + spec.key + '" class="text-xs font-mono text-gray-500 dark:text-slate-400"></span>' +
+		'</div>').join('');
+}
+
+function pysimServicesRender() {
+	const grid = document.getElementById('pysim-services-grid');
+	const noteEl = document.getElementById('pysim-services-note');
+	const saveEl = document.getElementById('pysim-services-save');
+	if (!grid) return;
+	const cache = _pysimServicesCache;
+	// A re-render (language switch, refresh) keeps what is on screen.
+	const current = grid.querySelector('[data-svc]') ? pysimServicesCollect() : {};
+	if (!cache || !cache.files) {
+		grid.innerHTML = '';
+		if (noteEl) noteEl.innerHTML = '';
+		if (saveEl) saveEl.innerHTML = '';
+		return;
+	}
+	const notes = SERVICES_FILES.filter(spec => !(cache.files[spec.key] && cache.files[spec.key].present))
+		.map(spec => {
+			const err = cache.files[spec.key] && cache.files[spec.key].error;
+			return '<div>' + esc(spec.label) + ': ' + esc(err || t('Not found on the card')) + '</div>';
+		});
+	if (noteEl) noteEl.innerHTML = notes.join('');
+	grid.innerHTML = pysimServicesGridHtml(cache.files, current);
+	if (saveEl) saveEl.innerHTML = pysimServicesSaveRowHtml(cache.files);
+	pysimApplyAvailability();
+}
+
+async function pysimServicesSave(key) {
+	if (_pysimServicesBusy) return;
+	const cache = _pysimServicesCache;
+	const spec = SERVICES_FILES.find(s => s.key === key);
+	const statusEl = document.getElementById('pysim-services-save-status-' + key);
+	if (!cache || !cache.files || !spec || !cache.files[key] || !cache.files[key].present) return;
+	let hex;
+	try {
+		hex = servicesFileBytes(key, pysimServicesCollect(), cache.files);
+	} catch (e) {
+		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
+		return;
+	}
+	if (!hex) return;
+	if (String(hex).toUpperCase() === String(cache.files[key].hex).toUpperCase()) {
+		if (statusEl) statusEl.textContent = t('No change');
+		return;
+	}
+	_pysimServicesBusy = true;
+	if (statusEl) statusEl.textContent = t('Saving...');
+	try {
+		const data = await pysimFetch('/api/write', { path: spec.path, data: hex });
+		if (!data || data.success !== true) {
+			if (statusEl) statusEl.textContent = t('Error') + ': ' + ((data && (data.error || data.sw)) || '');
+			return;
+		}
+		if (statusEl) statusEl.textContent = 'SW: ' + data.sw + ' OK';
+		// keep the cache in step with the card without re-rendering (that would
+		// drop the other files' pending edits)
+		const fresh = await pysimServicesReadFile(spec);
+		if (fresh.present) cache.files[key] = fresh;
+	} catch (e) {
+		if (statusEl) statusEl.textContent = t('Error') + ': ' + e.message;
+	} finally {
+		_pysimServicesBusy = false;
+	}
+}
+
 // ===== EF content decoders (client-side, offline) =====
 // Decode the contents of common EFs for the file manager, the snapshot view,
 // profile-check results and snapshot comparison. Ported/adapted from
@@ -26703,6 +27217,17 @@ const LANG_RU = {
 	'Sort:': 'Сортировка:',
 	'Name': 'Имя',
 	'Probe all files': 'Проверить все файлы',
+	'Feature': 'Функция',
+	'SST': 'SST',
+	'UST': 'UST',
+	'EST': 'EST',
+	'IST': 'IST',
+	'on': 'включён',
+	'allocated-off': 'выделен, выключен',
+	'Save to': 'Сохранить в',
+	'No change': 'Без изменений',
+	'Not found on the card': 'не найдено на карте',
+	'No service table found on this card': 'На этой карте не найдено ни одной таблицы сервисов',
 	'Stop': 'Остановить',
 	'Probing:': 'Проверка:',
 	'discovering': 'поиск файлов',
@@ -27723,6 +28248,8 @@ function refreshDynamicI18n() {
 	if (isViewVisible('profiler-scan-modal')) profilerScanRefreshOptions();
 	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();
+	// the Services grid is built with t() strings at render time
+	if (isViewVisible('pysim-sub-services')) pysimServicesRender();
 	// the counter field's placeholder carries a t() string (auto / авто)
 	spCntrPlaceholder();
 	if (isViewVisible('tab-cards')) {

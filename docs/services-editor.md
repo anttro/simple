@@ -6,6 +6,11 @@
 > `EF_IST_SERVICES`, `EF_EST_SERVICES`) cross-referenced with the filesystem
 > registry `docs/uicc/UICC_FILES.md` and the standard file tree
 > `frontend/uicc_files.json`.
+>
+> Step 4a (the cross-file Services editor: §A's cross-reference, read, render,
+> per-file save) is implemented against §A; the counts below were verified
+> against the PWA's constants by `frontend/tests/services.test.js`.  §B (the
+> filesystem check) is **not** implemented yet.
 
 **Counts:** SST **59** / UST **150** / IST **22** / EST **3** services →
 **164 feature rows** (10 SIM-only, 85 USIM-only, 5 ISIM-only, 61 shared,
