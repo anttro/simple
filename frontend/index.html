@@ -1179,6 +1179,7 @@
 			<div class="mt-4 border-t border-gray-200 dark:border-slate-700 pt-3">
 				<div class="flex items-center gap-2">
 					<button id="pysim-services-fs-btn" data-needs="card" onclick="pysimServicesFsCheck()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Check filesystem">Check filesystem</button>
+					<span id="pysim-services-fs-spin" class="hidden animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></span>
 					<span id="pysim-services-fs-status" class="text-xs font-mono text-gray-500 dark:text-slate-400" style="min-height:1.2em"></span>
 				</div>
 				<div id="pysim-services-fs-report" class="mt-2"></div>
@@ -23909,10 +23910,12 @@ function pysimServicesFsRender() {
 async function pysimServicesFsCheck() {
 	const statusEl = document.getElementById('pysim-services-fs-status');
 	const reportEl = document.getElementById('pysim-services-fs-report');
+	const spinEl = document.getElementById('pysim-services-fs-spin');
 	if (_pysimServicesFsBusy || !reportEl) return;
 	const setStatus = text => { if (statusEl) statusEl.textContent = text; };
 	if (_pysimFsProbe) { setStatus(t('A file probe is already running')); return; }
 	_pysimServicesFsBusy = true;
+	if (spinEl) spinEl.classList.remove('hidden');
 	_pysimServicesFsReport = null;
 	reportEl.innerHTML = '';
 	setStatus(t('Loading...'));
@@ -23943,6 +23946,7 @@ async function pysimServicesFsCheck() {
 			esc(t('Error') + ': ' + ((e && e.message) ? e.message : String(e))) + '</div>';
 	} finally {
 		setStatus('');
+		if (spinEl) spinEl.classList.add('hidden');
 		_pysimServicesFsBusy = false;
 	}
 }

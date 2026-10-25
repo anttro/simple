@@ -666,6 +666,7 @@ test('the Services pill carries the Check filesystem action and its report panel
 	assert.match(pill, /id="pysim-services-fs-btn"[^>]*data-needs="card"[^>]*onclick="pysimServicesFsCheck\(\)"/);
 	assert.match(pill, /data-l10n="Check filesystem"/);
 	assert.match(pill, /id="pysim-services-fs-status"/);
+	assert.match(pill, /id="pysim-services-fs-spin"[^>]*class="hidden animate-spin/);
 	assert.match(pill, /id="pysim-services-fs-report"/);
 });
 
@@ -680,6 +681,10 @@ test('the check probes the tree once per loaded session and keeps the report acr
 	const fn = extractFunc(html, 'pysimServicesFsCheck');
 	assert.ok(fn.indexOf('await pysimFsRefresh()') > 0, fn);
 	assert.ok(fn.indexOf('await pysimFsProbeAll()') > 0, fn);
+	// a throbber shows while the scan runs and hides when it settles
+	assert.ok(fn.indexOf('pysim-services-fs-spin') > 0, fn);
+	assert.ok(fn.indexOf("spinEl.classList.remove('hidden')") > 0, fn);
+	assert.ok(fn.indexOf("spinEl.classList.add('hidden')") > 0, fn);
 	assert.ok(fn.indexOf('servicesFsDeclaredTrees(cache.files)') > 0, fn);
 	assert.ok(fn.indexOf('await servicesPathIndex()') > 0, fn);
 	assert.ok(fn.indexOf('index.size') > 0, 'an unloadable list is an error, not a wall of unchecked rows');
