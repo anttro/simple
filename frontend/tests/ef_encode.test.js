@@ -51,13 +51,13 @@ const FNS = [
 	'efEncPlmnList', 'efListRows', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
 	'efFindEncoder', 'efHasEncoder', 'gsm7Decode', 'gsm7TextToSeptets',
 	'gsm7Encode', 'efEncError', 'efDecModelValues',
-	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncSst', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
 ];
 
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_SST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -233,12 +233,19 @@ test('the encoder resolver is DF-first: every EF.AD form shares one encoder', ()
 	// without a DF the historical name-first lookup answers (DF.GSM's entry)
 	assert.strictEqual(efFindEncoder('EF.AD', '6fad'), sim);
 	assert.strictEqual(efFindEncoder('EF.AD', '6fad', 'ADF.NOPE'), sim);
-	// EF.ECC stays read-only in either DF, EF.SST in the SIM layout, and the
-	// shared 6F38 FID must not hand SST the UST encoder
+	// EF.ECC stays read-only in either DF; the shared 6F38 FID resolves to
+	// EF.SST under DF.GSM and to EF.UST under ADF.USIM (the FID fallback
+	// without a DF keeps the historical UST answer - SST's entry is DF-scoped)
 	assert.strictEqual(efHasEncoder('EF.ECC', '6fb7', '7F20'), false);
 	assert.strictEqual(efHasEncoder('EF.ECC', '6fb7', 'ADF.USIM'), false);
-	assert.strictEqual(efHasEncoder('EF.SST', '6f38', '7F20'), false);
+	assert.strictEqual(efHasEncoder('EF.SST', '6f38', '7F20'), true);
 	assert.strictEqual(efHasEncoder('EF.UST', '6f38', 'ADF.USIM'), true);
+	assert.strictEqual(efFindEncoder('EF.SST', '6f38', '7F20').enc, efEncSst);
+	assert.strictEqual(efFindEncoder('EF.UST', '6f38', 'ADF.USIM').enc, efFindEncoder('EF.UST', '6f38').enc);
+	assert.strictEqual(efFindEncoder(null, '6f38', '7F20').name, 'EF.SST');
+	assert.strictEqual(efFindEncoder(null, '6f38', 'ADF.USIM').name, 'EF.UST');
+	assert.strictEqual(efFindEncoder(null, '6f38').name, 'EF.UST');
+	assert.strictEqual(efFindEncoder(null, '6f38', 'ADF.USIM').enc !== efEncSst, true);
 	assert.strictEqual(efFindEncoder('EF.NOPE', 'abcd', 'ADF.USIM'), null);
 	// the SIM 3+X and USIM 4+X forms keep their length on an untouched save
 	for (const hex of ['00' + '0000', '00' + '0000' + '02' + 'AABB', AD_HEX, 'FF'.repeat(6)]) {
@@ -626,10 +633,13 @@ test('service tables: encode/decode round-trips and unmodelled bits', () => {
 		const services = efDecServiceTable(efBytes(hex), table).services;
 		assert.strictEqual(entry.enc({ services: services }, hex), hex, name + ' ' + hex);
 	}
-	// EF.SST has no editor (its 2-bit SIM layout needs a dedicated UI)
-	assert.strictEqual(efFindEncoder('EF.SST', '6f38'), null);
-	assert.strictEqual(efHasEncoder('EF.SST', '6f38'), false);
+	// EF.SST has its own 2-bit editor on the shared 6F38 FID (the DF-scoped
+	// entry keeps the UST answer for a bare FID / ADF context)
+	assert.strictEqual(efFindEncoder('EF.SST', '6f38').enc, efEncSst);
+	assert.strictEqual(efHasEncoder('EF.SST', '6f38'), true);
 	assert.strictEqual(efFindEncoder('EF.UST', '6f38').name, 'EF.UST');
+	assert.strictEqual(efFindEncoder(null, '6f38').name, 'EF.UST');
+	assert.strictEqual(efFindEncoder(null, '6f38', '7F20').name, 'EF.SST');
 	// EST defines services 1-3; all-FF keeps the other bits too
 	assert.deepStrictEqual(efDecServiceTable(efBytes('07'), EF_EST_SERVICES).services,
 		[{ n: 1, name: 'Fixed Dialling Numbers (FDN)' },
@@ -657,6 +667,64 @@ test('service tables: unknown services and a too-short table are refused', () =>
 	assert.throws(() => efEncServiceTable({ services: [{ n: 9, name: 'MSISDN' }] },
 		'00', EF_UST_SERVICES), /too short for service/);
 	assert.throws(() => efEncServiceTable({ services: [{ n: 0 }] }, '00', EF_UST_SERVICES), /Unknown service/);
+});
+
+// EF.SST (TS 51.011 10.3.7): two bits per service, four per byte.  15 bytes =
+// services 1-60; C7/1C/C1 carry on (11), off (10) and deleted (00) pairs and
+// the last byte's bits 7-8 are service 60, above the 59-entry table.
+const SST_MIX = 'C71CC1' + '00'.repeat(11) + 'C0';
+
+test('EF.SST: the 2-bit encoder round-trips the decoded file', () => {
+	const dec = efDecSst(efBytes(SST_MIX));
+	assert.deepStrictEqual(dec.services.map(s => [s.n, s.allocated, s.activated]), [
+		[1, true, true], [2, true, false], [4, true, true], [6, true, true],
+		[7, true, false], [9, true, false], [12, true, true], [60, true, true],
+	]);
+	// a deleted (00) pair is omitted by the decoder, so decode->encode is exact
+	assert.strictEqual(efEncSst(dec, SST_MIX), SST_MIX);
+	// every state on: all-FF, unmodelled service 60 included
+	assert.strictEqual(efEncSst(efDecSst(efBytes('FF'.repeat(15))), 'FF'.repeat(15)), 'FF'.repeat(15));
+	// no service allocated at all
+	assert.strictEqual(efEncSst(efDecSst(efBytes('00'.repeat(15))), '00'.repeat(15)), '00'.repeat(15));
+	// clearing every modelled service keeps service 60's pair (byte 14 C0)
+	assert.strictEqual(efEncSst({ services: [] }, SST_MIX), '000000' + '00'.repeat(11) + 'C0');
+	// the file length is kept
+	assert.strictEqual(efEncSst(efDecSst(efBytes('0C')), '0C'), '0C');
+	assert.strictEqual(efEncSst(efDecSst(efBytes('0C00')), '0C00'), '0C00');
+});
+
+test('EF.SST: deleted clears the pair, off sets 10 and on sets 11', () => {
+	const on = n => ({ n: n, allocated: true, activated: true });
+	const off = n => ({ n: n, allocated: true, activated: false });
+	const del = n => ({ n: n, allocated: false, activated: false });
+	// service 2 (byte 0, pair 2)
+	assert.strictEqual(efEncSst({ services: [on(2)] }, '00'), '0C');
+	assert.strictEqual(efEncSst({ services: [off(2)] }, '00'), '04');
+	assert.strictEqual(efEncSst({ services: [del(2)] }, '0C'), '00');
+	// every modelled pair is rebuilt from the list, the rest of the file stays
+	assert.strictEqual(efEncSst({ services: [on(2)] }, 'FF'.repeat(15)),
+		'0C' + '00'.repeat(13) + 'C0');
+	assert.strictEqual(efEncSst({ services: [on(2), off(4)] }, SST_MIX).slice(0, 2), '4C');
+	// a pair above the table is written like any other (a longer file)
+	const long = '00'.repeat(16);
+	assert.strictEqual(efEncSst({ services: [on(62)] }, long), '00'.repeat(15) + '0C');
+	// the decoder's illegal '08' pair (activated, not allocated) is refused
+	assert.deepStrictEqual(efDecSst(efBytes('08')), { services: [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: false, activated: true },
+	] });
+	assert.throws(() => efEncSst(efDecSst(efBytes('08')), '08'), /must be deleted, off or on/);
+});
+
+test('EF.SST: unknown services, an invalid state and a too-short file are refused', () => {
+	assert.throws(() => efEncSst({ services: [{ n: 5, allocated: true, activated: true }] }, '00'),
+		/too short for service/);
+	assert.throws(() => efEncSst({ services: [{ n: 0, allocated: true, activated: true }] }, '00'),
+		/Unknown service/);
+	assert.throws(() => efEncSst({ services: [{ n: 'x' }] }, '00'), /Unknown service/);
+	assert.throws(() => efEncSst({ services: [{ n: 2, allocated: false, activated: true }] }, '00'),
+		/must be deleted, off or on/);
+	// a bare service number carries no state
+	assert.throws(() => efEncSst({ services: [2] }, '00'), /must be deleted, off or on/);
 });
 
 test('F-ACC: the class numbering and the ACC10/encoder rules', () => {

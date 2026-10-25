@@ -51,19 +51,19 @@ const FNS = [
 	'efDecRowHtml', 'efDecGridHtml', 'efDecItemRowHtml', 'efDecItemsHtml',
 	'efDecRecordsHtml', 'efDecEditHtml',
 	'efDecCollectValues', 'efDecCollectRows', 'efDecCollectItems',
-	'efBitsSelected', 'pysimFsDecBitsFilter', 'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
+	'efBitsSelected', 'pysimFsDecBitsFilter', 'pysimFsDecBits2Filter', 'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
 	'pysimFsDecRemoveItem', 'pysimFsFindNodeByPath', 'pysimCustomNormPath', 'pysimFsNodePath', 'pysimFsFallbackNode', 'efFidFromPath', 'efDfFromPath',
 	'pysimFsHasDecoder', 'pysimFsHasEncoder', 'pysimFsDecSave', 'pysimFsDecEdit',
 	'pysimFsPillsEnabled', 'pysimFsSyncContentVisibility', 'gsm7Decode',
 	'gsm7TextToSeptets', 'gsm7Encode',
-	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
+	'efDecServiceTable', 'efDecSst', 'efDecAcc', 'efDecPhase', 'efDecHpplmn', 'efDecAd', 'efDecCbmi', 'efDecCbmir', 'efDecIccid', 'efDecImsi', 'efDecPlmnList', 'efDecFplmn', 'efEncServiceTable', 'efEncSst', 'efEncAcc', 'efPhaseValue', 'efPhaseModel', 'efEncPhase', 'efEncHpplmn', 'efAdOpValue', 'efAdModel', 'efEncAd', 'efEncPlmnOnly', 'efEncIccid', 'efEncImsi', 'efCbmiModel', 'efEncCbmi', 'efCbmirModel', 'efEncCbmir', 'efSmspAddressModel', 'efSmspModel', 'efSmspTonOptions', 'efSmspParamRow', 'efSmspHtml', 'efSmspCollect', 'pysimFsSmspToggle', 'pysimFsSmspHexInput', 'efSmspHexByte', 'efSmspAddressBytes', 'efSmspAddrUnchanged', 'efSmspByteUnchanged', 'efEncSmsp', 'smspT', 'smspDcsHint', 'smspVpHint', 'smspDurationText', 'smspPluralIndex', 'smspCount', 'efSmspDaNumber', 
 ];
 
 let code = 'var pysimFsSelected = null;\nvar pysimFsTreeRoot = null;\nvar pysimFsDecModel = null;\n'
 	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS', 'EF_ADF_RIDS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_SST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS', 'EF_ADF_RIDS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -271,12 +271,14 @@ test('pysimFsHasEncoder resolves the selected file by its path or FID', () => {
 	assert.strictEqual(pysimFsHasEncoder(), true);
 	pysimFsSelected = 'MF/6F7E';
 	assert.strictEqual(pysimFsHasEncoder(), false);
-	// the SIM service table shares 6F38 with UST but has no editor
+	// the SIM service table shares 6F38 with UST but has its own 2-bit editor
 	pysimFsTreeRoot = { name: 'MF', children: [] };
-	const sst = { name: 'EF.SST', fid: '6f38', parent: pysimFsTreeRoot };
-	pysimFsTreeRoot.children.push(sst);
-	pysimFsSelected = 'MF/6F38';
-	assert.strictEqual(pysimFsHasEncoder(), false);
+	const gsm = { name: 'DF.GSM', fid: '7F20', parent: pysimFsTreeRoot, children: [] };
+	pysimFsTreeRoot.children.push(gsm);
+	const sst = { name: 'EF.SST', fid: '6f38', parent: gsm };
+	gsm.children.push(sst);
+	pysimFsSelected = 'MF/7F20/6F38';
+	assert.strictEqual(pysimFsHasEncoder(), true);
 	pysimFsSelected = null;
 	assert.strictEqual(pysimFsHasEncoder(), false);
 });
@@ -747,6 +749,91 @@ test('the bits filter hides the non-matching rows', () => {
 	pysimFsDecBitsFilter(input);
 	assert.strictEqual(rows[0].style.display, 'none');
 	assert.strictEqual(rows[1].style.display, '');
+});
+
+test('the EF.SST grid renders one tri-state select per service', () => {
+	// 4C: service 2 on (11), service 4 off (10), the rest of the pairs deleted
+	const model = efDecEditModel('EF.SST', '6f38', { kind: 'transparent', data: '4C' }, '7F20');
+	assert.deepStrictEqual(model.values.services, [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: true, activated: true },
+		{ n: 4, name: 'Short Message Storage (SMS)', allocated: true, activated: false },
+	]);
+	const out = efDecEditHtml(model, '4C');
+	assert.match(out, /class="pysim-dec-bits /);
+	assert.match(out, /pysim-dec-bits-filter/);
+	assert.match(out, /data-bit2="2" data-bit2-name="Abbreviated Dialling Numbers \(ADN\)"/);
+	// the whole SST table is rendered (59 services, RFU 8/20/50 included)
+	assert.strictEqual((out.match(/data-bit2="/g) || []).length, 59);
+	assert.match(out, /data-bit2="8" data-bit2-name="RFU"/);
+	assert.match(out, /data-bit2="20" data-bit2-name="RFU"/);
+	assert.match(out, /data-bit2="50" data-bit2-name="Reserved and shall be ignored"/);
+	// each select is preselected from the decoded state, an absent pair is deleted
+	const sel = n => {
+		const m = new RegExp('<select data-bit2="' + n + '"[^>]*>([\\s\\S]*?)</select>').exec(out);
+		assert.ok(m, 'select for service ' + n);
+		return m[1];
+	};
+	assert.match(sel(2), /<option value="on" selected>On<\/option>/);
+	assert.match(sel(4), /<option value="off" selected>Off<\/option>/);
+	assert.match(sel(1), /<option value="deleted" selected>Deleted<\/option>/);
+	assert.match(sel(59), /<option value="deleted" selected>Deleted<\/option>/);
+	for (const n of [2, 4, 1, 59]) {
+		assert.match(sel(n), />Deleted<\/option>/);
+		assert.match(sel(n), />Off<\/option>/);
+		assert.match(sel(n), />On<\/option>/);
+	}
+	// an all-FF file preselects every modelled service 'on'
+	const ff = efDecEditHtml(efDecEditModel('EF.SST', '6f38',
+		{ kind: 'transparent', data: 'FF'.repeat(15) }, '7F20'), 'FF'.repeat(15));
+	assert.strictEqual((ff.match(/<option value="on" selected>/g) || []).length, 59);
+	assert.ok(!/<option value="(deleted|off)" selected>/.test(ff));
+});
+
+test('the EF.SST collector yields {n, name, allocated, activated}', () => {
+	const row = (n, name, state) => ({
+		value: state,
+		getAttribute: k => k === 'data-bit2' ? String(n) : name,
+	});
+	const root = {
+		querySelectorAll: sel => sel === '[data-bit2]' ? [
+			row(2, 'Abbreviated Dialling Numbers (ADN)', 'on'),
+			row(1, 'CHV1 disable function', 'deleted'),
+			row(4, 'Short Message Storage (SMS)', 'off'),
+		] : [],
+	};
+	assert.deepStrictEqual(efDecCollectValues(root, EF_SST_FIELDS), { services: [
+		{ n: 2, name: 'Abbreviated Dialling Numbers (ADN)', allocated: true, activated: true },
+		{ n: 1, name: 'CHV1 disable function', allocated: false, activated: false },
+		{ n: 4, name: 'Short Message Storage (SMS)', allocated: true, activated: false },
+	] });
+	// an untouched form re-encodes to the original bytes
+	const dec = efDecSst(efBytes('4C'));
+	const values = efDecCollectValues({
+		querySelectorAll: () => [2, 4].map(n => row(n, EF_SST_SERVICES[n],
+			dec.services.find(s => s.n === n).activated ? 'on' : 'off')),
+	}, EF_SST_FIELDS);
+	assert.strictEqual(efFindEncoder('EF.SST', '6f38', '7F20').enc(values, '4C'), '4C');
+	// the EF.SST field is the tri-state kind, the 1-bit tables are untouched
+	assert.strictEqual(EF_SST_FIELDS[0].kind, 'bits2');
+	assert.strictEqual(EF_UST_FIELDS[0].kind, 'bits');
+	assert.strictEqual(EF_EST_FIELDS[0].kind, 'bits');
+});
+
+test('the tri-state grid filter matches the row label, not the select options', () => {
+	const rows = [
+		{ getAttribute: k => k === 'data-label' ? '1 CHV1 disable function' : '', style: {} },
+		{ getAttribute: k => k === 'data-label' ? '4 Short Message Storage (SMS)' : '', style: {} },
+	];
+	const box = { querySelectorAll: sel => sel === '.pysim-dec-bit2-row' ? rows : [] };
+	const input = { value: 'sms', closest: sel => sel === '.pysim-dec-bits' ? box : null };
+	pysimFsDecBits2Filter(input);
+	assert.strictEqual(rows[0].style.display, 'none');
+	assert.strictEqual(rows[1].style.display, '');
+	// 'off' is a state option of every row, never part of a service name
+	pysimFsDecBits2Filter({ value: 'off', closest: () => box });
+	assert.strictEqual(rows[0].style.display, 'none');
+	assert.strictEqual(rows[1].style.display, 'none');
+	pysimFsDecBits2Filter(null);
 });
 
 test('the select keeps an unknown current value as an option', () => {

@@ -23988,7 +23988,7 @@ const EF_DECODERS = [
 	{ name: 'EF.IMSI', fid: '6f07', fn: efDecImsi },
 	{ name: 'EF.IST', fid: '6f07', fn: b => efDecServiceTable(b, EF_IST_SERVICES) },
 	{ name: 'EF.UST', fid: '6f38', fn: b => efDecServiceTable(b, EF_UST_SERVICES) },
-	{ name: 'EF.SST', fid: '6f38', fn: efDecSst },
+	{ name: 'EF.SST', df: '7F20', fid: '6f38', fn: efDecSst },
 	{ name: 'EF.EST', fid: '6f56', fn: b => efDecServiceTable(b, EF_EST_SERVICES) },
 	{ name: 'EF.HPPLMN', fid: '6f31', fn: efDecHpplmn },
 	{ name: 'EF.LI', fid: '6f05', fn: efDecLi },
@@ -24463,6 +24463,51 @@ function efEncServiceTable(values, origHex, table) {
 			throw efEncError('The service table is too short for service', ' ' + n);
 		}
 		out[(n - 1) >> 3] |= 1 << ((n - 1) & 7);
+	}
+	return efHex(out);
+}
+
+// EF.SST (TS 51.011 10.3.7, the SIM service table): two bits per service,
+// four services per byte - the first bit of the pair (b1/b3/b5/b7) is
+// allocated, the second (b2/b4/b6/b8) activated, so a pair is 00 deleted,
+// 10 allocated but not activated or 11 allocated and activated.  The original
+// bytes are the base: both pair bits of every modelled service are cleared
+// and the listed ones set again, so a pair of a service the 59-entry table
+// does not name (the decoder reports it as RFU) keeps its original bits and
+// the file length survives an edit.  An entry is the decoder's own shape
+// {n, name, allocated, activated} (the collector produces it), so
+// enc(decode(orig), orig) reproduces the file of a spec-canonical card;
+// activated without allocated is not a legal pair (10.3.7) and is refused.
+function efEncSst(values, origHex) {
+	const orig = efBytes(origHex || '');
+	const out = new Uint8Array(orig.length);
+	out.set(orig, 0);
+	for (const key of Object.keys(EF_SST_SERVICES)) {
+		const n = Number(key);
+		if (n < 1 || (n - 1) >= out.length * 4) continue;
+		out[(n - 1) >> 2] &= ~(3 << (2 * ((n - 1) & 3)));
+	}
+	for (const item of (values && values.services) || []) {
+		const n = Number(item && typeof item === 'object' ? item.n : item);
+		// the table names services 1-59; a pair beyond it belongs to a longer
+		// file (the decoder reports those as RFU too), so only a number that
+		// cannot be a service at all is unknown
+		if (!Number.isInteger(n) || n < 1) {
+			throw efEncError('Unknown service', ': ' + (item && item.n));
+		}
+		if ((n - 1) >= out.length * 4) {
+			throw efEncError('The service table is too short for service', ' ' + n);
+		}
+		if (!item || typeof item !== 'object') {
+			throw efEncError('The service state must be deleted, off or on', ': ' + n);
+		}
+		const allocated = !!item.allocated;
+		const activated = !!item.activated;
+		if (activated && !allocated) {
+			throw efEncError('The service state must be deleted, off or on', ': ' + n);
+		}
+		const pair = activated ? 3 : (allocated ? 1 : 0);
+		out[(n - 1) >> 2] |= pair << (2 * ((n - 1) & 3));
 	}
 	return efHex(out);
 }
@@ -25118,6 +25163,13 @@ const EF_ACC_CLASSES = {
 const EF_UST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_UST_SERVICES }];
 const EF_IST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_IST_SERVICES }];
 const EF_EST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_EST_SERVICES }];
+// EF.SST is the SIM table with two bits per service: the tri-state grid
+// (deleted 00 / off 10 / on 11) instead of the 1-bit checkbox grid.
+const EF_SST_FIELDS = [{
+	key: 'services', label: 'Services', kind: 'bits2', items: EF_SST_SERVICES,
+	hint: 'Two bits per service (TS 51.011 10.3.7): deleted = not allocated (00), '
+		+ 'off = allocated but not activated (10), on = allocated and activated (11).',
+}];
 
 const EF_ACC_FIELDS = [{ key: 'access_classes', label: 'Access classes', kind: 'bits', items: EF_ACC_CLASSES }];
 
@@ -25186,6 +25238,7 @@ const EF_ENCODERS = [
 		confirm: 'Writing the IMSI changes the card identity and may break network registration. Continue?' },
 	{ name: 'EF.IST', fid: '6f07', enc: (v, o) => efEncServiceTable(v, o, EF_IST_SERVICES), fields: EF_IST_FIELDS },
 	{ name: 'EF.UST', fid: '6f38', enc: (v, o) => efEncServiceTable(v, o, EF_UST_SERVICES), fields: EF_UST_FIELDS },
+	{ name: 'EF.SST', df: '7F20', fid: '6f38', enc: efEncSst, fields: EF_SST_FIELDS },
 	{ name: 'EF.EST', fid: '6f56', enc: (v, o) => efEncServiceTable(v, o, EF_EST_SERVICES), fields: EF_EST_FIELDS },
 	{ name: 'EF.ACC', fid: '6f78', enc: efEncAcc, fields: EF_ACC_FIELDS },
 	{ name: 'EF.PHASE', fid: '6fae', enc: efEncPhase, model: efPhaseModel, fields: EF_PHASE_FIELDS },
@@ -25217,9 +25270,10 @@ const EF_ENCODERS = [
 ];
 
 // Decoder-only names that share a FID with an editable file: the FID fallback
-// must not pick the wrong layout (EF.SST is not EF.UST on 6F38 - its 2-bit
-// SIM layout has no editor yet).
-const EF_READONLY_NAMES = ['EF.SST'];
+// must not pick the wrong layout.  (The list is empty now - EF.SST got its
+// own 2-bit editor on 6F38 - but the guard stays for a future decoder-only
+// collision.)
+const EF_READONLY_NAMES = [];
 
 function efFindEncoder(name, fid, df) {
 	let n = (name || '').toUpperCase();
@@ -25500,6 +25554,31 @@ function efDecFieldHtml(f, value) {
 					'<span class="font-mono text-gray-500 dark:text-slate-400">' + n + '</span>' +
 					'<span class="break-all">' + esc(t(name)) + '</span></label>';
 			}).join('') + '</div></div>';
+	} else if (f.kind === 'bits2') {
+		// the tri-state grid (EF.SST): one select per service, the decoder's
+		// entries preselected (an absent service is a deleted pair)
+		const states = {};
+		for (const v of (value || [])) {
+			if (!v || typeof v !== 'object') continue;
+			states[String(v.n)] = v.activated && v.allocated ? 'on' : (v.allocated ? 'off' : 'deleted');
+		}
+		const nums = Object.keys(f.items || {}).map(Number).sort((a, b) => a - b);
+		const states3 = [['deleted', t('Deleted')], ['off', t('Off')], ['on', t('On')]];
+		input = '<div class="pysim-dec-bits border border-gray-200 dark:border-slate-700 rounded p-2">' +
+			'<input type="text" class="pysim-dec-bits-filter w-full mb-1 border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200" placeholder="' +
+			esc(t('Filter services')) + '" oninput="pysimFsDecBits2Filter(this)">' +
+			'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));max-height:12rem;overflow-y:auto">' +
+			nums.map(n => {
+				const name = String(f.items[n]);
+				const cur = states[String(n)] || 'deleted';
+				return '<label class="pysim-dec-bit2-row flex items-center gap-1" data-label="' + esc(n + ' ' + name) + '">' +
+					'<span class="font-mono text-gray-500 dark:text-slate-400">' + n + '</span>' +
+					'<span class="break-all flex-1">' + esc(t(name)) + '</span>' +
+					'<select data-bit2="' + n + '" data-bit2-name="' + esc(name) + '" onchange="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
+					states3.map(o => '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' +
+						esc(o[1]) + '</option>').join('') +
+					'</select></label>';
+			}).join('') + '</div></div>';
 	} else if (f.kind === 'select') {
 		const cur = String(value === undefined || value === null ? '' : value);
 		const opts = (f.options || []).slice();
@@ -25518,7 +25597,7 @@ function efDecFieldHtml(f, value) {
 			' oninput="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">';
 	}
 	const body = '<span class="text-gray-500 dark:text-slate-400">' + esc(t(f.label)) + '</span>' + input;
-	const wide = f.kind === 'techs' || f.kind === 'bits';
+	const wide = f.kind === 'techs' || f.kind === 'bits' || f.kind === 'bits2';
 	if (!f.hint) {
 		return wide
 			? '<div class="pysim-dec-item flex flex-wrap items-center gap-x-2 gap-y-1">' + body + '</div>'
@@ -25634,6 +25713,20 @@ function efDecCollectValues(root, fields) {
 					name: cb.getAttribute('data-bit-name') || '' });
 			});
 			out[f.key] = items;
+		} else if (f.kind === 'bits2') {
+			// the tri-state grid: every select is collected, a deleted pair as
+			// {allocated: false, activated: false} (the encoder clears it anyway)
+			const items = [];
+			root.querySelectorAll('[data-bit2]').forEach(sel => {
+				const state = String(sel.value || '');
+				items.push({
+					n: parseInt(sel.getAttribute('data-bit2'), 10),
+					name: sel.getAttribute('data-bit2-name') || '',
+					allocated: state === 'off' || state === 'on',
+					activated: state === 'on',
+				});
+			});
+			out[f.key] = items;
 		} else {
 			const el = root.querySelector('[data-key="' + f.key + '"]');
 			if (!el) { out[f.key] = f.kind === 'bool' ? false : ''; continue; }
@@ -25687,6 +25780,19 @@ function pysimFsDecBitsFilter(input) {
 	const q = String(input.value || '').toLowerCase();
 	box.querySelectorAll('.pysim-dec-bit-row').forEach(row => {
 		row.style.display = row.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+	});
+}
+
+// The tri-state grid's text filter (EF.SST): hide the rows whose service name
+// does not match.  The query is matched against the row's label only - a
+// select's textContent would carry every one of its three state options.
+function pysimFsDecBits2Filter(input) {
+	const box = input && input.closest ? input.closest('.pysim-dec-bits') : null;
+	if (!box) return;
+	const q = String(input.value || '').toLowerCase();
+	box.querySelectorAll('.pysim-dec-bit2-row').forEach(row => {
+		const label = String(row.getAttribute('data-label') || '').toLowerCase();
+		row.style.display = label.indexOf(q) === -1 ? 'none' : '';
 	});
 }
 
@@ -26424,6 +26530,10 @@ const LANG_RU = {
 	'The number continues in EF.EXT5 - editing it is not supported': 'Номер продолжается в EF.EXT5 — редактирование не поддерживается',
 	'Services': 'Сервисы',
 	'Filter services': 'Фильтр сервисов',
+	'Off': 'Выключен',
+	'On': 'Включён',
+	'The service state must be deleted, off or on': 'Состояние сервиса должно быть: удалён, выключен или включён',
+	'Two bits per service (TS 51.011 10.3.7): deleted = not allocated (00), off = allocated but not activated (10), on = allocated and activated (11).': 'Два бита на сервис (TS 51.011 10.3.7): удалён — не выделен (00), выключен — выделен, но не активирован (10), включён — выделен и активирован (11).',
 	'Access classes': 'Классы доступа',
 	'Phase': 'Фаза',
 	'Interval': 'Интервал',

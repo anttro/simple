@@ -64,7 +64,7 @@ editing candidates.
 | EF.IMSI | 6F07 | TS 31.102 4.2.2 | 9 B | length byte + parity/type nibble ('9' odd / '1' even) + BCD | S3 | **3.34** |
 | EF.IST | 6F07 | TS 31.102 4.2.2 (SAIP) | 1–2 B | service bits | S6 | **3.34** |
 | EF.UST | 6F38 | TS 31.102 4.2.8 | X ≥ 1 | service bits | S6 | **3.34** |
-| EF.SST | 6F38 | TS 51.011 10.3.7 | X ≥ 1 | **2 bits/service** (allocated + activated) | S6 (pending) | decoder fixed; editor later |
+| EF.SST | 6F38 | TS 51.011 10.3.7 | X ≥ 1 | **2 bits/service** (allocated + activated) | S6 | **shipped** — tri-state editor (deleted / allocated-off / on) |
 | EF.EST | 6F56 | TS 31.102 4.2.47 | X ≥ 1 | enabled-service bits (3 services) | S6 | **3.34** |
 | EF.LI | 6F05 | TS 31.102 4.2.1 | 2n | ISO 639 letters (2 B each) | S6 | 3.35 |
 | EF.LP | 6F05 | TS 51.011 10.3.1 | n | **1 byte per language** (SMS 7-bit) | S6 | 3.35 |
@@ -194,8 +194,8 @@ OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
 8. **EF.SST is a 2-bit table** (TS 51.011 10.3.7): 4 services per byte, first
    bit of the pair = allocated, second = activated.  The shared 1-bit
    UST/EST codec was used for it, so SIM service tables were both misread and
-   miswritten; the decoder is fixed in v3.34.0, editing waits for an
-   allocated/activated UI.
+   miswritten; the decoder is fixed in v3.34.0, and the tri-state editor
+   (deleted / allocated-off / on) shipped with the DF-context work.
 9. **EF.ACC class numbering** (TS 31.102 4.2.15): byte 1 b8…b1 = classes 15…8
    and byte 2 = 7…0 (class 10 is written as 0); the old decoder counted from
    class 0 at the MSB.  Fixed in v3.34.0.
@@ -228,7 +228,7 @@ OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
   (filterable bit grid), ACC, PHASE, HPPLMN, AD, the PLMN-only lists
   (PLMNsel/FPLMN/EHPLMN), ICCID/IMSI (behind a confirmation) and
   CBMI/CBMID/CBMIR.  Decoder fixes: ACC class numbering, the AD operation
-  mode / MNC-length rules, the SST 2-bit layout (read-only for now) and the
+  mode / MNC-length rules, the SST 2-bit layout and the
   IMSI parity nibble.
 - **v3.35.0 (shipped)** — EF.SMSP as the first S10 dedicated builder: the full
   parameter form (alpha; TP-DA and TS-SCA with their own length conventions
@@ -267,9 +267,10 @@ OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
 
 A file-agnostic service editor for the Card reader tab, in addition to the
 per-file decoded editors (which stay independent).  It presents the four
-service tables side by side and writes them back consistently, so EF.SST's
-allocated/activated layout no longer needs its own per-file grid (SST stays
-read-only in the per-file editor).
+service tables side by side and writes them back consistently.  EF.SST also
+has its own per-file tri-state editor (deleted / allocated-off / on); the
+Services editor's SIM column only toggles on / allocated-off and never
+de-allocates.
 
 - **Scope**: EF.SST (DF.GSM, 2 bits/service: allocated + activated), EF.UST
   (ADF.USIM, 1 bit), EF.EST (ADF.USIM, a 3-bit *enabled* subset of UST:
