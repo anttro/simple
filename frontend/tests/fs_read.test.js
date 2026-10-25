@@ -24,6 +24,9 @@ function extractFunc(src, name) {
 let code = 'var pysimFsSelected = null;\n'
 	+ 'var pysimFsDecodedMode = false;\n'
 	+ 'var pysimFsTreeRoot = null;\n';
+code += extractFunc(html, 'efFidFromPath') + '\n';
+code += extractFunc(html, 'efDfFromPath') + '\n';
+code += extractFunc(html, 'pysimFsFallbackNode') + '\n';
 code += extractFunc(html, 'pysimFsSyncContentVisibility') + '\n';
 code += extractFunc(html, 'pysimFsRead') + '\n';
 eval(code);
@@ -53,7 +56,7 @@ function setup() {
 	};
 	globalThis.t = s => s;
 	globalThis.esc = s => s;
-	globalThis.pysimFsFindNode = () => ({ name: 'EF.IMSI', fid: '6f07' });
+	globalThis.pysimFsFindNodeByPath = () => ({ name: 'EF.IMSI', fid: '6f07' });
 	globalThis.pysimFsSelectBody = () => ({});
 	globalThis.pysimFsShowError = (el, sw, err) => {
 		errorShown = { sw, err };
@@ -63,7 +66,7 @@ function setup() {
 		if (fetchResult instanceof Error) throw fetchResult;
 		return fetchResult;
 	};
-	pysimFsSelected = 'EF.IMSI';
+	pysimFsSelected = 'ADF.USIM/6F07';
 	pysimFsDecodedMode = false;
 	pysimFsTreeRoot = { name: 'MF' };
 	fetchResult = { success: true, sw: '9000', data: 'AABB' };
@@ -90,6 +93,17 @@ test('a successful read fills and shows the content pane', async () => {
 	assert.ok(content.innerHTML.includes('AABB'));
 	assert.ok(!content.classList.contains('hidden'));
 	assert.strictEqual(status.textContent, 'SW: 9000 OK');
+});
+
+test('a path whose node is not loaded selects by its last segment and FID', async () => {
+	setup();
+	globalThis.pysimFsFindNodeByPath = () => null;
+	let body = null;
+	globalThis.pysimFsSelectBody = node => { body = node; return {}; };
+	pysimFsSelected = 'MF/7F20/6FB7';
+	const ok = await pysimFsRead();
+	assert.strictEqual(ok, true);
+	assert.deepStrictEqual(body, { name: '6FB7', fid: '6FB7' });
 });
 
 test('a failed read keeps the content pane hidden', async () => {

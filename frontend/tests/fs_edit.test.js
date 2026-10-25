@@ -29,11 +29,12 @@ let code = 'var pysimFsDecodedMode = false;\n'
 	+ 'var pysimFsSelected = null;\n'
 	+ 'var pysimFsTreeRoot = null;\n';
 for (const fn of ['pysimFsSetMode', 'pysimFsPillsEnabled', 'pysimFsEdit',
-	'pysimFsCancel', 'pysimFsResetEdit', 'pysimFsFindNode', 'pysimFsNodePath',
-	'efDfFromPath', 'pysimFsHasDecoder',
+	'pysimFsCancel', 'pysimFsResetEdit', 'pysimFsFindNodeByPath', 'pysimCustomNormPath',
+	'pysimFsNodePath', 'efFidFromPath', 'efDfFromPath', 'pysimFsHasDecoder',
 	'pysimFsSyncContentVisibility']) {
 	code += extractFunc(html, fn) + '\n';
 }
+code += html.match(/const EF_ADF_RIDS = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
 eval(code);
 
 let events = [];
@@ -84,8 +85,9 @@ function setup(opts) {
 	pysimFsDecodedMode = !!opts.decoded;
 	pysimFsEditMode = false;
 	pysimFsEditData = null;
-	pysimFsSelected = 'EF.IMSI';
-	pysimFsTreeRoot = { name: 'MF', fid: '3f00', children: [{ name: 'EF.IMSI', fid: '6f07' }] };
+	pysimFsSelected = 'MF/6F07';
+	pysimFsTreeRoot = { name: 'MF', fid: '3f00', children: [] };
+	pysimFsTreeRoot.children.push({ name: 'EF.IMSI', fid: '6f07', parent: pysimFsTreeRoot });
 	globalThis.efFindDecoder = (name, fid) => {
 		const n = (name || '').toUpperCase();
 		const f = (fid || '').toLowerCase();
@@ -206,12 +208,16 @@ test('Read decoded is ignored when the file has no decoder', () => {
 	assert.ok(!h.pill('dec').classList.contains('bg-blue-600'));
 });
 
-test('pysimFsHasDecoder resolves the selected file by name or FID', () => {
+test('pysimFsHasDecoder resolves the selected file by its path or FID', () => {
 	setup();
 	assert.strictEqual(pysimFsHasDecoder(), true, 'EF.IMSI is in the tree');
 	// alias name: the decoder is matched by the FID fallback
 	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.ALIAS', fid: '6f07' }] };
-	pysimFsSelected = 'EF.ALIAS';
+	pysimFsTreeRoot.children[0].parent = pysimFsTreeRoot;
+	pysimFsSelected = 'MF/6F07';
+	assert.strictEqual(pysimFsHasDecoder(), true);
+	// a bare FID selection (an API caller) resolves by the FID fallback
+	pysimFsSelected = '6F07';
 	assert.strictEqual(pysimFsHasDecoder(), true);
 	// unknown file -> no decoder
 	globalThis.efFindDecoder = () => null;

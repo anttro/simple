@@ -16216,6 +16216,10 @@ function pysimFsRenderNode(node, depth) {
 	const italic = node.custom ? ' italic' : '';
 	const fidStr = node.fid ? ' <span class="text-gray-400 dark:text-slate-500">(' + node.fid.toUpperCase() + ')</span>' : '';
 	const aidStr = node.aid ? ' <span class="text-gray-400 dark:text-slate-500">[' + node.aid + ']</span>' : '';
+	// The handlers carry the canonical path, not the display name: names are
+	// not unique (EF.ECC/EF.AD exist in DF.GSM and ADF.USIM with the same FID,
+	// and DF.PHONEBOOK is copied per DF), while a path resolves one node.
+	const nodePath = pysimFsNodePath(node);
 	let html = '<div class="' + color + italic + '">';
 	html += pad;
 	if (verified && !exists) {
@@ -16224,15 +16228,15 @@ function pysimFsRenderNode(node, depth) {
 	if (isDir) {
 		if ((verified && exists) || !verified) {
 			const toggle = node.children && node.expanded ? '▼' : '▶';
-			html += '<span class="cursor-pointer select-none' + italic + '" onclick="pysimFsToggleDir(\'' + esc(node.name) + '\')">' + toggle + '</span> ';
-			html += '<span class="cursor-pointer hover:underline' + italic + '" onclick="pysimFsToggleDir(\'' + esc(node.name) + '\')">' + esc(node.name) + fidStr + aidStr + '</span>';
+			html += '<span class="cursor-pointer select-none' + italic + '" onclick="pysimFsToggleDir(\'' + esc(nodePath) + '\')">' + toggle + '</span> ';
+			html += '<span class="cursor-pointer hover:underline' + italic + '" onclick="pysimFsToggleDir(\'' + esc(nodePath) + '\')">' + esc(node.name) + fidStr + aidStr + '</span>';
 		} else {
 			html += esc(node.name) + fidStr + aidStr + '</div>';
 			return html;
 		}
 	} else {
 		html += '<span class="cursor-pointer hover:underline ml-4' + italic + '"' +
-			((verified && exists) ? ' onclick="pysimFsClickFile(\'' + esc(node.name) + '\')"' : (!verified ? ' onclick="pysimFsClickFile(\'' + esc(node.name) + '\')"' : '')) + '>' + esc(node.name) + fidStr + aidStr + '</span>';
+			((verified && exists) ? ' onclick="pysimFsClickFile(\'' + esc(nodePath) + '\')"' : (!verified ? ' onclick="pysimFsClickFile(\'' + esc(nodePath) + '\')"' : '')) + '>' + esc(node.name) + fidStr + aidStr + '</span>';
 	}
 	html += '</div>';
 	if (isDir && node.children && node.expanded) {
@@ -16247,27 +16251,16 @@ function pysimFsRenderNode(node, depth) {
 	return html;
 }
 
-function pysimFsFindNode(name, root) {
-	if (!root) return null;
-	if (root.name === name) return root;
-	if (root.children) {
-		for (const c of root.children) {
-			const found = pysimFsFindNode(name, c);
-			if (found) return found;
-		}
-	}
-	return null;
-}
-
 // Decoder availability for the selected file, resolved exactly like the
-// decoded view does (name from the tree node, FID fallback, and the parent DF
-// when the node's path is known — EF.ECC/EF.AD differ between DFs) — the
-// content is not needed, so the Read decoded pill can be gated before any read.
+// decoded view does (the node from the selected canonical path, the path's
+// FID as the fallback, and the parent DF from that same path — EF.ECC/EF.AD
+// differ between DFs) — the content is not needed, so the Read decoded pill
+// can be gated before any read.
 function pysimFsHasDecoder() {
 	if (!pysimFsSelected) return false;
-	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
-	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	const node = pysimFsFindNodeByPath(pysimFsSelected);
+	const fid = (node && node.fid) || efFidFromPath(pysimFsSelected);
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected);
 	return !!efFindDecoder(node && node.name, fid, df);
 }
 
@@ -16275,15 +16268,16 @@ function pysimFsHasDecoder() {
 // same way as the decoder above.
 function pysimFsHasEncoder() {
 	if (!pysimFsSelected) return false;
-	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
-	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
-	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	const node = pysimFsFindNodeByPath(pysimFsSelected);
+	const fid = (node && node.fid) || efFidFromPath(pysimFsSelected);
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected);
 	return !!efFindEncoder(node && node.name, fid, df);
 }
 
-// Find a node by its canonical path ("MF/7F20/6F46", "ADF.USIM/6F07"), so
-// custom-file parents can be resolved against the loaded tree (standard DFs
-// included, at any depth). Returns null when the path is not loaded yet.
+// Find a node by its canonical path ("MF/7F20/6F46", "ADF.USIM/6F07") — the
+// file manager's selection key, and how custom-file parents resolve against
+// the loaded tree (standard DFs included, at any depth).  A path is unique,
+// a display name is not.  Returns null when the path is not loaded yet.
 function pysimFsFindNodeByPath(path) {
 	const want = pysimCustomNormPath(path);
 	if (!want || !pysimFsTreeRoot) return null;
@@ -16298,8 +16292,15 @@ function pysimFsFindNodeByPath(path) {
 	return walk(pysimFsTreeRoot);
 }
 
-async function pysimFsToggleDir(name) {
-	const node = pysimFsFindNode(name, pysimFsTreeRoot);
+// The select body of a selected path whose tree node is not loaded (a branch
+// refreshed while it was selected): the last segment names the file.
+function pysimFsFallbackNode(path) {
+	const segs = String(path || '').split('/').filter(Boolean);
+	return { name: segs.length ? segs[segs.length - 1] : path, fid: efFidFromPath(path) };
+}
+
+async function pysimFsToggleDir(path) {
+	const node = pysimFsFindNodeByPath(path);
 	if (!node || !node.isDir) return;
 	if (!node.children) {
 		await pysimFsLoadChildren(node);
@@ -16352,18 +16353,20 @@ async function pysimArrEnsure() {
 	return _pysimArrCache.arrs;
 }
 
-async function pysimFsClickFile(name) {
+async function pysimFsClickFile(path) {
 	pysimFsResetEdit();
 	pysimFsSetMode('raw');
-	const node = pysimFsFindNode(name, pysimFsTreeRoot);
-	const sel = await pysimFetch('/api/select', pysimFsSelectBody(node || { name: name, fid: null }));
+	const node = pysimFsFindNodeByPath(path);
+	const sel = await pysimFetch('/api/select', pysimFsSelectBody(node || pysimFsFallbackNode(path)));
 	const exists = !!(sel && sel.exists !== false && !sel.error);
 	if (node) {
 		node.exists = exists;
 		if (!exists) node.children = [];
 		pysimFsRenderTree();
 	}
-	pysimFsSelected = name;
+	// the selection key is the canonical path (a display name is not unique)
+	pysimFsSelected = node ? pysimFsNodePath(node) : path;
+	const name = node ? node.name : path.split('/').pop();
 	const arrs = await pysimArrEnsure();
 	document.getElementById('pysim-fs-info').innerHTML = exists ? pysimFsInfoHtml(sel, name, { arr: arrs, path: pysimFsNodePath(node) }) : '';
 	document.getElementById('pysim-fs-content').innerHTML = '';
@@ -16393,8 +16396,8 @@ async function pysimFsRead() {
 	out.innerHTML = '';
 	statusEl.textContent = t('Loading...');
 	try {
-		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
-		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+		const node = pysimFsFindNodeByPath(rawName);
+		const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 		body.mode = 'raw';   // decoding is client-side (works offline in snapshots too)
 		const data = await pysimFetch('/api/read', body);
 		if (!data.success) {
@@ -16403,7 +16406,7 @@ async function pysimFsRead() {
 		}
 		statusEl.textContent = 'SW: ' + data.sw + ' OK';
 		if (pysimFsDecodedMode) {
-			out.innerHTML = pysimFsDecodedHtml(node || { name: rawName, fid: null }, data);
+			out.innerHTML = pysimFsDecodedHtml(node || pysimFsFallbackNode(rawName), data);
 		} else if (data.records) {
 			let html = '';
 			for (const r of data.records) {
@@ -16432,9 +16435,9 @@ async function pysimFsRead() {
 // read of the card).
 function pysimFsDecodedHtml(node, data) {
 	const name = (node && node.name) || null;
-	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected || '') ? pysimFsSelected : null);
+	const fid = (node && node.fid) || efFidFromPath(pysimFsSelected);
 	const content = data.records ? { kind: 'record', records: data.records } : { kind: 'transparent', data: data.data };
-	const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';
+	const df = node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected);
 	const dec = efDecodeFile(node && node.name, fid, content, df);
 	let html = '';
 	if (!dec || !dec.fn) {
@@ -16517,8 +16520,8 @@ async function pysimFsDecEdit() {
 	// edit mode (they stay disabled) or bail out (re-enabled below)
 	pysimFsPillsEnabled(false);
 	try {
-		const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
-		const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+		const node = pysimFsFindNodeByPath(rawName);
+		const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 		body.mode = 'raw';
 		const data = await pysimFetch('/api/read', body);
 		if (rawName !== pysimFsSelected) {
@@ -16532,11 +16535,11 @@ async function pysimFsDecEdit() {
 			pysimFsPillsEnabled(true);
 			return;
 		}
-		const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null);
+		const fid = (node && node.fid) || efFidFromPath(rawName);
 		const content = data.records ? { kind: 'record', records: data.records }
 			: { kind: 'transparent', data: data.data };
 		const model = efDecEditModel(node && node.name, fid, content,
-			node ? efDfFromPath(pysimFsNodePath(node)) : '');
+			node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(rawName));
 		if (!model) {
 			statusEl.textContent = t('No decoded editor for this file');
 			pysimFsPillsEnabled(true);
@@ -16588,10 +16591,10 @@ async function pysimFsSave() {
 	const rawName = pysimFsSelected;
 	const statusEl = document.getElementById('pysim-fs-status');
 	const out = document.getElementById('pysim-fs-content');
-	const node = pysimFsFindNode(rawName, pysimFsTreeRoot);
+	const node = pysimFsFindNodeByPath(rawName);
 	// An EF.ARR write changes the referenced access rules: drop the client
 	// ARR cache so the next FCP view refetches the server's refreshed copy.
-	const wroteFid = String((node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : '')).toUpperCase();
+	const wroteFid = String((node && node.fid) || efFidFromPath(rawName) || '').toUpperCase();
 	const arrTouched = wroteFid === '2F06' || wroteFid === '6F06';
 	statusEl.textContent = 'Saving...';
 	if (pysimFsDecEditMode) {
@@ -16602,7 +16605,7 @@ async function pysimFsSave() {
 		const textareas = out.querySelectorAll('textarea');
 		if (textareas.length === 1) {
 			// Transparent file
-			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+			const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 			body.data = textareas[0].value.replace(/[^0-9a-fA-F]/g, '');
 			const data = await pysimFetch('/api/write', body);
 			if (data.success) {
@@ -16624,7 +16627,7 @@ async function pysimFsSave() {
 				wroteAny = true;
 				const num = row?.querySelector('span')?.textContent;
 				if (num) {
-					const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+					const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 					body.data = inp.value.replace(/[^0-9a-fA-F]/g, '');
 					body.record_nr = parseInt(num);
 					const data = await pysimFetch('/api/write', body);
@@ -16661,8 +16664,8 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 		return;
 	}
 	const entry = model.entry || efFindEncoder(node && node.name,
-		(node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(rawName || '') ? rawName : null),
-		node ? efDfFromPath(pysimFsNodePath(node)) : '');
+		(node && node.fid) || efFidFromPath(rawName),
+		node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(rawName));
 	if (!entry) { statusEl.textContent = t('No decoded editor for this file'); return; }
 	const root = out.querySelector('.pysim-dec-edit');
 	try {
@@ -16672,7 +16675,7 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 				? entry.custom.collect(root)
 				: (entry.list ? efDecCollectRows(root, entry.list.itemFields)
 					: efDecCollectValues(root, entry.fields));
-			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+			const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 			body.data = entry.enc(values, orig);
 			// identity writes ask once, and only when something actually changes
 			if (entry.confirm && String(body.data).toUpperCase() !== String(orig).toUpperCase()) {
@@ -16697,7 +16700,7 @@ async function pysimFsDecSave(node, rawName, statusEl, out, arrTouched) {
 			if (cb && !cb.checked) continue;
 			const num = block.getAttribute('data-rec');
 			if (!num) continue;
-			const body = pysimFsSelectBody(node || { name: rawName, fid: null });
+			const body = pysimFsSelectBody(node || pysimFsFallbackNode(rawName));
 			const collected = entry.custom
 				? entry.custom.collect(block)
 				: (entry.items ? efDecCollectItems(block) : efDecCollectValues(block, entry.fields));
@@ -23556,6 +23559,14 @@ function efDecCbmir(b) {
 	return ranges.length ? { ranges: ranges } : { raw: efHex(b) };
 }
 
+// The Emergency Service Category byte is the same coding in both files
+// (TS 24.008 Table 10.5.135d: bit n = service n, TS 51.011 10.3.27 refers to
+// it); a byte without a known bit keeps its raw hex.
+function efEccCategory(cat) {
+	const kinds = EF_ECC_CATEGORIES.filter(c => cat & c[0]).map(c => c[1]);
+	return kinds.length ? kinds.join(', ') : '0x' + cat.toString(16).toUpperCase().padStart(2, '0');
+}
+
 // TS 51.011 10.3.27 EF.ECC (DF.GSM): transparent, 3-byte records of the
 // emergency call code (2 bytes BCD) + the emergency category.  The ADF.USIM
 // file of the same name/FID is a different format - efDecEccUsim below - so
@@ -23567,7 +23578,7 @@ function efDecEcc(b) {
 		const rec = b.subarray(i, i + 3);
 		if (efAllFf(rec)) continue;
 		const digits = efSwapNibbles(efHex(rec.subarray(0, 2))).replace(/[fF]+$/, '');
-		recs.push({ number: digits || null, esc: '0x' + efHex(rec.subarray(2, 3)) });
+		recs.push({ number: digits || null, esc: efEccCategory(rec[2]) });
 	}
 	if (!recs.length) return { raw: efHex(b) };
 	return recs.length === 1 ? recs[0] : { numbers: recs };
@@ -23591,11 +23602,9 @@ function efDecEccUsim(b) {
 	// EF_ECC decodes such a record as None too)
 	if (efAllFf(b.subarray(0, 3))) return { empty: true };
 	const cat = b[b.length - 1];
-	const kinds = EF_ECC_CATEGORIES.filter(c => cat & c[0]).map(c => c[1]);
 	const out = {
 		code: efSwapNibbles(efHex(b.subarray(0, 3))).replace(/[fF]+$/, ''),
-		category: kinds.length ? kinds.join(', ')
-			: '0x' + cat.toString(16).toUpperCase().padStart(2, '0'),
+		category: efEccCategory(cat),
 	};
 	const alpha = efAnnexA(efRstripFf(b.subarray(3, b.length - 1)));
 	if (alpha) out.alpha = alpha;
@@ -24066,13 +24075,26 @@ function efFidFromPath(path) {
 	return /^[0-9a-fA-F]{4}$/.test(seg) ? seg.toUpperCase() : null;
 }
 
+// The ADF roots a snapshot/profile path uses are the DF name (an AID) the card
+// reports in its FCI, e.g. A0000000871002FF49FF0589 - but the decoders key
+// their DF-specific entries by the symbolic name.  The two standard
+// application RIDs (TS 101 220; ADF.USIM / ADF.ISIM per TS 31.102/31.103 §4)
+// fold onto those names, whatever the AID's PIX is.
+const EF_ADF_RIDS = [
+	['A0000000871002', 'ADF.USIM'],
+	['A0000000871004', 'ADF.ISIM'],
+];
+
 // The parent DF of a canonical path: "MF/7F20/6FAD" -> "7F20",
-// "ADF.USIM/6FAD" -> "ADF.USIM", "MF/ADF.USIM/6FAD" -> "ADF.USIM"; a bare FID
-// (no parent segment) has no DF context and yields ''.
+// "ADF.USIM/6FAD" -> "ADF.USIM", "MF/ADF.USIM/6FAD" -> "ADF.USIM",
+// "A0000000871002FF49FF0589/6F07" -> "ADF.USIM"; a bare FID (no parent
+// segment) has no DF context and yields ''.
 function efDfFromPath(path) {
 	const segs = String(path || '').split('/').filter(Boolean);
 	if (segs.length < 2) return '';
-	return segs[segs.length - 2].toUpperCase();
+	const seg = segs[segs.length - 2].toUpperCase();
+	for (const [rid, name] of EF_ADF_RIDS) if (seg.startsWith(rid)) return name;
+	return seg;
 }
 
 // ---- content encoders (the decoded editor) ----
@@ -25670,10 +25692,10 @@ function pysimFsDecBitsFilter(input) {
 
 function pysimFsDecAddRow() {
 	if (!pysimFsSelected) return;
-	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
-	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	const node = pysimFsFindNodeByPath(pysimFsSelected);
+	const fid = (node && node.fid) || efFidFromPath(pysimFsSelected);
 	const entry = efFindEncoder(node && node.name, fid,
-		node ? efDfFromPath(pysimFsNodePath(node)) : '');
+		node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected));
 	if (!entry || !entry.list) return;
 	const out = document.getElementById('pysim-fs-content');
 	const rows = out && out.querySelector('.pysim-dec-rows');
@@ -25702,10 +25724,10 @@ function pysimFsDecAddItem(btn) {
 	const rec = btn && btn.closest ? btn.closest('.pysim-dec-rec') : null;
 	const box = rec ? rec.querySelector('.pysim-dec-items') : null;
 	if (!box || !pysimFsSelected) return;
-	const node = pysimFsFindNode(pysimFsSelected, pysimFsTreeRoot);
-	const fid = (node && node.fid) || (/^[0-9a-fA-F]{4}$/.test(pysimFsSelected) ? pysimFsSelected : null);
+	const node = pysimFsFindNodeByPath(pysimFsSelected);
+	const fid = (node && node.fid) || efFidFromPath(pysimFsSelected);
 	const entry = efFindEncoder(node && node.name, fid,
-		node ? efDfFromPath(pysimFsNodePath(node)) : '');
+		node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected));
 	if (!entry || !entry.items) return;
 	const first = (entry.items.tags || [])[0];
 	box.insertAdjacentHTML('beforeend', efDecItemRowHtml(entry, { tag: first ? first.tag : '43' }));

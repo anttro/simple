@@ -446,7 +446,8 @@ test('file manager shows FCI info and keeps the selection in state, not the DOM'
     assert.ok(html.includes('pysimFsInfoHtml(sel, name, { arr: arrs, path: pysimFsNodePath(node) })'));
     assert.ok(!html.includes('pysim-fs-filename'));
     assert.ok(html.includes('let pysimFsSelected = null;'));
-    assert.ok(html.includes('pysimFsSelected = name;'));
+    assert.ok(html.includes('pysimFsSelected = node ? pysimFsNodePath(node) : path;'),
+        'the selection is keyed by the canonical path, not the display name');
     assert.ok(!html.includes('pysimFsSelect()'));
 });
 

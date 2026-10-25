@@ -26,13 +26,13 @@ const FNS = [
 	'efGsm7Octets', 'efAnnexA', 'efBcdAddress', 'efBcdAddressLen', 'efPlmn', 'efPlmnAct', 'efPnnText',
 	'efDecIccid', 'efDecImsi', 'efDecLi', 'efDecServiceTable', 'efDecSst', 'efDecPlmnList', 'efDecFplmn', 'efDecPlmnWact',
 	'efDecSpn', 'efDecLoci', 'efDecPsLoci', 'efDecEpsLoci', 'efDecEpsNsc', 'efDecKc', 'efDecAcc',
-	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecEccUsim', 'efDecOpl', 'efDecAd', 'efDecAcl',
+	'efDecPhase', 'efDecCbmi', 'efDecCbmir', 'efDecHpplmn', 'efDecEcc', 'efDecEccUsim', 'efEccCategory', 'efDecOpl', 'efDecAd', 'efDecAcl',
 	'efSmspDaNumber', 'efDecSmsp', 'efDecSpdi', 'efDecNai', 'efDecDir', 'efDecArr', 'efDecPnn', 'efDecAdn',
 	'pinKeyRefName', 'efArrAmLabel', 'efArrSc', 'efArrAmDo',
 	'efDecExt1', 'efDecSms', 'efDecSume', 'efPbrHex', 'efDecPbr', 'efFindDecoder', 'efFidFromPath', 'efDfFromPath', 'efDecodeBytes',
 	'efDecodeFile', 'efDecodeHex', 'efIsRawOnly', 'efFieldLabel', 'efPrimitive', 'efFlatten',
 	'efDiffData', 'efDataSummary', 'efContentDiff', 'gsm7Decode', 'efRenderFieldsHtml',
-	'pysimFsDecodedHtml', 'pysimFsNodePath', 'profilerRenderReport', 'profilerLabelText', 'profilerResultAspects',
+	'pysimFsDecodedHtml', 'pysimFsNodePath', 'pysimFsFindNodeByPath', 'profilerRenderReport', 'profilerLabelText', 'profilerResultAspects',
 	'profilerAspectSummary', 'profilerMatchedRecordsText', 'profilerRawDataCheck', 'profilerCustomNameForPath',
 	'pysimCustomNormPath',
 ];
@@ -46,9 +46,10 @@ for (const c of ['EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_ES
 	code += html.match(new RegExp('const ' + c + ' = \\{.*\\};'))[0].replace('const ', 'var ') + '\n';
 }
 code += html.match(/const EF_ECC_CATEGORIES = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
+code += html.match(/const EF_ADF_RIDS = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
 code += html.match(/const EF_FIELD_LABELS = \{[\s\S]*?\n\};/)[0].replace('const ', 'var ') + '\n';
 code += html.match(/const EF_DECODERS = \[[\s\S]*?\n\];/)[0].replace('const ', 'var ') + '\n';
-code += 'var pysimCustomFiles = [];\nvar pysimFsSelected = \'EF.IMSI\';\n';
+code += 'var pysimCustomFiles = [];\nvar pysimFsSelected = \'EF.IMSI\';\nvar pysimFsTreeRoot = null;\n';
 code += 'function esc(s){return String(s);}\nfunction escHtml(s){return String(s);}\nfunction t(k){return k;}\n';
 eval(code);
 
@@ -107,7 +108,7 @@ test('EF decoders match the pinned spec / pySim test vectors', () => {
 	assert.deepStrictEqual(efDecAcc(efBytes('8000')), { access_classes: [15] });
 	assert.deepStrictEqual(efDecAcc(efBytes('0001')), { access_classes: [0] });
 	assert.deepStrictEqual(efDecAcc(efBytes('8001')), { access_classes: [15, 0] });
-	assert.deepStrictEqual(efDecEcc(efBytes('19f101')), { number: '911', esc: '0x01' });
+	assert.deepStrictEqual(efDecEcc(efBytes('19f101')), { number: '911', esc: 'police' });
 	assert.deepStrictEqual(efDecKc(efBytes('837d783609a3858f05')), { kc: '837D783609A3858F', ksi: 0 });
 	assert.deepStrictEqual(efDecPlmnList(efBytes('22F860')), { plmns: [{ mcc: '228', mnc: '06' }] });
 	// EF.FPLMN: a FFFFFF gap in any position is skipped, not a terminator
@@ -358,6 +359,23 @@ test('decoder registry resolves by name first, then FID; unknown returns null', 
 	assert.strictEqual(efFidFromPath('ADF.USIM'), null);
 });
 
+test('EF.ECC (DF.GSM) decodes the Emergency Service Category like the USIM file', () => {
+	// TS 51.011 10.3.27: the category byte is the TS 24.008 10.5.135d coding,
+	// the same table the ADF.USIM file uses (bit n = service n)
+	assert.deepStrictEqual(efDecEcc(efBytes('19F104')), { number: '911', esc: 'fire brigade' });
+	assert.deepStrictEqual(efDecEcc(efBytes('19F102')), { number: '911', esc: 'ambulance' });
+	assert.deepStrictEqual(efDecEcc(efBytes('19F109')), { number: '911', esc: 'police, marine guard' });
+	// a byte without a known bit keeps its raw hex value
+	assert.deepStrictEqual(efDecEcc(efBytes('19F180')), { number: '911', esc: '0x80' });
+	// a record whose code is FF is still decoded (only an all-FF record is empty)
+	assert.deepStrictEqual(efDecEcc(efBytes('FFFF00')), { number: null, esc: '0x00' });
+	// several 3-byte records
+	assert.deepStrictEqual(efDecEcc(efBytes('19F10411F220')), {
+		numbers: [{ number: '911', esc: 'fire brigade' }, { number: '112', esc: 'manual eCall' }],
+	});
+	assert.deepStrictEqual(efDecEcc(efBytes('FFFFFFFF')), { empty: true });
+});
+
 test('efDfFromPath reads the parent DF of a canonical path', () => {
 	assert.strictEqual(efDfFromPath('MF/7F20/6FAD'), '7F20');
 	assert.strictEqual(efDfFromPath('ADF.USIM/6FAD'), 'ADF.USIM');
@@ -372,6 +390,22 @@ test('efDfFromPath reads the parent DF of a canonical path', () => {
 	assert.strictEqual(efDfFromPath(null), '');
 	// the two halves of the spec identity come from the same path
 	assert.strictEqual(efFidFromPath('MF/7F20/6FAD'), '6FAD');
+});
+
+test('efDfFromPath folds an ADF AID root onto its symbolic ADF name', () => {
+	// a snapshot/profile path roots an ADF by the DF name (the AID) the card
+	// reports, not by "ADF.USIM" - the RID decides, whatever the PIX is
+	assert.strictEqual(efDfFromPath('A0000000871002/6F07'), 'ADF.USIM');
+	assert.strictEqual(efDfFromPath('A0000000871002FF49FF0589/6F07'), 'ADF.USIM');
+	assert.strictEqual(efDfFromPath('a0000000871002ff49ff0589/6fad'), 'ADF.USIM');
+	assert.strictEqual(efDfFromPath('A0000000871004/6F07'), 'ADF.ISIM');
+	assert.strictEqual(efDfFromPath('A0000000871004FF49FF0589/6F07'), 'ADF.ISIM');
+	// an unrelated AID is not an ADF name: it passes through as itself
+	assert.strictEqual(efDfFromPath('A0000000090003FFFF/6F07'), 'A0000000090003FFFF');
+	assert.strictEqual(efDfFromPath('F0414C46416001/6F07'), 'F0414C46416001');
+	// the AID root reads the same as the symbolic name and the plain FID do
+	assert.strictEqual(efFindDecoder('EF.ECC', '6FB7', efDfFromPath('A0000000871002/6FB7')).fn, efDecEccUsim);
+	assert.strictEqual(efFindDecoder('EF.ECC', '6FB7', efDfFromPath('MF/7F20/6FB7')).fn, efDecEcc);
 });
 
 test('the decoder resolver is DF-first: EF.ECC is the SIM or the USIM file', () => {
@@ -461,6 +495,38 @@ test('efDiffData reports only differing fields; efContentDiff decodes both sides
 
 test('efFlatten skips the all-FF empty marker', () => {
 	assert.deepStrictEqual(efFlatten({ empty: true }), []);
+});
+
+test('the file manager resolves two same-named files by their parent DF', () => {
+	// EF.ECC exists in DF.GSM and ADF.USIM with the same name and FID; the
+	// selection key is the canonical path, so each resolves to its own node
+	const root = { name: 'MF', fid: '3F00', children: [], parent: null };
+	const gsm = { name: 'DF.GSM', fid: '7F20', children: [], parent: root };
+	const usim = { name: 'ADF.USIM', fid: '7FFF', children: [], parent: root };
+	const gsmEcc = { name: 'EF.ECC', fid: '6FB7', children: null, parent: gsm };
+	const usimEcc = { name: 'EF.ECC', fid: '6FB7', children: null, parent: usim };
+	root.children = [gsm, usim];
+	gsm.children = [gsmEcc];
+	usim.children = [usimEcc];
+	pysimFsTreeRoot = root;
+	assert.strictEqual(pysimFsFindNodeByPath('MF/7F20/6FB7'), gsmEcc);
+	assert.strictEqual(pysimFsFindNodeByPath('ADF.USIM/6FB7'), usimEcc);
+	// a path that is not loaded resolves to nothing (the callers fall back to
+	// the path's own last segment / FID)
+	assert.strictEqual(pysimFsFindNodeByPath('MF/7F10/6FB7'), null);
+	// the decoded view's DF follows the resolved node: the USIM file is the
+	// linear-fixed X+4 form, the DF.GSM copy the SIM transparent one
+	pysimFsSelected = 'ADF.USIM/6FB7';
+	const usimHtml = pysimFsDecodedHtml(pysimFsFindNodeByPath(pysimFsSelected),
+		{ success: true, records: [{ num: 1, data: '19F1FF04' }] });
+	assert.ok(usimHtml.includes('Emergency call code'));
+	assert.ok(usimHtml.includes('fire brigade'));
+	pysimFsSelected = 'MF/7F20/6FB7';
+	const gsmHtml = pysimFsDecodedHtml(pysimFsFindNodeByPath(pysimFsSelected),
+		{ success: true, data: '19F104' });
+	assert.ok(gsmHtml.includes('Emergency category'));
+	assert.ok(gsmHtml.includes('fire brigade'));
+	assert.ok(!gsmHtml.includes('Emergency call code'));
 });
 
 test('pysimFsDecodedHtml decodes EF.ECC by the selected node\'s parent DF', () => {

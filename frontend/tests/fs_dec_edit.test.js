@@ -52,7 +52,7 @@ const FNS = [
 	'efDecRecordsHtml', 'efDecEditHtml',
 	'efDecCollectValues', 'efDecCollectRows', 'efDecCollectItems',
 	'efBitsSelected', 'pysimFsDecBitsFilter', 'pysimFsDecRowCheck', 'pysimFsDecItemTag', 'pysimFsDecAddItem',
-	'pysimFsDecRemoveItem', 'pysimFsFindNode', 'pysimFsNodePath', 'efDfFromPath',
+	'pysimFsDecRemoveItem', 'pysimFsFindNodeByPath', 'pysimCustomNormPath', 'pysimFsNodePath', 'pysimFsFallbackNode', 'efFidFromPath', 'efDfFromPath',
 	'pysimFsHasDecoder', 'pysimFsHasEncoder', 'pysimFsDecSave', 'pysimFsDecEdit',
 	'pysimFsPillsEnabled', 'pysimFsSyncContentVisibility', 'gsm7Decode',
 	'gsm7TextToSeptets', 'gsm7Encode',
@@ -63,7 +63,7 @@ let code = 'var pysimFsSelected = null;\nvar pysimFsTreeRoot = null;\nvar pysimF
 	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS', 'EF_ADF_RIDS']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -253,30 +253,41 @@ test('changing a record input checks its block', () => {
 	assert.strictEqual(cb.checked, true);
 });
 
-test('pysimFsHasEncoder resolves the selected file by name or FID', () => {
-	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.SPN', fid: '6f46' }, { name: 'EF.ALIAS', fid: '6f3a' }] };
-	pysimFsSelected = 'EF.SPN';
+test('pysimFsHasEncoder resolves the selected file by its path or FID', () => {
+	pysimFsTreeRoot = { name: 'MF', children: [] };
+	const add = (name, fid) => {
+		const n = { name: name, fid: fid, parent: pysimFsTreeRoot };
+		pysimFsTreeRoot.children.push(n);
+		return n;
+	};
+	add('EF.SPN', '6f46');
+	add('EF.ALIAS', '6f3a');
+	pysimFsSelected = 'MF/6F46';
 	assert.strictEqual(pysimFsHasEncoder(), true);
-	pysimFsSelected = 'EF.ALIAS';
+	pysimFsSelected = 'MF/6F3A';
 	assert.strictEqual(pysimFsHasEncoder(), true);
+	// a bare FID selection still resolves through the FID fallback
 	pysimFsSelected = '6F46';
 	assert.strictEqual(pysimFsHasEncoder(), true);
-	pysimFsSelected = 'EF.LOCI';
+	pysimFsSelected = 'MF/6F7E';
 	assert.strictEqual(pysimFsHasEncoder(), false);
 	// the SIM service table shares 6F38 with UST but has no editor
-	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.SST', fid: '6f38' }] };
-	pysimFsSelected = 'EF.SST';
+	pysimFsTreeRoot = { name: 'MF', children: [] };
+	const sst = { name: 'EF.SST', fid: '6f38', parent: pysimFsTreeRoot };
+	pysimFsTreeRoot.children.push(sst);
+	pysimFsSelected = 'MF/6F38';
 	assert.strictEqual(pysimFsHasEncoder(), false);
 	pysimFsSelected = null;
 	assert.strictEqual(pysimFsHasEncoder(), false);
 });
 
-test('the file-manager resolver call sites pass the node\'s parent DF', () => {
-	// the DF context comes from the node's canonical path; these five sites
+test('the file-manager resolver call sites pass the parent DF', () => {
+	// the DF context comes from the selected node's canonical path (or the
+	// selected path itself when the node is not loaded); these sites
 	// gate/read/edit a selected file and must resolve the same entry
 	assert.ok(html.includes('return !!efFindDecoder(node && node.name, fid, df);'));
 	assert.ok(html.includes('return !!efFindEncoder(node && node.name, fid, df);'));
-	assert.ok(html.includes("const df = node ? efDfFromPath(pysimFsNodePath(node)) : '';"));
+	assert.ok(html.includes("const df = node ? efDfFromPath(pysimFsNodePath(node)) : efDfFromPath(pysimFsSelected);"));
 	assert.ok(html.includes('const model = efDecEditModel(node && node.name, fid, content,'));
 	for (const fn of ['pysimFsDecSave', 'pysimFsDecAddRow', 'pysimFsDecAddItem']) {
 		assert.ok(/efFindEncoder\([^;]*efDfFromPath\(pysimFsNodePath\(node\)\)/s.test(extractFunc(html, fn)),
@@ -647,8 +658,9 @@ test('F2: untouched PNN items keep their TLV bytes through the DOM and the save'
 });
 
 test('F12: a selection change during the read abandons the decoded edit', async () => {
-	pysimFsSelected = 'EF.SPN';
-	pysimFsTreeRoot = { name: 'MF', children: [{ name: 'EF.SPN', fid: '6f46' }] };
+	pysimFsSelected = 'MF/6F46';
+	pysimFsTreeRoot = { name: 'MF', children: [] };
+	pysimFsTreeRoot.children.push({ name: 'EF.SPN', fid: '6f46', parent: pysimFsTreeRoot });
 	const fakeEl = () => {
 		const classes = new Set();
 		return {
@@ -681,7 +693,7 @@ test('F12: a selection change during the read abandons the decoded edit', async 
 	let resets = 0;
 	globalThis.pysimFsResetEdit = () => { resets++; };
 	const pending = pysimFsDecEdit();
-	pysimFsSelected = 'EF.ADN';
+	pysimFsSelected = 'MF/6F3A';
 	release();
 	await pending;
 	assert.strictEqual(resets, 1);

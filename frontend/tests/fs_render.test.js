@@ -23,6 +23,7 @@ function extractFunc(src, name) {
 
 let code = 'var pysimFsSort = "fid";\n';
 code += extractFunc(html, 'pysimFsSortChildren') + '\n';
+code += extractFunc(html, 'pysimFsNodePath') + '\n';
 code += extractFunc(html, 'pysimFsRenderNode') + '\n';
 code += 'globalThis.esc = s => s;\nglobalThis.t = s => s;\n';
 eval(code);
@@ -64,4 +65,28 @@ test('non-existing directory hides previously loaded children', () => {
 	assert.ok(!out.includes('EF.UPLMNWLAN'), out);
 	assert.ok(!out.includes('(empty)'), out);
 	assert.ok(!out.includes('pysimFsToggleDir'), out);
+});
+
+test('the row handlers carry the canonical path, so same-named files differ', () => {
+	// EF.ECC lives in DF.GSM and ADF.USIM with the same name AND FID: the
+	// onclick argument must be the path, never the ambiguous display name
+	const root = { name: 'MF', fid: '3F00', isDir: true, exists: true, children: [], expanded: true, parent: null };
+	const gsm = { name: 'DF.GSM', fid: '7F20', isDir: true, exists: true, children: [], expanded: true, parent: root };
+	const usim = { name: 'ADF.USIM', fid: '7FFF', isDir: true, exists: true, children: [], expanded: true, parent: root };
+	const gsmEcc = { name: 'EF.ECC', fid: '6FB7', isDir: false, exists: true, children: null, expanded: false, parent: gsm };
+	const usimEcc = { name: 'EF.ECC', fid: '6FB7', isDir: false, exists: true, children: null, expanded: false, parent: usim };
+	root.children = [gsm, usim];
+	gsm.children = [gsmEcc];
+	usim.children = [usimEcc];
+	assert.ok(pysimFsRenderNode(gsmEcc, 0).includes("pysimFsClickFile('MF/7F20/6FB7')"));
+	assert.ok(pysimFsRenderNode(usimEcc, 0).includes("pysimFsClickFile('ADF.USIM/6FB7')"));
+	assert.ok(pysimFsRenderNode(gsm, 0).includes("pysimFsToggleDir('MF/7F20')"));
+	assert.ok(pysimFsRenderNode(usim, 0).includes("pysimFsToggleDir('ADF.USIM')"));
+});
+
+test('pysimFsRenderNode passes pysimFsNodePath(node) to the click/toggle handlers', () => {
+	const body = extractFunc(html, 'pysimFsRenderNode');
+	assert.ok(body.includes('const nodePath = pysimFsNodePath(node);'));
+	assert.match(body, /pysimFsToggleDir\(\\'' \+ esc\(nodePath\)/);
+	assert.match(body, /pysimFsClickFile\(\\'' \+ esc\(nodePath\)/);
 });
