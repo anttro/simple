@@ -111,10 +111,11 @@ function fakeMenu() {
 	};
 }
 
-const dom = { menu: null, btn: null };
+const dom = { menu: null, btn: null, clear: null };
 globalThis.document = {
 	getElementById: id => (id === 'pysim-fs-filter-menu' ? dom.menu
-		: (id === 'pysim-fs-filter-btn' ? dom.btn : null)),
+		: (id === 'pysim-fs-filter-btn' ? dom.btn
+			: (id === 'pysim-fs-filter-clear' ? dom.clear : null))),
 };
 
 let code = '';
@@ -123,7 +124,7 @@ for (const f of ['fsFilterServiceOptions', 'fsFilterIndexBuild', 'fsFilterIndex'
 	'fsFilterPathsKeyOf', 'pysimFsFilterPathsInvalidate', 'pysimFsFilterMatchingPaths',
 	'pysimFsFilterMatch', 'pysimFsFilterShow', 'pysimFsFilterLabel',
 	'pysimFsFilterSummary', 'pysimFsFilterRender', 'pysimFsFilterToggle',
-	'pysimFsFilterSetEntry', 'pysimFsFilterRestore', 'pysimFsNodePath',
+	'pysimFsFilterSetEntry', 'pysimFsFilterClear', 'pysimFsFilterRestore', 'pysimFsNodePath',
 	'pysimFsExpandAll', 'pysimFsCollapseAll', 'pysimFsAutoExpandForFilter']) {
 	code += extractFunc(html, f) + '\n';
 }
@@ -159,6 +160,31 @@ test('the file tree has a collapsed filter dropdown next to the sort pills', () 
 	// the multiselect (and its onchange handler) is gone
 	assert.ok(!/id="pysim-fs-filter"/.test(html));
 	assert.ok(!/pysimFsSetFilter\(/.test(html));
+});
+
+test('the ✕ next to the selector resets a non-All filter to All', () => {
+	// markup: a hidden red ✕ that clears the filter
+	assert.match(html, /id="pysim-fs-filter-clear"[^>]*onclick="pysimFsFilterClear\(\)"/);
+	assert.match(html, /id="pysim-fs-filter-clear"[^>]*data-l10n-title="Reset filter"/);
+	// the clear handler resets to All
+	const fn = extractFunc(html, 'pysimFsFilterClear');
+	assert.ok(fn.indexOf('pysimFsFilterSetEntry(FS_FILTER_ALL, true)') > 0, fn);
+	// the render shows it only when a non-All filter is active
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	dom.clear = fakeBtn();
+	withFilter(['plmn-selection'], () => {
+		pysimFsFilterRender();
+		assert.strictEqual(dom.clear.classes.has('hidden'), false);
+		assert.strictEqual(dom.clear.attrs['aria-label'], 'Reset filter');
+	});
+	withFilter(['all'], () => {
+		pysimFsFilterRender();
+		assert.strictEqual(dom.clear.classes.has('hidden'), true);
+	});
+	// the Russian entry exists
+	const dict = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/)[1];
+	assert.ok(dict.includes("'Reset filter':"), 'missing Russian entry');
 });
 
 test('an outside click or Escape closes the menu', () => {

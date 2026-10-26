@@ -1127,6 +1127,7 @@
 								<button type="button" id="pysim-fs-filter-btn" aria-haspopup="true" aria-expanded="false" onclick="pysimFsFilterToggle()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 max-w-xs truncate">All</button>
 								<div id="pysim-fs-filter-menu" role="group" aria-label="Filter" class="hidden absolute left-0 mt-1 z-50 w-64 max-h-64 overflow-y-auto rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 p-2 shadow-lg"></div>
 							</div>
+							<button type="button" id="pysim-fs-filter-clear" onclick="pysimFsFilterClear()" class="hidden px-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300" data-l10n-title="Reset filter" aria-label="Reset filter">✕</button>
 						</div>
 						<button id="pysim-fs-probe-btn" data-needs="card" onclick="pysimFsProbeAll()" class="w-full mb-1 px-2 py-0.5 rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Probe all files">Probe all files</button>
 						<div id="pysim-fs-probe-status" class="hidden mb-1 text-gray-500 dark:text-slate-400"></div>
@@ -1989,7 +1990,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.1';
+const SIMPLE_VERSION = '3.40.2';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16270,6 +16271,7 @@ function pysimFsFilterRender() {
 	const menu = document.getElementById('pysim-fs-filter-menu');
 	const btn = document.getElementById('pysim-fs-filter-btn');
 	if (!menu) return;
+	const active = pysimFsFilter.size > 0 && !pysimFsFilter.has(FS_FILTER_ALL);
 	const services = fsFilterServiceOptions();
 	const item = (id, label) =>
 		'<label class="flex items-center gap-2 px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 text-xs text-gray-700 dark:text-slate-200">' +
@@ -16296,13 +16298,17 @@ function pysimFsFilterRender() {
 	if (btn) {
 		btn.textContent = pysimFsFilterSummary();
 		// a non-"All" selection stands out (blue, like the active sort pill)
-		const active = pysimFsFilter.size > 0 && !pysimFsFilter.has(FS_FILTER_ALL);
 		btn.classList.toggle('bg-blue-600', active);
 		btn.classList.toggle('text-white', active);
 		btn.classList.toggle('text-gray-700', !active);
 		btn.classList.toggle('dark:text-slate-300', !active);
 		btn.classList.toggle('hover:bg-gray-200', !active);
 		btn.classList.toggle('dark:hover:bg-slate-700', !active);
+	}
+	const clearBtn = document.getElementById('pysim-fs-filter-clear');
+	if (clearBtn) {
+		clearBtn.classList.toggle('hidden', !active);
+		clearBtn.setAttribute('aria-label', t('Reset filter'));
 	}
 }
 
@@ -16337,6 +16343,11 @@ function pysimFsFilterSetEntry(entry, on) {
 	pysimFsFilterRender();
 	pysimFsRenderTree();
 	pysimFsAutoExpandForFilter();
+}
+
+// The ✕ next to the filter selector: back to "All".
+function pysimFsFilterClear() {
+	pysimFsFilterSetEntry(FS_FILTER_ALL, true);
 }
 
 // The cross-reference inverted to service number -> feature name, per file
@@ -28100,6 +28111,7 @@ const LANG_RU = {
 	'Sort:': 'Сортировка:',
 	'Name': 'Имя',
 	'Filter:': 'Фильтр:',
+	'Reset filter': 'Сбросить фильтр',
 	'(no filters yet)': '(фильтров пока нет)',
 	'Identifiers': 'Идентификаторы',
 	'PLMN selection': 'Выбор PLMN',

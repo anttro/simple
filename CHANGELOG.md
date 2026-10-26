@@ -9,6 +9,14 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.2] — 2026-10-26
+
+### Added
+
+- **File filter: reset (✕) button.**  A red ✕ to the right of the filter
+  selector appears whenever the filter is not "All" and resets it to "All"
+  in one click.
+
 ## [3.40.1] — 2026-10-26
 
 ### Changed
