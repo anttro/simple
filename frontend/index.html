@@ -16240,6 +16240,48 @@ function pysimFsFilterSetEntry(entry, on) {
 	pysimFsRenderTree();
 }
 
+// The cross-reference inverted to service number -> feature name, per file
+// table.  Both maps are declared later in this file, so they are read on the
+// first call, never while the filter block itself is evaluated.
+let _servicesFeatureByNumber = null;
+
+function servicesFeatureByNumber() {
+	if (!_servicesFeatureByNumber) {
+		const out = { sst: {}, ust: {}, est: {}, ist: {} };
+		for (const f of SERVICES_CROSS_REF) {
+			for (const table of Object.keys(out)) {
+				const n = f[table];
+				if (n === null || n === undefined) continue;
+				out[table][n] = f.f;
+			}
+		}
+		_servicesFeatureByNumber = out;
+	}
+	return _servicesFeatureByNumber;
+}
+
+// The service row's cross-link to the file tree: a capability-only service
+// names no file, so it carries no link.
+function pysimFsFilterBtnHtml(table, n) {
+	if (!table) return '';
+	const feature = (servicesFeatureByNumber()[table] || {})[n];
+	if (!feature || !(SERVICES_FS_MAP[feature] || []).length) return '';
+	const label = t('To EF filter');
+	return '<button type="button" class="ml-1 px-1 text-xs text-blue-600 dark:text-blue-400 hover:underline" onclick="pysimFsSetFilterToService(\'' +
+		esc(table) + '\', ' + Number(n) + ')" title="' + esc(label) + '">' + esc(label) + '</button>';
+}
+
+// Select exactly that service's files in the file tree, persisting the choice
+// like any other filter entry.
+function pysimFsSetFilterToService(table, n) {
+	const feature = (servicesFeatureByNumber()[table] || {})[n];
+	if (!feature || !(SERVICES_FS_MAP[feature] || []).length) return;
+	pysimFsFilter = new Set(['svc:' + feature]);
+	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
+	pysimFsFilterRender();
+	pysimFsRenderTree();
+}
+
 // Whether a file node passes the active filter.  An empty selection and
 // `all` both show everything; otherwise the node's name must be listed under
 // one of the selected criteria.
@@ -26357,20 +26399,22 @@ const EF_PNN_ITEMS = {
 };
 
 // Service-table and scalar editors (wave 2).  The bits kind renders the whole
-// table as a filterable checkbox grid; its value is the decoder's list.
+// table as a filterable checkbox grid; its value is the decoder's list.  The
+// service-table fields carry `table` (sst/ust/est/ist), which adds the row's
+// "To EF filter" cross-link to the file tree.
 const EF_ACC_CLASSES = {
 	0: 'Class 0', 1: 'Class 1', 2: 'Class 2', 3: 'Class 3', 4: 'Class 4', 5: 'Class 5',
 	6: 'Class 6', 7: 'Class 7', 8: 'Class 8', 9: 'Class 9', 11: 'Class 11',
 	12: 'Class 12', 13: 'Class 13', 14: 'Class 14', 15: 'Class 15',
 };
 
-const EF_UST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_UST_SERVICES }];
-const EF_IST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_IST_SERVICES }];
-const EF_EST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_EST_SERVICES }];
+const EF_UST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_UST_SERVICES, table: 'ust' }];
+const EF_IST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_IST_SERVICES, table: 'ist' }];
+const EF_EST_FIELDS = [{ key: 'services', label: 'Services', kind: 'bits', items: EF_EST_SERVICES, table: 'est' }];
 // EF.SST is the SIM table with two bits per service: the tri-state grid
 // (deleted 00 / off 10 / on 11) instead of the 1-bit checkbox grid.
 const EF_SST_FIELDS = [{
-	key: 'services', label: 'Services', kind: 'bits2', items: EF_SST_SERVICES,
+	key: 'services', label: 'Services', kind: 'bits2', items: EF_SST_SERVICES, table: 'sst',
 	hint: 'Two bits per service (TS 51.011 10.3.7): deleted = not allocated (00), '
 		+ 'off = allocated but not activated (10), on = allocated and activated (11).',
 }];
@@ -26756,7 +26800,8 @@ function efDecFieldHtml(f, value) {
 					'<input type="checkbox" data-bit="' + n + '" data-bit-name="' + esc(name) + '"' +
 					(selected.has(String(n)) ? ' checked' : '') + ' onchange="pysimFsDecRowCheck(this)">' +
 					'<span class="font-mono text-gray-500 dark:text-slate-400">' + n + '</span>' +
-					'<span class="break-all">' + esc(t(name)) + '</span></label>';
+					'<span class="break-all">' + esc(t(name)) + '</span>' +
+					pysimFsFilterBtnHtml(f.table, n) + '</label>';
 			}).join('') + '</div></div>';
 	} else if (f.kind === 'bits2') {
 		// the tri-state grid (EF.SST): one select per service, the decoder's
@@ -26781,7 +26826,7 @@ function efDecFieldHtml(f, value) {
 					'<select data-bit2="' + n + '" data-bit2-name="' + esc(name) + '" onchange="pysimFsDecRowCheck(this)" class="border border-gray-300 dark:border-slate-600 rounded px-1 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-200">' +
 					states3.map(o => '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' +
 						esc(o[1]) + '</option>').join('') +
-					'</select></label>';
+					'</select>' + pysimFsFilterBtnHtml(f.table, n) + '</label>';
 			}).join('') + '</div></div>';
 	} else if (f.kind === 'select') {
 		const cur = String(value === undefined || value === null ? '' : value);
@@ -27734,6 +27779,7 @@ const LANG_RU = {
 	'The number continues in EF.EXT5 - editing it is not supported': 'Номер продолжается в EF.EXT5 — редактирование не поддерживается',
 	'Services': 'Сервисы',
 	'Filter services': 'Фильтр сервисов',
+	'To EF filter': 'В фильтр EF',
 	'Off': 'Выключен',
 	'On': 'Включён',
 	'The service state must be deleted, off or on': 'Состояние сервиса должно быть: удалён, выключен или включён',

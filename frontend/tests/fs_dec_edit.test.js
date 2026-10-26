@@ -48,6 +48,7 @@ const FNS = [
 	'efEncPlmnList', 'efListRows', 'efPlmnRowOrig', 'efEncAdn', 'efEncAdnExt', 'efPnnNameBytes', 'efPnnHexBytes', 'efPnnOrigTlv', 'efEncPnn',
 	'efFindEncoder', 'efHasEncoder', 'efEncError',
 	'efDecModelValues', 'efDecModelFor', 'efDecEditModel', 'efActTechList', 'efDecFieldHtml',
+	'servicesFeatureByNumber', 'pysimFsFilterBtnHtml',
 	'efDecRowHtml', 'efDecGridHtml', 'efDecItemRowHtml', 'efDecItemsHtml',
 	'efDecRecordsHtml', 'efDecEditHtml',
 	'efDecCollectValues', 'efDecCollectRows', 'efDecCollectItems',
@@ -60,10 +61,11 @@ const FNS = [
 ];
 
 let code = 'var pysimFsSelected = null;\nvar pysimFsTreeRoot = null;\nvar pysimFsDecModel = null;\n'
-	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\n';
+	+ 'var pysimFsDecEditMode = false;\nvar pysimFsEditMode = false;\nvar _servicesFeatureByNumber = null;\n';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 for (const c of ['GSM7_ALPHABET', 'GSM7_EXT_MAP', 'EF_ACT_TECHS', 'EF_SPN_FIELDS',
-	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_SST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS', 'EF_ADF_RIDS']) {
+	'EF_ADN_FIELDS', 'EF_PLMN_LIST', 'EF_PNN_ITEMS', 'EF_UST_SERVICES', 'EF_SST_SERVICES', 'EF_IST_SERVICES', 'EF_EST_SERVICES', 'EF_PHASE_NAMES', 'EF_ACC_CLASSES', 'EF_UST_FIELDS', 'EF_IST_FIELDS', 'EF_EST_FIELDS', 'EF_SST_FIELDS', 'EF_ACC_FIELDS', 'EF_PHASE_FIELDS', 'EF_HPPLMN_FIELDS', 'EF_AD_OP_MODES', 'EF_AD_FIELDS', 'EF_PLMN_ONLY_LIST', 'EF_ICCID_FIELDS', 'EF_IMSI_FIELDS', 'EF_CBMI_LIST', 'EF_CBMIR_LIST', 'EF_READONLY_NAMES', 'EF_SMSP_PARAMS', 'EF_SMSP_CUSTOM', 'EF_ENCODERS', 'EF_ADF_RIDS',
+	'SERVICES_CROSS_REF', 'SERVICES_FS_MAP']) {
 	code += extractConst(html, c);
 }
 eval(code);
@@ -737,6 +739,20 @@ test('the bits field renders a filtered checkbox grid and collects {n,name}', ()
 		{ n: 1, name: 'Fixed Dialling Numbers (FDN)' },
 		{ n: 3, name: 'APN Control List (ACL)' },
 	] });
+});
+
+test('the service grids link file-backed rows to the file tree filter', () => {
+	const ust = efDecEditHtml(efDecEditModel('EF.UST', '6f38', { kind: 'transparent', data: UST_ONE }), UST_ONE);
+	// service 2 = FDN (files), service 99 = URI support by UICC (capability)
+	assert.match(ust, /pysimFsSetFilterToService\('ust', 2\)/);
+	assert.ok(!/pysimFsSetFilterToService\('ust', 99\)/.test(ust));
+	const sst = efDecEditHtml(efDecEditModel('EF.SST', '6f38', { kind: 'transparent', data: '4C' }, '7F20'), '4C');
+	// service 4 = SMS (files), service 1 = CHV1 disable function (capability)
+	assert.match(sst, /pysimFsSetFilterToService\('sst', 4\)/);
+	assert.ok(!/pysimFsSetFilterToService\('sst', 1\)/.test(sst));
+	// EF.ACC's bits grid is not a service table - no cross-link at all
+	const acc = efDecEditHtml(efDecEditModel('EF.ACC', '6f78', { kind: 'transparent', data: ACC_ONE }), ACC_ONE);
+	assert.ok(!/pysimFsSetFilterToService/.test(acc));
 });
 
 test('the bits filter hides the non-matching rows', () => {
