@@ -9,6 +9,26 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.0] — 2026-10-26
+
+### Added
+
+- **File-tree filter** (the file manager gains a **Filter** dropdown, next to
+  Sort).  A collapsed checkbox multiselect with: **All** (default), **Custom
+  files**, **Identifiers** (ICCID/IMSI/MSISDN/IMPI/IMPU/SUPI_NAI/GID1/GID2),
+  **PLMN selection** / **Provider names** / **WLAN/I-WLAN** / **SMS-related** /
+  **CB-related** (cell broadcast), and one option per file-backed service of
+  the cross-reference.  When a filter is active, directories that are not on
+  the path of the selected files are hidden; the button turns blue to stand
+  out.
+- **Expand all / Collapse all** buttons beside the sort pills; **Expand all**
+  walks the tree loading children on demand and skips directories the probe
+  found absent, and selecting any filter other than "All" auto-expands the
+  tree so the matched files are visible.
+- **"To EF filter"** cross-link: each file-backed service row in the
+  SST/UST/IST/EST decoded editors carries a compact glyph that narrows the
+  file-tree filter to exactly that service's files.
+
 ## [3.39.0] — 2026-10-26
 
 ### Added

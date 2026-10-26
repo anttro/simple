@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysim-simple-server"
-version = "3.39.0"
+version = "3.40.0"
 description = "HTTP REST server wrapping pysim for the SIMple PWA"
 license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.9"
