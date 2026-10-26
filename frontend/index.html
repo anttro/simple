@@ -1117,6 +1117,9 @@
 							<span data-l10n="Sort:">Sort:</span>
 							<span class="pysim-fs-sort-pill px-2 py-0.5 rounded cursor-pointer bg-blue-600 text-white" data-fs-sort="fid" onclick="pysimFsSetSort('fid')">FID</span>
 							<span class="pysim-fs-sort-pill px-2 py-0.5 rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300" data-fs-sort="name" onclick="pysimFsSetSort('name')" data-l10n="Name">Name</span>
+							<span class="mx-1 text-gray-400 dark:text-slate-600">·</span>
+							<span data-l10n="Filter:">Filter:</span>
+							<select id="pysim-fs-filter" multiple size="4" onchange="pysimFsSetFilter()" class="text-xs bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 text-gray-700 dark:text-slate-200 max-w-48"></select>
 						</div>
 						<button id="pysim-fs-probe-btn" data-needs="card" onclick="pysimFsProbeAll()" class="w-full mb-1 px-2 py-0.5 rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Probe all files">Probe all files</button>
 						<div id="pysim-fs-probe-status" class="hidden mb-1 text-gray-500 dark:text-slate-400"></div>
@@ -16073,6 +16076,52 @@ function pysimFsSetSort(mode) {
 	pysimFsRenderTree();
 }
 
+// The tree filter: a multiselect of file criteria, applied when the tree
+// renders.  The option list is large (dozens of items) and not decided yet —
+// populate FS_FILTER_OPTIONS later; the mechanism (state, persistence,
+// per-node match, render wiring) is scaffolded here.
+const FS_FILTER_OPTIONS = [
+	// { id: 'decoded-editor', label: 'Has a decoded editor' },
+	// { id: 'present', label: 'Present on card' },
+	// ... to be decided
+];
+
+let pysimFsFilter = new Set();
+try {
+	const saved = JSON.parse(localStorage.getItem('simple_fs_filter') || '[]');
+	if (Array.isArray(saved)) pysimFsFilter = new Set(saved);
+} catch (e) { /* ignore */ }
+
+function pysimFsFilterRender() {
+	const el = document.getElementById('pysim-fs-filter');
+	if (!el) return;
+	if (!FS_FILTER_OPTIONS.length) {
+		el.innerHTML = '<option disabled>' + esc(t('(no filters yet)')) + '</option>';
+		return;
+	}
+	el.innerHTML = FS_FILTER_OPTIONS.map(o =>
+		'<option value="' + esc(o.id) + '">' + esc(t(o.label)) + '</option>').join('');
+	el.querySelectorAll('option').forEach(o => { o.selected = pysimFsFilter.has(o.value); });
+}
+
+function pysimFsSetFilter() {
+	const el = document.getElementById('pysim-fs-filter');
+	if (!el) return;
+	pysimFsFilter = new Set(Array.from(el.selectedOptions).map(o => o.value));
+	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
+	pysimFsRenderTree();
+}
+
+// Whether a node passes the active filter.  With no filter active the tree
+// shows everything.  When FS_FILTER_OPTIONS is populated, this maps each
+// active id to a per-node test (kind, name/fid, presence, decoded-editor
+// availability, ...).  Note for later: a directory should stay visible when
+// it contains any matching descendant, not only when it matches itself.
+function pysimFsFilterMatch(node) {
+	if (!pysimFsFilter.size) return true;
+	return true;
+}
+
 async function pysimFsRefresh() {
 	const detailEl = document.getElementById('pysim-fs-detail');
 	detailEl.classList.add('hidden');
@@ -16271,6 +16320,7 @@ function pysimFsRenderNode(node, depth) {
 			html += '<div class="text-gray-400 dark:text-slate-500">' + pad + '&nbsp;&nbsp;&nbsp;&nbsp;' + esc(t('(empty)')) + '</div>';
 		} else {
 			for (const child of pysimFsSortChildren(node.children, pysimFsSort)) {
+				if (!pysimFsFilterMatch(child)) continue;
 				html += pysimFsRenderNode(child, depth + 1);
 			}
 		}
@@ -27713,6 +27763,8 @@ const LANG_RU = {
 	'No entries yet.': 'Записей пока нет.',
 	'Sort:': 'Сортировка:',
 	'Name': 'Имя',
+	'Filter:': 'Фильтр:',
+	'(no filters yet)': '(фильтров пока нет)',
 	'Probe all files': 'Проверить все файлы',
 	'Feature': 'Функция',
 	'SST': 'SST',
@@ -28745,6 +28797,7 @@ function isViewVisible(id) {
 // Dynamic views build their labels with t() at render time; re-render the
 // visible ones after a language switch so they don't stay in the old language.
 function refreshDynamicI18n() {
+	pysimFsFilterRender();
 	if (isViewVisible('tab-profiler')) {
 		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); if (profilerListTab === 'custom') pysimCustomRender(); }
 		else if (profilerView === 'editor') profilerRenderEditor();
@@ -28820,6 +28873,7 @@ document.getElementById('theme-btn').textContent = document.documentElement.clas
 updateConvFields();
 updateSp();
 uiccStdFilesLoad();
+pysimFsFilterRender();
 updateSpKic();
 updateSpKid();
 chainInit('chain-sim');
