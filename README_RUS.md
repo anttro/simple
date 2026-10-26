@@ -2,7 +2,7 @@
 
 > Прежнее название — OTAMan; переименован в SIMple 2026-09-19.
 
-📢 Новости и обновления проекта: [Telegram-канал](https://t.me/youeyeseesee)
+📢 Новости и обновления проекта: [сайт](https://atroshin.ru) · [Telegram-канал](https://t.me/youeyeseesee)
 
 SIMple — инструментарий для специалистов по UICC/SIM-картам: автономный HTML/JS PWA и локальный сервер карт ([`pysim-simple-server`](pysim_simple_server/) — мост к pySim/PC-SC, он же раздаёт PWA). Закрывает весь цикл лабораторной работы:
 
