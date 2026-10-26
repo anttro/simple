@@ -1117,6 +1117,9 @@
 							<span data-l10n="Sort:">Sort:</span>
 							<span class="pysim-fs-sort-pill px-2 py-0.5 rounded cursor-pointer bg-blue-600 text-white" data-fs-sort="fid" onclick="pysimFsSetSort('fid')">FID</span>
 							<span class="pysim-fs-sort-pill px-2 py-0.5 rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300" data-fs-sort="name" onclick="pysimFsSetSort('name')" data-l10n="Name">Name</span>
+							<span class="mx-1 text-gray-400 dark:text-slate-600">·</span>
+							<button type="button" onclick="pysimFsExpandAll()" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" data-l10n="Expand all">Expand all</button>
+							<button type="button" onclick="pysimFsCollapseAll()" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" data-l10n="Collapse all">Collapse all</button>
 						</div>
 						<div class="flex items-center gap-1 mb-1 text-gray-500 dark:text-slate-400">
 							<span data-l10n="Filter:">Filter:</span>
@@ -16339,6 +16342,7 @@ function pysimFsFilterSetEntry(entry, on) {
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
 	pysimFsFilterRender();
 	pysimFsRenderTree();
+	pysimFsAutoExpandForFilter();
 }
 
 // The cross-reference inverted to service number -> feature name, per file
@@ -16382,6 +16386,7 @@ function pysimFsSetFilterToService(table, n) {
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
 	pysimFsFilterRender();
 	pysimFsRenderTree();
+	pysimFsAutoExpandForFilter();
 }
 
 // Whether a file node passes the active filter.  An empty selection and
@@ -16682,6 +16687,42 @@ async function pysimFsToggleDir(path) {
 	node.expanded = !node.expanded;
 	pysimFsRenderTree();
 	if (node.expanded) pysimRefresh();
+}
+
+// Expand every directory that exists (skipping ones the probe already found
+// absent), loading children on demand.  Also the auto-action after a filter
+// narrows to a specific category, so the matched files are visible.
+async function pysimFsExpandAll() {
+	const stack = [pysimFsTreeRoot];
+	while (stack.length) {
+		const node = stack.pop();
+		if (!node || !node.isDir) continue;
+		if (node.exists === false) continue;
+		if (!node.children) {
+			await pysimFsLoadChildren(node);
+			if (node.exists === false) continue;
+		}
+		node.expanded = true;
+		for (const c of (node.children || [])) if (c.isDir) stack.push(c);
+	}
+	pysimFsRenderTree();
+}
+
+function pysimFsCollapseAll() {
+	const stack = [pysimFsTreeRoot];
+	while (stack.length) {
+		const node = stack.pop();
+		if (!node || !node.isDir) continue;
+		node.expanded = false;
+		for (const c of (node.children || [])) if (c.isDir) stack.push(c);
+	}
+	pysimFsRenderTree();
+}
+
+// A filter that narrows to a specific category expands the tree so the
+// matched files are shown; "All"/empty leaves the tree as-is.
+function pysimFsAutoExpandForFilter() {
+	if (pysimFsFilter.size > 0 && !pysimFsFilter.has(FS_FILTER_ALL)) pysimFsExpandAll();
 }
 
 let pysimFsSelected = null;
@@ -28074,6 +28115,8 @@ const LANG_RU = {
 	'CB-related': 'Связанное с CB',
 	'Custom files': 'Пользовательские файлы',
 	'Selected: {n}': 'Выбрано: {n}',
+	'Expand all': 'Развернуть все',
+	'Collapse all': 'Свернуть все',
 	'Probe all files': 'Проверить все файлы',
 	'Feature': 'Функция',
 	'SST': 'SST',

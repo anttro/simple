@@ -6,7 +6,7 @@ const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 function extractFunc(src, name) {
-	const re = new RegExp('function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
+	const re = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{');
 	const m = re.exec(src);
 	if (!m) throw new Error('function ' + name + ' not found');
 	let i = m.index + m[0].length - 1;
@@ -59,6 +59,8 @@ let _fsFilterPathsKey = null;
 let pysimCustomFiles = [];
 const _store = {};
 let _treeRenders = 0;
+let pysimFsTreeRoot = null;   // expand-all walks this; null = nothing to expand
+let pysimFsLoadChildren = async node => { if (!node.children) node.children = []; };
 
 globalThis.localStorage = {
 	getItem: k => (Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null),
@@ -121,7 +123,8 @@ for (const f of ['fsFilterServiceOptions', 'fsFilterIndexBuild', 'fsFilterIndex'
 	'fsFilterPathsKeyOf', 'pysimFsFilterPathsInvalidate', 'pysimFsFilterMatchingPaths',
 	'pysimFsFilterMatch', 'pysimFsFilterShow', 'pysimFsFilterLabel',
 	'pysimFsFilterSummary', 'pysimFsFilterRender', 'pysimFsFilterToggle',
-	'pysimFsFilterSetEntry', 'pysimFsFilterRestore', 'pysimFsNodePath']) {
+	'pysimFsFilterSetEntry', 'pysimFsFilterRestore', 'pysimFsNodePath',
+	'pysimFsExpandAll', 'pysimFsCollapseAll', 'pysimFsAutoExpandForFilter']) {
 	code += extractFunc(html, f) + '\n';
 }
 for (const c of ['FS_FILTER_GROUPS', 'FS_FILTER_GROUP_ORDER', 'SERVICES_FS_MAP']) code += extractConst(html, c);
@@ -454,6 +457,46 @@ test('the button turns blue when a filter is active and back for all', () => {
 	assert.strictEqual(dom.btn.classes.has('text-gray-700'), true);
 });
 
+test('expand all and collapse all walk the directory tree, skipping absent DFs', async () => {
+	const telecom = { name: 'DF.TELECOM', fid: '7F10', isDir: true, exists: true, expanded: false,
+		parent: null, children: [
+			{ name: 'DF.PHONEBOOK', fid: '5F3A', isDir: true, exists: true, expanded: false, parent: null, children: null },
+		] };
+	const gsm = { name: 'DF.GSM', fid: '7F20', isDir: true, exists: false, expanded: false, parent: null, children: null };
+	pysimFsTreeRoot = { name: 'MF', fid: '3F00', isDir: true, exists: true, expanded: true, parent: null,
+		children: [gsm, telecom] };
+	let loads = 0;
+	pysimFsLoadChildren = async node => { if (!node.children) { node.children = []; } loads++; };
+	try {
+		_treeRenders = 0;
+		await pysimFsExpandAll();
+		assert.strictEqual(pysimFsTreeRoot.expanded, true);
+		assert.strictEqual(gsm.expanded, false, 'an absent DF is not expanded');
+		assert.strictEqual(telecom.expanded, true);
+		assert.strictEqual(telecom.children[0].expanded, true);
+		assert.ok(loads > 0, 'lazy children are loaded on demand');
+		assert.strictEqual(_treeRenders, 1);
+
+		pysimFsCollapseAll();
+		assert.strictEqual(pysimFsTreeRoot.expanded, false);
+		assert.strictEqual(telecom.expanded, false);
+		assert.strictEqual(telecom.children[0].expanded, false);
+	} finally {
+		pysimFsTreeRoot = null;
+	}
+});
+
+test('auto-expand fires only for a non-"all" filter', () => {
+	// expand-all (with a null tree) still re-renders once; pin the branch
+	pysimFsFilter = new Set(['all']);
+	_treeRenders = 0;
+	pysimFsAutoExpandForFilter();
+	assert.strictEqual(_treeRenders, 0, '"all" does not expand');
+	pysimFsFilter = new Set(['identifiers']);
+	pysimFsAutoExpandForFilter();
+	assert.strictEqual(_treeRenders, 1, 'a category expands the tree');
+});
+
 test('the menu marks the saved selection', () => {
 	pysimFsFilter = new Set(['svc:Short Message Storage (SMS)', 'identifiers']);
 	dom.menu = fakeMenu();
@@ -510,7 +553,7 @@ test('the checkbox rows keep "all" exclusive and persist the selection', () => {
 	pysimFsFilterSetEntry('sms', true);
 	assert.deepStrictEqual([...pysimFsFilter], ['sms']);
 	assert.strictEqual(_store.simple_fs_filter, '["sms"]');
-	assert.strictEqual(_treeRenders, 2);
+	assert.strictEqual(_treeRenders, 3);   // render + the auto-expand's render
 	assert.strictEqual(box('sms').checked, true);
 	assert.strictEqual(box('all').checked, false);
 	assert.strictEqual(dom.btn.textContent, 'SMS-related');

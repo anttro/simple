@@ -51,6 +51,7 @@ let _fsFilterPathsKey = null;
 const _store = {};
 let _renders = 0;
 let _treeRenders = 0;
+let pysimFsTreeRoot = null;   // expand-all walks this; null = nothing to expand
 
 globalThis.localStorage = {
 	getItem: k => (Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null),
@@ -64,10 +65,12 @@ globalThis.pysimFsRenderTree = () => { _treeRenders++; };
 
 let code = '';
 for (const f of ['servicesFeatureByNumber', 'pysimFsFilterBtnHtml', 'pysimFsSetFilterToService',
-	'pysimFsFilterPathsInvalidate']) {
+	'pysimFsFilterPathsInvalidate', 'pysimFsExpandAll', 'pysimFsCollapseAll',
+	'pysimFsAutoExpandForFilter']) {
 	code += extractFunc(html, f) + '\n';
 }
 for (const c of ['SERVICES_CROSS_REF', 'SERVICES_FS_MAP']) code += extractConst(html, c);
+code += "var FS_FILTER_ALL = 'all';\n";
 eval(code);
 
 test('servicesFeatureByNumber inverts the cross-reference per file table', () => {
@@ -107,12 +110,12 @@ test('pysimFsSetFilterToService narrows the tree to that service', () => {
 	assert.deepStrictEqual([...pysimFsFilter], ['svc:Fixed Dialling Numbers (FDN)']);
 	assert.strictEqual(_store.simple_fs_filter, JSON.stringify(['svc:Fixed Dialling Numbers (FDN)']));
 	assert.strictEqual(_renders, 1);
-	assert.strictEqual(_treeRenders, 1);
+	assert.strictEqual(_treeRenders, 2);   // render + the auto-expand's render
 	// a capability-only service changes nothing
 	pysimFsSetFilterToService('ust', 99);
 	assert.deepStrictEqual([...pysimFsFilter], ['svc:Fixed Dialling Numbers (FDN)']);
 	assert.strictEqual(_renders, 1);
-	assert.strictEqual(_treeRenders, 1);
+	assert.strictEqual(_treeRenders, 2);
 });
 
 test('the four service-table fields carry their table, EF.ACC carries none', () => {
