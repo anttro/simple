@@ -1989,7 +1989,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.0';
+const SIMPLE_VERSION = '3.40.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16094,8 +16094,8 @@ function pysimFsSetSort(mode) {
 // can belong to several criteria (EF.SPN is a provider name and the file of
 // the "Service Provider Name" service).  `all` is the exclusive default.
 // The categories are shown under three headings (`group`): the subscriber
-// data, the network-selection data, and services (the SMS files plus one
-// option per file-backed feature of the service cross-reference).
+// data, the network-selection data, and services (one option per file-backed
+// feature of the service cross-reference).
 const FS_FILTER_ALL = 'all';
 // "Custom files" is not a name-based criterion: it matches the injected
 // custom-file nodes by their `custom` flag (user-chosen names).
@@ -16111,12 +16111,6 @@ const FS_FILTER_GROUPS = [
 	{ id: 'wlan', label: 'WLAN / I-WLAN', group: 'PLMN', files: [
 		'EF.UPLMNWLAN', 'EF.OPLMNWLAN', 'EF.WRI', 'EF.HWSIDL', 'EF.WEHPLMNPI', 'EF.WHPI',
 		'EF.WLRPLMN', 'EF.HPLMNDAI'] },
-	// EF.PSISMSC is a standard name pySim does not model, so it has no tree
-	// node to match - it stays listed for completeness.
-	{ id: 'sms', label: 'SMS-related', group: 'Services', files: [
-		'EF.SMS', 'EF.SMSS', 'EF.SMSP', 'EF.SMSR', 'EF.PSISMSC'] },
-	{ id: 'cb', label: 'CB-related', group: 'Services', files: [
-		'EF.CBMI', 'EF.CBMID', 'EF.CBMIR'] },
 ];
 const FS_FILTER_GROUP_ORDER = ['Identifiers', 'PLMN', 'Services'];
 
@@ -28111,8 +28105,6 @@ const LANG_RU = {
 	'PLMN selection': 'Выбор PLMN',
 	'Provider names': 'Имена операторов',
 	'WLAN / I-WLAN': 'WLAN / I-WLAN',
-	'SMS-related': 'Связанное с SMS',
-	'CB-related': 'Связанное с CB',
 	'Custom files': 'Пользовательские файлы',
 	'Selected: {n}': 'Выбрано: {n}',
 	'Expand all': 'Развернуть все',

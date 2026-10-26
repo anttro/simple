@@ -9,6 +9,17 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.1] — 2026-10-26
+
+### Changed
+
+- **File filter: drop the "SMS-related" / "CB-related" categories.**  Those
+  files are service-declared and already reachable through their per-service
+  filter options, which carry the per-spec service names ("Short Message
+  Storage (SMS)", "SMS Parameters (SMSP)", "Short Message Status Reports
+  (SMSR)", "Cell Broadcast Message Identifier (CBMI)", "Cell Broadcast
+  Message Identifier Ranges (CBMIR)").
+
 ## [3.40.0] — 2026-10-26
 
 ### Added

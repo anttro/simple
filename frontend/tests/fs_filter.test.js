@@ -173,9 +173,9 @@ test('an outside click or Escape closes the menu', () => {
 	assert.match(key[1], /pysimFsFilterToggle\(false\)/);
 });
 
-test('the six category groups name their files', () => {
+test('the four category groups name their files', () => {
 	assert.deepStrictEqual(FS_FILTER_GROUPS.map(g => g.id),
-		['identifiers', 'plmn-selection', 'provider-names', 'wlan', 'sms', 'cb']);
+		['identifiers', 'plmn-selection', 'provider-names', 'wlan']);
 	const files = id => new Set(FS_FILTER_GROUPS.find(g => g.id === id).files);
 	assert.deepStrictEqual([...files('identifiers')],
 		['EF.ICCID', 'EF.IMSI', 'EF.MSISDN', 'EF.IMPI', 'EF.IMPU', 'EF.SUPI_NAI', 'EF.GID1', 'EF.GID2']);
@@ -187,8 +187,6 @@ test('the six category groups name their files', () => {
 	assert.deepStrictEqual([...files('wlan')],
 		['EF.UPLMNWLAN', 'EF.OPLMNWLAN', 'EF.WRI', 'EF.HWSIDL', 'EF.WEHPLMNPI', 'EF.WHPI',
 			'EF.WLRPLMN', 'EF.HPLMNDAI']);
-	assert.deepStrictEqual([...files('sms')], ['EF.SMS', 'EF.SMSS', 'EF.SMSP', 'EF.SMSR', 'EF.PSISMSC']);
-	assert.deepStrictEqual([...files('cb')], ['EF.CBMI', 'EF.CBMID', 'EF.CBMIR']);
 	assert.strictEqual(FS_FILTER_ALL, 'all');
 	assert.strictEqual(FS_FILTER_CUSTOM, 'custom');
 });
@@ -212,12 +210,12 @@ test('the inverted index keys the uppercased names and merges memberships', () =
 	assert.ok(ids('EF.PLMNwAcT').includes('plmn-selection'));
 	assert.ok(ids('EF.SPN').includes('provider-names'));
 	assert.ok(ids('EF.SPN').includes('svc:Service Provider Name (SPN)'));
-	assert.ok(ids('EF.SMS').includes('sms'));
+	// SMS/CB files are covered by their per-service options, not a category
 	assert.ok(ids('EF.SMS').includes('svc:Short Message Storage (SMS)'));
-	assert.ok(ids('EF.CBMI').includes('cb'));
-	// EF.PSISMSC is only listed by the SMS category - pySim models no such
-	// file, so it never matches a tree node (no service lists it either)
-	assert.deepStrictEqual([...idx.get('EF.PSISMSC')], ['sms']);
+	assert.ok(ids('EF.CBMI').includes('svc:Cell Broadcast Message Identifier (CBMI)'));
+	// EF.PSISMSC is neither a category nor a file-backed service, so nothing
+	// maps it (pySim models no such file, and no service lists it either)
+	assert.ok(!idx.has('EF.PSISMSC'));
 	assert.ok(!fileBackedFeatures().some(n => (SERVICES_FS_MAP[n] || []).includes('EF.PSISMSC')));
 });
 
@@ -232,12 +230,12 @@ test('a file matches the selected categories, case-insensitively', () => {
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.SPN' }), true);
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.PNN' }), false);
 	});
-	withFilter(['identifiers', 'sms'], () => {
+	withFilter(['identifiers', 'svc:Short Message Status Reports (SMSR)'], () => {
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.IMSI' }), true);
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.SMSR' }), true);
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.SPN' }), false);
 	});
-	withFilter(['sms'], () => {
+	withFilter(['svc:Short Message Storage (SMS)'], () => {
 		assert.strictEqual(pysimFsFilterMatch({ name: 'EF.ECC' }), false);
 	});
 });
@@ -320,8 +318,8 @@ test('a directory shows only on the path of a file the filter selects', () => {
 		assert.strictEqual(pysimFsFilterShow(t.usim), true);   // EF.IMSI/EF.MSISDN copies
 		assert.strictEqual(pysimFsFilterShow(t.wlan), false);
 	});
-	withFilter(['cb'], () => {
-		assert.strictEqual(pysimFsFilterShow(t.gsm), true);      // EF.CBMI/CBMID/CBMIR
+	withFilter(['svc:Cell Broadcast Message Identifier (CBMI)'], () => {
+		assert.strictEqual(pysimFsFilterShow(t.gsm), true);      // EF.CBMI
 		assert.strictEqual(pysimFsFilterShow(t.telecom), false);
 		assert.strictEqual(pysimFsFilterShow(t.wlan), false);
 	});
@@ -377,13 +375,11 @@ test('the standard list gives a name every tree it lives in', () => {
 });
 
 test('the selection resolves to the paths of its files', () => {
-	withFilter(['cb'], () => {
+	withFilter(['svc:Cell Broadcast Message Identifier (CBMI)'], () => {
 		const paths = pysimFsFilterMatchingPaths();
 		assert.ok(paths instanceof Set, 'expected a Set');
 		assert.deepStrictEqual(Array.from(paths).sort(), [
-			'ADF.USIM-NON-IMSI/6F45', 'ADF.USIM-NON-IMSI/6F48', 'ADF.USIM-NON-IMSI/6F50',
-			'ADF.USIM/6F45', 'ADF.USIM/6F48', 'ADF.USIM/6F50',
-			'MF/7F20/6F45', 'MF/7F20/6F48', 'MF/7F20/6F50',
+			'ADF.USIM-NON-IMSI/6F45', 'ADF.USIM/6F45', 'MF/7F20/6F45',
 		]);
 		// cached for the same selection
 		assert.strictEqual(pysimFsFilterMatchingPaths(), paths);
@@ -429,7 +425,8 @@ test('the menu lists all, custom, the three headings and the services', () => {
 	// the categories sit under their headings
 	assert.ok(out.indexOf('data-filter="provider-names"') < out.indexOf('>PLMN</div>'));
 	assert.ok(out.indexOf('data-filter="plmn-selection"') > out.indexOf('>PLMN</div>'));
-	assert.ok(out.indexOf('data-filter="sms"') > out.indexOf('>Services</div>'));
+	// the per-service options sit under the Services heading
+	assert.ok(out.indexOf('data-filter="svc:') > out.indexOf('>Services</div>'));
 	const boxes = renderedBoxes();
 	assert.strictEqual(boxes.length, 2 + FS_FILTER_GROUPS.length + fsFilterServiceOptions().length);
 	assert.strictEqual(boxes[0].id, 'all');
@@ -513,11 +510,11 @@ test('the button summary names the single entry or counts the selection', () => 
 	assert.strictEqual(summary(['all']), 'All');
 	// an empty selection also means everything
 	assert.strictEqual(summary([]), 'All');
-	assert.strictEqual(summary(['all', 'sms']), 'All');
+	assert.strictEqual(summary(['all', 'plmn-selection']), 'All');
 	assert.strictEqual(summary(['custom']), 'Custom files');
 	assert.strictEqual(summary(['plmn-selection']), 'PLMN selection');
 	assert.strictEqual(summary(['svc:Service Provider Name (SPN)']), 'Service Provider Name (SPN)');
-	assert.strictEqual(summary(['sms', 'cb']), 'Selected: 2');
+	assert.strictEqual(summary(['plmn-selection', 'wlan']), 'Selected: 2');
 	// an unknown id falls back to itself
 	assert.strictEqual(summary(['providers']), 'providers');
 });
@@ -550,18 +547,18 @@ test('the checkbox rows keep "all" exclusive and persist the selection', () => {
 	assert.strictEqual(_store.simple_fs_filter, '["all"]');
 	assert.strictEqual(_treeRenders, 1);
 	// choosing a category drops "all"
-	pysimFsFilterSetEntry('sms', true);
-	assert.deepStrictEqual([...pysimFsFilter], ['sms']);
-	assert.strictEqual(_store.simple_fs_filter, '["sms"]');
+	pysimFsFilterSetEntry('provider-names', true);
+	assert.deepStrictEqual([...pysimFsFilter], ['provider-names']);
+	assert.strictEqual(_store.simple_fs_filter, '["provider-names"]');
 	assert.strictEqual(_treeRenders, 3);   // render + the auto-expand's render
-	assert.strictEqual(box('sms').checked, true);
+	assert.strictEqual(box('provider-names').checked, true);
 	assert.strictEqual(box('all').checked, false);
-	assert.strictEqual(dom.btn.textContent, 'SMS-related');
+	assert.strictEqual(dom.btn.textContent, 'Provider names');
 	// several categories stay selected
 	pysimFsFilterSetEntry('identifiers', true);
-	assert.deepStrictEqual([...pysimFsFilter], ['sms', 'identifiers']);
+	assert.deepStrictEqual([...pysimFsFilter], ['provider-names', 'identifiers']);
 	// unchecking one keeps the other
-	pysimFsFilterSetEntry('sms', false);
+	pysimFsFilterSetEntry('provider-names', false);
 	assert.deepStrictEqual([...pysimFsFilter], ['identifiers']);
 	// unchecking the last one restores the default
 	pysimFsFilterSetEntry('identifiers', false);
@@ -569,7 +566,7 @@ test('the checkbox rows keep "all" exclusive and persist the selection', () => {
 	assert.strictEqual(_store.simple_fs_filter, '["all"]');
 	assert.strictEqual(box('all').checked, true);
 	// "all" is exclusive even when another entry is selected
-	pysimFsFilter = new Set(['sms']);
+	pysimFsFilter = new Set(['provider-names']);
 	pysimFsFilterSetEntry('all', true);
 	assert.deepStrictEqual([...pysimFsFilter], ['all']);
 });
@@ -582,7 +579,7 @@ test('the saved selection is restored, defaulting to "all"', () => {
 	pysimFsFilterRestore();
 	assert.deepStrictEqual([...pysimFsFilter], ['providers', 'svc:Service Provider Name (SPN)']);
 	// `all` is exclusive; an empty or broken save falls back to it
-	_store.simple_fs_filter = JSON.stringify(['all', 'sms']);
+	_store.simple_fs_filter = JSON.stringify(['all', 'plmn-selection']);
 	pysimFsFilterRestore();
 	assert.deepStrictEqual([...pysimFsFilter], ['all']);
 	_store.simple_fs_filter = '[]';
@@ -636,7 +633,7 @@ test('the dropdown is re-rendered on language switch', () => {
 test('the filter labels have Russian entries', () => {
 	const dict = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/)[1];
 	for (const key of ['All', 'Custom files', 'Identifiers', 'PLMN', 'Services', 'PLMN selection',
-		'Provider names', 'WLAN / I-WLAN', 'SMS-related', 'CB-related', 'Selected: {n}']) {
+		'Provider names', 'WLAN / I-WLAN', 'Selected: {n}']) {
 		assert.ok(dict.includes("'" + key + "':"), 'missing Russian entry: ' + key);
 	}
 });
