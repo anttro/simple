@@ -16268,7 +16268,7 @@ function pysimFsFilterBtnHtml(table, n) {
 	if (!feature || !(SERVICES_FS_MAP[feature] || []).length) return '';
 	const label = t('To EF filter');
 	return '<button type="button" class="ml-1 px-1 text-xs text-blue-600 dark:text-blue-400 hover:underline" onclick="pysimFsSetFilterToService(\'' +
-		esc(table) + '\', ' + Number(n) + ')" title="' + esc(label) + '">' + esc(label) + '</button>';
+		esc(table) + '\', ' + Number(n) + ')" title="' + esc(label) + '" aria-label="' + esc(label) + '">▾</button>';
 }
 
 // Select exactly that service's files in the file tree, persisting the choice
