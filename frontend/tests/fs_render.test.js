@@ -26,6 +26,7 @@ code += 'var pysimFsFilter = new Set();\n';
 code += extractFunc(html, 'pysimFsSortChildren') + '\n';
 code += extractFunc(html, 'pysimFsNodePath') + '\n';
 code += extractFunc(html, 'pysimFsFilterMatch') + '\n';
+code += extractFunc(html, 'pysimFsFilterShow') + '\n';
 code += extractFunc(html, 'pysimFsRenderNode') + '\n';
 code += 'globalThis.esc = s => s;\nglobalThis.t = s => s;\n';
 eval(code);

@@ -16077,49 +16077,152 @@ function pysimFsSetSort(mode) {
 }
 
 // The tree filter: a multiselect of file criteria, applied when the tree
-// renders.  The option list is large (dozens of items) and not decided yet —
-// populate FS_FILTER_OPTIONS later; the mechanism (state, persistence,
-// per-node match, render wiring) is scaffolded here.
-const FS_FILTER_OPTIONS = [
-	// { id: 'decoded-editor', label: 'Has a decoded editor' },
-	// { id: 'present', label: 'Present on card' },
-	// ... to be decided
+// renders.  The criteria name standard files by their symbolic name - the
+// same value in the tree nodes and in frontend/uicc_files.json - so a file
+// can belong to several criteria (EF.SPN is a provider name and the file of
+// the "Service Provider Name" service).  `all` is the exclusive default.
+// The categories are shown under three headings (`group`): the subscriber
+// data, the network-selection data, and services (the SMS files plus one
+// option per file-backed feature of the service cross-reference).
+const FS_FILTER_ALL = 'all';
+// "Custom files" is not a name-based criterion: it matches the injected
+// custom-file nodes by their `custom` flag (user-chosen names).
+const FS_FILTER_CUSTOM = 'custom';
+const FS_FILTER_GROUPS = [
+	{ id: 'identifiers', label: 'Identifiers', group: 'Identifiers', files: [
+		'EF.ICCID', 'EF.IMSI', 'EF.MSISDN', 'EF.IMPI', 'EF.IMPU', 'EF.SUPI_NAI', 'EF.GID1', 'EF.GID2'] },
+	{ id: 'plmn-selection', label: 'PLMN selection', group: 'PLMN', files: [
+		'EF.PLMNsel', 'EF.PLMNwAcT', 'EF.OPLMNwAcT', 'EF.HPLMNwAcT', 'EF.EHPLMN', 'EF.FPLMN',
+		'EF.HPPLMN', 'EF.LRPLMNSI', 'EF.EHPLMNPI', 'EF.MCHPPLMN'] },
+	{ id: 'provider-names', label: 'Provider names', group: 'Identifiers', files: [
+		'EF.SPN', 'EF.PNN', 'EF.OPL', 'EF.OPL5G', 'EF.SPDI', 'EF.SPNI', 'EF.PNNI', 'EF.CNL'] },
+	{ id: 'wlan', label: 'WLAN / I-WLAN', group: 'PLMN', files: [
+		'EF.UPLMNWLAN', 'EF.OPLMNWLAN', 'EF.WRI', 'EF.HWSIDL', 'EF.WEHPLMNPI', 'EF.WHPI',
+		'EF.WLRPLMN', 'EF.HPLMNDAI'] },
+	// EF.PSISMSC is a standard name pySim does not model, so it has no tree
+	// node to match - it stays listed for completeness.
+	{ id: 'sms', label: 'SMS-related', group: 'Services', files: [
+		'EF.SMS', 'EF.SMSS', 'EF.SMSP', 'EF.SMSR', 'EF.PSISMSC'] },
+	{ id: 'cb', label: 'CB-related', group: 'Services', files: [
+		'EF.CBMI', 'EF.CBMID', 'EF.CBMIR'] },
 ];
+const FS_FILTER_GROUP_ORDER = ['Identifiers', 'PLMN', 'Services'];
 
-let pysimFsFilter = new Set();
-try {
-	const saved = JSON.parse(localStorage.getItem('simple_fs_filter') || '[]');
-	if (Array.isArray(saved)) pysimFsFilter = new Set(saved);
-} catch (e) { /* ignore */ }
+// One option per file-backed feature of the service cross-reference: a
+// capability/RFU row has no files, so there is nothing to filter to.  The
+// map is declared later in this file, so it is read when this is called,
+// never while the filter block itself is evaluated.
+function fsFilterServiceOptions() {
+	return Object.keys(SERVICES_FS_MAP)
+		.filter(name => (SERVICES_FS_MAP[name] || []).length)
+		.map(name => ({ id: 'svc:' + name, label: name, files: SERVICES_FS_MAP[name] }));
+}
+
+// The inverted index: uppercased file name -> Set(criterion ids).  It is
+// static (the file lists and the service map do not change), so it is built
+// once on first use.
+let _fsFilterIndex = null;
+
+function fsFilterIndexBuild(groups, services) {
+	const idx = new Map();
+	for (const o of (groups || []).concat(services || [])) {
+		for (const f of (o.files || [])) {
+			const key = String(f).toUpperCase();
+			if (!idx.has(key)) idx.set(key, new Set());
+			idx.get(key).add(o.id);
+		}
+	}
+	return idx;
+}
+
+function fsFilterIndex() {
+	if (!_fsFilterIndex) _fsFilterIndex = fsFilterIndexBuild(FS_FILTER_GROUPS, fsFilterServiceOptions());
+	return _fsFilterIndex;
+}
+
+let pysimFsFilter = new Set([FS_FILTER_ALL]);
+
+// The persisted selection, normalised: `all` is exclusive, and a missing or
+// unusable entry falls back to `all` (show everything).
+function pysimFsFilterRestore() {
+	let saved = [];
+	try {
+		const raw = JSON.parse(localStorage.getItem('simple_fs_filter') || '[]');
+		if (Array.isArray(raw)) saved = raw.filter(v => typeof v === 'string' && v);
+	} catch (e) { /* ignore a broken entry */ }
+	pysimFsFilter = new Set(saved);
+	if (!pysimFsFilter.size || pysimFsFilter.has(FS_FILTER_ALL)) pysimFsFilter = new Set([FS_FILTER_ALL]);
+}
+pysimFsFilterRestore();
 
 function pysimFsFilterRender() {
 	const el = document.getElementById('pysim-fs-filter');
 	if (!el) return;
-	if (!FS_FILTER_OPTIONS.length) {
+	const services = fsFilterServiceOptions();
+	if (!FS_FILTER_GROUPS.length && !services.length) {
 		el.innerHTML = '<option disabled>' + esc(t('(no filters yet)')) + '</option>';
 		return;
 	}
-	el.innerHTML = FS_FILTER_OPTIONS.map(o =>
-		'<option value="' + esc(o.id) + '">' + esc(t(o.label)) + '</option>').join('');
+	const opt = o => '<option value="' + esc(o.id) + '">' + esc(t(o.label)) + '</option>';
+	let out = '<option value="' + esc(FS_FILTER_ALL) + '">' + esc(t('All')) + '</option>' +
+		'<option value="' + esc(FS_FILTER_CUSTOM) + '">' + esc(t('Custom files')) + '</option>';
+	for (const group of FS_FILTER_GROUP_ORDER) {
+		const items = FS_FILTER_GROUPS.filter(g => g.group === group).map(opt);
+		if (group === 'Services') items.push(...services.map(opt));
+		if (items.length) out += '<optgroup label="' + esc(t(group)) + '">' + items.join('') + '</optgroup>';
+	}
+	el.innerHTML = out;
 	el.querySelectorAll('option').forEach(o => { o.selected = pysimFsFilter.has(o.value); });
 }
 
 function pysimFsSetFilter() {
 	const el = document.getElementById('pysim-fs-filter');
 	if (!el) return;
-	pysimFsFilter = new Set(Array.from(el.selectedOptions).map(o => o.value));
+	const prev = pysimFsFilter;
+	const next = new Set(Array.from(el.selectedOptions).map(o => o.value).filter(v => v));
+	// `all` is exclusive: choosing it clears the category selections, choosing
+	// a category clears it.  A native multiselect's onchange reports only the
+	// new selection, so the previous one tells the two gestures apart: `all`
+	// just appearing means it was clicked (it clears the rest); it staying
+	// next to a new category means the category was clicked (it drops `all`).
+	if (next.has(FS_FILTER_ALL)) {
+		if (!prev.has(FS_FILTER_ALL)) {
+			next.clear();
+			next.add(FS_FILTER_ALL);
+		} else {
+			next.delete(FS_FILTER_ALL);
+		}
+	}
+	if (!next.size) next.add(FS_FILTER_ALL);
+	pysimFsFilter = next;
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
+	pysimFsFilterRender();
 	pysimFsRenderTree();
 }
 
-// Whether a node passes the active filter.  With no filter active the tree
-// shows everything.  When FS_FILTER_OPTIONS is populated, this maps each
-// active id to a per-node test (kind, name/fid, presence, decoded-editor
-// availability, ...).  Note for later: a directory should stay visible when
-// it contains any matching descendant, not only when it matches itself.
+// Whether a file node passes the active filter.  An empty selection and
+// `all` both show everything; otherwise the node's name must be listed under
+// one of the selected criteria.
 function pysimFsFilterMatch(node) {
-	if (!pysimFsFilter.size) return true;
-	return true;
+	if (!pysimFsFilter.size || pysimFsFilter.has(FS_FILTER_ALL)) return true;
+	// "Custom files" matches by the node's custom flag, not its name (custom
+	// files carry user-chosen names outside the standard list).
+	if (pysimFsFilter.has(FS_FILTER_CUSTOM) && node && node.custom) return true;
+	const name = String((node && node.name) || '').toUpperCase();
+	const ids = name ? fsFilterIndex().get(name) : null;
+	if (!ids) return false;
+	for (const id of pysimFsFilter) if (ids.has(id)) return true;
+	return false;
+}
+
+// Whether a node stays in the filtered tree.  A matching file shows; a
+// directory shows when it matches itself, has a matching loaded descendant,
+// or was never expanded (its children are unknown, so it cannot be pruned).
+function pysimFsFilterShow(node) {
+	if (pysimFsFilterMatch(node)) return true;
+	if (!node || !node.isDir) return false;
+	if (!node.children) return true;
+	return node.children.some(c => pysimFsFilterShow(c));
 }
 
 async function pysimFsRefresh() {
@@ -16320,7 +16423,7 @@ function pysimFsRenderNode(node, depth) {
 			html += '<div class="text-gray-400 dark:text-slate-500">' + pad + '&nbsp;&nbsp;&nbsp;&nbsp;' + esc(t('(empty)')) + '</div>';
 		} else {
 			for (const child of pysimFsSortChildren(node.children, pysimFsSort)) {
-				if (!pysimFsFilterMatch(child)) continue;
+				if (!pysimFsFilterShow(child)) continue;
 				html += pysimFsRenderNode(child, depth + 1);
 			}
 		}
@@ -27765,6 +27868,13 @@ const LANG_RU = {
 	'Name': 'Имя',
 	'Filter:': 'Фильтр:',
 	'(no filters yet)': '(фильтров пока нет)',
+	'Identifiers': 'Идентификаторы',
+	'PLMN selection': 'Выбор PLMN',
+	'Provider names': 'Имена операторов',
+	'WLAN / I-WLAN': 'WLAN / I-WLAN',
+	'SMS-related': 'Связанное с SMS',
+	'CB-related': 'Связанное с CB',
+	'Custom files': 'Пользовательские файлы',
 	'Probe all files': 'Проверить все файлы',
 	'Feature': 'Функция',
 	'SST': 'SST',
