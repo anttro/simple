@@ -48,6 +48,15 @@ function extractStrConst(src, name) {
 // module state the extracted functions close over
 let pysimFsFilter = new Set(['all']);
 let _fsFilterIndex = null;
+// The shipped standard list stands in for the fetched one (uicc_files.json is
+// what uiccStdFilesLoad caches; the filter reads its entries synchronously).
+const stdAsset = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'uicc_files.json'), 'utf8'));
+let _uiccStdFiles = stdAsset.files;
+let _fsFilterPathIndex = null;
+let _fsFilterPathIndexSrc = null;
+let _fsFilterPaths = null;
+let _fsFilterPathsKey = null;
+let pysimCustomFiles = [];
 const _store = {};
 let _treeRenders = 0;
 
@@ -98,9 +107,11 @@ globalThis.document = {
 
 let code = '';
 for (const f of ['fsFilterServiceOptions', 'fsFilterIndexBuild', 'fsFilterIndex',
+	'fsFilterPathIndexBuild', 'fsFilterPathIndex', 'fsFilterCustomPaths',
+	'fsFilterPathsKeyOf', 'pysimFsFilterPathsInvalidate', 'pysimFsFilterMatchingPaths',
 	'pysimFsFilterMatch', 'pysimFsFilterShow', 'pysimFsFilterLabel',
 	'pysimFsFilterSummary', 'pysimFsFilterRender', 'pysimFsFilterToggle',
-	'pysimFsFilterSetEntry', 'pysimFsFilterRestore']) {
+	'pysimFsFilterSetEntry', 'pysimFsFilterRestore', 'pysimFsNodePath']) {
 	code += extractFunc(html, f) + '\n';
 }
 for (const c of ['FS_FILTER_GROUPS', 'FS_FILTER_GROUP_ORDER', 'SERVICES_FS_MAP']) code += extractConst(html, c);
@@ -254,32 +265,138 @@ test('"custom files" matches only the injected custom nodes', () => {
 	});
 });
 
-test('a directory stays while it has a matching descendant', () => {
-	const df = children => ({ name: 'DF.GSM', fid: '7F20', isDir: true, children });
+// A small tree with real parent links (pysimFsNodePath walks them): MF with
+// DF.TELECOM (EF.MSISDN), DF.GSM (EF.SPN, EF.ECC) and ADF.USIM (DF.WLAN).
+function fsTree() {
+	const root = { name: 'MF', fid: '3F00', isDir: true, children: [], parent: null, expanded: true };
+	const add = (parent, name, fid, isDir) => {
+		const n = { name, fid, isDir: !!isDir, children: isDir ? [] : null, parent, expanded: true };
+		parent.children.push(n);
+		return n;
+	};
+	const telecom = add(root, 'DF.TELECOM', '7F10', true);
+	const msisdn = add(telecom, 'EF.MSISDN', '6F40', false);
+	const gsm = add(root, 'DF.GSM', '7F20', true);
+	const spn = add(gsm, 'EF.SPN', '6F46', false);
+	const ecc = add(gsm, 'EF.ECC', '6FB7', false);
+	const usim = add(root, 'ADF.USIM', '7FFF', true);
+	const wlan = add(usim, 'DF.WLAN', '5F40', true);
+	return { root, telecom, msisdn, gsm, spn, ecc, usim, wlan };
+}
+
+test('a directory shows only on the path of a file the filter selects', () => {
+	const t = fsTree();
 	withFilter(['provider-names'], () => {
-		// a matching file shows, a non-matching one hides
-		assert.strictEqual(pysimFsFilterShow({ name: 'EF.SPN', isDir: false }), true);
-		assert.strictEqual(pysimFsFilterShow({ name: 'EF.ECC', isDir: false }), false);
-		// a DF with a matching loaded child shows, one without hides
-		assert.strictEqual(pysimFsFilterShow(df([{ name: 'EF.ECC', isDir: false }, { name: 'EF.SPN', isDir: false }])), true);
-		assert.strictEqual(pysimFsFilterShow(df([{ name: 'EF.ECC', isDir: false }])), false);
-		assert.strictEqual(pysimFsFilterShow(df([])), false);
-		// a collapsed DF whose children were never loaded is kept
-		assert.strictEqual(pysimFsFilterShow({ name: 'DF.GSM', isDir: true, children: null, expanded: false }), true);
-		// ... and a matching descendant nested one level deeper counts too
-		assert.strictEqual(pysimFsFilterShow(df([
-			{ name: 'DF.X', isDir: true, children: [{ name: 'EF.ECC', isDir: false }, { name: 'EF.PNN', isDir: false }] },
-		])), true);
-		assert.strictEqual(pysimFsFilterShow(df([{ name: 'DF.X', isDir: true, children: null }])), true);
+		// the root always stays; DF.GSM holds EF.SPN (MF/7F20/6F46)
+		assert.strictEqual(pysimFsFilterShow(t.root), true);
+		assert.strictEqual(pysimFsFilterShow(t.gsm), true);
+		// ... and ADF.USIM holds its own EF.SPN copy
+		assert.strictEqual(pysimFsFilterShow(t.usim), true);
+		// neither DF.TELECOM nor DF.WLAN holds a provider-name file
+		assert.strictEqual(pysimFsFilterShow(t.telecom), false);
+		assert.strictEqual(pysimFsFilterShow(t.wlan), false);
+		// files keep their name rule
+		assert.strictEqual(pysimFsFilterShow(t.spn), true);
+		assert.strictEqual(pysimFsFilterShow(t.ecc), false);
 	});
-	// a DF that is itself a per-service file (the GPRS feature names DF.GSM)
+	withFilter(['identifiers'], () => {
+		// EF.MSISDN is in DF.TELECOM, EF.IMSI/EF.GID1/2 in DF.GSM
+		assert.strictEqual(pysimFsFilterShow(t.telecom), true);
+		assert.strictEqual(pysimFsFilterShow(t.msisdn), true);
+		assert.strictEqual(pysimFsFilterShow(t.gsm), true);
+		assert.strictEqual(pysimFsFilterShow(t.usim), true);   // EF.IMSI/EF.MSISDN copies
+		assert.strictEqual(pysimFsFilterShow(t.wlan), false);
+	});
+	withFilter(['cb'], () => {
+		assert.strictEqual(pysimFsFilterShow(t.gsm), true);      // EF.CBMI/CBMID/CBMIR
+		assert.strictEqual(pysimFsFilterShow(t.telecom), false);
+		assert.strictEqual(pysimFsFilterShow(t.wlan), false);
+	});
+});
+
+test('a directory named by the selection itself shows', () => {
+	const t = fsTree();
+	// the GPRS feature names DF.GSM (its SST bit covers the DF, not a file)
 	withFilter(['svc:GPRS'], () => {
-		assert.strictEqual(pysimFsFilterMatch({ name: 'DF.GSM', isDir: true }), true);
+		assert.strictEqual(pysimFsFilterMatch(t.gsm), true);
+		assert.strictEqual(pysimFsFilterShow(t.gsm), true);
+		assert.strictEqual(pysimFsFilterShow(t.telecom), false);
 	});
-	// everything shows with the default
-	withFilter(['all'], () => {
-		assert.strictEqual(pysimFsFilterShow(df([{ name: 'EF.ECC', isDir: false }])), true);
+});
+
+test('"all" and an empty selection show every node', () => {
+	const t = fsTree();
+	for (const ids of [['all'], []]) {
+		withFilter(ids, () => {
+			assert.strictEqual(pysimFsFilterShow(t.root), true);
+			assert.strictEqual(pysimFsFilterShow(t.telecom), true);
+			assert.strictEqual(pysimFsFilterShow(t.wlan), true);
+			assert.strictEqual(pysimFsFilterShow(t.ecc), true);
+		});
+	}
+});
+
+test('directories are kept until the standard list is available', () => {
+	const t = fsTree();
+	const saved = _uiccStdFiles;
+	_uiccStdFiles = null;
+	try {
+		withFilter(['provider-names'], () => {
+			assert.strictEqual(pysimFsFilterMatchingPaths(), null);
+			// the ancestors cannot be judged, so nothing vanishes
+			assert.strictEqual(pysimFsFilterShow(t.telecom), true);
+			assert.strictEqual(pysimFsFilterShow(t.wlan), true);
+			// files still obey the name rule
+			assert.strictEqual(pysimFsFilterShow(t.ecc), false);
+		});
+	} finally {
+		_uiccStdFiles = saved;
+	}
+});
+
+test('the standard list gives a name every tree it lives in', () => {
+	const idx = fsFilterPathIndexBuild(_uiccStdFiles);
+	assert.deepStrictEqual(idx.get('EF.SPN').slice().sort(),
+		['ADF.USIM-NON-IMSI/6F46', 'ADF.USIM/6F46', 'MF/7F20/6F46']);
+	assert.deepStrictEqual(idx.get('EF.ICCID'), ['MF/2FE2']);
+	// the index is cached for the loaded list
+	assert.strictEqual(fsFilterPathIndex(), fsFilterPathIndex());
+});
+
+test('the selection resolves to the paths of its files', () => {
+	withFilter(['cb'], () => {
+		const paths = pysimFsFilterMatchingPaths();
+		assert.ok(paths instanceof Set, 'expected a Set');
+		assert.deepStrictEqual(Array.from(paths).sort(), [
+			'ADF.USIM-NON-IMSI/6F45', 'ADF.USIM-NON-IMSI/6F48', 'ADF.USIM-NON-IMSI/6F50',
+			'ADF.USIM/6F45', 'ADF.USIM/6F48', 'ADF.USIM/6F50',
+			'MF/7F20/6F45', 'MF/7F20/6F48', 'MF/7F20/6F50',
+		]);
+		// cached for the same selection
+		assert.strictEqual(pysimFsFilterMatchingPaths(), paths);
 	});
+	withFilter(['custom'], () => {
+		assert.deepStrictEqual(Array.from(pysimFsFilterMatchingPaths()), []);
+	});
+});
+
+test('"custom files" keeps the directories that hold them', () => {
+	const t = fsTree();
+	const custom = { name: 'EF.MYFILE', fid: '6F99', isDir: false, children: null, parent: t.gsm, custom: true };
+	t.gsm.children.push(custom);
+	pysimCustomFiles = [{ path: 'MF/7F20/6F99', name: 'EF.MYFILE', kind: 'ef' }];
+	try {
+		withFilter(['custom'], () => {
+			// custom files are outside the standard list: their own paths are
+			// the ancestry, so the holding DF stays
+			assert.strictEqual(pysimFsFilterShow(custom), true);
+			assert.strictEqual(pysimFsFilterShow(t.gsm), true);
+			assert.strictEqual(pysimFsFilterShow(t.root), true);
+			assert.strictEqual(pysimFsFilterShow(t.telecom), false);
+		});
+	} finally {
+		pysimCustomFiles = [];
+	}
 });
 
 test('the menu lists all, custom, the three headings and the services', () => {
@@ -411,6 +528,29 @@ test('the saved selection is restored, defaulting to "all"', () => {
 test('the render consults the filter when walking children', () => {
 	assert.match(html, /if \(!pysimFsFilterShow\(child\)\) continue;/);
 	assert.ok(!/pysimFsFilterMatch\(child\)/.test(html));
+});
+
+test('the directory rule uses the registry paths, not the loaded children', () => {
+	const fn = extractFunc(html, 'pysimFsFilterShow');
+	assert.ok(!fn.includes('node.children'), fn);
+	assert.ok(fn.indexOf('pysimFsFilterMatchingPaths()') > 0, fn);
+	assert.ok(fn.indexOf("path === 'MF'") > 0, fn);
+	// the standard list is read synchronously from the cached array
+	assert.match(html, /let _uiccStdFiles = null;/);
+	assert.ok(extractFunc(html, 'pysimFsFilterMatchingPaths').indexOf('_uiccStdFiles') > 0);
+});
+
+test('every filter change drops the path cache before the tree redraws', () => {
+	for (const name of ['pysimFsFilterSetEntry', 'pysimFsSetFilterToService', 'pysimFsFilterRestore']) {
+		const fn = extractFunc(html, name);
+		const at = fn.indexOf('pysimFsFilterPathsInvalidate()');
+		assert.ok(at > 0, name + ' does not invalidate the path cache');
+		const render = fn.indexOf('pysimFsRenderTree()');
+		if (render > 0) assert.ok(at < render, name + ': the cache is dropped before the redraw');
+	}
+	// the list arriving redraws a tree that was filtered while it loaded
+	const load = extractFunc(html, 'uiccStdFilesLoad');
+	assert.ok(load.indexOf('pysimFsRenderTree()') > 0, load);
 });
 
 test('the filter state is persisted under simple_fs_filter', () => {

@@ -4417,6 +4417,11 @@ function uiccStdFilesLoad() {
 				Object.keys(_chains).forEach(id => {
 					if (document.getElementById(id + '-rows')) chainRender(id);
 				});
+				// The tree filter's directory rule needs the files' paths: a
+				// tree drawn while the list was still loading kept every
+				// directory, so redraw it now under an active filter.
+				if (pysimFsTreeRoot && pysimFsFilter.size && !pysimFsFilter.has(FS_FILTER_ALL) &&
+					document.getElementById('pysim-fs-tree')) pysimFsRenderTree();
 				return _uiccStdFiles;
 			});
 	}
@@ -16144,6 +16149,89 @@ function fsFilterIndex() {
 	return _fsFilterIndex;
 }
 
+// --- the directory rule: the canonical paths of the selected files ---
+// A directory stays in a filtered tree only when it lies on the path of a
+// file the filter selects, so the ancestors come from the standard file list
+// (frontend/uicc_files.json, the same source the SELECT picker and the
+// services editor use).  A name can live in several trees (EF.SPN is in
+// DF.GSM and in ADF.USIM), so the index keeps every path of a name.
+// The list is fetched once at startup (`_uiccStdFiles`, filled by
+// uiccStdFilesLoad); until it arrives the ancestors are unknown and the
+// directories are kept - never hide what cannot be judged.
+let _fsFilterPathIndex = null;
+let _fsFilterPathIndexSrc = null;
+let _fsFilterPaths = null;        // { key, paths } of the current selection
+let _fsFilterPathsKey = null;
+
+function fsFilterPathIndexBuild(files) {
+	const idx = new Map();
+	for (const e of (files || [])) {
+		if (!e || !e.name || !e.path) continue;
+		const name = String(e.name).toUpperCase();
+		const p = String(e.path).toUpperCase();
+		if (!idx.has(name)) idx.set(name, []);
+		if (idx.get(name).indexOf(p) < 0) idx.get(name).push(p);
+	}
+	return idx;
+}
+
+function fsFilterPathIndex() {
+	if (_fsFilterPathIndex && _fsFilterPathIndexSrc === _uiccStdFiles) return _fsFilterPathIndex;
+	_fsFilterPathIndexSrc = _uiccStdFiles;
+	_fsFilterPathIndex = fsFilterPathIndexBuild(_uiccStdFiles);
+	return _fsFilterPathIndex;
+}
+
+// The custom files' canonical paths the selection picks.  Custom files sit
+// outside the standard list (user-chosen names and DFs), so their own paths
+// are the only ancestry the filter has for them - without this the "Custom
+// files" filter would hide the DFs holding them.
+function fsFilterCustomPaths() {
+	const list = (typeof pysimCustomFiles !== 'undefined' && pysimCustomFiles) || [];
+	const out = [];
+	for (const c of list) {
+		const p = String((c && c.path) || '').toUpperCase();
+		if (!p) continue;
+		if (!pysimFsFilterMatch({ name: c.name, custom: true })) continue;
+		out.push(p);
+	}
+	return out;
+}
+
+// The selection's signature: the entries plus the custom files (that set
+// changes when the user adds or removes one).  The cache is keyed by it, so a
+// direct `pysimFsFilter` assignment recomputes as well as the setters'
+// explicit invalidation does.
+function fsFilterPathsKeyOf() {
+	return Array.from(pysimFsFilter).sort().join('|') + '#' + fsFilterCustomPaths().sort().join('|');
+}
+
+function pysimFsFilterPathsInvalidate() {
+	_fsFilterPaths = null;
+	_fsFilterPathsKey = null;
+}
+
+// The uppercased canonical paths of every file the current selection picks,
+// or null while the list is unavailable (not fetched yet, or an empty/failed
+// load): the caller keeps the directories then instead of hiding them all.
+function pysimFsFilterMatchingPaths() {
+	if (!Array.isArray(_uiccStdFiles) || !_uiccStdFiles.length) return null;
+	const key = fsFilterPathsKeyOf();
+	if (_fsFilterPaths && _fsFilterPathsKey === key) return _fsFilterPaths;
+	const out = new Set();
+	const idx = fsFilterIndex();
+	for (const [name, ids] of idx) {
+		let hit = false;
+		for (const id of pysimFsFilter) if (ids.has(id)) { hit = true; break; }
+		if (!hit) continue;
+		for (const p of (fsFilterPathIndex().get(name) || [])) out.add(p);
+	}
+	for (const p of fsFilterCustomPaths()) out.add(p);
+	_fsFilterPaths = out;
+	_fsFilterPathsKey = key;
+	return out;
+}
+
 let pysimFsFilter = new Set([FS_FILTER_ALL]);
 
 // The persisted selection, normalised: `all` is exclusive, and a missing or
@@ -16156,6 +16244,7 @@ function pysimFsFilterRestore() {
 	} catch (e) { /* ignore a broken entry */ }
 	pysimFsFilter = new Set(saved);
 	if (!pysimFsFilter.size || pysimFsFilter.has(FS_FILTER_ALL)) pysimFsFilter = new Set([FS_FILTER_ALL]);
+	pysimFsFilterPathsInvalidate();
 }
 pysimFsFilterRestore();
 
@@ -16236,6 +16325,7 @@ function pysimFsFilterSetEntry(entry, on) {
 		if (!next.size) next.add(FS_FILTER_ALL);
 	}
 	pysimFsFilter = next;
+	pysimFsFilterPathsInvalidate();
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
 	pysimFsFilterRender();
 	pysimFsRenderTree();
@@ -16278,6 +16368,7 @@ function pysimFsSetFilterToService(table, n) {
 	const feature = (servicesFeatureByNumber()[table] || {})[n];
 	if (!feature || !(SERVICES_FS_MAP[feature] || []).length) return;
 	pysimFsFilter = new Set(['svc:' + feature]);
+	pysimFsFilterPathsInvalidate();
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
 	pysimFsFilterRender();
 	pysimFsRenderTree();
@@ -16298,14 +16389,24 @@ function pysimFsFilterMatch(node) {
 	return false;
 }
 
-// Whether a node stays in the filtered tree.  A matching file shows; a
-// directory shows when it matches itself, has a matching loaded descendant,
-// or was never expanded (its children are unknown, so it cannot be pruned).
+// Whether a node stays in the filtered tree.  An empty selection and `all`
+// show everything; otherwise a file shows when it matches, and a directory
+// only when it matches itself (a service may name a DF - the GPRS feature is
+// DF.GSM) or lies on the path of a matching file (its canonical path is a
+// prefix of that file's registry path).  The MF root always stays, and while
+// the standard list is unavailable the ancestors cannot be computed, so every
+// directory is kept.
 function pysimFsFilterShow(node) {
+	if (!pysimFsFilter.size || pysimFsFilter.has(FS_FILTER_ALL)) return true;
+	if (!node) return false;
+	if (!node.isDir) return pysimFsFilterMatch(node);
 	if (pysimFsFilterMatch(node)) return true;
-	if (!node || !node.isDir) return false;
-	if (!node.children) return true;
-	return node.children.some(c => pysimFsFilterShow(c));
+	const path = String(pysimFsNodePath(node) || '').toUpperCase();
+	if (!path || path === 'MF') return true;
+	const paths = pysimFsFilterMatchingPaths();
+	if (!paths) return true;
+	for (const p of paths) if (p === path || p.indexOf(path + '/') === 0) return true;
+	return false;
 }
 
 async function pysimFsRefresh() {

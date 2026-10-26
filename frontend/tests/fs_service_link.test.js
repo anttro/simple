@@ -45,6 +45,9 @@ function extractConst(src, name) {
 // module state the extracted functions close over
 let pysimFsFilter = new Set(['all']);
 let _servicesFeatureByNumber = null;
+// the tree filter's matching-path cache (pysimFsSetFilterToService drops it)
+let _fsFilterPaths = null;
+let _fsFilterPathsKey = null;
 const _store = {};
 let _renders = 0;
 let _treeRenders = 0;
@@ -60,7 +63,8 @@ globalThis.pysimFsFilterRender = () => { _renders++; };
 globalThis.pysimFsRenderTree = () => { _treeRenders++; };
 
 let code = '';
-for (const f of ['servicesFeatureByNumber', 'pysimFsFilterBtnHtml', 'pysimFsSetFilterToService']) {
+for (const f of ['servicesFeatureByNumber', 'pysimFsFilterBtnHtml', 'pysimFsSetFilterToService',
+	'pysimFsFilterPathsInvalidate']) {
 	code += extractFunc(html, f) + '\n';
 }
 for (const c of ['SERVICES_CROSS_REF', 'SERVICES_FS_MAP']) code += extractConst(html, c);
