@@ -16296,7 +16296,17 @@ function pysimFsFilterRender() {
 		}
 		menu.innerHTML = out;
 	}
-	if (btn) btn.textContent = pysimFsFilterSummary();
+	if (btn) {
+		btn.textContent = pysimFsFilterSummary();
+		// a non-"All" selection stands out (blue, like the active sort pill)
+		const active = pysimFsFilter.size > 0 && !pysimFsFilter.has(FS_FILTER_ALL);
+		btn.classList.toggle('bg-blue-600', active);
+		btn.classList.toggle('text-white', active);
+		btn.classList.toggle('text-gray-700', !active);
+		btn.classList.toggle('dark:text-slate-300', !active);
+		btn.classList.toggle('hover:bg-gray-200', !active);
+		btn.classList.toggle('dark:hover:bg-slate-700', !active);
+	}
 }
 
 // Expand or collapse the menu (`force` overrides the toggle; the outside

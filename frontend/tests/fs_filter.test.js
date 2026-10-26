@@ -73,9 +73,19 @@ globalThis.pysimFsRenderTree = () => { _treeRenders++; };
 // menu it expands into.  The menu only needs a settable innerHTML (the
 // render never reads the DOM back) and a classList for the open/closed state.
 function fakeBtn() {
+	const classes = new Set();
 	return {
 		textContent: '',
 		attrs: {},
+		classes,
+		classList: {
+			contains: c => classes.has(c),
+			toggle(c, force) {
+				const on = force === undefined ? !classes.has(c) : !!force;
+				if (on) classes.add(c); else classes.delete(c);
+				return on;
+			},
+		},
 		setAttribute(k, v) { this.attrs[k] = String(v); },
 		getAttribute(k) { return this.attrs[k]; },
 	};
@@ -427,6 +437,21 @@ test('the menu lists all, custom, the three headings and the services', () => {
 	// the row shows the summary, and the checkbox calls the setter directly
 	assert.strictEqual(dom.btn.textContent, 'All');
 	assert.match(out, /onchange="pysimFsFilterSetEntry\(this\.dataset\.filter, this\.checked\)"/);
+});
+
+test('the button turns blue when a filter is active and back for all', () => {
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	pysimFsFilter = new Set(['identifiers']);
+	pysimFsFilterRender();
+	assert.strictEqual(dom.btn.classes.has('bg-blue-600'), true);
+	assert.strictEqual(dom.btn.classes.has('text-white'), true);
+	assert.strictEqual(dom.btn.classes.has('text-gray-700'), false);
+	pysimFsFilter = new Set(['all']);
+	pysimFsFilterRender();
+	assert.strictEqual(dom.btn.classes.has('bg-blue-600'), false);
+	assert.strictEqual(dom.btn.classes.has('text-white'), false);
+	assert.strictEqual(dom.btn.classes.has('text-gray-700'), true);
 });
 
 test('the menu marks the saved selection', () => {
