@@ -1119,7 +1119,10 @@
 							<span class="pysim-fs-sort-pill px-2 py-0.5 rounded cursor-pointer bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300" data-fs-sort="name" onclick="pysimFsSetSort('name')" data-l10n="Name">Name</span>
 							<span class="mx-1 text-gray-400 dark:text-slate-600">·</span>
 							<span data-l10n="Filter:">Filter:</span>
-							<select id="pysim-fs-filter" multiple size="4" onchange="pysimFsSetFilter()" class="text-xs bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 text-gray-700 dark:text-slate-200 max-w-48"></select>
+							<div class="relative">
+								<button type="button" id="pysim-fs-filter-btn" aria-haspopup="true" aria-expanded="false" onclick="pysimFsFilterToggle()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 max-w-xs truncate">All</button>
+								<div id="pysim-fs-filter-menu" role="group" aria-label="Filter" class="hidden absolute left-0 mt-1 z-50 w-64 max-h-64 overflow-y-auto rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 p-2 shadow-lg"></div>
+							</div>
 						</div>
 						<button id="pysim-fs-probe-btn" data-needs="card" onclick="pysimFsProbeAll()" class="w-full mb-1 px-2 py-0.5 rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Probe all files">Probe all files</button>
 						<div id="pysim-fs-probe-status" class="hidden mb-1 text-gray-500 dark:text-slate-400"></div>
@@ -16155,45 +16158,82 @@ function pysimFsFilterRestore() {
 }
 pysimFsFilterRestore();
 
-function pysimFsFilterRender() {
-	const el = document.getElementById('pysim-fs-filter');
-	if (!el) return;
-	const services = fsFilterServiceOptions();
-	if (!FS_FILTER_GROUPS.length && !services.length) {
-		el.innerHTML = '<option disabled>' + esc(t('(no filters yet)')) + '</option>';
-		return;
-	}
-	const opt = o => '<option value="' + esc(o.id) + '">' + esc(t(o.label)) + '</option>';
-	let out = '<option value="' + esc(FS_FILTER_ALL) + '">' + esc(t('All')) + '</option>' +
-		'<option value="' + esc(FS_FILTER_CUSTOM) + '">' + esc(t('Custom files')) + '</option>';
-	for (const group of FS_FILTER_GROUP_ORDER) {
-		const items = FS_FILTER_GROUPS.filter(g => g.group === group).map(opt);
-		if (group === 'Services') items.push(...services.map(opt));
-		if (items.length) out += '<optgroup label="' + esc(t(group)) + '">' + items.join('') + '</optgroup>';
-	}
-	el.innerHTML = out;
-	el.querySelectorAll('option').forEach(o => { o.selected = pysimFsFilter.has(o.value); });
+// The label of one filter entry: the custom flag, a category's own name or
+// the feature name of a per-service entry.
+function pysimFsFilterLabel(id) {
+	if (id === FS_FILTER_CUSTOM) return t('Custom files');
+	const category = FS_FILTER_GROUPS.find(g => g.id === id);
+	if (category) return t(category.label);
+	if (id.indexOf('svc:') === 0) return id.slice(4);
+	return id;
 }
 
-function pysimFsSetFilter() {
-	const el = document.getElementById('pysim-fs-filter');
-	if (!el) return;
-	const prev = pysimFsFilter;
-	const next = new Set(Array.from(el.selectedOptions).map(o => o.value).filter(v => v));
-	// `all` is exclusive: choosing it clears the category selections, choosing
-	// a category clears it.  A native multiselect's onchange reports only the
-	// new selection, so the previous one tells the two gestures apart: `all`
-	// just appearing means it was clicked (it clears the rest); it staying
-	// next to a new category means the category was clicked (it drops `all`).
-	if (next.has(FS_FILTER_ALL)) {
-		if (!prev.has(FS_FILTER_ALL)) {
-			next.clear();
-			next.add(FS_FILTER_ALL);
-		} else {
-			next.delete(FS_FILTER_ALL);
+// The row's caption: the default or a single choice by name, otherwise the
+// number of selected entries.
+function pysimFsFilterSummary() {
+	if (!pysimFsFilter.size || pysimFsFilter.has(FS_FILTER_ALL)) return t('All');
+	if (pysimFsFilter.size === 1) return pysimFsFilterLabel(Array.from(pysimFsFilter)[0]);
+	return t('Selected: {n}').replace('{n}', pysimFsFilter.size);
+}
+
+// The collapsed filter: a single row that expands into a checkbox list -
+// "All"/"Custom files", then a heading per group with its categories (the
+// Services heading carries one checkbox per file-backed feature).
+function pysimFsFilterRender() {
+	const menu = document.getElementById('pysim-fs-filter-menu');
+	const btn = document.getElementById('pysim-fs-filter-btn');
+	if (!menu) return;
+	const services = fsFilterServiceOptions();
+	const item = (id, label) =>
+		'<label class="flex items-center gap-2 px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 text-xs text-gray-700 dark:text-slate-200">' +
+		'<input type="checkbox" data-filter="' + esc(id) + '"' +
+		(pysimFsFilter.has(id) ? ' checked' : '') +
+		' onchange="pysimFsFilterSetEntry(this.dataset.filter, this.checked)">' +
+		'<span>' + esc(label) + '</span></label>';
+	const heading = group =>
+		'<div class="px-2 mt-1 uppercase text-gray-500 dark:text-slate-400">' + esc(t(group)) + '</div>';
+	if (!FS_FILTER_GROUPS.length && !services.length) {
+		menu.innerHTML = '<div class="px-2 text-gray-500 dark:text-slate-400">' + esc(t('(no filters yet)')) + '</div>';
+	} else {
+		let out = item(FS_FILTER_ALL, t('All')) + item(FS_FILTER_CUSTOM, t('Custom files'));
+		for (const group of FS_FILTER_GROUP_ORDER) {
+			const categories = FS_FILTER_GROUPS.filter(g => g.group === group);
+			const extra = group === 'Services' ? services : [];
+			if (!categories.length && !extra.length) continue;
+			out += heading(group);
+			out += categories.map(g => item(g.id, t(g.label))).join('');
+			out += extra.map(o => item(o.id, o.label)).join('');
 		}
+		menu.innerHTML = out;
 	}
-	if (!next.size) next.add(FS_FILTER_ALL);
+	if (btn) btn.textContent = pysimFsFilterSummary();
+}
+
+// Expand or collapse the menu (`force` overrides the toggle; the outside
+// click and Escape handlers pass `false`).
+function pysimFsFilterToggle(force) {
+	const menu = document.getElementById('pysim-fs-filter-menu');
+	const btn = document.getElementById('pysim-fs-filter-btn');
+	if (!menu) return;
+	const open = force === undefined ? menu.classList.contains('hidden') : !!force;
+	if (open) pysimFsFilterRender();
+	menu.classList.toggle('hidden', !open);
+	if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// One checkbox: `all` is exclusive, and an emptied selection means "all".
+function pysimFsFilterSetEntry(entry, on) {
+	const next = new Set(pysimFsFilter);
+	if (entry === FS_FILTER_ALL) {
+		next.clear();
+		next.add(FS_FILTER_ALL);
+	} else if (on) {
+		next.delete(FS_FILTER_ALL);
+		next.add(entry);
+	} else {
+		next.delete(entry);
+		if (!next.size) next.add(FS_FILTER_ALL);
+	}
 	pysimFsFilter = next;
 	localStorage.setItem('simple_fs_filter', JSON.stringify(Array.from(pysimFsFilter)));
 	pysimFsFilterRender();
@@ -27875,6 +27915,7 @@ const LANG_RU = {
 	'SMS-related': 'Связанное с SMS',
 	'CB-related': 'Связанное с CB',
 	'Custom files': 'Пользовательские файлы',
+	'Selected: {n}': 'Выбрано: {n}',
 	'Probe all files': 'Проверить все файлы',
 	'Feature': 'Функция',
 	'SST': 'SST',
@@ -28984,6 +29025,18 @@ updateConvFields();
 updateSp();
 uiccStdFilesLoad();
 pysimFsFilterRender();
+// the file-tree filter's dropdown closes on an outside click or Escape (the
+// button toggles it, so a click on the button itself is left to its handler)
+document.addEventListener('click', e => {
+	const target = e.target;
+	if (!target || !target.closest) return;
+	if (!target.closest('#pysim-fs-filter-btn') && !target.closest('#pysim-fs-filter-menu')) {
+		pysimFsFilterToggle(false);
+	}
+});
+document.addEventListener('keydown', e => {
+	if (e.key === 'Escape') pysimFsFilterToggle(false);
+});
 updateSpKic();
 updateSpKid();
 chainInit('chain-sim');

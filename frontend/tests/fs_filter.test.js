@@ -59,13 +59,48 @@ globalThis.localStorage = {
 globalThis.esc = s => String(s);
 globalThis.t = k => k;
 globalThis.pysimFsRenderTree = () => { _treeRenders++; };
-let _select = null;
-globalThis.document = { getElementById: id => (id === 'pysim-fs-filter' ? _select : null) };
+
+// The filter's two DOM elements: the collapsed row's button and the hidden
+// menu it expands into.  The menu only needs a settable innerHTML (the
+// render never reads the DOM back) and a classList for the open/closed state.
+function fakeBtn() {
+	return {
+		textContent: '',
+		attrs: {},
+		setAttribute(k, v) { this.attrs[k] = String(v); },
+		getAttribute(k) { return this.attrs[k]; },
+	};
+}
+
+function fakeMenu() {
+	const classes = new Set(['hidden']);
+	return {
+		_html: '',
+		classes,
+		classList: {
+			contains: c => classes.has(c),
+			toggle(c, force) {
+				const on = force === undefined ? !classes.has(c) : !!force;
+				if (on) classes.add(c); else classes.delete(c);
+				return on;
+			},
+		},
+		get innerHTML() { return this._html; },
+		set innerHTML(v) { this._html = v; },
+	};
+}
+
+const dom = { menu: null, btn: null };
+globalThis.document = {
+	getElementById: id => (id === 'pysim-fs-filter-menu' ? dom.menu
+		: (id === 'pysim-fs-filter-btn' ? dom.btn : null)),
+};
 
 let code = '';
 for (const f of ['fsFilterServiceOptions', 'fsFilterIndexBuild', 'fsFilterIndex',
-	'pysimFsFilterMatch', 'pysimFsFilterShow', 'pysimFsFilterRender', 'pysimFsSetFilter',
-	'pysimFsFilterRestore']) {
+	'pysimFsFilterMatch', 'pysimFsFilterShow', 'pysimFsFilterLabel',
+	'pysimFsFilterSummary', 'pysimFsFilterRender', 'pysimFsFilterToggle',
+	'pysimFsFilterSetEntry', 'pysimFsFilterRestore']) {
 	code += extractFunc(html, f) + '\n';
 }
 for (const c of ['FS_FILTER_GROUPS', 'FS_FILTER_GROUP_ORDER', 'SERVICES_FS_MAP']) code += extractConst(html, c);
@@ -79,27 +114,39 @@ function withFilter(ids, fn) {
 	try { return fn(); } finally { pysimFsFilter = saved; }
 }
 
-function fakeSelect(selected) {
-	const options = (selected || []).map(v => ({ value: v, selected: true }));
-	return {
-		_html: '',
-		get innerHTML() { return this._html; },
-		set innerHTML(v) {
-			this._html = v;
-			options.length = 0;
-			for (const m of v.matchAll(/<option value="([^"]*)"[^>]*>/g)) options.push({ value: m[1], selected: false });
-		},
-		querySelectorAll() { return options; },
-		get selectedOptions() { return options.filter(o => o.selected); },
-		options,
-	};
+// The checkbox rows the render wrote: [{id, checked}] in document order.
+function renderedBoxes() {
+	const out = [];
+	for (const m of (dom.menu ? dom.menu.innerHTML : '').matchAll(
+		/<input type="checkbox" data-filter="([^"]*)"( checked)?/g)) {
+		out.push({ id: m[1], checked: !!m[2] });
+	}
+	return out;
 }
+
+const box = id => renderedBoxes().find(b => b.id === id);
 
 const fileBackedFeatures = () => Object.keys(SERVICES_FS_MAP).filter(n => SERVICES_FS_MAP[n].length);
 
-test('the file tree has a multiselect filter next to the sort pills', () => {
-	assert.match(html, /id="pysim-fs-filter"[^>]*multiple[^>]*onchange="pysimFsSetFilter\(\)"/);
+test('the file tree has a collapsed filter dropdown next to the sort pills', () => {
+	assert.match(html, /id="pysim-fs-filter-btn"[^>]*aria-haspopup="true"[^>]*aria-expanded="false"[^>]*onclick="pysimFsFilterToggle\(\)"/);
+	assert.match(html, /id="pysim-fs-filter-menu"[^>]*role="group"[^>]*class="hidden absolute/);
 	assert.match(html, /data-l10n="Filter:"/);
+	// the multiselect (and its onchange handler) is gone
+	assert.ok(!/id="pysim-fs-filter"/.test(html));
+	assert.ok(!/pysimFsSetFilter\(/.test(html));
+});
+
+test('an outside click or Escape closes the menu', () => {
+	const click = html.match(/document\.addEventListener\('click', e => \{([\s\S]{0,600}?)\n\}\);/);
+	assert.ok(click, 'no document click listener');
+	assert.match(click[1], /#pysim-fs-filter-btn/);
+	assert.match(click[1], /#pysim-fs-filter-menu/);
+	assert.match(click[1], /pysimFsFilterToggle\(false\)/);
+	const key = html.match(/document\.addEventListener\('keydown', e => \{([\s\S]{0,300}?)\n\}\);/);
+	assert.ok(key, 'no document keydown listener');
+	assert.match(key[1], /Escape/);
+	assert.match(key[1], /pysimFsFilterToggle\(false\)/);
 });
 
 test('the six category groups name their files', () => {
@@ -235,32 +282,110 @@ test('a directory stays while it has a matching descendant', () => {
 	});
 });
 
-test('selecting "all" clears the categories', () => {
-	pysimFsFilter = new Set(['identifiers']);
-	_select = fakeSelect(['all', 'identifiers']);
+test('the menu lists all, custom, the three headings and the services', () => {
+	pysimFsFilter = new Set(['all']);
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	pysimFsFilterRender();
+	const out = dom.menu.innerHTML;
+	assert.match(out, /^<label[^>]*><input type="checkbox" data-filter="all" checked/);
+	assert.match(out, /data-filter="custom"/);
+	assert.match(out, /<div class="[^"]*">Identifiers<\/div>/);
+	assert.match(out, /<div class="[^"]*">PLMN<\/div>/);
+	assert.match(out, /<div class="[^"]*">Services<\/div>/);
+	// the headings come in the declared order
+	assert.ok(out.indexOf('>Identifiers</div>') < out.indexOf('>PLMN</div>'));
+	assert.ok(out.indexOf('>PLMN</div>') < out.indexOf('>Services</div>'));
+	// the categories sit under their headings
+	assert.ok(out.indexOf('data-filter="provider-names"') < out.indexOf('>PLMN</div>'));
+	assert.ok(out.indexOf('data-filter="plmn-selection"') > out.indexOf('>PLMN</div>'));
+	assert.ok(out.indexOf('data-filter="sms"') > out.indexOf('>Services</div>'));
+	const boxes = renderedBoxes();
+	assert.strictEqual(boxes.length, 2 + FS_FILTER_GROUPS.length + fsFilterServiceOptions().length);
+	assert.strictEqual(boxes[0].id, 'all');
+	assert.strictEqual(boxes[0].checked, true);
+	assert.strictEqual(box('custom').checked, false);
+	assert.ok(boxes.some(b => b.id === 'svc:Service Provider Name (SPN)'));
+	assert.ok(!boxes.some(b => b.id === 'svc:Proactive SIM'));
+	// the row shows the summary, and the checkbox calls the setter directly
+	assert.strictEqual(dom.btn.textContent, 'All');
+	assert.match(out, /onchange="pysimFsFilterSetEntry\(this\.dataset\.filter, this\.checked\)"/);
+});
+
+test('the menu marks the saved selection', () => {
+	pysimFsFilter = new Set(['svc:Short Message Storage (SMS)', 'identifiers']);
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	pysimFsFilterRender();
+	assert.deepStrictEqual(renderedBoxes().filter(b => b.checked).map(b => b.id),
+		['identifiers', 'svc:Short Message Storage (SMS)']);
+	assert.strictEqual(box('all').checked, false);
+	assert.strictEqual(dom.btn.textContent, 'Selected: 2');
+});
+
+test('the button summary names the single entry or counts the selection', () => {
+	const summary = ids => withFilter(ids, () => pysimFsFilterSummary());
+	assert.strictEqual(summary(['all']), 'All');
+	// an empty selection also means everything
+	assert.strictEqual(summary([]), 'All');
+	assert.strictEqual(summary(['all', 'sms']), 'All');
+	assert.strictEqual(summary(['custom']), 'Custom files');
+	assert.strictEqual(summary(['plmn-selection']), 'PLMN selection');
+	assert.strictEqual(summary(['svc:Service Provider Name (SPN)']), 'Service Provider Name (SPN)');
+	assert.strictEqual(summary(['sms', 'cb']), 'Selected: 2');
+	// an unknown id falls back to itself
+	assert.strictEqual(summary(['providers']), 'providers');
+});
+
+test('the menu toggles open and closed', () => {
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	assert.strictEqual(dom.menu.classList.contains('hidden'), true);
+	pysimFsFilterToggle();
+	assert.strictEqual(dom.menu.classList.contains('hidden'), false);
+	assert.strictEqual(dom.btn.getAttribute('aria-expanded'), 'true');
+	pysimFsFilterToggle();
+	assert.strictEqual(dom.menu.classList.contains('hidden'), true);
+	assert.strictEqual(dom.btn.getAttribute('aria-expanded'), 'false');
+	// the forced forms (the outside click / Escape handlers pass false)
+	pysimFsFilterToggle(true);
+	assert.strictEqual(dom.menu.classList.contains('hidden'), false);
+	pysimFsFilterToggle(false);
+	assert.strictEqual(dom.menu.classList.contains('hidden'), true);
+});
+
+test('the checkbox rows keep "all" exclusive and persist the selection', () => {
+	dom.menu = fakeMenu();
+	dom.btn = fakeBtn();
+	delete _store.simple_fs_filter;
 	_treeRenders = 0;
-	pysimFsSetFilter();
+	pysimFsFilter = new Set(['all']);
+	pysimFsFilterSetEntry('all', true);
 	assert.deepStrictEqual([...pysimFsFilter], ['all']);
 	assert.strictEqual(_store.simple_fs_filter, '["all"]');
 	assert.strictEqual(_treeRenders, 1);
-});
-
-test('selecting a category drops "all"', () => {
-	pysimFsFilter = new Set(['all']);
-	_select = fakeSelect(['all', 'sms']);
-	pysimFsSetFilter();
+	// choosing a category drops "all"
+	pysimFsFilterSetEntry('sms', true);
 	assert.deepStrictEqual([...pysimFsFilter], ['sms']);
 	assert.strictEqual(_store.simple_fs_filter, '["sms"]');
-});
-
-test('several categories stay selected and an empty selection means all', () => {
-	pysimFsFilter = new Set(['all']);
-	_select = fakeSelect(['identifiers', 'sms']);
-	pysimFsSetFilter();
-	assert.deepStrictEqual([...pysimFsFilter], ['identifiers', 'sms']);
-	pysimFsFilter = new Set(['identifiers', 'sms']);
-	_select = fakeSelect([]);
-	pysimFsSetFilter();
+	assert.strictEqual(_treeRenders, 2);
+	assert.strictEqual(box('sms').checked, true);
+	assert.strictEqual(box('all').checked, false);
+	assert.strictEqual(dom.btn.textContent, 'SMS-related');
+	// several categories stay selected
+	pysimFsFilterSetEntry('identifiers', true);
+	assert.deepStrictEqual([...pysimFsFilter], ['sms', 'identifiers']);
+	// unchecking one keeps the other
+	pysimFsFilterSetEntry('sms', false);
+	assert.deepStrictEqual([...pysimFsFilter], ['identifiers']);
+	// unchecking the last one restores the default
+	pysimFsFilterSetEntry('identifiers', false);
+	assert.deepStrictEqual([...pysimFsFilter], ['all']);
+	assert.strictEqual(_store.simple_fs_filter, '["all"]');
+	assert.strictEqual(box('all').checked, true);
+	// "all" is exclusive even when another entry is selected
+	pysimFsFilter = new Set(['sms']);
+	pysimFsFilterSetEntry('all', true);
 	assert.deepStrictEqual([...pysimFsFilter], ['all']);
 });
 
@@ -283,41 +408,16 @@ test('the saved selection is restored, defaulting to "all"', () => {
 	assert.deepStrictEqual([...pysimFsFilter], ['all']);
 });
 
-test('the dropdown renders all, the groups and the services', () => {
-	pysimFsFilter = new Set(['all']);
-	const el = fakeSelect(['all']);
-	_select = el;
-	pysimFsFilterRender();
-	assert.match(el.innerHTML, /^<option value="all">All<\/option><option value="custom">Custom files<\/option>/);
-	assert.match(el.innerHTML, /<optgroup label="Identifiers"><option value="identifiers">Identifiers<\/option><option value="provider-names">Provider names<\/option><\/optgroup>/);
-	assert.match(el.innerHTML, /<optgroup label="PLMN"><option value="plmn-selection">PLMN selection<\/option><option value="wlan">WLAN \/ I-WLAN<\/option><\/optgroup>/);
-	assert.match(el.innerHTML, /<optgroup label="Services"><option value="sms">SMS-related<\/option><option value="cb">CB-related<\/option><option value="svc:Local Phone Book \(ADN\)">/);
-	const values = [...el.innerHTML.matchAll(/<option value="([^"]*)"/g)].map(m => m[1]);
-	assert.strictEqual(values.length, 2 + FS_FILTER_GROUPS.length + fsFilterServiceOptions().length);
-	assert.ok(values.includes('svc:Service Provider Name (SPN)'));
-	assert.ok(values.includes('custom'));
-	assert.ok(!values.includes('svc:Proactive SIM'));
-	assert.strictEqual(el.options.find(o => o.value === 'all').selected, true);
-});
-
-test('the dropdown marks the saved selection', () => {
-	pysimFsFilter = new Set(['svc:Short Message Storage (SMS)']);
-	const el = fakeSelect();
-	_select = el;
-	pysimFsFilterRender();
-	const selected = el.options.filter(o => o.selected).map(o => o.value);
-	assert.deepStrictEqual(selected, ['svc:Short Message Storage (SMS)']);
-});
-
 test('the render consults the filter when walking children', () => {
 	assert.match(html, /if \(!pysimFsFilterShow\(child\)\) continue;/);
 	assert.ok(!/pysimFsFilterMatch\(child\)/.test(html));
 });
 
 test('the filter state is persisted under simple_fs_filter', () => {
-	const fn = extractFunc(html, 'pysimFsSetFilter');
+	const fn = extractFunc(html, 'pysimFsFilterSetEntry');
 	assert.ok(fn.indexOf("localStorage.setItem('simple_fs_filter'") > 0, fn);
 	assert.ok(fn.indexOf('pysimFsRenderTree()') > 0, fn);
+	assert.ok(fn.indexOf('pysimFsFilterRender()') > 0, fn);
 });
 
 test('the dropdown is re-rendered on language switch', () => {
@@ -328,7 +428,7 @@ test('the dropdown is re-rendered on language switch', () => {
 test('the filter labels have Russian entries', () => {
 	const dict = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/)[1];
 	for (const key of ['All', 'Custom files', 'Identifiers', 'PLMN', 'Services', 'PLMN selection',
-		'Provider names', 'WLAN / I-WLAN', 'SMS-related', 'CB-related']) {
+		'Provider names', 'WLAN / I-WLAN', 'SMS-related', 'CB-related', 'Selected: {n}']) {
 		assert.ok(dict.includes("'" + key + "':"), 'missing Russian entry: ' + key);
 	}
 });
