@@ -146,6 +146,30 @@ test('cardsAutoSelectByIccid reacts to a card swap and to unreadable ICCIDs', ()
 	assert.strictEqual(cardsAutoSelectByIccid('1234567890123456789'), -1);
 });
 
+test('a miss is not latched, so the store arriving later still auto-selects', () => {
+	// The card equips before /api/presets fills cards[] (the connect-time
+	// race): the auto-selection must not latch the ICCID on a miss, or the
+	// later cardsFetch would be a no-op and the preset would stay unselected
+	// until the card is re-inserted.
+	const els = fakeDoc();
+	const applied = [];
+	globalThis.cardsApply = idx => applied.push(idx);
+	globalThis.cards = [];                          // presets not loaded yet
+	globalThis._ramCardIdx = null;
+	globalThis._cardsAutoIccid = null;
+	assert.strictEqual(cardsAutoSelectByIccid(DIGITS), -1);
+	assert.strictEqual(globalThis._cardsAutoIccid, null,
+		'a missed auto-selection must not latch the ICCID');
+	// the presets arrive: the retry (from cardsFetch) finds and selects the card
+	globalThis.cards = [{ name: 'A', iccid: RAW_HEX }];
+	assert.strictEqual(cardsAutoSelectByIccid(DIGITS), 0);
+	assert.strictEqual(els['sp-card-sel'].value, '0');
+	assert.strictEqual(els['ram-card-sel'].value, '0');
+	assert.strictEqual(els['tar-card-sel'].value, '0');
+	assert.deepStrictEqual(applied, ['0']);
+	assert.strictEqual(globalThis._ramCardIdx, 0);
+});
+
 test('cardsFindDuplicateIccid catches duplicates across stored formats', () => {
 	globalThis.cards = [
 		{ name: 'A', iccid: '1111111111111111111' },
@@ -199,6 +223,13 @@ test('the card-state update wires the ICCID into the preset selection', () => {
 	assert.ok(html.includes("getElementById('tar-card-sel')"),
 		'the auto-selection must cover the TAR probe view');
 	assert.ok(html.includes("(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '')"));
+});
+
+test('cardsFetch retries the auto-selection once the presets load', () => {
+	// The equip may be reported before /api/presets resolves, so the fetch
+	// must re-run the auto-selection (a no-op once the card is selected).
+	assert.ok(html.includes('cardsAutoSelectByIccid(_pysimCardIccid);'),
+		'cardsFetch must re-run the auto-selection after loading the store');
 });
 
 test('cardsRender highlights the equipped card preset', () => {

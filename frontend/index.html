@@ -1990,7 +1990,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.2';
+const SIMPLE_VERSION = '3.40.3';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -14315,6 +14315,11 @@ async function cardsFetch() {
 	cardsRebuildSelect();
 	cardsRender();
 	tarRender();
+	// A card may already be equipped when the presets arrive (the server
+	// starts with a card, or the fetch simply raced the first status poll):
+	// run the auto-selection now that the store is loaded.  It is a no-op
+	// once the card's preset is already selected (the latched ICCID guard).
+	cardsAutoSelectByIccid(_pysimCardIccid);
 	scp81PushPskMap();
 	spPresetWarningRender();
 	return true;
@@ -15209,12 +15214,16 @@ let _cardsAutoIccid = null;
 function cardsAutoSelectByIccid(iccid) {
 	// Act only when the equip reports a *new* ICCID: a manual preset choice
 	// for the same card must not be overridden by later status updates.
+	// The guard is latched only once the card's preset is actually found and
+	// selected - a miss (the preset store not loaded yet, or no preset for
+	// this card) is retried when the store arrives (cardsFetch) so a card
+	// equipped before the presets loaded still gets auto-selected.
 	const norm = cardsNormIccid(iccid);
 	if (!norm) { _cardsAutoIccid = null; return -1; }
 	if (norm === _cardsAutoIccid) return -1;
-	_cardsAutoIccid = norm;
 	const idx = cardsFindByIccid(norm);
 	if (idx < 0) return -1;
+	_cardsAutoIccid = norm;
 	const sp = document.getElementById('sp-card-sel');
 	if (sp) sp.value = String(idx);
 	const ram = document.getElementById('ram-card-sel');

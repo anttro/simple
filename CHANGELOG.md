@@ -9,6 +9,18 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.3] — 2026-10-27
+
+### Fixed
+
+- **Equipped card not always auto-selected in SCP80/RAM.**  The ICCID-based
+  preset auto-selection latched its "already handled" guard even when no
+  matching preset was found, so a card equipped before `/api/presets` had
+  loaded (the connect-time race) never got auto-selected — navigating to
+  SCP80/RAM showed no preset until the card was re-inserted.  The guard is
+  now latched only after a successful selection, and `cardsFetch` re-runs
+  the auto-selection once the store arrives.
+
 ## [3.40.2] — 2026-10-26
 
 ### Added
