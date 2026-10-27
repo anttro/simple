@@ -1,5 +1,7 @@
 # SIMple — a UICC workbench: APDU · OTA · STK · profiling
 
+English | [Русский](README_RUS.md)
+
 > Formerly known as OTAMan — renamed to SIMple on 2026-09-19.
 
 📢 Project news and updates: [website](https://atroshin.ru) · [Telegram channel](https://t.me/youeyeseesee)
@@ -34,14 +36,10 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend
 ```
 
 The package is built from the tagged source — no git history, no development files.
-Git is still required: `setup` installs **pysim** from its upstream repository
-(nothing from pysim or its dependencies is bundled).
+Git is still required: `setup` installs **pysim** from its upstream repository.
 
-**Updates are fast:** `./update.sh` (or `update.bat`) downloads the latest release
-package, replaces the application files in place and re-installs the app into the
-existing `.venv` — pysim and its prerequisites are kept, so nothing is rebuilt.
-`./update.sh --check` reports the current and latest versions, `--version X.Y.Z`
-picks a specific release and `--zip file.zip` updates from a local package.
+**Updates:** `./update.sh` (or `update.bat`) updates a packaged install in place
+— pysim and its prerequisites are kept, so nothing is rebuilt.
 
 **2. Clone the repository (for development, or changes not released yet).**
 
@@ -623,7 +621,7 @@ A filesystem rule is defined by:
 
 - **Path** — `MF`-rooted (e.g. `MF/7F10/6F3A`) or ADF AID-rooted (e.g. `A0000000871002/6F07`).
 - **FCP/FCI check** — **Filetype only (FCP)**, **Filetype + size (FCP)** (adds file size, or record length/count for record files), or **Exact FCI** (byte-for-byte comparison of the raw SELECT FCP template `'62'`, catching FID/AID, life-cycle status, security-attribute, and proprietary-parameter changes).
-- **Access rules** (optional) — verifies the file's access conditions as decoded rules: the FCI's `8B` reference is resolved against the card's (or snapshot's) EF.ARR copies and the decoded lines are compared as a set — record-number independent, so cards with a different EF.ARR layout still verify (missing/extra lines are listed; a lost reference fails; an unresolvable one is unverifiable). Captured automatically when a profile is created from a card or a snapshot; the editor shows each rule as structured rows (operation bits / RESIZE FILE / INCREASE plus security-condition selects, with a canonical preview line; `+ rule` adds one, raw template forms stay read-only) and the block is collapsible with None hiding it. With **Exact FCI**, *Ignore the EF.ARR reference in the exact FCI* compares the FCI without the `8B` value — a different record number no longer fails while the rules check owns its meaning.
+- **Access rules** (optional) — verifies the file's access conditions as decoded rules: the FCI's `8B` reference is resolved against the card's (or snapshot's) EF.ARR copies and the decoded lines are compared as a set — record-number independent, so cards with a different EF.ARR layout still verify (missing/extra lines are listed; a lost reference fails; an unresolvable one is unverifiable). Captured automatically when a profile is created from a card or a snapshot; the editor shows each rule as structured rows (operation bits / RESIZE FILE / INCREASE plus security-condition selects, with a canonical preview line; `+ rule` adds one, raw template forms stay read-only) and the block is collapsible with None hiding it. With **Exact FCI**, *Ignore the EF.ARR reference in the exact FCI* compares the FCI without the `8B` value — a different record number does not fail while the rules check owns its meaning.
 - **File attributes** — file type, size, record length and record count, taken from the FCP template (any may be left unset).
 - **Check contents** (optional) — **Exact** hex equality, or **Mask** where `?` is a per-nibble wildcard (a mask with no `?` is a prefix match, e.g. `0891` for the IMSI MCC/MNC). Record files store a per-record list.
 
@@ -655,7 +653,7 @@ Files not in pysim's model can be added manually from the **Custom files** tab i
 2. Enter the 4-hex **FID** and an alias (`EF.…`/`DF.…`; the prefix decides whether the entry is an EF or a DF)
 3. Click **Add** — the file appears in the File manager tree; use **Edit** on a row to reload it into the form (the button becomes **Save**, **Cancel** aborts) or **Delete** to remove it (deleting a DF also deletes its child entries after a confirmation)
 
-The canonical path removes the old ambiguity where the same file could be described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
+The path is always canonical (MF- or ADF-rooted) — the same file is never described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
 
 ## Simulator
 
@@ -758,7 +756,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the frontend + API on `:8080`). |
 | `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
 
-`start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the group/polkit guidance and exits — the server **no longer falls back to a serial reader silently**. With access, the server auto-detects the first PC/SC reader; `start.bat` always passes `-p 0` (PC/SC is built into Windows). An explicit serial/FTDI reader is still possible with `-d <device>` (the pre-flight check is skipped). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
+`start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the group/polkit guidance and exits — the server **does not fall back to a serial reader silently**. With access, the server auto-detects the first PC/SC reader; `start.bat` always passes `-p 0` (PC/SC is built into Windows). An explicit serial/FTDI reader is still possible with `-d <device>` (the pre-flight check is skipped). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
 
 ### Manual installation (Linux/macOS)
 
@@ -811,10 +809,10 @@ dependencies are not pulled in.
   ```
 
   then `sudo systemctl restart polkit` (or log out/in).  Start the service if needed (`sudo systemctl enable --now pcscd`); `start.sh` and the server report this and exit instead of falling back to a serial reader, and `pcsc_scan` shows the same error until the rule is active.  If your `pcscd` was built without PolicyKit and the socket is group-owned, adding the user to that group works instead.
-- **"device file /dev/ttyUSB0 does not exist"** — only with an explicit `-d <device>`: the device is not connected (or the path is wrong). Without `-d` the server no longer uses the serial transport.
+- **"device file /dev/ttyUSB0 does not exist"** — only with an explicit `-d <device>`: the device is not connected (or the path is wrong). Without `-d` the server uses the PC/SC transport only.
 - **"no PC/SC reader found"** — connect a reader (`pcsc_scan` lists them) and restart; the server exits instead of starting without a reader.
 - **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport (releasing the old link first). No server restart needed.
-- **"Card was removed" errors / auto-equip fails after a card swap** — a card insertion marks the PC/SC link for a rebuild (so the **first** attempt already uses a fresh link — on Windows the old one cannot connect after a swap), the auto-equip retries up to 3 times, and **every failed attempt rebuilds the transport** before the next one. A card removed while the server initializes at startup leaves it cardless with one line (no traceback), and the next insertion equips normally. The swallowed init error (with its traceback) is now printed as `AUTO-EQUIP: init output:`, and a card that is present but produced no card is a failure, not a silent "card gone". The watchdog re-arms with a doubling delay (5 s up to 60 s) while a card is present; a removed card clears the card state completely, so handlers answer "no card" instead of transmitting over the dead card.
+- **"Card was removed" errors / auto-equip fails after a card swap** — a card insertion marks the PC/SC link for a rebuild (so the **first** attempt already uses a fresh link — on Windows the old one cannot connect after a swap), the auto-equip retries up to 3 times, and **every failed attempt rebuilds the transport** before the next one. A card removed while the server initializes at startup leaves it cardless with one line (no traceback), and the next insertion equips normally. A failed init is printed as `AUTO-EQUIP: init output:` (with its traceback), and a card that is present but produced no card is a failure, not a silent "card gone". The watchdog re-arms with a doubling delay (5 s up to 60 s) while a card is present; a removed card clears the card state completely, so handlers answer "no card" instead of transmitting over the dead card.
 
 ### API reference
 
@@ -829,6 +827,20 @@ See [docs/api.md](docs/api.md) for the full endpoint reference.
 | any | newer major | ⚠️ Server newer — update frontend |
 
 The frontend checks the server version on connect via `GET /api/version` and compares the major version (e.g. a 3.x frontend with a 3.x server; a 2.x server is flagged as outdated).
+
+## Related tools
+
+SIMple, SIMtrace Analyser and sigrok_iso7816_stream are three standalone
+tools for working with SIM/UICC cards, published together on the same
+[website](https://atroshin.ru) and [news channel](https://t.me/youeyeseesee).
+Each one is fully independent — install only the tools you need:
+
+- **[SIMple](https://github.com/anttro/simple)** — a UICC workbench: APDU
+  construction, SCP80/SCP81 OTA, SIM Toolkit simulation and card profiling.
+- **[SIMtrace Analyser](https://github.com/anttro/simtrace-analyser)** — an
+  APDU trace analyser for GSMTAP-SIM captures.
+- **[sigrok_iso7816_stream](https://github.com/anttro/sigrok_iso7816_stream)** —
+  a passive ISO 7816 sniffer built on a cheap FX2 logic analyser.
 
 ## License
 
