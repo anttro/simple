@@ -15,6 +15,8 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend
 
 **Demo:** [simple.atroshin.ru](https://simple.atroshin.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
+![Card access path: Browser (SIMple PWA) → HTTP :8080 → pysim-simple-server (wraps pySim) → PC/SC → card reader → UICC/SIM card](docs/architecture_en.svg)
+
 ## Prerequisites
 
 - **Python 3.9+** with `pip`, and **Git** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks).

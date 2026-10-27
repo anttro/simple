@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="diagram-title diagram-desc" font-family="'Segoe UI', 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif">
+  <title id="diagram-title">SIMple: card access path</title>
+  <desc id="diagram-desc">Browser (SIMple PWA) talks to pysim-simple-server over HTTP on :8080; the server wraps pySim and talks to the card reader over PC/SC, which talks to the UICC/SIM card.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="958" height="538" rx="18" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="480" y="30" text-anchor="middle" font-size="14" fill="#475569">card access path</text>
+
+  <rect x="250" y="48" width="460" height="76" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="480" y="92" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">Browser (SIMple PWA)</text>
+  <line x1="480" y1="124" x2="480" y2="172" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="492" y="152" font-size="14" fill="#64748b" font-family="'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace">HTTP :8080</text>
+
+  <rect x="250" y="176" width="460" height="80" rx="12" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="480" y="210" text-anchor="middle" font-size="19" font-weight="600" fill="#0f172a" font-family="'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace">pysim-simple-server</text>
+  <text x="480" y="236" text-anchor="middle" font-size="14" fill="#475569">serves the PWA + JSON API · wraps pySim</text>
+  <line x1="480" y1="256" x2="480" y2="304" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="492" y="284" font-size="14" fill="#64748b" font-family="'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace">PC/SC</text>
+
+  <rect x="250" y="308" width="460" height="76" rx="12" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="1.5"/>
+  <text x="480" y="352" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">Card reader</text>
+  <line x1="480" y1="384" x2="480" y2="432" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="436" width="460" height="76" rx="12" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="480" y="480" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">UICC/SIM card</text>
+</svg>

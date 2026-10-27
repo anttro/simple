@@ -15,6 +15,8 @@ SIMple — инструментарий для специалистов по UIC
 
 **Демо:** [simple.atroshin.ru](https://simple.atroshin.ru) — только фронтенд, для экспериментов. Для функций картридера установите сервер (ниже).
 
+![Путь доступа к карте: Браузер (PWA SIMple) → HTTP :8080 → pysim-simple-server (оборачивает pySim) → PC/SC → картридер → карта UICC/SIM](docs/architecture_ru.svg)
+
 ## Требования
 
 - **Python 3.9+** с `pip`, и **Git** — приложение работает на 3.9+, но **SCP81 TLS-PSK-слушателю нужен Python 3.13+** (PSK-callback'и `ssl`).
