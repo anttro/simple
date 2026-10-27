@@ -15,9 +15,7 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend
 
 ## Quick start
 
-**Frontend only (client-side tools):** open `frontend/index.html` in any browser, or serve `frontend/` with any static server. No Python required.
-
-**Full (frontend + card server)** — two ways to get it:
+**Install the server** — two ways to get it:
 
 **1. Download the release package (recommended).** From the
 [Releases](https://github.com/anttro/simple/releases) page take the latest package
