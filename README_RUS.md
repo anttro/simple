@@ -13,6 +13,13 @@ SIMple — инструментарий для специалистов по UIC
 
 **Демо:** [simple.atroshin.ru](https://simple.atroshin.ru) — только фронтенд, для экспериментов. Для функций картридера установите сервер (ниже).
 
+## Требования
+
+- **Python 3.9+** с `pip`, и **Git** — приложение работает на 3.9+, но **SCP81 TLS-PSK-слушателю нужен Python 3.13+** (PSK-callback'и `ssl`).
+- **Поддержка venv в Python** — `setup.sh` создаёт `.venv`; если создание завершается с `ensurepip is not available` (в Debian/Ubuntu модуль venv поставляется отдельно), установите его (`sudo apt install python3-venv`) и запустите `./setup.sh` снова.  Неполный `.venv`, оставшийся от неудачного запуска, удаляется автоматически.
+- **Смарт-картридер** (PC/SC или serial/FTDI) — предпочтителен PC/SC (`pcsc-lite` + `ccid` на Linux). У `pyscard` нет Linux-wheel, поэтому он собирается из исходников: поставьте и пакет с заголовками PC/SC (`libpcsclite-dev` в Debian/Ubuntu, `pcsc-lite-devel` в Fedora; в Arch они входят в `pcsclite`).
+- **Windows** — используйте **Python 3.13 (настоятельно рекомендуется)**: для него `pyscard` поставляет готовые wheel, так что ничего компилировать не нужно; на **3.14** wheel для `pyscard` и части зависимостей pysim отсутствуют, и они собираются из исходников (нужны MSVC C++ Build Tools).
+
 ## Быстрый старт
 
 **Установка сервера** — два способа:
@@ -726,13 +733,6 @@ SIMple — Progressive Web App. Можно установить для offline-�
 ## Сервер (pysim-simple-server)
 
 Встроенный Python-сервер оборачивает [pySim](https://osmocom.org/projects/pysim/wiki) и раздаёт как фронтенд (из `frontend/`), так и JSON API по `/api/*`.
-
-### Требования
-
-- **Python 3.9+** с `pip`, и **Git** — приложение работает на 3.9+, но **SCP81 TLS-PSK-слушателю нужен Python 3.13+** (PSK-callback'и `ssl`).
-- **Поддержка venv в Python** — `setup.sh` создаёт `.venv`; если создание завершается с `ensurepip is not available` (в Debian/Ubuntu модуль venv поставляется отдельно), установите его (`sudo apt install python3-venv`) и запустите `./setup.sh` снова.  Неполный `.venv`, оставшийся от неудачного запуска, удаляется автоматически.
-- **Смарт-картридер** (PC/SC или serial/FTDI) — предпочтителен PC/SC (`pcsc-lite` + `ccid` на Linux). У `pyscard` нет Linux-wheel, поэтому он собирается из исходников: поставьте и пакет с заголовками PC/SC (`libpcsclite-dev` в Debian/Ubuntu, `pcsc-lite-devel` в Fedora; в Arch они входят в `pcsclite`).
-- **Windows** — используйте **Python 3.13 (настоятельно рекомендуется)**: для него `pyscard` поставляет готовые wheel, так что ничего компилировать не нужно; на **3.14** wheel для `pyscard` и части зависимостей pysim отсутствуют, и они собираются из исходников (нужны MSVC C++ Build Tools).
 
 ### Скрипты
 

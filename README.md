@@ -13,6 +13,13 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend
 
 **Demo:** [simple.atroshin.ru](https://simple.atroshin.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
+## Prerequisites
+
+- **Python 3.9+** with `pip`, and **Git** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks).
+- **Python venv support** — `setup.sh` creates `.venv`; if that fails with `ensurepip is not available` (Debian/Ubuntu ship the venv module separately), install it (`sudo apt install python3-venv`) and run `./setup.sh` again.  An incomplete `.venv` left by the failed run is removed automatically.
+- **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them).
+- **Windows** — use **Python 3.13 (strongly recommended)**: `pyscard` ships precompiled wheels for it, so nothing needs compiling; on **3.14** the `pyscard` and some pysim dependency wheels are missing and build from source (needs MSVC C++ Build Tools).
+
 ## Quick start
 
 **Install the server** — two ways to get it:
@@ -742,13 +749,6 @@ The interface is in English with Russian support. The language is detected from 
 ## Server (pysim-simple-server)
 
 The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki) and serves both the SIMple frontend (from `frontend/`) and a JSON API under `/api/*`.
-
-### Prerequisites
-
-- **Python 3.9+** with `pip`, and **Git** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks).
-- **Python venv support** — `setup.sh` creates `.venv`; if that fails with `ensurepip is not available` (Debian/Ubuntu ship the venv module separately), install it (`sudo apt install python3-venv`) and run `./setup.sh` again.  An incomplete `.venv` left by the failed run is removed automatically.
-- **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them).
-- **Windows** — use **Python 3.13 (strongly recommended)**: `pyscard` ships precompiled wheels for it, so nothing needs compiling; on **3.14** the `pyscard` and some pysim dependency wheels are missing and build from source (needs MSVC C++ Build Tools).
 
 ### Scripts
 
