@@ -734,7 +734,7 @@ SIMple — Progressive Web App. Можно установить для offline-�
 - **Python 3.9+** с `pip`, и **Git** — приложение работает на 3.9+, но **SCP81 TLS-PSK-слушателю нужен Python 3.13+** (PSK-callback'и `ssl`).
 - **Поддержка venv в Python** — `setup.sh` создаёт `.venv`; если создание завершается с `ensurepip is not available` (в Debian/Ubuntu модуль venv поставляется отдельно), установите его (`sudo apt install python3-venv`) и запустите `./setup.sh` снова.  Неполный `.venv`, оставшийся от неудачного запуска, удаляется автоматически.
 - **Смарт-картридер** (PC/SC или serial/FTDI) — предпочтителен PC/SC (`pcsc-lite` + `ccid` на Linux). У `pyscard` нет Linux-wheel, поэтому он собирается из исходников: поставьте и пакет с заголовками PC/SC (`libpcsclite-dev` в Debian/Ubuntu, `pcsc-lite-devel` в Fedora; в Arch они входят в `pcsclite`).
-- **Windows** — используйте **Python 3.13 (настоятельно рекомендуется)**: для него `pyscard` поставляет готовые wheel, так что ничего компилировать не нужно; на **3.14** wheel для `pyscard` и части зависимостей pysim отсутствуют, и они собираются из исходников (нужны MSVC C++ Build Tools). SMPP-мост (`smpp.twisted3`) в Windows сознательно не ставится.
+- **Windows** — используйте **Python 3.13 (настоятельно рекомендуется)**: для него `pyscard` поставляет готовые wheel, так что ничего компилировать не нужно; на **3.14** wheel для `pyscard` и части зависимостей pysim отсутствуют, и они собираются из исходников (нужны MSVC C++ Build Tools).
 
 ### Скрипты
 
@@ -757,8 +757,8 @@ pysim-simple-server --http-port 8080
 ```
 
 В Windows используйте `setup.bat`: он ставит зависимости pysim из
-`requirements-pysim.txt`, а сам pysim — с `--no-deps`, поэтому SMPP-мост (и его сборка
-через MSVC) не подтягивается.
+`requirements-pysim.txt`, а сам pysim — с `--no-deps`, поэтому необязательные
+зависимости pysim не подтягиваются.
 
 ### Параметры CLI
 
