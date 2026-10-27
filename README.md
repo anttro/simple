@@ -4,20 +4,20 @@
 
 📢 Project news and updates: [website](https://atroshin.ru) · [Telegram channel](https://t.me/youeyeseesee)
 
-SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS PWA plus a local card server ([`pysim-simple-server`](pysim_simple_server/), a pySim/PC-SC bridge that also serves the PWA). It covers the full lab cycle:
+SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend (PWA — a Progressive Web App) plus a local card server ([`pysim-simple-server`](pysim_simple_server/), a pySim/PC-SC bridge that also serves the frontend). It covers the full lab cycle:
 
 - **APDU workbench** — SIM/USIM RFM and Expanded Script builders (TS 102 226), GlobalPlatform RAM commands, a C-APDU/R-APDU parser and a response decoder (ISO 7816 / TS 102 221 / GP);
 - **OTA lab** — SCP80 secured packets (TS 102 225) and Java Card RAM installation, plus the terminal side of HTTP OTA (SCP81): BIP channel emulation, a PSK TLS administration server and APDU script execution;
 - **Phone/CAT simulator** — SIM Toolkit menu browser, proactive command / event handling, TERMINAL PROFILE editing and the C-AT dialogue log;
 - **Card profiler** — filesystem capture (profiles and immutable snapshots with timings), exact snapshot comparison and FCP/FCI decoding.
 
-**Demo:** [simple.atroshin.ru](https://simple.atroshin.ru) — the PWA alone, for experimenting. Install the server (below) for card-reader functions.
+**Demo:** [simple.atroshin.ru](https://simple.atroshin.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
 ## Quick start
 
-**PWA only (client-side tools):** open `frontend/index.html` in any browser, or serve `frontend/` with any static server. No Python required.
+**Frontend only (client-side tools):** open `frontend/index.html` in any browser, or serve `frontend/` with any static server. No Python required.
 
-**Full (PWA + card server)** — two ways to get it:
+**Full (frontend + card server)** — two ways to get it:
 
 **1. Download the release package (recommended).** From the
 [Releases](https://github.com/anttro/simple/releases) page take the latest package
@@ -25,7 +25,7 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS PWA plus
 
 ```sh
 ./setup.sh     # or setup.bat on Windows — creates .venv, installs pysim + server
-./start.sh     # or start.bat — starts the server (it serves the PWA too)
+./start.sh     # or start.bat — starts the server (it serves the frontend too)
 ```
 
 The package is built from the tagged source — no git history, no development files.
@@ -557,7 +557,7 @@ probe is refused when SPI1 has no counter check or the named preset does not def
 
 ## Cards
 
-Stores saved card configurations (presets) in a **server-side store** — `~/.pysim-simple-server/card_presets.json` (`--card-presets` overrides it). A preset holds the cryptographic keys, SPI settings, TARs and the replay counters for SCP80 operations, the optional **ADM** key, plus the **PSK identity / PSK key** pair used by the SCP81 HTTP OTA listener. A preset carries **several keysets** — a keyset's number is the `b8..b5` nibble of its KIc/KID (TS 102 225 §5.1.2/A.2): KIc and KID of a keyset must carry the same number (`01`–`0F`; A.2 rejects a mismatch), `00` (no security) is not a preset keyset, and each keyset has its own counter on the card (Annex A.1) — the server owns those counters, persists every consumed increment and appends it to an audit trail (`card_presets.json.audit.jsonl`). The list is loaded when the PWA connects; JSON export/import (which also accepts the old flat presets) is the migration path from the browser-local store. Cards is a **top-level tab**. The form groups the fields into two bordered blocks — **SCP80 (GSM 03.48, ETSI TS 102 225)** and **SCP81 (HTTP OTA)** — with the optional **ADM** field in the top row; the keysets are edited as rows (one per number, **Add keyset** / **Remove keyset**). When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in all three SCP80 views; when the equipped card matches **no** preset — or the selected preset belongs to another card — all three SCP80 views show an amber warning above the preset selector. The header shows gray **SCP80** / **SCP81** markers and a key glyph on the **ADM** badge when the preset matching the equipped card's ICCID has those settings filled in.
+Stores saved card configurations (presets) in a **server-side store** — `~/.pysim-simple-server/card_presets.json` (`--card-presets` overrides it). A preset holds the cryptographic keys, SPI settings, TARs and the replay counters for SCP80 operations, the optional **ADM** key, plus the **PSK identity / PSK key** pair used by the SCP81 HTTP OTA listener. A preset carries **several keysets** — a keyset's number is the `b8..b5` nibble of its KIc/KID (TS 102 225 §5.1.2/A.2): KIc and KID of a keyset must carry the same number (`01`–`0F`; A.2 rejects a mismatch), `00` (no security) is not a preset keyset, and each keyset has its own counter on the card (Annex A.1) — the server owns those counters, persists every consumed increment and appends it to an audit trail (`card_presets.json.audit.jsonl`). The list is loaded when the frontend connects; JSON export/import (which also accepts the old flat presets) is the migration path from the browser-local store. Cards is a **top-level tab**. The form groups the fields into two bordered blocks — **SCP80 (GSM 03.48, ETSI TS 102 225)** and **SCP81 (HTTP OTA)** — with the optional **ADM** field in the top row; the keysets are edited as rows (one per number, **Add keyset** / **Remove keyset**). When the card is equipped its EF.ICCID is read and the preset with the same ICCID is selected automatically in all three SCP80 views; when the equipped card matches **no** preset — or the selected preset belongs to another card — all three SCP80 views show an amber warning above the preset selector. The header shows gray **SCP80** / **SCP81** markers and a key glyph on the **ADM** badge when the preset matching the equipped card's ICCID has those settings filled in.
 
 | Field | Description |
 |---|---|
@@ -588,7 +588,7 @@ The **SCP81** column shows whether the preset supplies a usable PSK pair: **✓*
 
 Connects to the bundled [`pysim-simple-server`](pysim_simple_server/) for live card operations.
 
-> **Browser restriction:** when the PWA is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (pysim-simple-server ≥ 1.6.1 does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
+> **Browser restriction:** when the frontend is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (pysim-simple-server ≥ 1.6.1 does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
 
 ### File Browser
 
@@ -743,7 +743,7 @@ The interface is in English with Russian support. The language is detected from 
 
 ## Server (pysim-simple-server)
 
-The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki) and serves both the SIMple PWA (from `frontend/`) and a JSON API under `/api/*`.
+The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki) and serves both the SIMple frontend (from `frontend/`) and a JSON API under `/api/*`.
 
 ### Prerequisites
 
@@ -757,7 +757,7 @@ The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki)
 | Script | What it does |
 |--------|-------------|
 | `setup.sh` / `setup.bat` | Creates `.venv/` (or repairs an incomplete one), installs pysim and the server. Run once after cloning or after unzipping the release package. |
-| `start.sh` / `start.bat` | Starts the server from the venv (serves the PWA + API on `:8080`). |
+| `start.sh` / `start.bat` | Starts the server from the venv (serves the frontend + API on `:8080`). |
 | `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
 
 `start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the group/polkit guidance and exits — the server **no longer falls back to a serial reader silently**. With access, the server auto-detects the first PC/SC reader; `start.bat` always passes `-p 0` (PC/SC is built into Windows). An explicit serial/FTDI reader is still possible with `-d <device>` (the pre-flight check is skipped). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
@@ -782,7 +782,7 @@ its MSVC build chain) is not pulled in.
 |--------|-------------|
 | `--http-host` | Bind address (default: `127.0.0.1`) |
 | `--http-port` | TCP port (default: `8080`) |
-| `--web-dir` | Directory with PWA static files (default: `<repo>/frontend`) |
+| `--web-dir` | Directory with frontend static files (default: `<repo>/frontend`) |
 | `-p` / `--pcsc-device` | PC/SC reader slot number |
 | `-d` / `--device` | Serial device path |
 | `--no-card-init` | Skip card init to preserve the CAT session (no file manager) |
@@ -824,13 +824,13 @@ See [docs/api.md](docs/api.md) for the full endpoint reference.
 
 ## Version compatibility
 
-| PWA (SIMple) | Server | Status |
+| frontend (SIMple) | Server | Status |
 |-------------|--------|--------|
 | any | same major | ✅ Compatible |
 | any | older major | ❌ Outdated — update server |
-| any | newer major | ⚠️ Server newer — update PWA |
+| any | newer major | ⚠️ Server newer — update frontend |
 
-The PWA checks the server version on connect via `GET /api/version` and compares the major version (e.g. a 3.x PWA with a 3.x server; a 2.x server is flagged as outdated).
+The frontend checks the server version on connect via `GET /api/version` and compares the major version (e.g. a 3.x frontend with a 3.x server; a 2.x server is flagged as outdated).
 
 ## License
 
@@ -843,5 +843,5 @@ pySim itself is not included in this repository or in the release artifacts:
 `setup.sh` / `setup.bat` install it from its upstream git repository.
 
 Bundled third-party components (the MCC/MNC operator list and the AES/DES
-bundles in the PWA) keep their own MIT licenses — see
+bundles in the frontend) keep their own MIT licenses — see
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
