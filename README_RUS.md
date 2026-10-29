@@ -4,7 +4,7 @@
 
 > Прежнее название — OTAMan; переименован в SIMple 2026-09-19.
 
-📢 Новости и обновления проекта: [сайт](https://atroshin.ru) · [Telegram-канал](https://t.me/youeyeseesee)
+📢 Новости и обновления проекта: [сайт](https://sim-tools.ru) · [Telegram-канал](https://t.me/youeyeseesee)
 
 SIMple — инструментарий для специалистов по UICC/SIM-картам: автономный HTML/JS-фронтенд (PWA — Progressive Web App) и локальный сервер карт ([`pysim-simple-server`](pysim_simple_server/) — мост к pySim/PC-SC, он же раздаёт фронтенд). Закрывает весь цикл лабораторной работы:
 
@@ -13,7 +13,7 @@ SIMple — инструментарий для специалистов по UIC
 - **Симулятор** — браузер меню SIM Toolkit, обработка proactive-команд и событий, редактирование TERMINAL PROFILE, тест-скрипты карты и журнал C-AT-диалога;
 - **Профайлер карты** — захват файловой системы (профили и неизменяемые снимки с таймингами), точное сравнение снимков и декодер FCP/FCI.
 
-**Демо:** [simple.atroshin.ru](https://simple.atroshin.ru) — только фронтенд, для экспериментов. Для функций картридера установите сервер (ниже).
+**Демо:** [simsimple.ru](https://simsimple.ru) — только фронтенд, для экспериментов. Для функций картридера установите сервер (ниже).
 
 ![Путь доступа к карте: Браузер (PWA SIMple) → HTTP :8080 → pysim-simple-server (оборачивает pySim) → PC/SC → картридер → карта UICC/SIM](docs/architecture_ru.svg)
 
@@ -808,7 +808,7 @@ pysim-simple-server --http-port 8080
 
 SIMple, SIMtrace Analyser и sigrok_iso7816_stream — три автономных
 инструмента для работы с SIM/UICC-картами, представленные на одном
-[сайте](https://atroshin.ru) и в одном [Telegram-канале](https://t.me/youeyeseesee).
+[сайте](https://sim-tools.ru) и в одном [Telegram-канале](https://t.me/youeyeseesee).
 Каждый полностью независим — устанавливайте только нужные вам:
 
 - **[SIMple](https://github.com/anttro/simple)** — мастерская для UICC/SIM:

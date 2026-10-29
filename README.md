@@ -4,7 +4,7 @@ English | [Русский](README_RUS.md)
 
 > Formerly known as OTAMan — renamed to SIMple on 2026-09-19.
 
-📢 Project news and updates: [website](https://atroshin.ru) · [Telegram channel](https://t.me/youeyeseesee)
+📢 Project news and updates: [website](https://sim-tools.ru) · [Telegram channel](https://t.me/youeyeseesee)
 
 SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend (PWA — a Progressive Web App) plus a local card server ([`pysim-simple-server`](pysim_simple_server/), a pySim/PC-SC bridge that also serves the frontend). It covers the full lab cycle:
 
@@ -13,7 +13,7 @@ SIMple is a workbench for UICC/SIM card specialists: an offline HTML/JS frontend
 - **Phone/CAT simulator** — SIM Toolkit menu browser, proactive command / event handling, TERMINAL PROFILE editing and the C-AT dialogue log;
 - **Card profiler** — filesystem capture (profiles and immutable snapshots with timings), exact snapshot comparison and FCP/FCI decoding.
 
-**Demo:** [simple.atroshin.ru](https://simple.atroshin.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
+**Demo:** [simsimple.ru](https://simsimple.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
 ![Card access path: Browser (SIMple PWA) → HTTP :8080 → pysim-simple-server (wraps pySim) → PC/SC → card reader → UICC/SIM card](docs/architecture_en.svg)
 
@@ -834,7 +834,7 @@ The frontend checks the server version on connect via `GET /api/version` and com
 
 SIMple, SIMtrace Analyser and sigrok_iso7816_stream are three standalone
 tools for working with SIM/UICC cards, published together on the same
-[website](https://atroshin.ru) and [news channel](https://t.me/youeyeseesee).
+[website](https://sim-tools.ru) and [news channel](https://t.me/youeyeseesee).
 Each one is fully independent — install only the tools you need:
 
 - **[SIMple](https://github.com/anttro/simple)** — a UICC workbench: APDU
