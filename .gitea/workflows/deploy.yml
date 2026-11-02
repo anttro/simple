@@ -14,7 +14,7 @@ jobs:
       - name: Install deploy tools
         run: |
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends rsync openssh-client
+          apt-get install -y -qq --no-install-recommends rsync openssh-client git
 
       - name: Configure SSH
         env:
