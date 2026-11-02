@@ -6,11 +6,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Install deploy tools
-        run: |
-          apt-get -o Acquire::ForceIPv4=true update -qq
-          apt-get -o Acquire::ForceIPv4=true install -y -qq --no-install-recommends git rsync openssh-client
-
       - uses: actions/checkout@v4
 
       - name: Show toolchain
