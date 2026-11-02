@@ -8,8 +8,8 @@ jobs:
     steps:
       - name: Install deploy tools
         run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends git rsync openssh-client
+          apt-get -o Acquire::ForceIPv4=true update -qq
+          apt-get -o Acquire::ForceIPv4=true install -y -qq --no-install-recommends git rsync openssh-client
 
       - uses: actions/checkout@v4
 
