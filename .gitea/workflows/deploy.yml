@@ -1,0 +1,37 @@
+name: deploy
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: node -v && npm -v
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          MX_HOST_KEY: ${{ secrets.MX_HOST_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$MX_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build:prod
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          REL="$(date -u +%Y%m%dT%H%M%SZ)-$(printf %s "$GITHUB_SHA" | cut -c1-7)"
+          rsync -a --exclude=node_modules --exclude=.git \
+            --link-dest=/var/www/simple/current \
+            frontend/ deploy@10.8.0.1:/var/www/simple/releases/"$REL"/
+          ssh deploy@10.8.0.1 "deploy-site simple $REL"
