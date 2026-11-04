@@ -9,6 +9,19 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.4] — 2026-11-04
+
+### Added
+
+- **Windows guard in the helper scripts.**  `setup.sh`, `start.sh` and
+  `update.sh` now detect a Windows-hosted bash (WSL via `/proc/version`, and
+  Git Bash / MSYS2 / MinGW / Cygwin via `uname -s`) and exit with a clear
+  error pointing at the matching `.bat` script, instead of failing deep in the
+  venv/PC-SC logic.  Under WSL the Linux guest cannot reach the Windows PC/SC
+  readers, and a mingw/msys shell uses the wrong (`bin/`) venv layout; users
+  who deliberately want the WSL/Cygwin flow can run the underlying commands
+  directly, without the helper scripts.
+
 ## [3.40.3] — 2026-10-27
 
 ### Fixed

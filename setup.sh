@@ -4,6 +4,19 @@ set -e
 # pysim-simple-server setup script
 # Creates a venv and installs pysim and its dependencies.
 
+# Windows guard: setup.sh is the native Linux/macOS helper.  Under WSL the
+# Linux guest cannot reach the Windows PC/SC readers, and a Git Bash / MSYS2 /
+# MinGW / Cygwin shell has the wrong (bin/) venv layout - use setup.bat, which
+# drives the Windows Python and the built-in PC/SC stack.  A deliberate
+# WSL/Cygwin flow can run the underlying pip/venv commands without this script.
+if grep -qi microsoft /proc/version 2>/dev/null || \
+   uname -s 2>/dev/null | grep -qiE 'MINGW|MSYS|CYGWIN'; then
+    echo "Error: setup.sh is the Linux/macOS helper and cannot run on Windows"
+    echo "(WSL / MSYS2 / MinGW / Cygwin detected)."
+    echo "Use setup.bat from a Windows command prompt (cmd.exe / PowerShell) instead."
+    exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 

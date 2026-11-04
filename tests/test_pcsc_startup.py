@@ -165,6 +165,18 @@ class SourcePins(unittest.TestCase):
         self.assertIn('%HTTP_HOST%:%HTTP_PORT%', src)
         self.assertNotIn('http://127.0.0.1:8080', src)
 
+    def test_the_start_script_guards_windows_and_points_to_start_bat(self):
+        src = (Path(m.__file__).parent.parent / 'start.sh').read_text()
+        self.assertIn('microsoft /proc/version', src)
+        self.assertIn('MINGW|MSYS|CYGWIN', src)
+        self.assertIn('Use start.bat from a Windows command prompt', src)
+
+    def test_the_update_script_guards_windows_and_points_to_update_bat(self):
+        src = (Path(m.__file__).parent.parent / 'update.sh').read_text()
+        self.assertIn('microsoft /proc/version', src)
+        self.assertIn('MINGW|MSYS|CYGWIN', src)
+        self.assertIn('Use update.bat from a Windows command prompt', src)
+
 
 if __name__ == '__main__':
     unittest.main()

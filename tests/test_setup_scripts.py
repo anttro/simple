@@ -39,6 +39,11 @@ class SetupShTests(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
 
+    def test_windows_guard_points_to_setup_bat(self):
+        self.assertIn('microsoft /proc/version', self.src)
+        self.assertIn('MINGW|MSYS|CYGWIN', self.src)
+        self.assertIn('Use setup.bat from a Windows command prompt', self.src)
+
 
 class SetupBatTests(unittest.TestCase):
     def setUp(self):

@@ -7,6 +7,19 @@ set -e
 # Every run is mirrored to simple_lastrun.log (overwritten on each start) so the
 # latest server output can be read without copy-pasting the console.
 
+# Windows guard: start.sh is the native Linux/macOS helper.  Under WSL the
+# Linux guest cannot reach the Windows PC/SC readers, and a Git Bash / MSYS2 /
+# MinGW / Cygwin shell has the wrong (bin/) venv layout - use start.bat, which
+# drives the Windows Python and the built-in PC/SC stack.  A deliberate
+# WSL/Cygwin flow can run the server without this script.
+if grep -qi microsoft /proc/version 2>/dev/null || \
+   uname -s 2>/dev/null | grep -qiE 'MINGW|MSYS|CYGWIN'; then
+    echo "Error: start.sh is the Linux/macOS helper and cannot run on Windows"
+    echo "(WSL / MSYS2 / MinGW / Cygwin detected)."
+    echo "Use start.bat from a Windows command prompt (cmd.exe / PowerShell) instead."
+    exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 
