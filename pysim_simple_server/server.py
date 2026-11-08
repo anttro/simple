@@ -13,6 +13,7 @@ from urllib.parse import unquote_plus
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from io import StringIO
+from contextlib import contextmanager
 from pySim.transport import ApduTracer, ProactiveHandler
 from pySim.cards import UiccCardBase
 from pysim_simple_server import httpota
@@ -37,7 +38,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.40.4'
+VERSION = '3.40.5'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -265,6 +266,42 @@ def _cmd_exception(output):
         if line.strip():
             return line.strip()
     return 'command failed'
+
+
+def _log_stderr(msg):
+    """Write a server log line to the real stderr fd, bypassing ``sys.stderr``.
+
+    The HTTP handlers temporarily rebind the global ``sys.stderr`` to a
+    ``StringIO`` to capture pySim command output.  Concurrent card-free
+    requests (the 2 s /api/status poll) log via ``log_message`` / ``_log_req``
+    / ``_log_resp``; writing to ``sys.stderr`` would drop those lines into the
+    active capture buffer and corrupt the file content (the snapshot "access
+    log line in contents" bug).  Writing to fd 2 keeps the request log out of
+    the capture, exactly as the APDU tracer already does below."""
+    os.write(2, msg.encode())
+
+
+@contextmanager
+def _capture_app_output(app):
+    """Temporarily capture the pySim app's output into a ``StringIO``.
+
+    cmd2 writes command output to ``app.stdout``; stray writes to the global
+    ``sys.stderr`` (``print(file=sys.stderr)``, ``sys.stderr.write``, logging,
+    tracebacks) are captured too by rebinding it.  Card access is serialized by
+    ``_CARD_LOCK``, so only one capture is active at a time, and the server's
+    own request/access logging bypasses it via ``_log_stderr``.  Yields the
+    buffer and restores both streams in ``finally``.
+    """
+    out = StringIO()
+    old_stdout = app.stdout
+    old_stderr = sys.stderr
+    app.stdout = out
+    sys.stderr = out
+    try:
+        yield out
+    finally:
+        app.stdout = old_stdout
+        sys.stderr = old_stderr
 
 
 def _parse_help_text(text):
@@ -9472,13 +9509,13 @@ class PysimHandler(BaseHTTPRequestHandler):
     def _log_req(self, body=None):
         if self.server.log_requests:
             if body is not None:
-                sys.stderr.write("REQUEST %s %s: %s\n" % (self.command, self.path, json.dumps(body)))
+                _log_stderr("REQUEST %s %s: %s\n" % (self.command, self.path, json.dumps(body)))
             else:
-                sys.stderr.write("REQUEST %s %s\n" % (self.command, self.path))
+                _log_stderr("REQUEST %s %s\n" % (self.command, self.path))
 
     def _log_resp(self, data):
         if self.server.log_requests:
-            sys.stderr.write("RESPONSE %s: %s\n" % (self.path, json.dumps(data, ensure_ascii=False)))
+            _log_stderr("RESPONSE %s: %s\n" % (self.path, json.dumps(data, ensure_ascii=False)))
 
     def do_OPTIONS(self):
         self._log_req()
@@ -9777,19 +9814,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': _err('app_not_init', lang)}, 503)
                 self._log_resp({'error': _err('app_not_init', lang)})
                 return
-            out = StringIO()
-            old_stdout = app.stdout
-            old_stderr = sys.stderr
-            app.stdout = out
-            sys.stderr = out
-            try:
-                app.onecmd_plus_hooks('cardinfo')
-                output = _strip_ansi(out.getvalue())
-            except Exception as e:
-                output = str(e) + '\n' + traceback.format_exc()
-            finally:
-                app.stdout = old_stdout
-                sys.stderr = old_stderr
+            with _capture_app_output(app) as out:
+                try:
+                    app.onecmd_plus_hooks('cardinfo')
+                    output = _strip_ansi(out.getvalue())
+                except Exception as e:
+                    output = str(e) + '\n' + traceback.format_exc()
             resp = {'output': output}
             self._send_json(resp)
             self._log_resp(resp)
@@ -9931,19 +9961,12 @@ class PysimHandler(BaseHTTPRequestHandler):
                 # transport so a manual Equip recovers too.
                 _ensure_transport(self.server)
             t0 = time.time()
-            out = StringIO()
-            old_stdout = app.stdout
-            old_stderr = sys.stderr
-            app.stdout = out
-            sys.stderr = out
-            try:
-                stop = app.onecmd_plus_hooks(cmd)
-                output = _strip_ansi(out.getvalue())
-            except Exception as e:
-                output = str(e) + '\n' + traceback.format_exc()
-            finally:
-                app.stdout = old_stdout
-                sys.stderr = old_stderr
+            with _capture_app_output(app) as out:
+                try:
+                    stop = app.onecmd_plus_hooks(cmd)
+                    output = _strip_ansi(out.getvalue())
+                except Exception as e:
+                    output = str(e) + '\n' + traceback.format_exc()
             elapsed = int((time.time() - t0) * 1000)
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
             if is_equip:
@@ -10199,17 +10222,9 @@ class PysimHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             self._log_req(body)
             cmd = body.get('cmd', '')
-            out = StringIO()
-            old_stdout = app.stdout
-            old_stderr = sys.stderr
-            app.stdout = out
-            sys.stderr = out
-            try:
+            with _capture_app_output(app) as out:
                 app.onecmd_plus_hooks('help ' + cmd)
                 raw = out.getvalue()
-            finally:
-                app.stdout = old_stdout
-                sys.stderr = old_stderr
             clean = _strip_ansi(raw)
             parsed = _parse_help_text(clean)
             self._send_json(parsed)
@@ -10307,17 +10322,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                         cmd = 'read_records_decoded' if is_record else 'read_binary_decoded'
                     else:
                         cmd = 'read_records' if is_record else 'read_binary'
-                    out = StringIO()
-                    old_stdout = app.stdout
-                    old_stderr = sys.stderr
-                    app.stdout = out
-                    sys.stderr = out
-                    try:
+                    with _capture_app_output(app) as out:
                         app.onecmd_plus_hooks(cmd)
                         output = _strip_ansi(out.getvalue())
-                    finally:
-                        app.stdout = old_stdout
-                        sys.stderr = old_stderr
                 finally:
                     apdu_times = _end_apdu_time_collection()
                 exc = _cmd_exception(output)
@@ -10403,17 +10410,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                     cmd = 'update_record 1 %s' % data
                 else:
                     cmd = 'update_binary %s' % data
-                out = StringIO()
-                old_stdout = app.stdout
-                old_stderr = sys.stderr
-                app.stdout = out
-                sys.stderr = out
-                try:
+                with _capture_app_output(app) as out:
                     app.onecmd_plus_hooks(cmd)
                     output = out.getvalue()
-                finally:
-                    app.stdout = old_stdout
-                    sys.stderr = old_stderr
                 exc = _cmd_exception(output)
                 if exc:
                     resp = {'success': False, 'error': exc}
@@ -10472,17 +10471,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sel = fid if fid else name
                 _, cleanup = _select_with_parent(lchan, sel, parent_sel, app, parent_path, allow_probe)
                 cur = lchan.selected_file
-                out = StringIO()
-                old_stdout = app.stdout
-                old_stderr = sys.stderr
-                app.stdout = out
-                sys.stderr = out
-                try:
+                with _capture_app_output(app) as out:
                     app.onecmd_plus_hooks('tree')
                     output = _strip_ansi(out.getvalue())
-                finally:
-                    app.stdout = old_stdout
-                    sys.stderr = old_stderr
                 children = _parse_tree_output(output)
                 # EF.PBR (TS 31.102 4.4.2.1): the phonebook files the DF's PBR
                 # references are not in pySim's model, so they are appended to
@@ -12178,4 +12169,4 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_resp({'error': _err('not_found', lang)})
 
     def log_message(self, format, *args):
-        sys.stderr.write('%s - - [%s] %s\n' % (self.client_address[0], self.log_date_time_string(), format % args))
+        _log_stderr('%s - - [%s] %s\n' % (self.client_address[0], self.log_date_time_string(), format % args))

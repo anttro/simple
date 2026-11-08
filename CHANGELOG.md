@@ -9,6 +9,26 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.5] — 2026-11-08
+
+### Fixed
+
+- **Server request/access log leaked into captured file content.**  The HTTP
+  access log (`log_message`) and the `--log-requests` `REQUEST`/`RESPONSE`
+  lines wrote to the rebindable `sys.stderr`, so a concurrent card-free request
+  (the 2 s `/api/status` poll) dropped its log line into the `StringIO` a
+  card command was capturing — corrupting file content read during a snapshot
+  scan (the log line appeared in the snapshot, e.g.
+  `127.0.0.1 - - […] "GET /api/status HTTP/1.1" 200 -ffff…`).  The log now
+  writes to fd 2 via `_log_stderr`, exactly as the APDU tracer already does.
+
+### Changed
+
+- **Deduplicated the pySim output capture.**  The six handlers that captured
+  pySim command output by rebinding `sys.stdout`/`sys.stderr` to a `StringIO`
+  now share one `_capture_app_output` context manager (the same save/set/
+  restore semantics, in one place).
+
 ## [3.40.4] — 2026-11-04
 
 ### Added
