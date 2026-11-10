@@ -60,16 +60,16 @@ class FakeLchan:
 
 class NetStateServerTests(unittest.TestCase):
     def setUp(self):
-        self._orig_select = server._select_path
+        self._orig_select = server._select_path_minimal
 
         def fake_select(lchan, path, app):
             lchan.select(path)
             return None, None
 
-        server._select_path = fake_select
+        server._select_path_minimal = fake_select
 
     def tearDown(self):
-        server._select_path = self._orig_select
+        server._select_path_minimal = self._orig_select
 
     def test_read_walks_candidates_and_marks_missing(self):
         lchan = FakeLchan({

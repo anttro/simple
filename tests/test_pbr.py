@@ -84,7 +84,7 @@ def _app(files):
 
 
 def _read(app, file_type='linear_fixed'):
-    with mock.patch('pysim_simple_server.server._select_path', _select), \
+    with mock.patch('pysim_simple_server.server._select_path_minimal', _select), \
          mock.patch('pysim_simple_server.server._get_file_type', return_value=file_type):
         return _read_pbr(app)
 

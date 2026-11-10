@@ -9,6 +9,19 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.6] — 2026-11-10
+
+### Changed
+
+- **Equip/init reads no longer re-select MF and the ADF per file.**  The
+  ICCID, network-state, EF.ARR and EF.PBR readers called `_select_path`, which
+  re-selects MF and walks the parent chain for every file, so a startup issued
+  one `SELECT MF` + one `SELECT ADF` per file (~20 MF and ~12 ADF selects).
+  A new `_select_path_minimal` resolves model-known files in memory and lets
+  pySim's `select_file` navigate the shortest route (an unknown segment still
+  falls back to the old probing path).  Fewer SELECTs per init; the data read
+  is unchanged.
+
 ## [3.40.5] — 2026-11-08
 
 ### Fixed

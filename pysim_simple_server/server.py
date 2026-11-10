@@ -38,7 +38,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.40.5'
+VERSION = '3.40.6'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -506,6 +506,50 @@ def _select_path(lchan, path, app):
     return _select_with_parent(lchan, parts[-1], None, app, parent_path=parts[:-1], allow_probe=True)
 
 
+def _resolve_path_target(rs, path):
+    """Resolve a full path (e.g. 'MF/7F10/6F06') to its model object, in memory.
+
+    Mirrors _select_with_parent's parent-scoped resolution - an ADF is looked
+    up by AID/name, a file by FID/name among the parent's direct children - but
+    never touches the card.  Returns the target CardFile, or None when a segment
+    is not model-known (the caller then falls back to _select_path, which can
+    probe custom files)."""
+    if rs is None or not getattr(rs, 'mf', None):
+        return None
+    parts = [p for p in (path or '').split('/') if p]
+    if not parts:
+        return None
+    parent = rs.mf
+    for seg in parts[:-1]:
+        if str(seg).upper() in ('MF', '3F00'):
+            continue
+        f = _app_by_sel(rs, seg) or _file_by_sel(parent, seg)
+        if f is None:
+            return None
+        parent = f
+    name = parts[-1]
+    if str(name).upper() in ('MF', '3F00'):
+        return rs.mf
+    return _file_by_sel(parent, name) or _app_by_sel(rs, name)
+
+
+def _select_path_minimal(lchan, path, app):
+    """Select a full path without re-selecting MF (the init/equip readers).
+
+    _select_path always re-selects MF and walks the parent chain, so the equip
+    readers (ICCID, network state, EF.ARR, EF.PBR - many files under the same
+    few DFs) issued one SELECT MF + one SELECT ADF per file.  For a model-known
+    file this resolves it in memory and lets pySim's select_file navigate the
+    shortest route from the current selection; an unknown segment falls back to
+    _select_path (probe).  Returns (selected_file, cleanup) like _select_path.
+    """
+    target = _resolve_path_target(getattr(app, 'rs', None), path)
+    if target is None:
+        return _select_path(lchan, path, app)
+    lchan.select_file(target, app)
+    return lchan.selected_file, None
+
+
 def _decode_iccid(data_hex):
     """Decode EF.ICCID content: nibble-swapped E.118 digits with an optional
     trailing 'F' pad (TS 102 221 13.2 / TS 151 011 10.2). Returns the digit
@@ -570,7 +614,7 @@ def _read_iccid(app):
     lchan = app.rs.lchan[0]
     cleanup = None
     try:
-        _, cleanup = _select_path(lchan, 'MF/2FE2', app)
+        _, cleanup = _select_path_minimal(lchan, 'MF/2FE2', app)
         data, _sw = _read_selected_ef(lchan, 'transparent')
         return _decode_iccid(data)
     except Exception:
@@ -606,7 +650,7 @@ def _read_arr(app):
     for path in ARR_READ_PATHS:
         cleanup = None
         try:
-            _, cleanup = _select_path(lchan, path, app)
+            _, cleanup = _select_path_minimal(lchan, path, app)
             if _get_file_type(lchan, lchan.selected_file) not in ('linear_fixed', 'cyclic'):
                 continue
             n = min(lchan.selected_file_num_of_rec() or 1, ARR_RECORD_LIMIT)
@@ -672,7 +716,7 @@ def _read_pbr(app):
     for path in PBR_READ_PATHS:
         cleanup = None
         try:
-            _, cleanup = _select_path(lchan, path, app)
+            _, cleanup = _select_path_minimal(lchan, path, app)
             if _get_file_type(lchan, lchan.selected_file) not in ('linear_fixed', 'cyclic'):
                 continue
             n = min(lchan.selected_file_num_of_rec() or 1, PBR_RECORD_LIMIT)
@@ -955,7 +999,7 @@ def _netstate_read(app, keys=None):
         for path in d['paths']:
             cleanup = None
             try:
-                _, cleanup = _select_path(lchan, path, app)
+                _, cleanup = _select_path_minimal(lchan, path, app)
                 ft = _get_file_type(lchan, lchan.selected_file)
                 entry['path'] = path
                 if ft in ('linear_fixed', 'cyclic'):

@@ -21,7 +21,9 @@ from pysim_simple_server.server import (
     _fid4,
     _file_by_sel,
     _find_in_tree,
+    _resolve_path_target,
     _select_path,
+    _select_path_minimal,
     _select_with_parent,
 )
 
@@ -177,6 +179,34 @@ class ParentScopedSelectTest(unittest.TestCase):
         _select_with_parent(lchan, '6f46', None, app, parent_path=['MF', '7F20'])
         self.assertEqual({id(k): k for k in gsm.children}, before)
         self.assertEqual(lchan.probes, [])
+
+
+class MinimalSelectTest(unittest.TestCase):
+    def test_a_model_known_file_is_selected_directly(self):
+        app, lchan, mf, _, _, gsm, spn = setup()
+        target, cleanup = _select_path_minimal(lchan, 'MF/7F20/6F46', app)
+        self.assertIs(target, spn)
+        self.assertIsNone(cleanup)
+        # no MF or DF re-select: pySim navigates the shortest route itself
+        self.assertEqual(lchan.selects, [spn])
+
+    def test_an_unknown_segment_falls_back_to_the_probe(self):
+        app, lchan, mf, _, _, gsm, _ = setup()
+        target, cleanup = _select_path_minimal(lchan, 'MF/7F20/6F99', app)
+        self.assertEqual(lchan.probes, ['6f99'])
+        self.assertIsNotNone(cleanup)
+        cleanup()
+        self.assertIs(lchan.selected_file, mf)
+
+    def test_resolve_returns_the_model_object(self):
+        app, _, _, usim, _, gsm, spn = setup()
+        self.assertIs(_resolve_path_target(app.rs, 'MF/7F20/6F46'), spn)
+        self.assertIs(_resolve_path_target(app.rs, 'A0000000871002/6F07'),
+                      usim.children['6f07'])
+        self.assertIsNone(_resolve_path_target(app.rs, 'MF/7F20/6F99'))
+        self.assertIsNone(_resolve_path_target(app.rs, 'MF/7F20/NOSUCH'))
+        self.assertIsNone(_resolve_path_target(None, 'MF/7F20/6F46'))
+        self.assertIsNone(_resolve_path_target(app.rs, ''))
 
 
 if __name__ == '__main__':
