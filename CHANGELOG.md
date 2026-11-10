@@ -9,6 +9,26 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.7] — 2026-11-11
+
+### Fixed
+
+- **FCP file descriptor byte decoded per TS 102 221 Table 11.5** (not ISO
+  7816-4 Table 14, the file-descriptor audit): the shareable flag is **b7**
+  (`0x40`), not b8; the EF-structure bits are `000` no info / `001` transparent
+  / `010` linear fixed / `110` cyclic with `011`/`100`/`101`/`111` RFU (the old
+  decode fabricated "linear fixed TLV" / "linear variable" / "linear variable
+  TLV" / "cyclic TLV"); and `b6–b4 = 111` with `b3–b1 = 010` is RFU, not
+  "SIMPLE-TLV" (TS 102 221 has no SIMPLE-TLV row).
+- **FCP life cycle status byte**: any value with `b8–b5` non-zero is now
+  proprietary (was: b8 only), so `b6`/`b5`-set values are no longer misread
+  as RFU.
+- **Application power consumption voltage class E** decoded at `b6` (0x20),
+  per Table 6.1 ATR coding (was `b5`).
+- **UICC characteristics** now decodes the clock-stop preference/condition
+  bits `b4–b3` (no preferred level / high / low when allowed; never / unless
+  high / unless low when not allowed).
+
 ## [3.40.6] — 2026-11-10
 
 ### Changed

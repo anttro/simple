@@ -675,7 +675,7 @@ test('fcpDecode decodes a transparent EF FCP template', () => {
 	const by = {};
 	d.items.forEach(it => { by[it.key] = it; });
 	assert.strictEqual(by['80'].decoded, '9 bytes');
-	assert.strictEqual(by['82'].decoded, 'not shareable, working EF, transparent, data coding 21');
+	assert.strictEqual(by['82'].decoded, 'shareable, working EF, transparent, data coding 21');
 	assert.strictEqual(by['83'].decoded, '6F07');
 	assert.strictEqual(by['8A'].decoded, 'operational, activated');
 	assert.strictEqual(by['88'].decoded, '2');
@@ -685,12 +685,12 @@ test('fcpDecode decodes linear fixed file descriptor (record length/count)', () 
 	const d = fcpDecode(FCP_LINFIX);
 	assert.strictEqual(d.ok, true);
 	const fd = d.items.find(it => it.key === '82');
-	assert.strictEqual(fd.decoded, 'not shareable, working EF, linear fixed, data coding 21, record length 110, 5 records');
+	assert.strictEqual(fd.decoded, 'shareable, working EF, linear fixed, data coding 21, record length 110, 5 records');
 });
 
 test('fcpDecode decodes DF and BER-TLV structures', () => {
-	assert.strictEqual(fcpDecode(FCP_DF).items.find(it => it.key === '82').decoded, 'not shareable, DF/ADF, data coding 21');
-	assert.strictEqual(fcpDecode(FCP_BERTLV).items.find(it => it.key === '82').decoded, 'not shareable, BER-TLV EF, data coding 21');
+	assert.strictEqual(fcpDecode(FCP_DF).items.find(it => it.key === '82').decoded, 'shareable, DF/ADF, data coding 21');
+	assert.strictEqual(fcpDecode(FCP_BERTLV).items.find(it => it.key === '82').decoded, 'shareable, BER-TLV EF, data coding 21');
 });
 
 test('fcpDecode maps life cycle status per table 11.7b', () => {
@@ -704,9 +704,9 @@ test('fcpDecode maps life cycle status per table 11.7b', () => {
 	assert.strictEqual(lcs('0D'), 'termination');
 	assert.strictEqual(lcs('80'), 'proprietary (80)');
 	assert.strictEqual(lcs('8C'), 'proprietary (8C)');
-	// Table 11.7b: unlisted values with b8 clear are RFU, not proprietary
+	assert.strictEqual(lcs('2C'), 'proprietary (2C)');
+	// Table 11.7b: an unlisted value with b8-b5 clear is RFU, not proprietary
 	assert.strictEqual(lcs('02'), 'RFU (02)');
-	assert.strictEqual(lcs('2C'), 'RFU (2C)');
 });
 
 test('fcpDecode decodes the PS template DO (C6) with PIN key references', () => {
@@ -726,6 +726,33 @@ test('fcpDecode decodes A5 proprietary sub-TLVs', () => {
 	d.items.forEach(it => { by[it.key] = it; });
 	assert.strictEqual(by['A5'].decoded, null);
 	assert.strictEqual(by['A5/85'].decoded, '0 bytes');
+});
+
+test('fcpFileDescriptor follows TS 102 221 Table 11.5 (shareable b7, structure, RFU)', () => {
+	// b7 (0x40) is the shareable flag (b8 is RFU); structure b3-b1 per Table 11.5
+	assert.strictEqual(fcpDo('82', '01').decoded, 'not shareable, working EF, transparent');
+	assert.strictEqual(fcpDo('82', '41').decoded, 'shareable, working EF, transparent');
+	assert.strictEqual(fcpDo('82', '02').decoded, 'not shareable, working EF, linear fixed');
+	assert.strictEqual(fcpDo('82', '06').decoded, 'not shareable, working EF, cyclic');
+	// b3-b1 = 100 / 111 are RFU (ISO Table 14 called them linear variable / cyclic TLV)
+	assert.strictEqual(fcpDo('82', '04').decoded, 'not shareable, working EF, RFU (4)');
+	assert.strictEqual(fcpDo('82', '07').decoded, 'not shareable, working EF, RFU (7)');
+	// b6-b4 = 111: DF/ADF (000) and BER-TLV (001) only; 010 is RFU (no SIMPLE-TLV)
+	assert.strictEqual(fcpDo('82', '38').decoded, 'not shareable, DF/ADF');
+	assert.strictEqual(fcpDo('82', '39').decoded, 'not shareable, BER-TLV EF');
+	assert.strictEqual(fcpDo('82', '3A').decoded, 'not shareable, RFU (3A)');
+});
+
+test('power consumption voltage class E is b6 (Table 6.1 ATR coding)', () => {
+	const d = fcpDecode('6207A5058103200A0A');
+	assert.strictEqual(d.items.find(it => it.key === 'A5/81').decoded, 'class E, 10 mA, 1 MHz');
+});
+
+test('UICC characteristics decode the clock-stop preference bits (b4-b3)', () => {
+	// b1=1 (allowed), b4-b3=01 (high preferred), b5=A
+	assert.strictEqual(fcpDo('A5/80', '15').decoded, 'clock stop allowed, high level preferred, class A');
+	// b1=0 (not allowed), b4-b3=10 (unless at low level), no class
+	assert.strictEqual(fcpDo('A5/80', '08').decoded, 'clock stop not allowed, unless at low level');
 });
 
 test('fcpDecode unwraps an FCI 6F template and rejects malformed input', () => {

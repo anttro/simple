@@ -1990,7 +1990,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.6';
+const SIMPLE_VERSION = '3.40.7';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -22681,14 +22681,20 @@ function fcpInt(hex) { return hex ? parseInt(hex, 16) : 0; }
 function fcpFileDescriptor(v) {
 	if (!v) return '';
 	const fd = parseInt(v.substr(0, 2), 16);
-	const parts = [(fd & 0x80) ? 'shareable' : 'not shareable'];
-	const cat = (fd >> 3) & 0x07;
-	const st = fd & 0x07;
+	// TS 102 221 11.1.1.4.3 Table 11.5 (p. 91): b8 RFU, b7 shareable,
+	// b6-b4 file type, b3-b1 structure.  ISO 7816-4 Table 14 differs (it adds
+	// linear-variable / TLV rows); the ETSI/3GPP table wins.
+	const parts = [(fd & 0x40) ? 'shareable' : 'not shareable'];
+	const cat = (fd >> 3) & 0x07;   // b6-b4
+	const st = fd & 0x07;           // b3-b1
 	if (cat === 0x07) {
-		parts.push(st === 0x01 ? 'BER-TLV EF' : st === 0x02 ? 'SIMPLE-TLV EF' : st === 0x00 ? 'DF/ADF' : 'proprietary file (' + v.substr(0, 2) + ')');
+		// b6-b4 = 111: DF/ADF (st 000) or BER-TLV EF (st 001); other st are RFU.
+		parts.push(st === 0x00 ? 'DF/ADF' : st === 0x01 ? 'BER-TLV EF' : 'RFU (' + v.substr(0, 2) + ')');
 	} else {
-		parts.push(cat === 0 ? 'working EF' : cat === 1 ? 'internal EF' : 'proprietary EF (' + cat + ')');
-		parts.push(['no info', 'transparent', 'linear fixed', 'linear fixed TLV', 'linear variable', 'linear variable TLV', 'cyclic', 'cyclic TLV'][st] || ('structure ' + st));
+		parts.push(cat === 0 ? 'working EF' : cat === 1 ? 'internal EF' : 'RFU (' + cat + ')');
+		// b3-b1: 000 no info, 001 transparent, 010 linear fixed, 110 cyclic;
+		// 011 / 100 / 101 / 111 are RFU.
+		parts.push({ 0: 'no info', 1: 'transparent', 2: 'linear fixed', 6: 'cyclic' }[st] || 'RFU (' + st + ')');
 	}
 	if (v.length >= 4) parts.push('data coding ' + v.substr(2, 2));
 	if (v.length >= 10) parts.push('record length ' + fcpInt(v.substr(4, 4)) + ', ' + fcpInt(v.substr(8, 2)) + ' records');
@@ -22701,10 +22707,9 @@ function fcpFileDescriptor(v) {
 function fcpLifeCycle(v) {
 	if (v.length !== 2) return v;
 	const b = parseInt(v, 16);
-	// TS 102 221 Table 11.7b: the state rows all keep b8-b5 clear; b8 set is
-	// proprietary, any other unlisted value is RFU.
-	if (b & 0x80) return 'proprietary (' + v + ')';
-	if (b & 0x70) return 'RFU (' + v + ')';
+	// TS 102 221 Table 11.7b: any value with b8-b5 not all clear is proprietary;
+	// the state rows all keep b8-b5 clear.  An unlisted b4-b1 value is RFU.
+	if (b & 0xF0) return 'proprietary (' + v + ')';
 	if (b === 0x00) return 'no information';
 	if (b === 0x01) return 'creation';
 	if (b === 0x03) return 'initialization';
@@ -23079,7 +23084,14 @@ function fcpDo(key, value) {
 		case 'C6': return { name: 'PIN status template DO', decoded: fcpPsTemplate(value) };
 		case 'A5/80': {
 			const b = fcpInt(value);
-			const parts = [(b & 0x01) ? 'clock stop allowed' : 'clock stop not allowed'];
+			// TS 102 221 Table 11.6: b1 clock-stop flag, b4-b3 the preference
+			// (b1=1) / mandatory condition (b1=0), b5-b8 voltage classes A-D.
+			const stopAllowed = !!(b & 0x01);
+			const cond = (b >> 2) & 0x03;
+			const condName = (stopAllowed
+				? { 0: 'no preferred level', 1: 'high level preferred', 2: 'low level preferred' }
+				: { 0: 'never', 1: 'unless at high level', 2: 'unless at low level' })[cond] || 'RFU';
+			const parts = [stopAllowed ? 'clock stop allowed' : 'clock stop not allowed', condName];
 			const cls = [];
 			if (b & 0x10) cls.push('A');
 			if (b & 0x20) cls.push('B');
@@ -23096,7 +23108,7 @@ function fcpDo(key, value) {
 			if (vc & 0x02) cls.push('B');
 			if (vc & 0x04) cls.push('C');
 			if (vc & 0x08) cls.push('D');
-			if (vc & 0x10) cls.push('E');
+			if (vc & 0x20) cls.push('E');   // E = b6 (Table 6.1 ATR coding)
 			const ma = fcpInt(value.substr(2, 2)) & 0x3F;
 			const f = fcpInt(value.substr(4, 2));
 			const parts = [];
