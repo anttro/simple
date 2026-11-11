@@ -178,5 +178,46 @@ class SourcePins(unittest.TestCase):
         self.assertIn('Use update.bat from a Windows command prompt', src)
 
 
+class TracerWiringTests(unittest.TestCase):
+    """The configured APDU tracer must survive pySim's lifecycle (v3.40.10).
+
+    PysimApp's ``apdu_trace`` settable defaults to False and its equip() nulls
+    the transport ``apdu_tracer``, so the startup reset, the init reads and the
+    TERMINAL PROFILE drain used to run without the ``--gsmtap`` capture.
+    """
+
+    class FakeSl:
+        apdu_tracer = None
+
+        def send_apdu(self, apdu):
+            return '', '9000'
+
+    def test_keep_tracer_reattaches_before_every_send(self):
+        tracer = object()
+        seen = []
+
+        class FakeSl:
+            apdu_tracer = None
+
+            def send_apdu(self, apdu):
+                seen.append(self.apdu_tracer)
+                return '', '9000'
+
+        sl = FakeSl()
+        m._keep_tracer_attached(sl, tracer)
+        # pySim nulls the slot during equip; the next send must re-attach it.
+        sl.apdu_tracer = None
+        sl.send_apdu('00A40000023F00')
+        sl.apdu_tracer = None
+        sl.send_apdu('00B000000A')
+        self.assertEqual(seen, [tracer, tracer])
+
+    def test_keep_tracer_is_a_noop_without_a_tracer(self):
+        sl = self.FakeSl()
+        orig = sl.send_apdu
+        m._keep_tracer_attached(sl, None)
+        self.assertEqual(sl.send_apdu, orig)
+
+
 if __name__ == '__main__':
     unittest.main()

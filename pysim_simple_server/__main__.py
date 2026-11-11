@@ -137,6 +137,26 @@ def _log_stdout(msg):
     os.write(1, ('[%8.3f] %s\n' % (elapsed, msg)).encode())
 
 
+def _keep_tracer_attached(sl, tracer):
+    """Re-attach the configured APDU tracer before every send.
+
+    pySim's lifecycle nulls/replaces the transport ``apdu_tracer`` (PysimApp's
+    ``apdu_trace`` settable defaults to False and ``_onchange_apdu_trace`` sets
+    it to None during equip), so the startup reset, the init reads and the
+    TERMINAL PROFILE drain used to run without the ``--gsmtap``/``--apdu-trace``
+    tracer.  Wrapping ``send_apdu`` makes the capture sticky: whatever pySim
+    does to the slot, the next APDU re-attaches it (v3.40.10)."""
+    if tracer is None:
+        return
+    orig_send_apdu = sl.send_apdu
+
+    def send_apdu(apdu):
+        sl.apdu_tracer = tracer
+        return orig_send_apdu(apdu)
+
+    sl.send_apdu = send_apdu
+
+
 def _guard_console_streams():
     """Never let a non-encodable character kill the server.
 
@@ -296,6 +316,7 @@ def main():
         scc = SimCardCommands(sl)
         scc.cat_cla = '80'  # UICC CLA default; overridden for SIM after init_card
         scc._tp.proactive_handler = _DefaultProactiveHandler()
+        _keep_tracer_attached(sl, tracer)
         t_phase = time.time()
         if opts.fast_init:
             try:
@@ -467,7 +488,9 @@ def main():
     # PC/SC recovery: recreate the transport after a service failure (pcscd
     # restart / reader re-enumeration); _ensure_transport() calls this.
     def _new_transport():
-        return mod.init_reader(opts, **kwargs)
+        new_sl = mod.init_reader(opts, **kwargs)
+        _keep_tracer_attached(new_sl, tracer)
+        return new_sl
     server.transport_factory = _new_transport
     server.sms_oa = opts.sms_oa
     server.sms_sc = opts.sms_sm_sc

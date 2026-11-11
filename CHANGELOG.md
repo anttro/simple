@@ -9,6 +9,20 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.11] — 2026-11-11
+
+### Fixed
+
+- **`--gsmtap` now captures every APDU, not just the session body.**  The
+  v3.40.10 fix re-attached the tracer after `PysimApp` was built, but pySim
+  nulls/replaces the transport tracer during its own `equip()` (the `apdu_trace`
+  settable defaults to False), so the startup **physical-reset re-probe** and any
+  APDU pySim sends during app construction still fell through the gap.  The
+  transport's `send_apdu` is now wrapped so the configured tracer (GSMTAP /
+  APDU / fan-out) is re-attached before every exchange, whatever pySim does to
+  the slot in between - the capture is sticky across equip, reset and the
+  PC/SC rebuild path.
+
 ## [3.40.10] — 2026-11-11
 
 ### Fixed
