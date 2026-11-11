@@ -368,7 +368,13 @@ def main():
     arr_files = None
     pbr_files = None
     if scc and card is not None and hasattr(scc, '_tp'):
-        scc._tp.apdu_tracer = _LoggingApduTracer()
+        # Re-attach the configured tracer (--gsmtap / --apdu-trace / both) that
+        # PysimApp.__init__ wiped via _onchange_apdu_trace; fall back to the
+        # plain APDU tracer only when no tracer was configured.  The old
+        # unconditional `_LoggingApduTracer()` here REPLACED the GSMTAP tracer,
+        # so the init reads below (ICCID, network state, EF.ARR, EF.PBR and the
+        # TERMINAL PROFILE drain) never reached a --gsmtap capture (v3.40.9+).
+        scc._tp.apdu_tracer = tracer if tracer is not None else _LoggingApduTracer()
         try:
             _init_proactive_session()
             # Read EF.ICCID before the TERMINAL PROFILE starts the CAT session

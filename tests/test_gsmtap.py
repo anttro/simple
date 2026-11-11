@@ -4,6 +4,7 @@
 import socket
 import struct
 import unittest
+from pathlib import Path
 
 from pysim_simple_server import gsmtap
 
@@ -146,3 +147,24 @@ class TracerTests(unittest.TestCase):
         fan.trace_reset()
         self.assertEqual(a.calls, b.calls)
         self.assertEqual(len(a.calls), 3)
+
+
+class StartupWiringTest(unittest.TestCase):
+    """The startup init must keep the configured GSMTAP tracer attached.
+
+    PysimApp.__init__ nulls the transport tracer (its `apdu_trace` settable
+    defaults to False); the init block then re-attached a *plain* APDU tracer
+    unconditionally, which replaced the GSMTAP tracer - so the ICCID /
+    network-state / EF.ARR / EF.PBR reads and the TERMINAL PROFILE drain were
+    traced to stderr but never reached a `--gsmtap` capture (the pcap showed a
+    gap between the startup and the first STATUS poll).
+    """
+
+    def test_the_init_reattaches_the_configured_tracer(self):
+        src = (Path(gsmtap.__file__).parent / '__main__.py').read_text()
+        # the configured tracer (GSMTAP / fanout) is re-attached, not replaced
+        self.assertIn(
+            'scc._tp.apdu_tracer = tracer if tracer is not None else '
+            '_LoggingApduTracer()', src)
+        # the old unconditional overwrite (which dropped --gsmtap) is gone
+        self.assertNotIn('scc._tp.apdu_tracer = _LoggingApduTracer()\n', src)

@@ -9,6 +9,20 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.10] — 2026-11-11
+
+### Fixed
+
+- **`--gsmtap` no longer misses the startup init reads.**  The init block
+  re-attached a plain stderr APDU tracer unconditionally, replacing the
+  `--gsmtap` (or fan-out) tracer that `init_reader` had installed and that
+  `PysimApp.__init__` had just nulled - so the EF.ICCID, network-state,
+  EF.ARR and EF.PBR reads and the TERMINAL PROFILE drain were traced to
+  stderr but never reached a GSMTAP capture (the pcap showed a gap between
+  the startup and the first STATUS poll).  The block now re-attaches the
+  configured tracer, falling back to the plain APDU tracer only when no
+  tracer was requested.
+
 ## [3.40.9] — 2026-11-11
 
 ### Fixed
