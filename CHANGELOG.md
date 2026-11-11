@@ -13,19 +13,6 @@ every change carries a descriptive commit message.
 
 ### Fixed
 
-- **`pyproject.toml` license metadata modernised (PEP 639).**  The deprecated
-  `license = { text = "..." }` table and `tool.setuptools.license-files` were
-  replaced with the SPDX string `license = "GPL-2.0-or-later"` and
-  `project.license-files` — setuptools ≥ 77 now emits a deprecation warning for
-  the old forms and will reject them after 2027-02-18, so a Windows `setup.bat`
-  run logged `BuildBackendWarning` for both during `pip install -e .`.  The
-  wheel metadata is now `License-Expression: GPL-2.0-or-later` with
-  `License-File: LICENSE` / `THIRD-PARTY-NOTICES` under `dist-info/licenses/`.
-
-## [3.40.8] — 2026-11-11
-
-### Fixed
-
 - **PLI IMEI / IMEISV are coded as the TS 24.008 Mobile Identity** (10.5.1.4),
   not plain nibble-swapped BCD.  The first byte now carries identity digit 1
   in the high nibble and the odd/even + type (010 IMEI / 011 IMEISV) in the
@@ -60,6 +47,15 @@ every change carries a descriptive commit message.
   incomplete virtual environment (…)" echo sat inside a parenthesised block
   and its `)` ended the block early (Windows `Непредвиденное появление: ....`);
   both parentheses are now `^`-escaped.
+
+- **`pyproject.toml` license metadata modernised (PEP 639).**  The deprecated
+  `license = { text = "..." }` table and `tool.setuptools.license-files` were
+  replaced with the SPDX string `license = "GPL-2.0-or-later"` and
+  `project.license-files` — setuptools ≥ 77 now emits a deprecation warning for
+  the old forms and will reject them after 2027-02-18, so a Windows `setup.bat`
+  run logged `BuildBackendWarning` for both during `pip install -e .`.  The
+  wheel metadata is now `License-Expression: GPL-2.0-or-later` with
+  `License-File: LICENSE` / `THIRD-PARTY-NOTICES` under `dist-info/licenses/`.
 
 ## [3.40.7] — 2026-11-11
 
