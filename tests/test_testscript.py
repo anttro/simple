@@ -265,7 +265,9 @@ class TestValidation(unittest.TestCase):
 
     def test_event_action_accepts_the_form_built_data(self):
         # The events events.py does not model carry the PWA form's built hex;
-        # a modelled event builds from `fields` (a stray data hex is ignored).
+        # a modelled event builds from `fields` - and a stray `data` hex is
+        # refused loudly, never silently dropped (v3.40.8: use the raw
+        # envelope action for raw bytes).
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'event',
              'params': {'event': '0x00', 'data': '1c0100', 'src': '83'}}]}, _resolver)
@@ -273,9 +275,14 @@ class TestValidation(unittest.TestCase):
                          {'event': 0x00, 'data': '1C0100', 'src': '83'})
         script = T.normalise_script({'steps': [
             {'type': 'action', 'kind': 'event',
-             'params': {'event': '0x03', 'fields': {'status': 1}, 'data': 'AA'}}]}, _resolver)
+             'params': {'event': '0x03', 'fields': {'status': 1}}}]}, _resolver)
         self.assertNotIn('data', script['steps'][0]['params'])
         self.assertEqual(script['steps'][0]['params']['fields'], {'status': 1})
+        with self.assertRaises(T.ScriptError):
+            T.normalise_script({'steps': [
+                {'type': 'action', 'kind': 'event',
+                 'params': {'event': '0x03', 'fields': {'status': 1},
+                            'data': 'AA'}}]}, _resolver)
         # missing, malformed and oversized data are refused before the run
         for bad in ({'event': '0x00'},
                     {'event': '0x00', 'data': 'ABC'},
@@ -353,6 +360,27 @@ class TestValidation(unittest.TestCase):
             T.normalise_script({'steps': [
                 {'type': 'action', 'kind': 'status', 'params': {'attempts': 1},
                  'check': {'por': {'status': 'por_ok'}}}]}, _resolver)
+
+    def test_scp80_refuses_unknown_parameters(self):
+        # v3.40.8: a typo'd (or previously silently-dropped) scp80 parameter
+        # must fail loudly, not vanish - `kic`/`kid` are not step overrides
+        # (the documented knob is `kvn`).
+        for key in ('kic', 'kid', 'cntr', 'tarr', 'sp1'):
+            with self.assertRaises(T.ScriptError):
+                T.normalise_script({'steps': [
+                    {'type': 'action', 'kind': 'scp80',
+                     'params': {'apdu': '80E2', key: '00'}}]}, _resolver)
+        # the documented set still normalises
+        script = T.normalise_script({'steps': [
+            {'type': 'action', 'kind': 'scp80',
+             'params': {'apdu': '80E2', 'tar': 'B00000', 'spi1': '10',
+                        'spi2': '01', 'kvn': 2, 'format': 'compact'}}]}, _resolver)
+        params = script['steps'][0]['params']
+        self.assertEqual(params['tar'], 'B00000')
+        self.assertEqual(params['spi1'], '10')
+        self.assertEqual(params['spi2'], '01')
+        self.assertEqual(params['kvn'], 2)
+        self.assertEqual(params['format'], 'compact')
 
     def test_alpha_and_sms_content_checks(self):
         # `alpha` reads the Alpha identifier ('05', Annex A coded); `sms`
@@ -788,6 +816,26 @@ class TestRunnerProactiveDrain(RunnerTestCase):
         self.assertEqual(len(entry['drained']), 1)
         self.assertEqual(entry['drained'][0]['type_name'], 'DISPLAY TEXT')
         self.assertEqual(entry['sent'], 'STATUS x2; TR x1')
+
+    def test_the_drain_records_the_command_in_the_proactive_log(self):
+        # v3.40.8: a command the runner drains is part of the session's
+        # proactive history too - the expect step logs its FETCH, so a drain
+        # must not leave its commands invisible in /api/proactive-log.
+        scc = FakeScc()
+        scc.push('8012', DISPLAY_TEXT_CMD, '9000')
+        scc.push('8014', '', '9000')
+        saved_log = list(S._PROACTIVE_LOG)
+        saved_start = S._PROACTIVE_SESSION_START
+        S._PROACTIVE_LOG.clear()
+        S._PROACTIVE_SESSION_START = time.time()
+        try:
+            S._test_drain_pending(scc, 9)
+            names = [e.get('type_name') for e in S._PROACTIVE_LOG]
+            self.assertIn('DISPLAY TEXT', names)
+        finally:
+            S._PROACTIVE_LOG.clear()
+            S._PROACTIVE_LOG.extend(saved_log)
+            S._PROACTIVE_SESSION_START = saved_start
 
     def test_require_matches_a_drained_command(self):
         scc = FakeScc()

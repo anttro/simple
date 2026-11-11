@@ -56,6 +56,16 @@ class SetupBatTests(unittest.TestCase):
                        'Scripts\\pip.exe'):
             self.assertIn(marker, self.src)
 
+    def test_echo_inside_a_block_escapes_its_parentheses(self):
+        # The removal notice sits inside `if not defined VENV_OK (...)`; an
+        # unescaped ')' there ends the cmd.exe block early and breaks the whole
+        # script (live: "Непредвиденное появление: ...." on Windows).  Both
+        # parentheses must be ^-escaped.
+        self.assertIn('Removing an incomplete virtual environment ^(a previous '
+                      'setup did not finish^)', self.src)
+        self.assertNotIn('Removing an incomplete virtual environment (a previous '
+                         'setup did not finish)', self.src)
+
     def test_a_failed_creation_removes_the_partial_dir_and_guides(self):
         self.assertIn('if !errorlevel! neq 0', self.src)
         self.assertIn('python -m venv "%VENV_DIR%"', self.src)

@@ -335,6 +335,13 @@ def _normalise_params(kind, p, command_resolver=None):
             raise ScriptError('event: fields must be an object')
         out = {'event': code}
         if code in events.BUILDERS:
+            # A builder event is composed from `fields` only; a `data` value is
+            # a silent no-op otherwise - refuse it loudly (use the raw envelope
+            # action for raw bytes).
+            if p.get('data') not in (None, ''):
+                raise ScriptError('event 0x%02X: this event is built from '
+                                  '`fields` and ignores `data` - use the raw '
+                                  'envelope action for raw bytes' % code)
             try:
                 out['fields'] = events.normalise(code, raw or {})
             except events.EventError as e:
@@ -397,6 +404,13 @@ def _normalise_params(kind, p, command_resolver=None):
         return {'apdu': _data_hex(p.get('apdu'), 'apdu')}
     if kind == 'scp80':
         out = {}
+        # Refuse parameters the step does not consume: a typo'd (or previously
+        # silently-dropped) key must fail loudly, not vanish (v3.40.8).
+        _allowed = ('source', 'apdu', 'sp', 'tar', 'spi1', 'spi2', 'kvn', 'format')
+        for _k in p:
+            if _k not in _allowed:
+                raise ScriptError('scp80: unknown parameter %r (accepted: %s)'
+                                  % (_k, ', '.join(_allowed)))
         source = str(p.get('source') or '').lower()
         if source not in ('', 'apdu', 'sp'):
             raise ScriptError('scp80: source must be apdu or sp')

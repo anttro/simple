@@ -43,7 +43,7 @@ if exist "%VENV_DIR%" (
     if not exist "%VENV_DIR%\Scripts\python.exe" set "VENV_OK="
     if not exist "%VENV_DIR%\Scripts\pip.exe" set "VENV_OK="
     if not defined VENV_OK (
-        echo Removing an incomplete virtual environment (a previous setup did not finish)...
+        echo Removing an incomplete virtual environment ^(a previous setup did not finish^)...
         rmdir /s /q "%VENV_DIR%"
     )
 )

@@ -142,7 +142,7 @@ class EquipFlowIccidTest(unittest.TestCase):
         with mock.patch.object(server, '_cancel_menu_timeout'), \
              mock.patch.object(server, '_timer_cancel'), \
              mock.patch.object(server, '_reset_proactive_log'), \
-             mock.patch.object(server, '_poll_enable'), \
+             mock.patch.object(server, '_reset_poll_timer'), \
              mock.patch.object(server, '_send_terminal_profile', return_value=(None, None)), \
              mock.patch.object(server, '_tlog'), \
              mock.patch.object(server, '_read_iccid', return_value=read_result):

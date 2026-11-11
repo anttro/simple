@@ -1990,7 +1990,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.7';
+const SIMPLE_VERSION = '3.40.8';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -19955,33 +19955,47 @@ function decPlmn(hex3) {
 }
 
 function decImei(hex8) {
-	const h = hex8.replace(/\s/g, '').slice(0, 16);
-	if (h.length < 16) return '';
-	let s = '';
-	for (let i = 0; i < 15; i += 2) {
-		const b = parseInt(h[i]+h[i+1], 16);
-		s += '' + (b&0xF) + ((b>>4)&0xF);
+	// The value part is the TS 24.008 Mobile Identity (10.5.1.4): the first
+	// byte's high nibble is identity digit 1 (the odd/even + type 010/011 sit
+	// in the low nibble), the remaining digits are nibble-swapped BCD and an
+	// 'F' nibble marks the end (the spare half octet).  This mirrors the
+	// server's _dec_imei.
+	const h = hex8.replace(/\s/g, '');
+	if (h.length < 4) return '';
+	let s = '' + parseInt(h[0], 16);
+	for (let i = 1; i * 2 < h.length; i++) {
+		const lo = parseInt(h[2 * i + 1], 16);
+		if (lo === 0xF) break;
+		s += '' + lo;
+		const hi = parseInt(h[2 * i], 16);
+		if (hi === 0xF) break;
+		s += '' + hi;
 	}
-	return s.slice(0, 15);
+	return s;
 }
 
 function encImeiPli(digits) {
+	// Mobile Identity value part (TS 24.008 10.5.1.4): digit 1 + odd/even (1)
+	// + type 010 (IMEI) in the first byte, then the remaining 14 digits
+	// nibble-swapped BCD (15 digits is odd, so no spare half octet).
 	const d = digits.replace(/\D/g, '').slice(0, 15);
 	if (d.length < 15) return '';
-	let h = '';
-	for (let i = 0; i < 14; i += 2)
-		h += (parseInt(d[i+1])<<4 | parseInt(d[i])).toString(16).padStart(2, '0');
-	// the odd 15th digit takes the low nibble, F pads the high one
-	h += (0xF0 | parseInt(d[14])).toString(16).padStart(2, '0');
+	let h = (parseInt(d[0], 10) << 4 | 0xA).toString(16).padStart(2, '0');
+	for (let i = 1; i < 14; i += 2)
+		h += (parseInt(d[i + 1], 10) << 4 | parseInt(d[i], 10)).toString(16).padStart(2, '0');
 	return h;
 }
 
 function encImeisvPli(digits) {
+	// Mobile Identity value part for IMEISV (type 011, even): digit 1 + even
+	// + type 011 first, then 15 digits nibble-swapped BCD with the spare high
+	// nibble F-padded on the last byte.
 	const d = digits.replace(/\D/g, '').slice(0, 16);
 	if (d.length < 16) return '';
-	let h = '';
-	for (let i = 0; i < 16; i += 2)
-		h += (parseInt(d[i+1])<<4 | parseInt(d[i])).toString(16).padStart(2, '0');
+	let h = (parseInt(d[0], 10) << 4 | 0x3).toString(16).padStart(2, '0');
+	for (let i = 1; i < 14; i += 2)
+		h += (parseInt(d[i + 1], 10) << 4 | parseInt(d[i], 10)).toString(16).padStart(2, '0');
+	h += (0xF0 | parseInt(d[15], 10)).toString(16).padStart(2, '0');
 	return h;
 }
 
@@ -20088,19 +20102,12 @@ const PLI_CODECS = {
 		encode(v) { return '3F01' + (parseInt(v.tech)||0).toString(16).padStart(2,'0'); },
 		fields: [{id:'tech',label:'Access Technology',type:'select',opts:ACCESSTECH}],
 	},
-	'08': { tlv: '6208',
+	'08': { tlv: '6209',
 		decode(hex) {
-			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 16) return null;
-			return { imeisv: decImei(v) + v.slice(14,16).toUpperCase() };
+			const v = hex.replace(/\s/g, '').slice(4); if (v.length < 18) return null;
+			return { imeisv: decImei(v) };
 		},
-		encode(v) {
-			const raw = (v.imeisv||'').replace(/\D/g, '').slice(0, 16);
-			if (raw.length < 16) return '';
-			let h = '';
-			for (let i = 0; i < 16; i += 2)
-				h += (parseInt(raw[i+1])<<4 | parseInt(raw[i])).toString(16).padStart(2,'0');
-			return '6208' + h;
-		},
+		encode(v) { const imeisv = encImeisvPli(v.imeisv||''); return imeisv ? '6209'+imeisv : ''; },
 		fields: [{id:'imeisv',label:'IMEISV',type:'text',pattern:'\\d{16}',placeholder:'16 digits'}],
 	},
 	'09': { tlv: '6501',

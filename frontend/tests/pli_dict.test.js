@@ -44,16 +44,16 @@ test('the PLI codec tags follow TS 101 220 Table 7.23, base (CR=0) form', () => 
 	// the base tag values (13/14/2D/2E/3F/62/65/63/26), not the CR-set forms
 	assert.strictEqual(PLI_CODECS['00'].tlv, '1305');
 	assert.strictEqual(PLI_CODECS['01'].tlv, '1408');
-	assert.strictEqual(PLI_CODECS['01'].encode({ imei: '490154203237518' }), '140894104502237315f8');
+	assert.strictEqual(PLI_CODECS['01'].encode({ imei: '490154203237518' }), '14084a09512430325781');
 	assert.strictEqual(PLI_CODECS['04'].tlv, '2D02');
 	assert.strictEqual(PLI_CODECS['06'].tlv, '3F01');
 	// 05 Timing Advance: 2E (C6 is a 3GPP2 tag)
 	assert.strictEqual(PLI_CODECS['05'].tlv, '2E02');
 	assert.strictEqual(PLI_CODECS['05'].encode({ status: '0', ta: '0' }), '2E020000');
-	// 08 IMEISV: 62 (94 is the IMEI tag)
-	assert.strictEqual(PLI_CODECS['08'].tlv, '6208');
+	// 08 IMEISV: 62 (94 is the IMEI tag); Mobile Identity, 9-byte value
+	assert.strictEqual(PLI_CODECS['08'].tlv, '6209');
 	assert.strictEqual(PLI_CODECS['08'].encode({ imeisv: '4901542032375108' }),
-		'62089410450223731580');
+		'62094309512430325701f8');
 	// 09 Network search mode: 65, '00' Manual / '01' Automatic (8.75)
 	assert.strictEqual(PLI_CODECS['09'].tlv, '6501');
 	assert.strictEqual(PLI_CODECS['09'].fields[0].opts[0].l, 'Manual');
@@ -65,25 +65,31 @@ test('the PLI codec tags follow TS 101 220 Table 7.23, base (CR=0) form', () => 
 	assert.strictEqual(PLI_CODECS['0E'].tlv, '3F');
 });
 
-test('the IMEI encoder pads the odd 15th digit with F (TS 124 008)', () => {
-	// the encoder's digits are lowercase (the server accepts either case)
-	assert.strictEqual(encImeiPli('490154203237518'), '94104502237315f8');
-	assert.strictEqual(decImei('94104502237315F8'), '490154203237518');
+test('the IMEI codec uses the TS 24.008 Mobile Identity form', () => {
+	// the first byte carries digit 1 + odd/even + type 010 (IMEI) / 011
+	// (IMEISV); the remaining digits are nibble-swapped BCD.  The encoder's
+	// digits are lowercase (the server accepts either case).
+	assert.strictEqual(encImeiPli('490154203237518'), '4a09512430325781');
+	assert.strictEqual(decImei('4A09512430325781'), '490154203237518');
+	assert.strictEqual(encImeisvPli('4901542032375108'), '4309512430325701f8');
+	assert.strictEqual(decImei('4309512430325701F8'), '4901542032375108');
 });
 
 test('the server PLI defaults decode through their codecs', () => {
 	// mirrors PLI_DEFAULTS in server.py (v3.23.1; a drift guard for the codecs)
 	const defaults = {
-		'00': '130500F1100000', '01': '140894104502237315F8',
+		'00': '130500F1100000', '01': '14084A09512430325781',
 		'04': '2D02656E', '05': '2E020000', '06': '3F0108',
-		'08': '62089410450223731580', '09': '650101',
+		'08': '62094309512430325701F8', '09': '650101',
 		'0A': '630104', '0E': '3F020308',
 	};
 	for (const [code, hex] of Object.entries(defaults)) {
 		assert.ok(PLI_CODECS[code].decode(hex), code + ' must decode');
 	}
-	assert.strictEqual(PLI_CODECS['01'].decode('140894104502237315F8').imei,
+	assert.strictEqual(PLI_CODECS['01'].decode('14084A09512430325781').imei,
 		'490154203237518');
+	assert.strictEqual(PLI_CODECS['08'].decode('62094309512430325701F8').imeisv,
+		'4901542032375108');
 	assert.deepStrictEqual(PLI_CODECS['09'].decode('650101'), { mode: '1' });
 	assert.deepStrictEqual(PLI_CODECS['0A'].decode('630104'), { charge: '4' });
 });

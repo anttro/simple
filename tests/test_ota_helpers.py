@@ -1045,11 +1045,14 @@ class TestProactiveDecode(unittest.TestCase):
         # is the Network Rejection event form, TS 31.111 8.19.1)
         self.assertEqual(d[0x00], '130700F11000010001')
         self.assertEqual(len(bytes.fromhex(d[0x00])), 9)
-        self.assertEqual(d[0x01], '140894104502237315F8')  # IMEI, F pad
+        # the IMEI/IMEISV are coded as the TS 24.008 Mobile Identity value
+        # part (10.5.1.4): digit 1 + odd/even + type 010/011 first, then the
+        # remaining digits nibble-swapped BCD (F end-mark on the odd last).
+        self.assertEqual(d[0x01], '14084A09512430325781')  # IMEI, Mobile Identity
         self.assertEqual(d[0x04], '2D02656E')              # 'en'
         self.assertEqual(d[0x05], '2E020000')              # Timing Advance
         self.assertEqual(d[0x06], '3F0108')                # E-UTRAN
-        self.assertEqual(d[0x08], '62089410450223731580')  # IMEISV
+        self.assertEqual(d[0x08], '62094309512430325701F8')  # IMEISV
         self.assertEqual(d[0x09], '650101')                # automatic
         self.assertEqual(d[0x0A], '630104')                # battery full
         self.assertEqual(d[0x0E], '3F020308')              # UTRAN + E-UTRAN
@@ -1102,8 +1105,16 @@ class TestProactiveDecode(unittest.TestCase):
         ])
 
     def test_decode_tr_pli_imei(self):
-        r = _decode_tr('26', '01', '94082143658709214305')
+        # the Mobile Identity form (digit 1 + odd/even + type 010 first) for
+        # 123456789012345: '1A' then 32 54 76 98 10 32 54 nibble-swapped BCD.
+        r = _decode_tr('26', '01', '94081A32547698103254')
         self.assertEqual(r[0], {'label': 'IMEI', 'value': '123456789012345'})
+
+    def test_decode_tr_pli_imeisv(self):
+        # the Mobile Identity form (digit 1 + even + type 011 first) for the
+        # 16-digit IMEISV 1234567890123408: '13' then 32 54 76 98 10 32 04 F8.
+        r = _decode_tr('26', '08', '62091332547698103204F8')
+        self.assertEqual(r[0], {'label': 'IMEISV', 'value': '1234567890123408'})
 
     def test_decode_tr_pli_datetime(self):
         # 8.39 object in the TP-SCTS coding (TS 123 040 9.2.3.11): swapped

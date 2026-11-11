@@ -38,7 +38,7 @@ from osmocom.tlv import BER_TLV_IE
 from osmocom.utils import rpad
 
 
-VERSION = '3.40.7'
+VERSION = '3.40.8'
 
 MAX_ENVELOPE_SEGMENTS = 5  # max SMS segments for outgoing C-APDU in ENVELOPE
 
@@ -3718,17 +3718,20 @@ PLI_DEFAULTS = {
     # a PLI answer must carry the Cell ID (length 07), otherwise the location
     # reads as empty and a card applet may re-request it forever.
     0x00: '1307' + '00F110' + '0001' + '0001',
-    # IMEI (8.20): the classic test IMEI 490154203237518, nibble-swapped
-    # BCD with the odd 15th digit padded by F (TS 124 008 Mobile Identity)
-    0x01: '1408' + '94104502237315F8',
+    # IMEI (8.20): the classic test IMEI 490154203237518, coded as the value
+    # part of the TS 24.008 Mobile Identity (10.5.1.4): digit 1 + odd/even +
+    # type 010 = '4A', then the remaining digits nibble-swapped BCD.
+    0x01: '1408' + '4A09512430325781',
     # Language (8.45): 'en' in the SMS default alphabet (bit 8 clear)
     0x04: '2D02' + '656E',
     # Timing Advance (3GPP; base tag 2E): ME status 00 + TA 00
     0x05: '2E02' + '0000',
     # Access technology (8.61): E-UTRAN
     0x06: '3F01' + '08',
-    # IMEISV (8.74, base tag 62): the test IMEI + SVN 08
-    0x08: '6208' + '9410450223731580',
+    # IMEISV (8.74, base tag 62): the test IMEI + SVN 08, coded as the Mobile
+    # Identity value part - digit 1 + even + type 011 = '43', then the digits
+    # nibble-swapped BCD, F-padded.
+    0x08: '6209' + '4309512430325701F8',
     # Network search mode (8.75, base tag 65): automatic
     0x09: '6501' + '01',
     # Battery state (8.76, base tag 63): full
@@ -4072,15 +4075,25 @@ def _dec_plmn(hex6):
 
 
 def _dec_imei(hex8):
-    """Decode 8-byte IMEI (nibble-swapped, 15 digits)."""
-    h = re.sub(r'\s', '', hex8)[:16]
-    if len(h) < 16:
+    """Decode an IMEI/IMEISV coded as the TS 24.008 Mobile Identity value part
+    (10.5.1.4): the first byte's high nibble is identity digit 1 (odd/even +
+    type 010/011 in the low nibble), the remaining digits are nibble-swapped
+    BCD, stopping at the end-mark nibble 'F'."""
+    h = re.sub(r'\s', '', hex8)
+    if len(h) < 4:
         return ''
-    s = ''
-    for i in range(0, 15, 2):
-        b = int(h[i:i + 2], 16)
-        s += '%d%d' % (b & 0xF, (b >> 4) & 0xF)
-    return s[:15]
+    b = bytes.fromhex(h)
+    s = str((b[0] >> 4) & 0xF)
+    for i in range(1, len(b)):
+        lo = b[i] & 0xF
+        if lo == 0xF:
+            break
+        s += str(lo)
+        hi = (b[i] >> 4) & 0xF
+        if hi == 0xF:
+            break
+        s += str(hi)
+    return s
 
 
 def _cmd_tlv(tlvs, tag):
@@ -4402,7 +4415,9 @@ def _decode_tr(type_hex, qual_hex, tr_hex):
                 return [{'label': 'MCC', 'value': mcc}, {'label': 'MNC', 'value': mnc},
                         {'label': 'LAC/TAC', 'value': v[6:10].upper()}]
             if qual == 0x01 and len(v) >= 16:
-                return [{'label': 'IMEI', 'value': _dec_imei(v[:16])}]
+                # The value part is the TS 24.008 Mobile Identity (10.5.1.4):
+                # the leading parity/type byte is part of it, not a prefix.
+                return [{'label': 'IMEI', 'value': _dec_imei(v)}]
             if qual == 0x03 and len(v) >= 14:
                 # Date-Time and Time zone (TS 102 223 8.39): TP-SCTS coding
                 # (TS 123 040 9.2.3.11) - swapped semi-octet BCD digits, the
@@ -4435,8 +4450,10 @@ def _decode_tr(type_hex, qual_hex, tr_hex):
                 tech = int(v[0:2], 16)
                 return [{'label': 'Access Technology',
                          'value': '%s (%d)' % (ACCESSTECH_NAMES.get(tech, 'Unknown'), tech)}]
-            if qual == 0x08 and len(v) >= 16:
-                return [{'label': 'IMEISV', 'value': _dec_imei(v[:16]) + v[14:16].upper()}]
+            if qual == 0x08 and len(v) >= 18:
+                # The Mobile Identity form carries the SVN (16 digits); the old
+                # 'append v[14:16]' tail read the SVN from the plain-BCD form.
+                return [{'label': 'IMEISV', 'value': _dec_imei(v)}]
             if qual == 0x09 and len(v) >= 2:
                 mode = int(v[0:2], 16)
                 return [{'label': 'Search Mode', 'value': 'Manual' if mode == 1 else ('Automatic' if mode == 0 else str(mode))}]
@@ -5638,10 +5655,13 @@ def _apply_equipped_card(server):
     else:
         server.net_state = None
         _tlog('equip: ICCID not readable - network state skipped')
-    # A new card session starts with polling allowed; a POLLING OFF from the
-    # previous card does not survive the swap.
+    # A new card session clears the card's POLLING OFF; the operator's own
+    # toggle (_POLL_ENABLED, /api/poll-toggle) is a deliberate preference and
+    # must survive an equip/start_reset - only re-arm the timer when polling
+    # was left enabled.
     _POLL_DISABLED_BY_CARD = False
-    _poll_enable()
+    if _POLL_ENABLED:
+        _reset_poll_timer()
     sm, el = _send_terminal_profile(server.scc, server.terminal_profile)
     server.sim_menu = sm
     server.event_list = el
@@ -8574,6 +8594,10 @@ def _test_drain_pending(scc, fetch_len, result=0x00, max_commands=3):
                 break
             raw = bytes.fromhex(fdata)
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag = _parse_proactive_header(raw)
+            # The drained command is part of the session's proactive history
+            # too (v3.40.8): the expect step logs its FETCH, so a command
+            # answered by the drain must not be invisible in /api/proactive-log.
+            _log_proactive(cmd_type, raw, cmd_qual, cmd_num)
             tr = _test_step_tr(scc, cmd_num, cmd_type, dev_src, dev_dst,
                                cmd_qual, cd_tag, {'result': result}, raw)
             rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr), tr.hex()))

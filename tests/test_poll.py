@@ -156,6 +156,43 @@ class TestCardDrivenPolling(unittest.TestCase):
         fields = S._decode_cmd(0x03, bytes.fromhex(SEC_30_TLV), 0)
         self.assertEqual(fields[0]['value'], '30 s')
 
+    def _apply_equipped(self):
+        # a minimal fake card + server for _apply_equipped_card; the ICCID
+        # read returns None so the network/ARR/PBR paths are skipped.
+        scc = types.SimpleNamespace(cat_cla=None)
+        card = types.SimpleNamespace(_scc=scc)
+        app = types.SimpleNamespace(card=card)
+        srv = types.SimpleNamespace(app=app, terminal_profile='FF', card=None,
+                                    scc=None)
+        with mock.patch.object(S, '_cancel_menu_timeout'), \
+                mock.patch.object(S, '_timer_cancel'), \
+                mock.patch.object(S, '_reset_proactive_log'), \
+                mock.patch.object(S, '_read_iccid', return_value=None), \
+                mock.patch.object(S, '_tlog'), \
+                mock.patch.object(S, '_send_terminal_profile', return_value=(None, None)):
+            S._apply_equipped_card(srv)
+        return srv
+
+    def test_equip_clears_the_card_polling_off_not_the_operator_toggle(self):
+        # v3.40.8: an equip clears the card's POLLING OFF, but the operator's
+        # /api/poll-toggle preference (_POLL_ENABLED) must survive it - the
+        # old _poll_enable() un-paused a poller the operator had disabled.
+        S._POLL_ENABLED = False
+        S._POLL_DISABLED_BY_CARD = True
+        with mock.patch.object(S, '_reset_poll_timer') as timer:
+            self._apply_equipped()
+        self.assertFalse(S._POLL_ENABLED)            # operator toggle preserved
+        self.assertFalse(S._POLL_DISABLED_BY_CARD)   # the card's OFF is cleared
+        timer.assert_not_called()
+
+    def test_equip_rearms_the_timer_only_when_polling_is_enabled(self):
+        S._POLL_ENABLED = True
+        S._POLL_DISABLED_BY_CARD = True
+        with mock.patch.object(S, '_reset_poll_timer') as timer:
+            self._apply_equipped()
+        timer.assert_called_once()
+        self.assertFalse(S._POLL_DISABLED_BY_CARD)
+
 
 class FakeChattyScc:
     """A card that re-queues the same PROVIDE LOCAL INFORMATION immediately

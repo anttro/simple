@@ -9,6 +9,45 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.8] — 2026-11-11
+
+### Fixed
+
+- **PLI IMEI / IMEISV are coded as the TS 24.008 Mobile Identity** (10.5.1.4),
+  not plain nibble-swapped BCD.  The first byte now carries identity digit 1
+  in the high nibble and the odd/even + type (010 IMEI / 011 IMEISV) in the
+  low nibble, so an applet that drops the leading object nibble no longer
+  prints the IMEI one digit short (tracker `90154203237518` vs
+  `490154203237518`).  Fixed in the server defaults (`PLI_DEFAULTS`), the
+  server-side decode (`_dec_imei`, `_decode_tr`) and the PWA's PLI codecs
+  (`decImei` / `encImeiPli` / `encImeisvPli`); the IMEISV value is 9 bytes
+  (`62 09 …`, carrying the SVN).
+
+- **Test-script parameters are no longer silently dropped.**  An scp80 step
+  now refuses any parameter it does not consume (`kic`, `kid`, `cntr`, a
+  typo like `tarr`), and a builder event (0x03/0x0B/0x12/0x1D) refuses a
+  stray `data` value - both used to vanish with no error.  The keyless
+  SCP80 form is expressed through the preset's keyset/TAR, not step-level
+  `kic`/`kid` (the documented knob is `kvn`); the raw `envelope` action
+  carries raw bytes.
+
+- **An equip / `start_reset` no longer re-enables a poller the operator
+  disabled.**  `_apply_equipped_card` reset the operator's `/api/poll-toggle`
+  preference (`_POLL_ENABLED`) via `_poll_enable()`; it now clears only the
+  card's POLLING OFF (`_POLL_DISABLED_BY_CARD`) and re-arms the timer only
+  when polling was left enabled.
+
+- **Commands drained by a test run land in `/api/proactive-log`.**  The
+  `proactive-drain` step and the run cleanup fetched/answered commands without
+  appending them to the proactive history, so drained SMS texts were
+  invisible outside the run report; the drain now logs each FETCH like the
+  expect step.
+
+- **`setup.bat` no longer breaks at the removal notice.**  The "Removing an
+  incomplete virtual environment (…)" echo sat inside a parenthesised block
+  and its `)` ended the block early (Windows `Непредвиденное появление: ....`);
+  both parentheses are now `^`-escaped.
+
 ## [3.40.7] — 2026-11-11
 
 ### Fixed
