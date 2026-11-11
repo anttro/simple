@@ -9,6 +9,19 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [3.40.9] — 2026-11-11
+
+### Fixed
+
+- **`pyproject.toml` license metadata modernised (PEP 639).**  The deprecated
+  `license = { text = "..." }` table and `tool.setuptools.license-files` were
+  replaced with the SPDX string `license = "GPL-2.0-or-later"` and
+  `project.license-files` — setuptools ≥ 77 now emits a deprecation warning for
+  the old forms and will reject them after 2027-02-18, so a Windows `setup.bat`
+  run logged `BuildBackendWarning` for both during `pip install -e .`.  The
+  wheel metadata is now `License-Expression: GPL-2.0-or-later` with
+  `License-File: LICENSE` / `THIRD-PARTY-NOTICES` under `dist-info/licenses/`.
+
 ## [3.40.8] — 2026-11-11
 
 ### Fixed
