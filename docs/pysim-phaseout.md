@@ -11,7 +11,7 @@
 |---|---|---|
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green) |
 | 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green) |
-| 2 | SCP80/OTA + SMS/CAT/ENVELOPE | not started |
+| 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green) |
 | 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | not started |
 
 ## Phase 0 outcome
@@ -52,6 +52,50 @@ TERMINAL PROFILE + the proactive drain remain Phase 3 (documented in
 `cards.init_card`).  50 new tests (`tests/test_simple_files.py` + two transport
 tests); full suite 1234 green.  Not done: `simple_server` is not in
 `pyproject.toml`'s package list yet (it ships with the Phase 3 entry point).
+
+## Phase 2 outcome
+
+`simple_server/` gained `scp80.py` (SCP80 secured packets: the TS 102 225
+coding tables, `spi_from_bytes`, `Keyset.from_bytes` (algorithm nibble +
+keyset number, `00` → `implicit`, an unknown nibble refused only when the
+algorithm is used), the `CryptoAlgo`/`AuthAlgo` classes over `pycryptodomex`
+(DES/3DES/AES-CBC, CBC-MAC and AES-CMAC-8), `encode_cmd` (any size - the
+`_encode_cmd_unlimited` coding plus the unciphered CPL octets of
+`_build_secured_packet`, so a >140-octet packet can be split),
+`build_secured_packet`, `split_secured_packet` + the `SCP80_*` capacities,
+`decode_resp` (RPI check, response header, optional deciphering with the
+PCNTR strip, CC/RC verification), `parse_compact` (TS 102 226 §5.1.2 Table
+5.1), `counter_tracked` and `increment_counter_hex`), `sms.py` (the TS 23.040
+`UserDataHeader` with the concat IEs `00`/`08` and RPI `71`, `SmsSubmit` and
+`SmsDeliver` parse/build, `encode_oa`/`encode_tp_address`/
+`decode_tp_address`(+`_value`), `encode_scts`/`decode_scts`,
+`decode_ud_text`, the SMS-PP download `build_sms_tpdu`, `find_sms_tpdu`,
+`ud_offset` and `parse_sms_concat`) and `cat.py` (`DeviceIdentities`,
+`Address`, the `D1` `SmsPpDownload` template and `envelope_apdu`).
+
+**Parity with the existing server** was checked with a throwaway script that
+imported both implementations: every pinned command vector
+(`_build_secured_packet` × 13 parameter sets + 10 random C-APDU lengths per
+SPI), all 256×256 SPI combinations, the six pinned response packets
+(`decode_resp` vs `_decode_por`: status/TAR/CNTR/PCNTR/RPL/RHL/RC-CC/secured
+data), the four `_build_sms_tpdu` layouts, the ENVELOPE bytes against pySim's
+`SMSPPDownload` (with and without the address object) and `find_sms_tpdu` on
+the real FETCH captures are **byte-identical**.  Three deliberate deviations:
+`ud_offset` fixes the existing `_calc_ud_offset` DELIVER branch (it omits the
+address type octet, so its TP-UD offset is one octet short and
+`parse_sms_concat` cannot read an SMS-DELIVER TPDU - the download direction);
+the response RC (`por_rc_cc_ds = 'rc'`) is verified as CRC-32 over the same
+range as the CC (pySim has a TODO there and refuses); and `decode_resp` walks
+the actual UDH length rather than pySim's hard-coded 3 octets (identical for
+the conforming `02 71 00` header).  Documented gaps: the DS signature coding
+is refused (the specs leave the scheme open), the response-scripting content
+parse (TS 102 226 §5.2.2) is left to the caller, and no card vector exists in
+the corpus for an RC-only response - that branch is pinned by a
+self-consistency test only.
+
+116 new tests (`tests/test_simple_scp80.py` 62, `tests/test_simple_sms.py`
+54); full suite 1350 green.  Still not in `pyproject.toml`'s package list
+(same as Phase 1 - it ships with the Phase 3 entry point).
 
 ## Goal & scope
 
