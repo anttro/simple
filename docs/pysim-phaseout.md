@@ -115,6 +115,33 @@ chaining bound; the name/FID/EF parent paths; the ciphered-PoR and TPDU forms;
 TLV truncation; a pin that the watchdog's thread name matches
 `_test_watchdog_start`); full suite 1367 green.
 
+## Phase 3b outcome (first half: the pure proactive/TR layer)
+
+`simple_server/proactive.py` (command decode) and `simple_server/tr.py`
+(TERMINAL RESPONSE build + decode) exist.  They are behavioural ports of the
+existing server's private helpers - `parse_proactive_header` (`_parse_...`),
+`decode_proactive_command` (`_decode_cmd` + the DISPLAY TEXT / SELECT ITEM /
+SET UP MENU / GET INKEY / GET INPUT / BIP / TIMER / SEND SHORT MESSAGE /
+event-list sub-decoders), `decode_poll_negotiation`, `build_tr`, `decode_tr`,
+`tr_data_only`, `extract_tr_result` and the §8.12.0/§8.12.2 result tables -
+with the I/O switched to bytes and the `pySim`/`osmocom` surface replaced by
+`simple_server.tlv`/`text`/`sms`/`cat` (the BIP `Other address`/transport-level
+decoders and their tags came along from `httpota`, which stays in the legacy
+package).  Everything is pure: no transport, no card state, no module globals.
+
+Deliberate deviations from the legacy helpers (all pinned in
+`tests/test_simple_proactive.py`, 53 tests): the command TLV region is
+everything after the `D0` length (a card's template length is sometimes off by
+a byte, the same tolerance `sms.find_sms_tpdu` documents) and `find_duration`
+plus the SET UP EVENT LIST decode are BER-safe TLV walks instead of byte scans;
+`build_tr` takes the terminal's own answer objects as `answer_tlvs` (bytes, hex
+or `(tag, value)` pairs) instead of reading the PLI dictionary / poll interval,
+and selects the Result object - the general `83 02 R I` form by default (the
+scripted-TR shape) or the basic `03 01 R` form the terminal chain uses (both
+byte-identical to the respective legacy builders).  Not done (the second half):
+wiring these into the FETCH/TERMINAL RESPONSE chain, the STATUS poll, the menu
+state machine and the PLI dictionary/clock answers.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -150,6 +177,51 @@ Every spec-sensitive module is verified against the pinned PDFs
   `FF`) — a card deviation.  The server re-initializes after a switch anyway
   (`_esim_reinit`), so the Phase 3c switch orchestration should prefer
   `refreshFlag` FALSE; the legacy server still defaults TRUE/`01`.
+
+## Phase 3c API surface (locked decisions)
+
+The pysim-free server must not expose pySim's interpreter.  The PWA's
+Card reader tab currently has four pills (File manager / Services / **pySim
+command line** / Raw APDU) and a status block fed by `/api/status`:
+
+- **Remove the pySim command line.**  No `/api/command` passthrough, no
+  `/api/help`, no `/api/commands`, no `/api/cardinfo` (the PWA never used
+  `cardinfo`; it exists only as an API surface).  The PWA's *pySim command
+  line* pill, its `pysimExec`/`pysimLoadCommands`/`pysimCmdInput`/
+  `pysimCmdKeydown` helpers, the command-suggestion/help UI and the
+  `pysim-cmdline` help section go at cutover (the legacy server keeps its
+  endpoints; the PWA just stops calling them).  The three actions the pill
+  was used for get dedicated endpoints instead: `POST /api/equip`,
+  `POST /api/reset`, and the state from `GET /api/status`.
+- **Keep raw APDU.**  `POST /api/apdu {apdu}` stays (core workbench
+  feature), implemented directly on our `transport.send_apdu` with the same
+  `{response, sw}` contract.  "Raw" is genuinely raw: the APDU is sent as
+  given and a `91XX` is reported as-is (the CAT FETCH/TR chain is a separate,
+  explicit action, not a hidden auto-handler).
+- **Replace pySim's status block with our own.**  The PWA's status line
+  today prints pySim internals — `Card: <name>`, `Profile: <rs.profile>`,
+  `CLA`/`SEL` (the `SimCardCommands` parameters), logical `Channels`, and a
+  pySim-shaped `current_selection` (`name/type/fid/path/file_size/record_len/
+  num_of_rec`).  The new `/api/status` defines its own shape — no pySim
+  concepts — e.g. `reader`, `atr`, `card` (our class: UICC/SIM/eUICC, plus a
+  human name), `iccid`, `connected`/`card_present`/`equipping`/
+  `card_session`, and a `selection` object we own (`path`, `name`, `fid`,
+  `kind`, `size`, `record_len`, `num_records`).  The PWA renders that shape
+  instead of the pySim one; all the information the UI actually needs stays,
+  the pySim internals go.
+- **Retire "Verify vs pySim".**  The SCP80 tab's `/api/sp-verify` cross-checks
+  the PWA's JS packet builder against pySim's `OtaDialectSms.encode_cmd`; with
+  no pySim there is no external reference left.  Drop the button and the
+  endpoint at cutover (or, if kept, relabel it honestly as a server-side
+  re-implementation check — our JS and our Python are the same logic, so it
+  proves symmetry, not correctness).  The PWA's own packet preview stays.
+- **Keep, but back with our model:** `/api/tree`, `/api/select`, `/api/read`,
+  `/api/write` (our `files`/`commands`/`fcp` modules), `/api/apdu`, the
+  presets/test-script stores (already pysim-free) and `/api/esim/*` (already
+  reimplemented on `simple_server.esim`).
+
+These are Phase 3c (server) + cutover (PWA) work; the legacy server and the
+current PWA stay untouched until the cutover.
 
 ## Goal & scope
 
