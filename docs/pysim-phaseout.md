@@ -262,6 +262,20 @@ command line** / Raw APDU) and a status block fed by `/api/status`:
   presets/test-script stores (already pysim-free) and `/api/esim/*` (already
   reimplemented on `simple_server.esim`).
 
+**Deferred idea (user, 2026-11-22): two SCP80 send buttons.**  Split "Send to
+Card" into (a) *send the secured packet as built in the frontend* and (b) *send
+the C-APDU + settings and let the server build the packet*.  The server already
+supports both forms today - `/api/send-ota` takes `sp` (pre-built) or `apdu` +
+the SPI/keys/counter parameters - but the PWA only ever sends `sp`, so this is
+a UI affordance, not new capability.  Note the counter semantics differ: the
+`sp` path uses the packet's own counter (the caller's bookkeeping), while the
+`apdu` path seeds from the preset's keyset and persists the consumed counter
+(server-owned since v3.20.0), so the two buttons are not interchangeable.
+Not implemented yet - the single "send exactly what is previewed" flow is the
+clearest mental model for a workbench; add the second button if a concrete
+need appears (e.g. suspecting the JS builder, or sending a C-APDU without
+building it in the UI).
+
 These are Phase 3c (server) + cutover (PWA) work; the legacy server and the
 current PWA stay untouched until the cutover.
 
