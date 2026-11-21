@@ -97,6 +97,28 @@ self-consistency test only.
 54); full suite 1350 green.  Still not in `pyproject.toml`'s package list
 (same as Phase 1 - it ships with the Phase 3 entry point).
 
+## Spec compliance (spec-checker)
+
+Every spec-sensitive module is verified against the pinned PDFs
+(`/home/catarrh/kb/uicc-esim-kb/`) by the spec-checker before it is relied on.
+
+- **Phase 0/1 (all CONFIRMED):** the FCP file-descriptor byte (TS 102 221
+  Table 11.5 — shareable b7, file type b6–b4, structure b3–b1, BER-TLV = b6–b4
+  111 + b3–b1 001), the three Annex A alpha-field variants (TS 102 221 Annex A),
+  the CAT CLA (80 UICC / A0 SIM), the SELECT forms (Le 00 for the full FCP; the
+  TS 51 011 §9.2.1 SIM form) and the T=0 rules (TS 102 221 §7.3.1.1 — case
+  transform, GET RESPONSE on 61xx/62xx/63xx, 6Cxx resend).
+- **Phase 2 (CONFIRMED, one fix):** the SPI coding (TS 102 225 §5.1.1), KIc/KID
+  algorithm nibble + keyset number (§5.1.2/A.2), the CNTR/PCNTR/CHL/CPL header,
+  the SMS-SUBMIT TPDU + UDH concatenation (TS 23.040) and the SMS-PP download
+  ENVELOPE (TS 31.111 §7.1.1.2 — source Network 83 / destination UICC 81).
+  Fixed: SPI1.b5b4=11 is "one higher", not "lower" (the legacy server keeps
+  pySim's misnomer enum key — it is passed straight to pySim's construct Enum;
+  `scp80` uses the spec label).  Documented limitations: RC is CRC-32 only
+  (CRC-16 not offered), and KID's meaning is context-dependent (CRC for RC,
+  CBC-MAC/CMAC for CC) — `scp80` computes RC via `zlib.crc32` directly, so the
+  flat auth-algo map is only used for CC.
+
 ## Goal & scope
 
 - A parallel, self-contained server in `simple_server/` (sibling of
