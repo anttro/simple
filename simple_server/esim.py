@@ -30,10 +30,19 @@ notifications (ListNotification) and GetRat.  Profile download
 are out of scope, like the existing server's eSIM support.
 
 Deviation worth knowing: SGP.22 v2.6 §5.7.16/§5.7.17 print
-``profileIdentifier`` as an untagged ``CHOICE`` inside ``BF31``/``BF32``, but
-pySim - and therefore the existing server's ``build_switch_apdu`` - wraps it
-in an ``A0``.  :class:`ProfileIdentifier` keeps that ``A0`` form so the
-packets stay byte-identical to the ones the live eSIM view already sends.
+``profileIdentifier`` as a ``CHOICE`` inside ``BF31``/``BF32``, but pySim -
+and therefore the existing server's ``build_switch_apdu`` - wraps it in an
+``A0``.  :class:`ProfileIdentifier` keeps that ``A0`` form.  The spec-checker
+confirmed this is correct, not a deviation: SGP.22 uses ``AUTOMATIC TAGS``
+(§2.8), so the SEQUENCE's ``[0]`` wrapper (tag ``A0``) is supplied by the
+encoding rules around the selected ``4F`` AID / ``5A`` ICCID CHOICE.
+
+``refreshFlag`` is typed ``BOOLEAN`` and DER-encoded, so TRUE is ``FF`` (not
+the ``01`` octet pySim writes); see :class:`RefreshFlag`.  Live note (one test
+eUICC): a switch with ``refreshFlag`` TRUE is refused (an undefined
+``enableResult`` 7), while FALSE (a silent switch, no REFRESH) is accepted -
+the server re-initializes the card after a switch either way, so the caller
+should prefer FALSE when it performs its own reset.
 """
 
 import re
@@ -505,7 +514,13 @@ class TagList(TlvIe, tag=0x5C):
 
 
 class RefreshFlag(TlvIe, tag=0x81):
-    """The BOOLEAN refresh flag of Enable-/DisableProfileReq (0/1)."""
+    """The DER BOOLEAN refresh flag of Enable-/DisableProfileReq.
+
+    SGP.22 types ``refreshFlag`` as ``BOOLEAN`` and encodes its data objects
+    with DER (v2.6 §2.8), so TRUE is ``FF`` and FALSE is ``00`` (X.690) -
+    not the ``01``/``00`` octet pySim writes.  Decoding accepts any non-zero
+    octet as TRUE for robustness.
+    """
 
     def decode_value(self, data):
         data = bytes(data)
@@ -515,7 +530,7 @@ class RefreshFlag(TlvIe, tag=0x81):
         return data[0] & 0x01
 
     def encode_value(self, decoded):
-        return bytes([1 if decoded else 0])
+        return bytes([0xFF if decoded else 0x00])
 
 
 class ProfileIdentifier(TlvIe, tag=0xA0):

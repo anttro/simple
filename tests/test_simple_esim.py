@@ -159,10 +159,11 @@ class TestCommonObjects(unittest.TestCase):
 
     def test_refresh_flag(self):
         self.assertEqual(esim.RefreshFlag(decoded=True).to_tlv(),
-                         bytes.fromhex('810101'))
+                         bytes.fromhex('8101FF'))
         self.assertEqual(esim.RefreshFlag(decoded=0).to_tlv(),
                          bytes.fromhex('810100'))
         self.assertTrue(esim.RefreshFlag.from_bytes(b'\x81\x01\x01').decoded)
+        self.assertTrue(esim.RefreshFlag.from_bytes(b'\x81\x01\xff').decoded)
         with self.assertRaises(ValueError):
             esim.RefreshFlag.from_bytes(b'\x81\x00')
 
@@ -226,15 +227,16 @@ class TestStoreData(unittest.TestCase):
 
 
 class TestEnableDisable(unittest.TestCase):
-    # Captured from pySim's EnableProfileReq(...).to_tlv() and
-    # store_data()'s 80E29100%02x%s00 form.
-    ENABLE_ICCID_TLV = 'BF3111A00C5A0A98940301000000000011810101'
+    # Request bytes follow pySim's structure (the A0-wrapped profileIdentifier)
+    # but the DER BOOLEAN refreshFlag: TRUE is FF (SGP.22 §2.8 / X.690), where
+    # pySim writes 01.  The ICCID/AID field bytes are pySim's.
+    ENABLE_ICCID_TLV = 'BF3111A00C5A0A989403010000000000118101FF'
     ENABLE_ICCID_APDU = (
-        '80E2910014BF3111A00C5A0A9894030100000000001181010100')
+        '80E2910014BF3111A00C5A0A989403010000000000118101FF00')
     ENABLE_ICCID_ODD_TLV = 'BF3111A00C5A0A989403010000000000F1810100'
-    DISABLE_AID_TLV = 'BF3217A0124F10A0000005591010FFFFFFFF8900000100810101'
+    DISABLE_AID_TLV = 'BF3217A0124F10A0000005591010FFFFFFFF89000001008101FF'
     DISABLE_AID_APDU = (
-        '80E291001ABF3217A0124F10A0000005591010FFFFFFFF8900000100810101'
+        '80E291001ABF3217A0124F10A0000005591010FFFFFFFF89000001008101FF'
         '00')
 
     def _enable(self, iccid=ICCID, refresh=1):
