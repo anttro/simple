@@ -241,6 +241,36 @@ When the pysim-free server becomes the default, split the helper scripts
   `PySimLogger.setup`) both disappear because their cause — pySim's lifecycle —
   is gone.
 
+## Tracing, logging & GSMTAP (design)
+
+Owning the transport is the chance to redesign the APDU tracing stack, which
+today is split across pySim's `apdu_tracer`, our `StderrApduTracer` /
+`_LoggingApduTracer`, the `_keep_tracer_attached` wrapper and `gsmtap.py`.
+
+- **Log every APDU.**  The ISO 7816 C-APDU/R-APDU (raw, at the TPDU level) *and*
+  the SCP80 plaintext C-APDU/R-APDU (decoded out of the secured packet) are all
+  logged — one logging path, no per-path special cases.
+- **Stream the whole ISO 7816 exchange to GSMTAP** (when requested), including
+  the init phase.  Today `gsmtap.py` *reconstructs* wire TPDUs from the logical
+  APDU (pySim's tracer only exposes the logical level) and the init phase was
+  missed entirely (the v3.40.10/3.40.11 saga).  Our transport exposes
+  `send_tpdu` — the raw TPDU — so the true wire exchange (including the `61xx`
+  / GET RESPONSE TPDUs and the init phase) streams directly, no reconstruction.
+
+Implications:
+
+- `simple_server/transport.py` already has both hook levels: `ApduTracer`
+  (`trace_command`/`trace_response` around `send_apdu`) and the raw `send_tpdu`.
+  A GSMTAP tracer attaches at `send_tpdu` for the true wire stream.
+- `pysim_simple_server/gsmtap.py` imports pySim (`ApduTracer`,
+  `parse_command_apdu`); it is reimplemented on `simple_server` (Phase 3) with
+  the same GSMTAP-SIM packet format but streaming the real TPDUs.
+- The `_keep_tracer_attached` wrapper and the `_onchange_apdu_trace` monkeypatch
+  disappear: the tracer is always attached, because the transport owns its own
+  lifecycle.
+- This is a Phase 3 concern (wired with the HTTP entry point), but it shapes the
+  transport API *now*: `send_tpdu` is the raw hook, `send_apdu` the logical one.
+
 ## Licensing & repo split plan
 
 Current license is **GPL-2.0-or-later**, for two reasons the repo itself
