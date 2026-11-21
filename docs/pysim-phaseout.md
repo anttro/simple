@@ -230,11 +230,20 @@ command line** / Raw APDU) and a status block fed by `/api/status`:
   endpoints; the PWA just stops calling them).  The three actions the pill
   was used for get dedicated endpoints instead: `POST /api/equip`,
   `POST /api/reset`, and the state from `GET /api/status`.
-- **Keep raw APDU.**  `POST /api/apdu {apdu}` stays (core workbench
-  feature), implemented directly on our `transport.send_apdu` with the same
-  `{response, sw}` contract.  "Raw" is genuinely raw: the APDU is sent as
-  given and a `91XX` is reported as-is (the CAT FETCH/TR chain is a separate,
-  explicit action, not a hidden auto-handler).
+- **Keep raw APDU, with the automatic proactive handler on `91XX` by
+  default.**  `POST /api/apdu {apdu}` stays (core workbench feature),
+  implemented directly on our `transport.send_apdu` with the same
+  `{response, sw}` contract.  Like the legacy
+  `scc.send_apdu_checksw`/`_DefaultProactiveHandler` path, a `91XX` answer
+  auto-fetches the command and answers it with a TERMINAL RESPONSE (the
+  full proactive chain - the PLI dictionary/clock, BIP, timer and the
+  display/menu auto-answers), so a card that queues a command as a side
+  effect is never left with an unanswered FETCH.  It is off only when
+  something else owns the card: a test script (the run owns it; `/api/apdu`
+  answers 409, `_TEST_BLOCKED_PATHS`) or a running BIP session (the BIP
+  terminal answers its own commands; the auto-handler must not shortcut
+  them).  "Raw" means the APDU is sent exactly as given; the handler acts
+  only on the `91XX` answer.
 - **Replace pySim's status block with our own.**  The PWA's status line
   today prints pySim internals — `Card: <name>`, `Profile: <rs.profile>`,
   `CLA`/`SEL` (the `SimCardCommands` parameters), logical `Channels`, and a
