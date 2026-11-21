@@ -140,6 +140,23 @@ parse, `UserDataHeader`, ENVELOPE builders.
 **Phase 3 — eUICC ES10 + HTTP.**  ES10 TLV classes on our own `BerTlv`, the
 HTTP handler/CAT logic, then a `simple-server` entry point and cutover.
 
+## Helper scripts at cutover
+
+When the pysim-free server becomes the default, split the helper scripts
+(both `.sh` and `.bat`):
+
+- **Legacy pysim** — rename the current scripts to `setup-pysim` / `start-pysim`
+  / `update-pysim`.  Unchanged behaviour: create the venv and `pip install`
+  pysim + its deps (the current `setup.sh`/`setup.bat` + `requirements-pysim.txt`).
+- **Pysim-free** — the new `setup` / `start` / `update`.  `setup` creates the
+  venv and installs **only our dependencies** — `pyscard`, `pycryptodomex`,
+  `gsm0338` — from a small `requirements.txt` (no pysim, no
+  `requirements-pysim.txt`), then `pip install -e .`.  Reuse the venv-validation
+  + recovery logic (v3.38.1) and the Windows Python-3.13 / Linux
+  `libpcsclite-dev` notes: **pyscard still builds from source on Linux and needs
+  the PC/SC headers**, so `setup` keeps that prerequisite.  `start` keeps the
+  PC/SC access pre-flight and tee-to-log, minus pysim.
+
 ## Design principles & benefits
 
 - **Custom files are first-class.**  A file is `{name, fid, parent_df, kind,
