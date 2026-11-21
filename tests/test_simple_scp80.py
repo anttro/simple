@@ -269,12 +269,12 @@ class TestEncodeCmd(unittest.TestCase):
                                             KID_AES)
         self.assertEqual(out.hex(), AES_REFERENCE_VECTORS[('12', '09')])
 
-    def test_aes128_counter_must_be_lower_vector(self):
+    def test_aes128_counter_plus_one_vector(self):
         out, spi = scp80.build_secured_packet('1e', '19', '22', '22', 'b00011',
                                               '0000000011', AES_APDU, KIC_AES,
                                               KID_AES)
         self.assertEqual(out.hex(), AES_REFERENCE_VECTORS[('1e', '19')])
-        self.assertEqual(spi['counter'], 'counter_must_be_lower')
+        self.assertEqual(spi['counter'], 'counter_must_be_one_higher')
 
     def test_no_security_packet(self):
         # KIc/KID 00 with SPI1 00 (no ciphering, no counter, no RC/CC/DS)

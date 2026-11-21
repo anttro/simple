@@ -1752,6 +1752,10 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None,
 
 # TS 03.48 / TS 102 225 SPI coding
 _RC_CC_DS = {0: 'no_rc_cc_ds', 1: 'rc', 2: 'cc', 3: 'ds'}
+# NB: value 3 is pySim's enum key ('counter_must_be_lower'); it is a misnomer
+# inherited from pySim - TS 102 225 §5.1.1 b5b4=11 means "one higher", not
+# "lower".  The key must stay byte-compatible with pySim's construct Enum
+# (encode_cmd passes it straight through), so it cannot be renamed here.
 _CNTR_REQ = {0: 'no_counter', 1: 'counter_no_replay_or_seq', 2: 'counter_must_be_higher', 3: 'counter_must_be_lower'}
 _POR_REQ = {0: 'no_por', 1: 'por_required', 2: 'por_only_when_error'}
 _CRYPT_ALGO = {1: 'single_des', 5: 'triple_des_cbc2', 9: 'triple_des_cbc3', 2: 'aes_cbc'}

@@ -67,9 +67,12 @@ class Scp80Error(ValueError):
 # TS 102 225 §5.1.1: SPI1.b2b1 (command) and SPI2.b4b3 (response)
 RC_CC_DS = {0: 'no_rc_cc_ds', 1: 'rc', 2: 'cc', 3: 'ds'}
 # TS 102 225 §5.1.1: SPI1.b5b4 - no counter / no replay or sequence check /
-# the counter must be higher / the counter must be lower than the stored one
+# TS 102 225 §5.1.1: SPI1.b5b4 - no counter / no replay or sequence check /
+# the counter must be higher / the counter must be one higher than the stored
+# one.  (pySim's enum calls the last value 'counter_must_be_lower', a misnomer;
+# we use the spec wording here - the label is our own API, not pySim's.)
 CNTR_REQ = {0: 'no_counter', 1: 'counter_no_replay_or_seq',
-            2: 'counter_must_be_higher', 3: 'counter_must_be_lower'}
+            2: 'counter_must_be_higher', 3: 'counter_must_be_one_higher'}
 # TS 102 225 §5.1.1: SPI2.b2b1 - no PoR / a PoR is required / only on error
 POR_REQ = {0: 'no_por', 1: 'por_required', 2: 'por_only_when_error'}
 # TS 102 225 §5.1.2 (KIc) / §5.1.3.1 (KID with CC): low nibble of the byte

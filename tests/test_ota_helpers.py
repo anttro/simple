@@ -221,6 +221,8 @@ class TestOtaReference(unittest.TestCase):
     def test_aes128_counter_plus_one(self):
         out, spi = _ota_reference('1e', '19', '22', '22', 'b00011', '0000000011', AES_APDU, KIC_AES, KID_AES)
         self.assertEqual(out, AES_REFERENCE_VECTORS[('1e', '19')])
+        # pySim's enum key for SPI1.b5b4=11 (a misnomer: the spec means
+        # "one higher", not "lower").
         self.assertEqual(spi['counter'], 'counter_must_be_lower')
 
     def test_ram_load_sequence_uses_full_240_byte_blocks(self):
