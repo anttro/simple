@@ -97,6 +97,24 @@ self-consistency test only.
 54); full suite 1350 green.  Still not in `pyproject.toml`'s package list
 (same as Phase 1 - it ships with the Phase 3 entry point).
 
+**Review fixes** (the pysim-free code review, same series): `transport._send_t0`
+bounds the T=0 GET RESPONSE chaining (`T0_MAX_ROUNDS` = 8; when exhausted it
+logs a warning and returns the last `(data, sw)`, so a card that keeps
+answering `61xx`/`62xx`/`63xx` can no longer hold the caller - the byte
+behaviour of a conforming 1-2 round exchange is unchanged); `files._find_parent`
+resolves a mixed name/FID parent path (`MF/DF.TELECOM`) segment by segment and
+accepts a DF/ADF, so such a custom file is selectable; `scp80.decode_resp`
+turns a misaligned ciphered response (Cryptodome's `ValueError`) into
+`Scp80Error`; `sms.build_sms_tpdu`/`SmsDeliver.to_bytes`/`SmsSubmit.to_bytes`
+accept the hex-string forms of `scts`/`vp` (a `str` used to raise `TypeError`);
+`tlv.ber_tlv_list` stops at a truncated/indefinite length form (`8b 81` -> `[]`
+instead of a fabricated `(tag, b'')`); the duplicated `scp80` SPI1 comment and
+the unreachable `increment_counter_hex` branch are gone.  17 new tests
+(transport case 1/3, `91 00`, `63xx`, `6Cxx` after a GET RESPONSE round and the
+chaining bound; the name/FID/EF parent paths; the ciphered-PoR and TPDU forms;
+TLV truncation; a pin that the watchdog's thread name matches
+`_test_watchdog_start`); full suite 1367 green.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -257,6 +275,12 @@ today is split across pySim's `apdu_tracer`, our `StderrApduTracer` /
   `send_tpdu` — the raw TPDU — so the true wire exchange (including the `61xx`
   / GET RESPONSE TPDUs and the init phase) streams directly, no reconstruction.
 
+**This is a headline release-note item.**  The log and GSMTAP data exist for
+card testing, and the true wire exchange (real TPDUs, `61xx`/GET RESPONSE and
+all, including the init phase) is what makes that trustworthy — pysim's
+reconstruction + missed init phase was a real gap.  It is one of the major
+reasons to phase out pysim.
+
 Implications:
 
 - `simple_server/transport.py` already has both hook levels: `ApduTracer`
@@ -270,6 +294,9 @@ Implications:
   lifecycle.
 - This is a Phase 3 concern (wired with the HTTP entry point), but it shapes the
   transport API *now*: `send_tpdu` is the raw hook, `send_apdu` the logical one.
+- **Major version bump:** the cutover to the pysim-free server ships as a major
+  release (4.0.0) — a new package/entry point, the GSMTAP true-wire-exchange
+  behaviour, and the dependency change are all breaking.
 
 ## Licensing & repo split plan
 
