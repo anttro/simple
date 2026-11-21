@@ -136,6 +136,20 @@ Every spec-sensitive module is verified against the pinned PDFs
   (CRC-16 not offered), and KID's meaning is context-dependent (CRC for RC,
   CBC-MAC/CMAC for CC) — `scp80` computes RC via `zlib.crc32` directly, so the
   flat auth-algo map is only used for CC.
+- **Phase 3a (ES10, spec-checked + live-tested):** the `profileIdentifier`
+  `A0` wrapper is spec-correct — SGP.22 §2.8 `AUTOMATIC TAGS` supplies the
+  SEQUENCE's `[0]` tag around the `4F` AID / `5A` ICCID CHOICE (the
+  "untagged" reading was wrong); `profileInfoListError undefinedError(127)`
+  CONFIRMED (pySim's `2` is wrong, spec wins).  `refreshFlag` is a `BOOLEAN`,
+  DER-encoded (TRUE = `FF`), so `RefreshFlag` now encodes `FF` (pySim writes
+  `01`).  **Live destructive switch test (user-approved, real eUICC):** the
+  read path (EID, EUICCInfo1/2, addresses, GetProfilesInfo, ListNotification)
+  is verified; `EnableProfileReq` is byte-identical to pySim's form and the
+  switch **succeeds with `refreshFlag` FALSE** (a silent switch) but is
+  **refused with an undefined `enableResult` 7 when TRUE** (both `01` and
+  `FF`) — a card deviation.  The server re-initializes after a switch anyway
+  (`_esim_reinit`), so the Phase 3c switch orchestration should prefer
+  `refreshFlag` FALSE; the legacy server still defaults TRUE/`01`.
 
 ## Goal & scope
 
