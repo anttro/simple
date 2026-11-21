@@ -158,6 +158,57 @@ HTTP handler/CAT logic, then a `simple-server` entry point and cutover.
   `PySimLogger.setup`) both disappear because their cause — pySim's lifecycle —
   is gone.
 
+## Licensing & repo split plan
+
+Current license is **GPL-2.0-or-later**, for two reasons the repo itself
+documents (`LICENSE` / `THIRD-PARTY-NOTICES`):
+
+1. the server **imports pysim** (GPL-2.0-or-later) — a runtime dependency; under
+   the FSF's reading a program that links to a GPL library is a derivative work
+   while so linked;
+2. the **client-side EF decoders** are *ported/adapted from simtrace-analyser*
+   (GPL-2.0-or-later; see `frontend/index.html`).
+
+The two anchors unblock on different timelines:
+
+- **pysim** is third-party (osmocom) and cannot be relicensed — the only way out
+  is this phase-out: stop importing it and write the replacement from the pinned
+  specs, not adapted from pySim code.  In progress.
+- **simtrace-analyser is ours** (we hold the copyright) — we *can* relicense it, so
+  the frontend decoders are an unblocked **coordination step**, not a
+  re-implementation.
+
+### Rollout (staged)
+
+1. **Stay on GPL while `pysim-simple-server` is bundled.**  The server package
+   that imports pysim is the GPL anchor; until it is out of the shipped artifact
+   the whole repo stays GPL.
+2. **Complete the pysim phase-out** into `simple_server` (the phases above),
+   written from the specs.
+3. **Relicense simtrace-analyser** (our own action) — or re-author the ~30
+   client-side EF decoders from the specs.  Either clears the second GPL anchor.
+4. **Split the repos at cutover:**
+   - `simple-pysim` (or keep `pysim-simple-server`) — the legacy server that
+     imports pysim; stays **GPL-2.0-or-later**.
+   - `simple` — the new pysim-free server + PWA; licensed **MIT** (or the chosen
+     permissive license).
+5. Update `LICENSE`, `THIRD-PARTY-NOTICES`, `pyproject.toml`, the READMEs and the
+   phase-out notes to match.
+
+### Notes & caveats
+
+- **Derivative-work boundary is subtle:** formats/protocols are facts, but *code*
+  is expression.  The non-GPL `simple` must be written from the specs, not copied
+  or closely adapted from pySim or simtrace-analyser code (the "behavioural port of
+  pySim" / "byte-pinned to pySim's output" phrasing in the Phase-0 docstrings is a
+  thing to keep an eye on for this reason).
+- Remaining deps are license-compatible with MIT on our own code: **pyscard**
+  (LGPL-2.1), **pycryptodomex** (BSD + public domain), **gsm0338** (MIT).
+- Relicensing needs the consent of *all* copyright holders — if there are
+  contributors beyond the owner, factor that in.
+- `GPL-2.0-or-later` only allows later *GPL*, never a permissive license.
+- This is a plan, not legal advice.
+
 ## Open ideas & questions (running list)
 
 - Cutover strategy: when/how to switch the default entry point from
