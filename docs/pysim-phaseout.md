@@ -9,10 +9,10 @@
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green) |
-| 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green) |
-| 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green) |
-| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | not started |
+| 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green then) |
+| 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green then) |
+| 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green then, 1367 after the review fixes) |
+| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a (ES10) and 3b first half (proactive/TR layer) done; HTTP handler/CAT, the entry point and cutover remain |
 
 ## Phase 0 outcome
 
@@ -94,7 +94,9 @@ the corpus for an RC-only response - that branch is pinned by a
 self-consistency test only.
 
 116 new tests (`tests/test_simple_scp80.py` 62, `tests/test_simple_sms.py`
-54); full suite 1350 green.  Still not in `pyproject.toml`'s package list
+54); full suite 1350 green then (1367 after the review fixes below; the suite is
+1513 today - the counts in this worklog are the count at the time, not a
+currency claim).  Still not in `pyproject.toml`'s package list
 (same as Phase 1 - it ships with the Phase 3 entry point).
 
 **Review fixes** (the pysim-free code review, same series): `transport._send_t0`
@@ -129,18 +131,53 @@ with the I/O switched to bytes and the `pySim`/`osmocom` surface replaced by
 decoders and their tags came along from `httpota`, which stays in the legacy
 package).  Everything is pure: no transport, no card state, no module globals.
 
-Deliberate deviations from the legacy helpers (all pinned in
-`tests/test_simple_proactive.py`, 53 tests): the command TLV region is
-everything after the `D0` length (a card's template length is sometimes off by
-a byte, the same tolerance `sms.find_sms_tpdu` documents) and `find_duration`
-plus the SET UP EVENT LIST decode are BER-safe TLV walks instead of byte scans;
-`build_tr` takes the terminal's own answer objects as `answer_tlvs` (bytes, hex
-or `(tag, value)` pairs) instead of reading the PLI dictionary / poll interval,
-and selects the Result object - the general `83 02 R I` form by default (the
-scripted-TR shape) or the basic `03 01 R` form the terminal chain uses (both
-byte-identical to the respective legacy builders).  Not done (the second half):
-wiring these into the FETCH/TERMINAL RESPONSE chain, the STATUS poll, the menu
-state machine and the PLI dictionary/clock answers.
+Deliberate deviations from the legacy helpers - each pinned by a fixture in
+`tests/test_simple_proactive.py` (68 tests), with the duplicated tables and the
+shared decoders cross-checked against the legacy implementation by
+`tests/test_simple_drift.py` (18 tests; the one module allowed to import both):
+
+- **The command TLV region is everything after the `D0` length**, not clipped
+  to it: a card's template length is sometimes off by a byte, and the walk stops
+  at a truncated TLV anyway (the tolerance `sms.find_sms_tpdu` documents).
+  Pinned by `TemplateToleranceTests` with a template length one octet short and
+  one octet long.
+- **Objects are walked as TLVs where the legacy code byte-scanned**
+  (`find_duration` and the SET UP EVENT LIST decode): the legacy
+  `raw.find(b'\x99')` read a `0x99` octet *inside a value* as the event-list
+  tag, while the walk sees the real object (pinned by a fixture with a `0x99`
+  in the Alpha identifier).  The BER long-form lengths the walks must survive
+  are pinned by the live `D0 81 ab … 8B 81 96 <150-octet TPDU>` capture (the
+  v3.6.57 `IndexError` in the FETCH path) and the `8D 81 90` DISPLAY TEXT.
+- **`decode_tr` accepts the complete TERMINAL RESPONSE payload**, not only its
+  data part (a superset of the legacy `_decode_tr`, which takes the data part):
+  the boilerplate is stripped in both cases.  Its fallback row prints the
+  *stripped* bytes (the legacy printed the hex it was handed - the same string
+  on the real call path) and a data part too short for one object has no rows.
+  Harmless for the real callers, pinned by `DecodeTrTests`.
+- **Address digits stay uppercase**: a TON 5 (alphanumeric) address is not BCD,
+  so the nibbles are printed as hex - uppercase, the form
+  `simple_server.sms.decode_tp_address` documents (pinned by a fixture; the
+  legacy went through pySim's `Address`, which lowercases).
+- **`decode_proactive_command` never raises on a hex string**: `raw` that does
+  not parse as hex is treated like an empty buffer (the proactive log renders
+  whatever the FETCH returned).
+- **`build_tr` takes the terminal's own answer objects** as `answer_tlvs`
+  (bytes, hex or `(tag, value)` pairs) instead of reading the PLI dictionary /
+  poll interval, and selects the Result object - the general `83 02 R I` form
+  by default (the scripted-TR shape) or the basic `03 01 R` form the terminal
+  chain uses (both byte-identical to the respective legacy builders).  Its
+  `dev_src`/`dev_dst` are the *fetched command's* identities and the TR swaps
+  them (§6.8.0 "Direction: terminal to UICC"; §8.7 orders the object source,
+  destination), so a UICC -> terminal command's answer reads `02 02 82 81`.
+
+No new captures were taken for the port: every fixture is an existing live
+capture (the Alfa SET UP MENU and its long-form SEND SHORT MESSAGE, the
+RemMobileID GET INPUT) or a reference trace (OPEN CHANNEL / SEND DATA), so the
+decoders are measured against card data, never against a re-encode of
+themselves.
+
+Not done (the second half): wiring these into the FETCH/TERMINAL RESPONSE chain,
+the STATUS poll, the menu state machine and the PLI dictionary/clock answers.
 
 ## Spec compliance (spec-checker)
 
@@ -209,12 +246,17 @@ command line** / Raw APDU) and a status block fed by `/api/status`:
   `kind`, `size`, `record_len`, `num_records`).  The PWA renders that shape
   instead of the pySim one; all the information the UI actually needs stays,
   the pySim internals go.
-- **Retire "Verify vs pySim".**  The SCP80 tab's `/api/sp-verify` cross-checks
-  the PWA's JS packet builder against pySim's `OtaDialectSms.encode_cmd`; with
-  no pySim there is no external reference left.  Drop the button and the
-  endpoint at cutover (or, if kept, relabel it honestly as a server-side
-  re-implementation check — our JS and our Python are the same logic, so it
-  proves symmetry, not correctness).  The PWA's own packet preview stays.
+- **Drop "Verify vs pySim" and do NOT replace it with "Verify vs server".**
+  The SCP80 tab's `/api/sp-verify` cross-checks the PWA's JS packet builder
+  against pySim's `OtaDialectSms.encode_cmd`; with no pySim there is no external
+  reference left.  The JS and Python packet builders are the same logic, so a
+  cross-check is a symmetry check, not a correctness proof.  The
+  cross-implementation drift is already covered by tests: the **same byte
+  vector** `00201506091515B00000C08F58C38860ACB3A362FFFE670AD13759A2A6B4C1A91116`
+  is pinned in `frontend/tests/sp.test.js`, `tests/test_ota_helpers.py` and
+  `tests/test_simple_scp80.py` (plus the other shared vectors), so a builder
+  that drifts breaks its own suite.  Keep that pinning (a shared fixture would
+  be a nice-to-have, not required).  The PWA's own packet preview stays.
 - **Keep, but back with our model:** `/api/tree`, `/api/select`, `/api/read`,
   `/api/write` (our `files`/`commands`/`fcp` modules), `/api/apdu`, the
   presets/test-script stores (already pysim-free) and `/api/esim/*` (already
