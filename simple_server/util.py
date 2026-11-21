@@ -8,6 +8,7 @@ pysim dependency.  Every function here is pure and card-free testable.
 
 __all__ = [
     'h2b', 'b2h', 'rpad', 'all_subclasses', 'parse_command_apdu',
+    'sw_matches',
 ]
 
 
@@ -91,3 +92,25 @@ def parse_command_apdu(apdu):
             'invalid APDU (%s): Lc=0x%02x (%d) does not match the data field '
             '(%d bytes)' % (b2h(apdu), lc, lc, len(apdu[5:])))
     raise ValueError('invalid APDU (%s): too short' % b2h(apdu))
+
+
+def sw_matches(sw, pattern):
+    """True if the status word ``sw`` matches ``pattern`` (case-insensitive).
+
+    ``pattern`` is a hex status word where ``?`` matches one hex digit -
+    ``'9???'`` matches ``9000``/``91XX``/``9FXX``, ``'6A??'`` matches every
+    ``6Axx``.  An exact pattern (no ``?``) compares the strings, which is the
+    common fast path.  Both arguments may be bytes or hex strings.
+    """
+    if isinstance(sw, (bytes, bytearray)):
+        sw = bytes(sw).hex()
+    if isinstance(pattern, (bytes, bytearray)):
+        pattern = bytes(pattern).hex()
+    sw = str(sw).strip().lower()
+    pattern = str(pattern).strip().lower()
+    if len(sw) != len(pattern):
+        return False
+    if '?' not in pattern:
+        return sw == pattern
+    return all(want == '?' or got == want
+               for got, want in zip(sw, pattern))

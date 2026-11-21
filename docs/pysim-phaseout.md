@@ -10,7 +10,7 @@
 | Phase | What | Status |
 |---|---|---|
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green) |
-| 1 | card-type detection + file model + SELECT/READ/WRITE + card init | not started |
+| 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green) |
 | 2 | SCP80/OTA + SMS/CAT/ENVELOPE | not started |
 | 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | not started |
 
@@ -27,6 +27,31 @@ T=1 pass-through — plus `ApduTracer`/`ProactiveHandler` hooks).  No
 8-bit GSM default alphabet (matching pySim's `GsmString`) with `packed=True`
 for 7-bit packed data; `send_apdu_checksw` is exact-match only for now (masks
 come with the Phase 1 file model).
+
+## Phase 1 outcome
+
+`simple_server/` gained `fcp.py` (FCP/FCI parsing: file size, the Table 11.5
+file descriptor - shareable b7, file type, structure incl. the BER-TLV row -
+record length/count, FID, DF name; `62` and `6F` templates; malformed input
+yields all-`None` fields), `files.py` (`FileInfo`/`FileModel` over the
+`frontend/uicc_files.json` entries, with a synthetic MF root; case-insensitive
+name/FID/AID/path resolution, `AmbiguousFile` on a bare FID/name that matches
+several files, custom-file injection flagged `source='custom'` and an unknown
+parent flagged `parent_known=False`, `path_chain()` for SELECT),
+`commands.py` (`FileOps`: SELECT by FID/AID, READ/UPDATE BINARY/RECORD,
+STATUS, and the FCP-driven `read_file()` port of `_read_selected_ef`) and
+`cards.py` (`detect_card` - USIM AID, then the ISO MF select, then the TS 51
+011 §9.2.1 SIM form `A0A4 0000 02 3F00`, ISD-R best-effort; `init_card` =
+connect/reset + ATR + detect + MF select, with a reset retry when probing left
+an ADF selected).  `util.sw_matches()` adds the `?` SW mask
+(`9???`/`6A??`) used by `send_apdu_checksw` and the file ops.  Card-type
+decision: the ISO MF form succeeding is **UICC**, not SIM - only the
+TS 51 011 command form (CLA `A0`, P1/P2 `00`) means a 2G SIM, so a UICC with
+no selectable USIM is not misclassified and keeps the FCP-returning SELECT.
+TERMINAL PROFILE + the proactive drain remain Phase 3 (documented in
+`cards.init_card`).  50 new tests (`tests/test_simple_files.py` + two transport
+tests); full suite 1234 green.  Not done: `simple_server` is not in
+`pyproject.toml`'s package list yet (it ships with the Phase 3 entry point).
 
 ## Goal & scope
 

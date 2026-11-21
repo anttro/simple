@@ -50,6 +50,18 @@ class UtilTests(unittest.TestCase):
         self.assertEqual(util.all_subclasses(AParse), {BParsed, CParsed, DParsed})
         self.assertEqual(util.all_subclasses(DParsed), set())
 
+    def test_sw_matches_exact_and_masked(self):
+        self.assertTrue(util.sw_matches('9000', '9000'))
+        self.assertTrue(util.sw_matches('9000', '9???'))
+        self.assertTrue(util.sw_matches('91c3', '9???'))
+        self.assertTrue(util.sw_matches('9f10', '9???'))
+        self.assertTrue(util.sw_matches('6a82', '6A??'))
+        self.assertFalse(util.sw_matches('6a82', '9???'))
+        self.assertFalse(util.sw_matches('9000', '9001'))
+        # Length mismatch and bytes arguments are handled too.
+        self.assertFalse(util.sw_matches('900', '9???'))
+        self.assertTrue(util.sw_matches(b'\x61\x03', '61??'))
+
 
 class CommandApduTests(unittest.TestCase):
     def test_case1(self):
@@ -480,6 +492,26 @@ class TransportExchangeTests(unittest.TestCase):
             link.send_apdu_checksw(b'\x00\xb0\x00\x00\x04')
         self.assertEqual(caught.exception.sw, '6a82')
         self.assertEqual(caught.exception.expected, '9000')
+
+    def test_send_apdu_checksw_mask(self):
+        link, _conn = self.link([
+            (b'', b'\x90\x00'),
+            (b'', b'\x91\xc3'),
+            (b'', b'\x6a\x82'),
+        ])
+        self.assertEqual(link.send_apdu_checksw(b'\x00\xb0\x00\x00\x04',
+                                               sw_match='9???')[1],
+                         b'\x90\x00')
+        self.assertEqual(link.send_apdu_checksw(b'\x00\xb0\x00\x00\x04',
+                                               sw_match='9???')[1],
+                         b'\x91\xc3')
+        self.assertEqual(link.send_apdu_checksw(b'\x00\xb0\x00\x00\x04',
+                                               sw_match='6A??')[1],
+                         b'\x6a\x82')
+        # A non-matching mask still raises.
+        link, _conn = self.link([(b'', b'\x6a\x82')])
+        with self.assertRaises(transport.SwMatchError):
+            link.send_apdu_checksw(b'\x00\xb0\x00\x00\x04', sw_match='9???')
 
 
 class TransportConnectionTests(unittest.TestCase):

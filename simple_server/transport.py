@@ -22,7 +22,7 @@ from smartcard.Exceptions import (CardConnectionException,
                                   CardRequestTimeoutException, NoCardException)
 from smartcard.ExclusiveConnectCardConnection import ExclusiveConnectCardConnection
 
-from simple_server.util import parse_command_apdu
+from simple_server.util import parse_command_apdu, sw_matches
 
 log = logging.getLogger(__name__)
 
@@ -276,13 +276,15 @@ class PcscLink(object):
         return data, sw
 
     def send_apdu_checksw(self, apdu, sw_match='9000'):
-        """Send an APDU and require an exact status word (case-insensitive).
+        """Send an APDU and require a status word (case-insensitive).
 
-        Only an exact match is supported for now - no ``?`` wildcards.  A
-        mismatch raises :class:`SwMatchError`.
+        ``sw_match`` is an exact status word (``'9000'``) or a ``?`` mask
+        where ``?`` matches one hex digit - ``'9???'`` accepts ``9000``,
+        ``91XX`` and ``9FXX``; ``'6A??'`` accepts any ``6Axx``.  A mismatch
+        raises :class:`SwMatchError`.
         """
         data, sw = self.send_apdu(apdu)
-        expected = sw_match.lower()
-        if sw.hex() != expected:
+        expected = sw_match.lower() if isinstance(sw_match, str) else sw_match
+        if not sw_matches(sw, expected):
             raise SwMatchError(sw.hex(), expected)
         return data, sw
