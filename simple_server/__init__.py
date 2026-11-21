@@ -1,0 +1,7 @@
+# coding=utf-8
+"""Foundational, pysim-independent modules for the simple server.
+
+Phase 0 of the pysim replacement: transport, TLV, text and hex/APDU helpers.
+Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
+:mod:`simple_server.transport` touches ``pyscard``.
+"""
