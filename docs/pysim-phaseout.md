@@ -375,6 +375,33 @@ parse, `UserDataHeader`, ENVELOPE builders.
 **Phase 3 — eUICC ES10 + HTTP.**  ES10 TLV classes on our own `BerTlv`, the
 HTTP handler/CAT logic, then a `simple-server` entry point and cutover.
 
+The phase is split so each piece is reviewable:
+
+- **3a — ES10 (done):** `simple_server/esim.py`, spec-checked + live-tested.
+- **3b — pure proactive/TR layer (done):** `simple_server/proactive.py` and
+  `simple_server/tr.py`, no card state.
+- **3c-1 — the CAT session engine:** `simple_server/cat_session.py` — the
+  `CatSession` state (proactive log, menu, pending command, timers, PLI
+  dictionary), the FETCH/TERMINAL RESPONSE chain, STATUS / TERMINAL PROFILE /
+  ENVELOPE exchanges (incl. the 61xx/62xx/63xx GET RESPONSE quirk), event
+  downloads, menu responses/timeout and the timer-expiry ENVELOPE.  BIP is
+  injectable (a `bip_handler` callable) so the next piece slots in.
+- **3c-2 — BIP:** `simple_server/bip.py` — the BIP command handling
+  (OPEN/CLOSE CHANNEL, SEND/RECEIVE DATA, GET CHANNEL STATUS) on
+  `pysim_simple_server.httpota.BipTerminal`, the Data-available event and the
+  Channel-status event.
+- **3c-3 — HTTP handler + state:** `simple_server/server.py` (or `http.py`) —
+  the REST endpoints on the locked API surface (no pySim command line, keep
+  the raw APDU with its automatic 91xx handler, an own `/api/status` shape,
+  no "Verify vs server"), the card-session state (`_CARD_LOCK` discipline),
+  card init/equip/reset, file ops, presets/test-script stores, the SCP80/RAM
+  operations and the eSIM endpoints.
+- **3d — entry point + GSMTAP + cutover:** the `simple-server` console script,
+  the true-wire-exchange GSMTAP tracer (`send_tpdu`-level), the helper-script
+  split (`setup-pysim`/`start-pysim` vs `setup`/`start`/`update`), the PWA
+  changes (remove the pySim command line, the new status block, drop "Verify vs
+  pySim") and the 4.0.0 major release.
+
 ## Helper scripts at cutover
 
 When the pysim-free server becomes the default, split the helper scripts
