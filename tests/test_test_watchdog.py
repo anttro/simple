@@ -74,10 +74,27 @@ class _WatchdogTestCase(unittest.TestCase):
         self.saved_ref = srv._server_ref
         self.saved_stale = srv._TRANSPORT_STALE
         self.saved_aborted = srv._TEST_WATCHDOG_ABORTED
+        # An earlier test module's HTTP run starts the singleton background
+        # watchdog thread (`_test_watchdog_start`, a 1 s tick).  It calls the
+        # same global checker these tests drive by hand, so a tick landing
+        # between a test's setup and its own call marks the run stuck first and
+        # the checker then (correctly) returns None for the second caller -
+        # a race that has nothing to do with what is under test.  Silence that
+        # thread's calls only; the tests' own calls still reach the checker.
+        self.saved_check = srv._test_watchdog_check
+        real_check = self.saved_check
+
+        def _only_from_this_thread(now=None):
+            if threading.current_thread().name == 'test-watchdog':
+                return None
+            return real_check(now)
+
+        srv._test_watchdog_check = _only_from_this_thread
         srv._TEST_WATCHDOG_ABORTED = None
         srv._TRANSPORT_STALE = False
 
     def tearDown(self):
+        srv._test_watchdog_check = self.saved_check
         srv._TEST_RUN.clear()
         srv._TEST_RUN.update(self.saved_run)
         srv._server_ref = self.saved_ref
