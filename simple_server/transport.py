@@ -28,8 +28,16 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     'ApduTracer', 'ProactiveHandler', 'ReaderError', 'SwMatchError',
-    'PcscLink', 'detect_reader',
+    'PcscLink', 'detect_reader', 'T0_MAX_ROUNDS',
 ]
+
+#: The chaining bound of the T=0 exchange.  TS 102 221 §7.3.1.1 makes a
+#: conforming card answer ``61xx``/``9Fxx`` with the remaining bytes and
+#: ``62xx``/``63xx`` with one dummy GET RESPONSE, so a real exchange needs one
+#: or two rounds; 8 is far above that.  The cap keeps a card that never
+#: finishes chaining (a non-draining ``61xx`` or a repeating ``62xx``/``63xx``)
+#: from holding the caller - and the card lock - forever.
+T0_MAX_ROUNDS = 8
 
 
 class ApduTracer(object):
@@ -243,8 +251,15 @@ class PcscLink(object):
             self.apdu_tracer.trace_response(apdu.hex(), sw.hex(), data.hex())
         return data, sw
 
-    def _send_t0(self, apdu, case):
-        """The T=0 TPDU transform and response chaining (TS 102 221 §7.3.1.1)."""
+    def _send_t0(self, apdu, case, max_rounds=None):
+        """The T=0 TPDU transform and response chaining (TS 102 221 §7.3.1.1).
+
+        ``max_rounds`` bounds the GET RESPONSE rounds (default
+        :data:`T0_MAX_ROUNDS`): when it is exhausted the last ``(data, sw)``
+        is returned with a warning instead of following the card forever.
+        """
+        if max_rounds is None:
+            max_rounds = T0_MAX_ROUNDS
         if case == 1:
             # 7.3.1.1.1: attach an Le octet to a case 1 APDU.
             tpdu = apdu + b'\x00'
@@ -255,6 +270,7 @@ class PcscLink(object):
             tpdu = apdu
         previous = tpdu
         data, sw = self.send_tpdu(tpdu)
+        rounds = 0
         while True:
             if sw in (b'\x90\x00', b'\x91\x00'):
                 # 9000 / 9100: no (more) response data available.
@@ -267,6 +283,12 @@ class PcscLink(object):
                 le = b'\x00'
             else:
                 break
+            if rounds >= max_rounds:
+                log.warning('T=0 chaining still answers %s after %d GET '
+                            'RESPONSE round(s); returning the last response',
+                            sw.hex(), rounds)
+                break
+            rounds += 1
             previous = tpdu[:1] + b'\xc0\x00\x00' + le
             more, sw = self.send_tpdu(previous)
             data += more

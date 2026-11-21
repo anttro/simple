@@ -67,7 +67,6 @@ class Scp80Error(ValueError):
 # TS 102 225 §5.1.1: SPI1.b2b1 (command) and SPI2.b4b3 (response)
 RC_CC_DS = {0: 'no_rc_cc_ds', 1: 'rc', 2: 'cc', 3: 'ds'}
 # TS 102 225 §5.1.1: SPI1.b5b4 - no counter / no replay or sequence check /
-# TS 102 225 §5.1.1: SPI1.b5b4 - no counter / no replay or sequence check /
 # the counter must be higher / the counter must be one higher than the stored
 # one.  (pySim's enum calls the last value 'counter_must_be_lower', a misnomer;
 # we use the spec wording here - the label is our own API, not pySim's.)
@@ -685,8 +684,18 @@ def decode_resp(keyset, spi, data):
 
     rpl, rhl, tar, cntr, pcntr, status, cc_rc, secured = _parse_resp_header(remainder)
     if spi['por_shall_be_ciphered']:
-        # RPL/RHL/TAR stay plain, everything from CNTR on is ciphered.
-        plain = remainder[:6] + keyset.crypt.decrypt(remainder[6:])
+        # RPL/RHL/TAR stay plain, everything from CNTR on is ciphered.  A
+        # ciphertext that is not a whole number of blocks is a malformed
+        # packet, not a caller error: the cipher raises ValueError there, and
+        # our contract is Scp80Error (Scp80Error itself is a ValueError, so
+        # the algorithm lookup happens outside the try).
+        crypt = keyset.crypt
+        try:
+            plain = remainder[:6] + crypt.decrypt(remainder[6:])
+        except ValueError as exc:
+            raise Scp80Error('the ciphered response is %d octets from CNTR on '
+                             'and cannot be deciphered: %s'
+                             % (len(remainder) - 6, exc)) from exc
         rpl, rhl, tar, cntr, pcntr, status, cc_rc, secured = _parse_resp_header(plain)
         if pcntr:
             if pcntr > len(secured):
@@ -793,8 +802,6 @@ def increment_counter_hex(counter_hex):
     try:
         value = int(text, 16)
     except ValueError:
-        return counter_hex
-    if not text:
         return counter_hex
     width = len(text)
     return '%0*X' % (width, (value + 1) & ((1 << (4 * width)) - 1))

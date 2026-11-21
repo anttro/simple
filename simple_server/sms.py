@@ -516,7 +516,7 @@ class SmsSubmit(object):
             flags |= 0x80
         flags |= [code for code, name in VPF_FORMATS.items()
                   if name == self.vpf][0] << 3
-        vp = bytes(self.vp)
+        vp = _as_tpdu(self.vp, 'TP-VP')
         if len(vp) != VPF_SIZES[self.vpf]:
             raise SmsError('TP-VPF %s needs %d TP-VP octets (%d given)'
                            % (self.vpf, VPF_SIZES[self.vpf], len(vp)))
@@ -603,7 +603,7 @@ class SmsDeliver(object):
 
     def to_bytes(self):
         """Encode the TPDU (the inverse of :meth:`from_bytes`)."""
-        scts = bytes(self.scts)
+        scts = _as_tpdu(self.scts, 'TP-SCTS')
         if len(scts) != 7:
             raise SmsError('a TP-SCTS is 7 octets (%d given)' % len(scts))
         flags = MTI_DELIVER
@@ -671,8 +671,8 @@ def build_sms_tpdu(chunk, chunk_total=1, chunk_num=1, oa_number='12345',
     (TP-MMS set when the data is not preceded by a concatenation UDH, TP-UDHI
     when a UDH is present - the port keeps those bytes).
 
-    ``scts`` overrides the TP-SCTS octets (tests pin them); by default the
-    current local time is used.
+    ``scts`` overrides the TP-SCTS octets (the 7-octet form, as bytes or a hex
+    string; tests pin them); by default the current local time is used.
     """
     chunk = _as_tpdu(chunk, 'chunk')
     chunk_total = int(chunk_total)
@@ -700,7 +700,7 @@ def build_sms_tpdu(chunk, chunk_total=1, chunk_num=1, oa_number='12345',
         first_byte = 0x04
     return SmsDeliver(
         oa=oa_number, pid=0x7F, dcs=0xF6,
-        scts=bytes(scts) if scts is not None else encode_scts(),
+        scts=_as_tpdu(scts, 'scts') if scts is not None else encode_scts(),
         ud=tp_ud, udhi=bool(udh),
         # The first octet is the existing server's coding: TP-MMS (b3) is set
         # whenever no concatenation UDH precedes the data, which yields 0x44

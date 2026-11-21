@@ -243,6 +243,31 @@ class FileModelTests(unittest.TestCase):
         with self.assertRaises(files.FileModelError):
             self.model.path_chain('EF.ORPHAN')
 
+    def test_add_custom_under_a_name_path_resolves(self):
+        # 'MF/DF.TELECOM' is a mixed name/FID path, not a _by_path key: the
+        # parent is resolved segment by segment, so the file is selectable.
+        info = self.model.add_custom('EF.NAMED', '2F99', 'MF/DF.TELECOM')
+        self.assertTrue(info.parent_known)
+        self.assertEqual(info.parent, 'DF.TELECOM')
+        self.assertEqual(info.path, 'MF/7F10/2F99')
+        self.assertEqual(self.model.path_chain('EF.NAMED'),
+                         ['3F00', '7F10', '2F99'])
+        self.assertIn(info, self.model.children('DF.TELECOM'))
+
+    def test_add_custom_under_a_fid_path_still_works(self):
+        info = self.model.add_custom('EF.FIDPATH', '2F9A', 'MF/7F10')
+        self.assertTrue(info.parent_known)
+        self.assertEqual(info.path, 'MF/7F10/2F9A')
+        self.assertEqual(self.model.path_chain('EF.FIDPATH'),
+                         ['3F00', '7F10', '2F9A'])
+        self.assertIn(info, self.model.children('7F10'))
+
+    def test_a_mixed_path_naming_an_ef_is_not_a_parent(self):
+        info = self.model.add_custom('EF.NOTDF', '2F9B', 'MF/EF.ICCID')
+        self.assertFalse(info.parent_known)
+        with self.assertRaises(files.FileModelError):
+            self.model.path_chain('EF.NOTDF')
+
     def test_add_custom_validates_the_fid(self):
         with self.assertRaises(ValueError):
             self.model.add_custom('EF.BAD', '123', 'DF.TELECOM')

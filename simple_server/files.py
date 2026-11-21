@@ -298,7 +298,15 @@ class FileModel(object):
         if '/' in selector:
             candidate = self._single(self._by_path.get(_norm_path(selector)),
                                      selector)
-            return candidate
+            if candidate is not None:
+                return candidate
+            # A mixed name/FID path ('MF/DF.TELECOM') is not a key of
+            # _by_path; walk it segment by segment and accept a DF/ADF only.
+            try:
+                candidate = self.resolve_path(_norm_path(selector))
+            except UnknownFile:
+                return None
+            return candidate if candidate.is_df else None
         for index in (self._by_name, self._by_fid, self._by_aid,
                       self._by_path):
             candidate = self._single(index.get(selector), selector)

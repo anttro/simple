@@ -176,6 +176,13 @@ class TestSmsSubmit(unittest.TestCase):
         with self.assertRaises(sms.SmsError):
             sms.SmsSubmit(da='1', vpf='relative', vp=b'').to_bytes()
 
+    def test_vp_accepts_a_hex_string(self):
+        as_hex = sms.SmsSubmit(da='1', vpf='relative', vp='0A',
+                               ud=b'\x01\x02')
+        as_bytes = sms.SmsSubmit(da='1', vpf='relative', vp=b'\x0a',
+                                 ud=b'\x01\x02')
+        self.assertEqual(as_hex.to_bytes(), as_bytes.to_bytes())
+
 
 class TestSmsDeliver(unittest.TestCase):
     def test_parse_the_download_tpdu(self):
@@ -202,6 +209,16 @@ class TestSmsDeliver(unittest.TestCase):
         self.assertEqual(sms.SmsDeliver.from_bytes(encoded).to_bytes(), encoded)
         self.assertEqual(encoded[0], 0x00)
         self.assertEqual(sms.SmsDeliver.from_bytes(encoded).text, 'hello')
+
+    def test_scts_accepts_a_hex_string(self):
+        as_hex = sms.SmsDeliver(oa='12345', scts='42502151710300', ud=b'\x01',
+                                mms=False)
+        as_bytes = sms.SmsDeliver(oa='12345',
+                                  scts=bytes.fromhex('42502151710300'),
+                                  ud=b'\x01', mms=False)
+        self.assertEqual(as_hex.to_bytes(), as_bytes.to_bytes())
+        self.assertEqual(sms.SmsDeliver.from_bytes(as_hex.to_bytes()).scts,
+                         bytes.fromhex('42502151710300'))
 
 
 class TestAddress(unittest.TestCase):
@@ -326,6 +343,11 @@ class TestBuildSmsTpdu(unittest.TestCase):
     def test_chunk_accepts_bytes(self):
         self.assertEqual(sms.build_sms_tpdu(b'\x00\x01', scts=self.SCTS),
                          sms.build_sms_tpdu('0001', scts=self.SCTS))
+
+    def test_scts_accepts_a_hex_string(self):
+        self.assertEqual(
+            sms.build_sms_tpdu(self.CHUNK, scts='24051215173000'),
+            sms.build_sms_tpdu(self.CHUNK, scts=self.SCTS))
 
 
 class TestFetchParsing(unittest.TestCase):

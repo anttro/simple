@@ -10,6 +10,7 @@ equip/operation rebuilds it.
 """
 
 import copy
+import inspect
 import threading
 import time
 import unittest
@@ -328,6 +329,23 @@ class StuckStatusTests(_WatchdogTestCase):
         self.assertEqual(load['done'], 0)
         self.assertIn('stopped responding', srv._TEST_RUN['error'])
         self.assertFalse(srv._TEST_RUN['running'])
+
+
+class WatchdogSourcePinTests(unittest.TestCase):
+    def test_the_thread_name_matches_the_guard_literal(self):
+        """The test harness silences the background tick by thread name.
+
+        `_WatchdogTestCase.setUp` compares `threading.current_thread().name`
+        against 'test-watchdog'; a rename in `_test_watchdog_start` would
+        silently disable that guard (the singleton tick would race the tests
+        again), so both literals are pinned here.
+        """
+        started = inspect.getsource(srv._test_watchdog_start)
+        self.assertIn("name='test-watchdog'", started)
+        with open(__file__, 'r', encoding='utf-8') as handle:
+            here = handle.read()
+        self.assertIn("threading.current_thread().name == 'test-watchdog'",
+                      here)
 
 
 if __name__ == '__main__':

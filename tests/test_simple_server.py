@@ -216,6 +216,16 @@ class TlvSequenceTests(unittest.TestCase):
                          [(0x80, b'\xaa')])
         self.assertEqual(tlv.ber_tlv_list(b''), [])
 
+    def test_ber_tlv_list_stops_on_a_truncated_length(self):
+        # An 81/82 continuation without its octets carries no usable length, so
+        # no (tag, b'') entry is invented (the docstring's "stops at the first
+        # truncated TLV").
+        self.assertEqual(tlv.ber_tlv_list(b'\x8b\x81'), [])
+        self.assertEqual(tlv.ber_tlv_list(b'\x8b\x82\x01'), [])
+        self.assertEqual(tlv.ber_tlv_list(b'\x80\x80'), [])
+        self.assertEqual(tlv.ber_tlv_list(b'\x80\x01\xaa\x8b\x81'),
+                         [(0x80, b'\xaa')])
+
     def test_comprehension_data_keeps_one_octet_tags(self):
         # With multi_byte_tags=False a 0xBF octet stays tag 0xBF.
         data = b'\xbf\x01\x00\x01\x01\x01'
@@ -383,6 +393,22 @@ class FakeReader(object):
         raise AssertionError('the fake reader connection must not be used')
 
 
+class LoopingConnection(FakeConnection):
+    """A pathological card: every exchange re-answers the same status word.
+
+    The default ``62 00`` is the "dummy GET RESPONSE" request of
+    TS 102 221 §7.3.1.1.3; ``61xx``/``63xx`` are reachable through ``sw``.
+    """
+
+    def __init__(self, sw=b'\x62\x00'):
+        super().__init__([])
+        self.sw = bytes(sw)
+
+    def transmit(self, apdu):
+        self.sent.append(bytes(apdu))
+        return [], self.sw[0], self.sw[1]
+
+
 class TransportExchangeTests(unittest.TestCase):
     def link(self, responses, tracer=None, atr=None):
         conn = FakeConnection(responses, atr=atr)
@@ -408,6 +434,18 @@ class TransportExchangeTests(unittest.TestCase):
         data, sw = link.send_apdu(bytes.fromhex('00b0000004'))
         self.assertEqual((data, sw), (b'\xaa\xbb', b'\x90\x00'))
         self.assertEqual(conn.sent, [bytes.fromhex('00b0000004')])
+
+    def test_case1_attaches_an_le_octet(self):
+        # TS 102 221 §7.3.1.1.1: a case 1 APDU gets an Le octet on T=0.
+        link, conn = self.link([(b'\xaa', b'\x90\x00')])
+        data, sw = link.send_apdu(bytes.fromhex('00a40000'))
+        self.assertEqual((data, sw), (b'\xaa', b'\x90\x00'))
+        self.assertEqual(conn.sent, [bytes.fromhex('00a4000000')])
+
+    def test_case3_passes_the_data_through_without_an_le(self):
+        link, conn = self.link([(b'', b'\x90\x00')])
+        link.send_apdu(bytes.fromhex('00a40004023f00'))
+        self.assertEqual(conn.sent, [bytes.fromhex('00a40004023f00')])
 
     def test_multiple_get_response_rounds(self):
         link, conn = self.link([
@@ -440,6 +478,22 @@ class TransportExchangeTests(unittest.TestCase):
         self.assertEqual((data, sw), (b'\x07', b'\x90\x00'))
         self.assertEqual(conn.sent[1], bytes.fromhex('00c0000000'))
 
+    def test_63xx_sends_a_dummy_get_response_too(self):
+        link, conn = self.link([
+            (b'', b'\x63\x00'),
+            (b'\x07', b'\x90\x00'),
+        ])
+        data, sw = link.send_apdu(bytes.fromhex('00b0000004'))
+        self.assertEqual((data, sw), (b'\x07', b'\x90\x00'))
+        self.assertEqual(conn.sent[1], bytes.fromhex('00c0000000'))
+
+    def test_9100_breaks_without_a_get_response(self):
+        # The CAT success state: no response data is pending.
+        link, conn = self.link([(b'', b'\x91\x00')])
+        self.assertEqual(link.send_apdu(bytes.fromhex('00b0000004')),
+                         (b'', b'\x91\x00'))
+        self.assertEqual(len(conn.sent), 1)
+
     def test_6cxx_resends_with_the_correct_le(self):
         link, conn = self.link([
             (b'', b'\x6c\x10'),
@@ -451,6 +505,51 @@ class TransportExchangeTests(unittest.TestCase):
             bytes.fromhex('00b00000ff'),
             bytes.fromhex('00b0000010'),
         ])
+
+    def test_6cxx_after_a_get_response_round_resends_that_tpdu(self):
+        link, conn = self.link([
+            (b'\x01', b'\x61\x04'),
+            (b'', b'\x6c\x02'),
+            (b'\x02\x03', b'\x90\x00'),
+        ])
+        data, sw = link.send_apdu(bytes.fromhex('00a40004023f0000'))
+        self.assertEqual((data, sw), (b'\x02\x03', b'\x90\x00'))
+        self.assertEqual(conn.sent, [
+            bytes.fromhex('00a40004023f00'),
+            bytes.fromhex('00c0000004'),      # GET RESPONSE, Le from 61xx
+            bytes.fromhex('00c0000002'),      # the 6Cxx re-send of that TPDU
+        ])
+
+    def test_a_card_that_never_stops_chaining_is_bounded(self):
+        # A pathological card re-answering 62 00 must not hold the caller: the
+        # chain stops at T0_MAX_ROUNDS and the last (data, sw) is returned.
+        conn = LoopingConnection()
+        link = transport.PcscLink(connection=conn)
+        link.connect()
+        with self.assertLogs('simple_server.transport', level='WARNING') as logs:
+            data, sw = link.send_apdu(bytes.fromhex('00b0000004'))
+        self.assertEqual((data, sw), (b'', b'\x62\x00'))
+        self.assertEqual(len(conn.sent), 1 + transport.T0_MAX_ROUNDS)
+        self.assertIn('chaining', '\n'.join(logs.output))
+
+    def test_a_non_draining_61xx_chain_is_bounded_too(self):
+        conn = LoopingConnection(b'\x61\x04')
+        link = transport.PcscLink(connection=conn)
+        link.connect()
+        with self.assertLogs('simple_server.transport', level='WARNING'):
+            data, sw = link.send_apdu(bytes.fromhex('00b0000004'))
+        self.assertEqual(sw, b'\x61\x04')
+        self.assertEqual(len(conn.sent), 1 + transport.T0_MAX_ROUNDS)
+
+    def test_max_rounds_can_be_lowered(self):
+        conn = LoopingConnection()
+        link = transport.PcscLink(connection=conn)
+        link.connect()
+        with self.assertLogs('simple_server.transport', level='WARNING'):
+            data, sw = link._send_t0(bytes.fromhex('00b0000004'), 2,
+                                     max_rounds=2)
+        self.assertEqual(sw, b'\x62\x00')
+        self.assertEqual(len(conn.sent), 3)
 
     def test_t1_passes_the_apdu_through(self):
         link, conn = self.link([(b'\x01', b'\x90\x00')])

@@ -425,6 +425,15 @@ class TestDecodeResp(unittest.TestCase):
             _response('06', '01', '35', '35', '0000000001', KIC3, KID3,
                       POR_SIGNED)
 
+    def test_a_misaligned_ciphered_packet_is_an_scp80_error(self):
+        # SPI2 19 asks for a ciphered response; 7 octets from CNTR on are not
+        # a DES block multiple, so Cryptodome raises ValueError - the module's
+        # contract is Scp80Error for a malformed packet.
+        with self.assertRaises(scp80.Scp80Error) as caught:
+            _response('06', '19', '35', '35', '0000000001', KIC3, KID3,
+                      '027100000d0ab0000001020304050607')
+        self.assertIn('decipher', str(caught.exception))
+
     def test_malformed_packets_raise(self):
         for bad in ['', '00', '00027100000e0a', '027100000e0ab00000',
                     '027101000e0ab000110000000000000001612f']:

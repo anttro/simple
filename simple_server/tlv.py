@@ -213,9 +213,11 @@ class ComprTlv(BerTlv):
 def ber_tlv_list(data, multi_byte_tags=True):
     """``[(tag, value)]`` of a BER-TLV sequence.
 
-    Stops at the first truncated or malformed TLV instead of walking into its
-    value (a mis-read length is how the live FETCH path once indexed past the
-    end of the buffer).  Multi-octet tags (``0xBFxx``/``1F``-style
+    Stops at the first truncated or malformed TLV - a truncated length (the
+    ``81``/``82`` continuation without its octets, or an indefinite ``80``), a
+    tag that ends the buffer, and a value that runs past the end - instead of
+    walking into it (a mis-read length is how the live FETCH path once indexed
+    past the end of the buffer).  Multi-octet tags (``0xBFxx``/``1F``-style
     continuation) are consumed as one tag number; pass
     ``multi_byte_tags=False`` for COMPREHENSION-TLV data, where bit 8 of a
     one-octet tag is just the CR flag.
@@ -230,7 +232,11 @@ def ber_tlv_list(data, multi_byte_tags=True):
         tag, toff = _read_tag(data, off, multi_byte_tags)
         if tag is None:
             break
+        if toff >= len(data):
+            break                   # the tag ends the buffer: no length
         tlen, voff = parse_ber_len(data, toff)
+        if data[toff] >= 0x80 and voff == toff + 1:
+            break                   # truncated (or indefinite) length form
         if voff + tlen > len(data):
             break
         out.append((tag, data[voff:voff + tlen]))
