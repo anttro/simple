@@ -362,3 +362,44 @@ class OptionTests(unittest.TestCase):
         res = outfile.parse_outfile(text)
         self.assertEqual(res['presets'], [])
         self.assertIn('the file is invalid', res['report']['error'])
+
+
+class ReportShapeTests(unittest.TestCase):
+    """The report is an API contract, not just a human-readable dump.
+
+    ``parse_outfile``'s output is served by ``POST /api/presets/import-outfile``
+    and rendered by the PWA, which prints the ``(+N)`` overflow from
+    ``skipped_more`` (``frontend/index.html``).  Pin the key set and the
+    overflow behaviour so a rewrite cannot silently drop a field the UI reads.
+    """
+
+    REPORT_KEYS = {'columns', 'header_lines', 'rows', 'cards', 'keysets',
+                   'tars', 'skipped', 'skipped_more'}
+
+    def test_a_parsed_file_reports_every_key(self):
+        res = outfile.parse_outfile(alfa_text())
+        self.assertEqual(set(res['report']), self.REPORT_KEYS)
+        self.assertIsInstance(res['report']['skipped'], list)
+        self.assertIsInstance(res['report']['skipped_more'], int)
+
+    def test_the_no_header_report_keeps_the_same_keys(self):
+        # the error path adds 'error' but keeps the rest of the shape: the
+        # server forwards the report verbatim and the PWA reads skipped_more
+        # without a guard
+        res = outfile.parse_outfile('a banner\nno columns here\n')
+        self.assertEqual(set(res['report']), self.REPORT_KEYS | {'error'})
+        self.assertEqual(res['report']['skipped_more'], 0)
+
+    def test_skips_overflow_into_skipped_more(self):
+        # every row carries a 12-byte second keyset (unsupported): one skip per
+        # row, while the first keyset still makes the card usable
+        k12 = '00112233445566778899AABB'
+        rows = []
+        for n in range(outfile.SKIP_REPORT_MAX + 5):
+            iccid = '8970119000004600%03d' % n
+            rows.append('%sF %s %s %s %s' % (iccid, K16A, K16B, k12, k12))
+        text = 'ICCID KIC1 KID1 KIC2 KID2\n' + '\n'.join(rows) + '\n'
+        rep = outfile.parse_outfile(text)['report']
+        self.assertEqual(rep['cards'], outfile.SKIP_REPORT_MAX + 5)
+        self.assertEqual(len(rep['skipped']), outfile.SKIP_REPORT_MAX)
+        self.assertEqual(rep['skipped_more'], 5)
