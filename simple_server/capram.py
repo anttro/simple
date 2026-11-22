@@ -30,10 +30,18 @@ Ported legacy helpers, name for name (``pysim_simple_server.server``)::
     _ram_nv_fields           -> nv_fields
     _ram_install_plan        -> install_plan
     _ram_reinstall_plan      -> reinstall_plan
+    _version_pair            -> version_pair
+    _cap_import_end          -> cap_import_end
+    _cap_import_aids         -> cap_import_aids
+    _probe_unmatched         -> probe_unmatched
+    _cap_compat_blocks       -> cap_compat_blocks
+    _probe_import_versions   -> probe_import_versions
+    _ram_delete_plan         -> delete_plan
 
-Not ported here (the locked API surface): the CAP compatibility test
-(``_cap_compat_blocks``/``_probe_import_versions``), the batch plans
-(``_ram_delete_plan`` and the batch worker) and the TAR probe.
+:func:`cap_compat_plan` composes the CAP compatibility test's card-independent
+plan from those helpers (the legacy composed it inline in the handler).  The
+batch worker, the TAR probe and the CAP compatibility chain itself live on
+:class:`simple_server.server.ServerState` (they are card exchanges).
 
 Spec anchors (GP Card Specification v2.3.1, checked in the pinned PDF):
 §11.5.2.1/Table 11-41 (the INSTALL P1 roles: b2 load = 0x02, b3 install =
@@ -83,12 +91,15 @@ from simple_server import tlv
 
 __all__ = [
     'CAP_LOAD_ORDER', 'DELETE_NOT_FOUND', 'REMOTE_SW_OK',
-    'RAM_PROBE_APDU', 'RAM_PROBE_APDU_LE', 'lv', 'ber_len', 'single_ef_value',
+    'RAM_PROBE_APDU', 'RAM_PROBE_APDU_LE', 'TAR_PROBE_DEFAULT_APDU',
+    'lv', 'ber_len', 'single_ef_value',
     'quota_tlv', 'quota_provided', 'compose_install_params', 'cap_parse',
     'cap_info_body', 'cap_install_apdu', 'cap_make_selectable_apdu',
     'ram_delete_apdu', 'cap_apdu_sequence', 'remote_sw_ok', 'por_remote_sw',
     'step_result', 'decode_memory', 'free_nv', 'nv_fields', 'install_plan',
-    'reinstall_plan',
+    'reinstall_plan', 'version_pair', 'cap_import_end', 'cap_import_aids',
+    'probe_unmatched', 'cap_compat_blocks', 'probe_import_versions',
+    'cap_compat_plan', 'delete_plan',
 ]
 
 #: The CAP components in load-file order (JC VM Specification v2.2.2 §6.2,
@@ -117,6 +128,12 @@ DELETE_NOT_FOUND = ('6A88', '6A82')
 #: needs) and without ``Le`` (the expanded forms do not use GET RESPONSE).
 RAM_PROBE_APDU = '80F28000024F0000C0000000'
 RAM_PROBE_APDU_LE = '80F28000024F0000'
+
+#: The TAR probe's per-TAR C-APDU: a read-only SELECT MF.  Harmless for the
+#: ISD/RFM targets (an error status word is a valid answer - the probe's verdict
+#: is the card's answer to the *packet*), and applet-visible, which is what
+#: makes a registered TAR answer.  Same command as the counter probe's.
+TAR_PROBE_DEFAULT_APDU = '00A40000023F00'
 
 
 # ---- the length helpers ----------------------------------------------------
@@ -548,6 +565,252 @@ def cap_info_body(body):
             'load_file_bytes': len(loadfile_data) // 2, 'memory': info}
 
 
+# ---- the CAP compatibility test (the import-list probe) --------------------
+
+def version_pair(text):
+    """``'x.y'`` -> ``(minor, major)``, the order the CAP stores a version.
+
+    A Java Card export version is two octets with the **minor in the first**
+    octet: the Import component's ``packages[]`` entries are ``package_info``
+    structures (JC VM Specification v2.2.2 §6.6, ``import_component``) and that
+    structure - ``minor_version, major_version, AID_length, AID[]`` - is
+    defined under the Header Component's ``package`` item (§6.3), so the ``x.y``
+    text is reversed.  Raises :class:`ValueError` for anything else.
+    """
+    try:
+        major, minor = str(text).strip().split('.')
+        major, minor = int(major), int(minor)
+    except (TypeError, ValueError):
+        raise ValueError('invalid version %r (expected major.minor)'
+                         % (text,)) from None
+    if not (0 <= major <= 255 and 0 <= minor <= 255):
+        raise ValueError('version out of range: %r' % (text,))
+    return minor, major
+
+
+def cap_import_end(load_file_hex):
+    """Offset just past the Import component's last byte in the load file.
+
+    The load file is the concatenated components, each ``tag | size (2) |
+    value`` (JC VM Specification v2.2.2 §6.2); the Import component's tag is
+    ``0x04``.  Raises :class:`ValueError` when the load file has no Import
+    component (an installable CAP always carries one; only a hand-made file
+    reaches this).
+    """
+    data = bytes.fromhex(load_file_hex or '')
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            return off + 3 + size
+        off += 3 + size
+    raise ValueError('no Import component in the load file')
+
+
+def cap_import_aids(load_file_hex):
+    """The AIDs of the load file's Import component (upper-case hex).
+
+    Each Import entry is ``minor, major, AID length, AID``; a malformed entry
+    ends the walk (the caller only needs the list it can see).
+    """
+    data = bytes.fromhex(load_file_hex or '')
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            start = off + 3
+            end = start + size
+            out = []
+            pos = start + 1
+            for _ in range(data[start]):
+                if pos + 3 > end:
+                    break
+                aid_len = data[pos + 2]
+                if pos + 3 + aid_len > end:
+                    break
+                out.append(bytes(data[pos + 3:pos + 3 + aid_len]).hex().upper())
+                pos += 3 + aid_len
+            return out
+        off += 3 + size
+    return []
+
+
+def probe_unmatched(probe, known):
+    """Import-probe override AIDs that matched no Import entry.
+
+    The CAP does not import them, so the card is never asked about them -
+    naming them keeps an operator's typo from looking like a card verdict.
+    Returns ``[{'aid': hex, 'version': 'x.y'}]`` sorted by AID; the ``all``
+    override is skipped.
+    """
+    out = []
+    for key, version in (probe or {}).items():
+        aid = str(key).replace(' ', '')
+        if aid.lower() == 'all':
+            continue
+        if aid.upper() in known:
+            continue
+        out.append({'aid': aid.upper(), 'version': str(version)})
+    out.sort(key=lambda entry: entry['aid'])
+    return out
+
+
+def cap_compat_blocks(load_file_hex, block_size):
+    """``(boundary, total)`` LOAD block numbers for the compatibility test.
+
+    ``boundary`` is the block whose payload completes the Import component.
+    The import list is the compatibility question (JC VM Specification v2.2.2
+    §4.5.2: the major versions must be equal and the CAP's minor not above the
+    resident one - the open question is whether the card satisfies it), and the
+    observed live LOAD rejections land exactly in that block, so a test
+    stopping after it answers the question without committing a load file.
+    ``total`` is the full load's block count (for the report).
+    """
+    import_end = cap_import_end(load_file_hex)
+    tlv = 'C4' + ber_len(len(load_file_hex) // 2) + load_file_hex
+    header_chars = len(tlv) - len(load_file_hex)          # the C4 TLV header
+    last_byte = header_chars + (import_end - 1) * 2       # Import's last byte
+    boundary = last_byte // (block_size * 2) + 1
+    total = (len(tlv) + block_size * 2 - 1) // (block_size * 2)
+    return boundary, total
+
+
+def probe_import_versions(load_file_hex, overrides, additions=None):
+    """Rewrite (and optionally append entries to) the load file's Import list.
+
+    Diagnostic probe for the platform gate: JC VM Specification v2.2.2 §4.5.2
+    makes a CAP's imports resolvable only when the major versions are equal and
+    the CAP's minor version is not above the resident package's, so a card that
+    cannot satisfy one of the CAP's export versions refuses the install.  The
+    observed live rejections land in the block that completes the Import
+    component (the JCRE has the whole list by then; the spec fixes the rule,
+    not the timing).  Lowering the versions shows whether the list is the cause
+    and, by bisection, which package the card refuses; appending a synthetic
+    entry queries the card for a package/version the CAP does not use.
+
+    ``overrides`` is ``{'all': 'x.y'}`` or ``{aid_hex: 'x.y'}``; ``additions``
+    is a list of ``{'aid': hex, 'version': 'x.y'}`` appended as new entries.
+    Append-only: existing entries keep their positions, so the applet's
+    constant-pool import indices stay valid - an AID that is already present is
+    treated as a version override.  A version-only probe keeps the load file's
+    length untouched; an append patches the component's size field and the
+    Directory's Import size entry.
+
+    Returns ``(patched_hex, applied)`` where ``applied`` lists the entries
+    changed or added (``from`` is None for an appended entry).  Diagnostic
+    only - never used for a real install.
+    """
+    data = bytearray.fromhex(load_file_hex or '')
+    if not data:
+        raise ValueError('empty load file')
+
+    norm = {}
+    for key, value in (overrides or {}).items():
+        aid = str(key).replace(' ', '')
+        norm['all' if aid.lower() == 'all' else aid.upper()] = value
+
+    # Walk to the Import component (tag 0x04; sizes exclude the 3-byte header).
+    start = None
+    end = None
+    off = 0
+    while off + 3 <= len(data):
+        tag = data[off]
+        size = int.from_bytes(data[off + 1:off + 3], 'big')
+        if tag == 0x04:
+            start = off + 3
+            end = start + size
+            break
+        off += 3 + size
+    if start is None:
+        raise ValueError('no Import component in the load file')
+    if end > len(data):
+        raise ValueError('truncated Import component')
+
+    entries = []
+    pos = start + 1
+    for _ in range(data[start]):
+        if pos + 3 > end:
+            raise ValueError('truncated Import entry')
+        minor, major, aid_len = data[pos], data[pos + 1], data[pos + 2]
+        if pos + 3 + aid_len > end:
+            raise ValueError('truncated Import entry AID')
+        entries.append([minor, major,
+                        bytes(data[pos + 3:pos + 3 + aid_len]).hex().upper()])
+        pos += 3 + aid_len
+
+    matched = 0
+    applied = []
+    for entry in entries:
+        override = norm.get(entry[2], norm.get('all'))
+        if override is None:
+            continue
+        matched += 1
+        new_minor, new_major = version_pair(override)
+        if (new_minor, new_major) != (entry[0], entry[1]):
+            applied.append({'aid': entry[2],
+                            'from': '%d.%d' % (entry[1], entry[0]),
+                            'to': '%d.%d' % (new_major, new_minor)})
+            entry[0], entry[1] = new_minor, new_major
+
+    known = {entry[2] for entry in entries}
+    for item in (additions or []):
+        if not isinstance(item, dict):
+            raise ValueError('invalid addition: %r (expected {aid, version})'
+                             % (item,))
+        aid = str(item.get('aid', '')).replace(' ', '').upper()
+        if not aid or len(aid) % 2 or not re.fullmatch(r'[0-9A-F]+', aid):
+            raise ValueError('invalid AID in the additions: %r'
+                             % (item.get('aid'),))
+        if not 10 <= len(aid) <= 32:
+            raise ValueError('addition AID must be 5..16 bytes: %s' % aid)
+        new_minor, new_major = version_pair(item.get('version'))
+        matched += 1
+        if aid in known:
+            # already imported: apply as a version override
+            for entry in entries:
+                if entry[2] == aid and (entry[0], entry[1]) != (new_minor,
+                                                                new_major):
+                    applied.append({'aid': aid,
+                                    'from': '%d.%d' % (entry[1], entry[0]),
+                                    'to': '%d.%d' % (new_major, new_minor)})
+                    entry[0], entry[1] = new_minor, new_major
+                    break
+            continue
+        known.add(aid)
+        entries.append([new_minor, new_major, aid])
+        applied.append({'aid': aid, 'from': None,
+                        'to': '%d.%d' % (new_major, new_minor)})
+
+    if not matched:
+        raise ValueError('no import matched the probe (give AIDs from the '
+                         'CAP analysis, "all" or "+AID=version" additions)')
+
+    rebuilt = bytes([len(entries)]) + b''.join(
+        bytes([entry[0], entry[1], len(entry[2]) // 2])
+        + bytes.fromhex(entry[2]) for entry in entries)
+    if rebuilt != bytes(data[start:end]):
+        # sizes: the component header field and the Directory's array entry
+        # (index 3 = tag 4) carry the Import's data length
+        new_size = len(rebuilt)
+        if new_size > 0xFFFF:
+            raise ValueError('Import component too large')
+        data[start - 2:start] = new_size.to_bytes(2, 'big')
+        off = 0
+        while off + 3 <= len(data):
+            tag = data[off]
+            size = int.from_bytes(data[off + 1:off + 3], 'big')
+            if tag == 0x02:                      # Directory: sizes by tag
+                entry_at = off + 3 + 3 * 2       # index 3 = tag 4 (Import)
+                if entry_at + 2 <= off + 3 + size:
+                    data[entry_at:entry_at + 2] = new_size.to_bytes(2, 'big')
+                break
+            off += 3 + size
+        data[start:end] = rebuilt
+    return data.hex().upper(), applied
+
+
 # ---- the step records (the PoR verdict) ------------------------------------
 
 def remote_sw_ok(sw):
@@ -770,3 +1033,125 @@ def reinstall_plan(body, kind='reinstall-app'):
             'ram_format': ota.normalise_ram_format(body.get('ram_format')),
             'response': {'load_file_aid': loadfile, 'module_aid': module,
                          'instance_aid': instance}}
+
+
+def delete_plan(body):
+    """The batch delete plan: one GP DELETE step.
+
+    ``target`` selects the P2 semantics (GP Card Spec v2.3.1 §11.2/Tables
+    11-20-11-23): ``app`` deletes the object only (an applet instance, P2=00),
+    ``package`` the object and its related objects (the load file with its
+    modules and installed applications, P2=80).  The step is flagged
+    ``delete``, so "not found" (the object is already gone) lets the chain
+    proceed - for a batch that is the delete's goal.  Raises
+    :class:`ValueError` for a bad AID or target (400 at Start).
+    """
+    body = body or {}
+    aid = re.sub(r'[^0-9a-fA-F]', '', str(body.get('aid') or '')).upper()
+    if not re.fullmatch(r'(?:[0-9A-F]{2}){5,16}', aid):
+        raise ValueError('aid must be 5-16 bytes of hex (an AID)')
+    target = str(body.get('target') or 'app').strip().lower()
+    if target not in ('app', 'package'):
+        raise ValueError("target must be 'app' or 'package'")
+    cascade = target == 'package'
+    return {'kind': 'delete',
+            'seq': [{'name': 'DELETE (package + applications)' if cascade
+                     else 'DELETE (application)',
+                     'apdu': ram_delete_apdu(aid, cascade), 'delete': True}],
+            'spi2': str(body.get('spi2') or '01'),
+            'include_cpi': body.get('includeCpi', True),
+            'ram_format': ota.normalise_ram_format(body.get('ram_format')),
+            'response': {'aid': aid, 'target': target}}
+
+
+def cap_compat_plan(body):
+    """The card-independent part of the CAP compatibility test.
+
+    Parse the ``.cap``, apply the diagnostic import probe (version overrides
+    and append-only additions), compute the block that completes the Import
+    component and truncate the INSTALL/LOAD chain there.  The chain therefore
+    carries ``INSTALL [for load]`` plus the LOAD blocks up to and including
+    ``boundary_block`` - no last-block flag, no ``INSTALL [for install]``, so
+    **nothing is committed** (the LOAD is never completed, which is what keeps
+    the card consistent).
+
+    The final INSTALL [for install] is built (and discarded) by
+    :func:`cap_apdu_sequence` with the spec's default empty parameters, so the
+    test never consumes the caller's install parameters - it only asks the
+    card about its import list.
+
+    Returns the plan (``kind`` ``cap-compat``, the truncated ``seq``, the
+    report fields under ``response``) or raises :class:`ValueError` for a bad
+    request (the endpoint's 400).
+    """
+    body = body or {}
+    cap_hex = _cap_hex(body)
+    if not cap_hex:
+        raise ValueError('No cap_hex provided')
+    loadfile_aid, module_aid, loadfile_data = cap_parse(cap_hex)
+
+    probe_applied = None
+    probe_unmatched_list = []
+    probe = body.get('probe_imports') or {}
+    additions = body.get('probe_additions') or []
+    if not isinstance(probe, dict):
+        raise ValueError('probe_imports must be an object of AID -> version')
+    if not isinstance(additions, list):
+        raise ValueError('probe_additions must be a list of {aid, version}')
+    if probe or additions:
+        original_aids = set(cap_import_aids(loadfile_data))
+        try:
+            loadfile_data, probe_applied = probe_import_versions(
+                loadfile_data, probe, additions)
+        except ValueError as exc:
+            raise ValueError('import probe: %s' % exc) from None
+        known = original_aids | {
+            str(item.get('aid', '')).replace(' ', '').upper()
+            for item in additions if isinstance(item, dict)}
+        probe_unmatched_list = probe_unmatched(probe, known)
+
+    requested = body.get('load_block_size')
+    if requested in (None, ''):
+        requested = None
+    else:
+        try:
+            requested = int(requested)
+        except (TypeError, ValueError):
+            requested = -1
+        if not 1 <= requested <= 240:
+            raise ValueError('load_block_size must be 1..240')
+    block_size = requested or 240
+
+    boundary, total_blocks = cap_compat_blocks(loadfile_data, block_size)
+    sequence = cap_apdu_sequence(loadfile_aid, module_aid, loadfile_data,
+                                 block_size=block_size)
+    steps = [{'name': 'INSTALL [for load]', 'apdu': sequence[0]}]
+    for index in range(1, boundary + 1):
+        steps.append({'name': 'LOAD (%d/%d)' % (index, total_blocks),
+                      'apdu': sequence[index]})
+    # The legacy's "no last-block flag" invariant (nothing is committed, so
+    # nothing must be deleted): when the Import component ends in the load
+    # file's last block the truncated chain *is* the full LOAD list, and its
+    # final block would carry P1.b8 (GP Card Spec v2.3.1 §11.6.2 Table 11-56),
+    # completing the file.  Clear the flag - the block's payload and counter
+    # are unchanged, the file simply stays incomplete.  A real CAP's Import
+    # ends long before the last block, so this only affects a tiny archive.
+    if boundary >= total_blocks and len(steps) > 1:
+        last = steps[-1]
+        apdu = last['apdu'].upper()
+        if apdu[:4] == '80E8' and int(apdu[4:6], 16) & 0x80:
+            last['apdu'] = apdu[:4] + '%02X' % (int(apdu[4:6], 16) & 0x7F) \
+                + apdu[6:]
+    return {'kind': 'cap-compat', 'seq': steps,
+            'spi2': str(body.get('spi2') or '01'),
+            'include_cpi': body.get('includeCpi', True),
+            'ram_format': ota.normalise_ram_format(body.get('ram_format')),
+            'response': {'load_file_aid': loadfile_aid,
+                         'module_aid': module_aid,
+                         'boundary_block': boundary,
+                         'total_blocks': total_blocks,
+                         'probe_imports': probe_applied,
+                         'probe_unmatched': probe_unmatched_list,
+                         'load_block_size': block_size,
+                         'load_block_size_requested': requested,
+                         'load_block_size_auto': not requested}}

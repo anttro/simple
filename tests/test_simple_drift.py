@@ -1408,6 +1408,198 @@ class CapRamDriftTests(unittest.TestCase):
             self.assertEqual(ours, theirs, label)
 
 
+class CapCompatDriftTests(unittest.TestCase):
+    """The import probe and the batch delete plan are behavioural ports
+    (3c-3c-2b): they decide what reaches the card and what the verdict says, so
+    a divergence would be silently wrong on hardware."""
+
+    AID = 'A0000003080000100001'
+    MODULE = 'A000000308000010000101'
+    FRAMEWORK = 'A0000000620101'
+    TOOLKIT = 'A0000000090005FFFFFFFF8912000000'
+
+    @classmethod
+    def load_file(cls):
+        """A load file with Header, Directory, Import, Applet and Method.
+
+        The Directory's size array is positional: the value of an index is the
+        tag of the component at that entry minus 1, and the value is the
+        component's ``size`` item - the payload length, excluding tag and size
+        (JC VM Specification v2.2.2 §6.4).  Index 3 is the Import size - the
+        entry the append path patches.
+        """
+        def component(tag, payload):
+            return bytes([tag]) + len(payload).to_bytes(2, 'big') + payload
+
+        header = component(0x01, (0xDECAFFED).to_bytes(4, 'big')
+                           + bytes([1, 2, 0x04, 1, 2])
+                           + bytes([len(bytes.fromhex(cls.AID))])
+                           + bytes.fromhex(cls.AID))
+        imports = component(0x04, bytes([2])
+                            + bytes([2, 1, len(bytes.fromhex(cls.FRAMEWORK))])
+                            + bytes.fromhex(cls.FRAMEWORK)
+                            + bytes([11, 1, len(bytes.fromhex(cls.TOOLKIT))])
+                            + bytes.fromhex(cls.TOOLKIT))
+        applet = component(0x03, bytes([1, len(bytes.fromhex(cls.MODULE))])
+                           + bytes.fromhex(cls.MODULE)
+                           + (1).to_bytes(2, 'big'))
+        method = component(0x07, bytes([0]) + bytes([0x7A] * 8))
+        # The Directory payload is the four sizes of tags 1..4; every value is
+        # that component's `size` item (§6.4), i.e. its payload length.  The
+        # Directory's own entry is therefore 8 (four 2-byte sizes), not the 11
+        # bytes of its tag + size + payload.
+        sizes = (len(header) - 3, 8, len(applet) - 3, len(imports) - 3)
+        directory = component(0x02, b''.join(size.to_bytes(2, 'big')
+                                             for size in sizes))
+        return (header + directory + imports + applet + method).hex().upper()
+
+    def test_the_import_helpers(self):
+        load = self.load_file()
+        self.assertEqual(CR.cap_import_end(load), legacy._cap_import_end(load))
+        self.assertEqual(CR.cap_import_aids(load),
+                         legacy._cap_import_aids(load))
+        for block_size in (1, 2, 10, 64, 100, 240):
+            self.assertEqual(CR.cap_compat_blocks(load, block_size),
+                             legacy._cap_compat_blocks(load, block_size),
+                             block_size)
+
+    def test_the_fixture_directory_is_spec_conforming(self):
+        """The Directory's size array: index = tag - 1 and the value is the
+        component's `size` item, i.e. its payload (tag and size excluded) -
+        JC VM Specification v2.2.2 §6.4.  The append probe patches index 3, so
+        a non-conforming fixture would pin a wrong offset/value."""
+        load = bytes.fromhex(self.load_file())
+        payloads = {}
+        directory_at = None
+        off = 0
+        while off + 3 <= len(load):
+            tag = load[off]
+            size = int.from_bytes(load[off + 1:off + 3], 'big')
+            self.assertEqual(len(load[off + 3:off + 3 + size]), size)
+            if tag == 0x02:
+                directory_at = off + 3
+            payloads[tag] = size
+            off += 3 + size
+        self.assertIsNotNone(directory_at)
+        sizes = [int.from_bytes(load[directory_at + 2 * i:
+                                      directory_at + 2 * i + 2], 'big')
+                 for i in range(4)]
+        self.assertEqual(sizes, [payloads[tag] for tag in (1, 2, 3, 4)])
+        # the imported component is appended to: its own size item and the
+        # Directory's index 3 carry the same new value
+        patched = bytes.fromhex(CR.probe_import_versions(
+            load.hex().upper(), {},
+            [{'aid': 'A0000000620201', 'version': '1.0'}])[0])
+        import_at = off = 0
+        while off + 3 <= len(patched):
+            tag = patched[off]
+            if tag == 0x04:
+                import_at = off
+                break
+            off += 3 + int.from_bytes(patched[off + 1:off + 3], 'big')
+        new_size = int.from_bytes(patched[import_at + 1:import_at + 3], 'big')
+        self.assertGreater(new_size, payloads[4])
+        self.assertEqual(
+            int.from_bytes(patched[directory_at + 6:directory_at + 8], 'big'),
+            new_size)
+
+    def test_the_import_helpers_refuse_a_foreign_file(self):
+        for load in ('', 'AA', '0155' + '00' * 10):
+            try:
+                ours = ('ok', CR.cap_import_end(load))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._cap_import_end(load))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, load[:8])
+
+    def test_the_version_pair(self):
+        for value in ('0.0', '1.2', '1.11', '255.255', '1', '1.2.3', 'x.y',
+                      '', None):
+            try:
+                ours = ('ok', CR.version_pair(value))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._version_pair(value))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, repr(value))
+
+    def test_the_import_probe(self):
+        load = self.load_file()
+        cases = [
+            ({'all': '0.0'}, None),
+            ({self.FRAMEWORK: '2.0'}, None),
+            ({'all': '9.9'}, []),
+            ({}, [{'aid': 'A0000000620201', 'version': '1.0'}]),
+            ({}, [{'aid': self.FRAMEWORK, 'version': '0.1'}]),
+            ({'all': '1.0'},
+             [{'aid': 'A0000000620201', 'version': '1.0'},
+              {'aid': 'A0000000620202', 'version': '2.0'}]),
+            ({}, None),
+        ]
+        for overrides, additions in cases:
+            label = '%r/%r' % (overrides, additions)
+            try:
+                ours = ('ok',) + CR.probe_import_versions(load, overrides,
+                                                          additions)
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok',) + legacy._probe_import_versions(
+                    load, overrides, additions)
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, label)
+
+    def test_the_unmatched_report(self):
+        known = {self.FRAMEWORK, self.TOOLKIT}
+        for probe in ({'all': '0.0'}, {'A00000009999': '1.0'},
+                      {self.FRAMEWORK: '1.0', 'A00000009999': '2.0'}, {}):
+            self.assertEqual(CR.probe_unmatched(probe, known),
+                             legacy._probe_unmatched(probe, known), probe)
+
+    def test_the_delete_plan(self):
+        bodies = [
+            {'aid': 'A0000003080000100001'},
+            {'aid': 'A0000003080000100001', 'target': 'package'},
+            {'aid': 'A0 00 00 03 08 00 00 10 00 01', 'target': 'app'},
+            {},
+            {'aid': 'F041'},
+            {'aid': 'A0000003080000100001', 'target': 'applet'},
+        ]
+        for body in bodies:
+            label = repr(body)[:50]
+            try:
+                ours = ('ok', CR.delete_plan(body))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._ram_delete_plan(body))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, label)
+
+    def test_the_tar_probe_verdict(self):
+        self.assertEqual(CR.TAR_PROBE_DEFAULT_APDU,
+                         legacy.TAR_PROBE_DEFAULT_APDU)
+        steps = [
+            {'por_status': 'por_ok', 'por_sw': '9000'},
+            {'por_status': 'por_ok', 'por_data': '3F00'},
+            {'por_status': 'por_ok', 'por_sw': '', 'por_data': ''},
+            {'por_status': 'no_por'},
+            {'por_status': 'envelope_error', 'sw': '6200'},
+            {'por_status': 'cntr_low'},
+            {},
+        ]
+        for step in steps:
+            self.assertEqual(O.tar_probe_verdict(step),
+                             legacy._tar_probe_verdict(step), step)
+
+
 class PbrDriftTests(unittest.TestCase):
     """The EF.PBR (TS 31.102 §4.4.2.1) parser is a straight port."""
     def test_the_tables(self):

@@ -654,10 +654,12 @@ Deliberate, documented decisions (deviations from the legacy):
   block size or an invalid install-parameter combination is a 400 with zero
   APDUs spent) and the keyset/preset resolution is the legacy operation rule
   (the preset's ISD role entry, `prefer_msl=True`).
-- **Not ported (the locked API surface):** the CAP compatibility test
-  (`_cap_compat_blocks`, `_probe_import_versions`, `/api/cap-compat`), the
+- **Not ported in this phase (the locked API surface):** the CAP compatibility
+  test (`_cap_compat_blocks`, `_probe_import_versions`, `/api/cap-compat`), the
   TAR probe, the batch plans/worker (`_ram_delete_plan`, `/api/ram-batch/*`)
   and the RAM format's use by the *plain* send (still the 3c-3c-1 decision).
+  **The first three landed in 3c-3c-2b** (see its outcome section); the plain
+  send's `auto` decision stands.
 
 Tests: **64 RAM + 12 drift; the full suite is 1961**.  **No live card has run
 these endpoints yet** - the fixture is a synthetic CAP ZIP and a scripted fake
@@ -666,6 +668,117 @@ is the acceptance check: a real `.cap` (the load-file parse and the block
 split at the card's buffer), the card's own RAM format probe (which of the
 three codings it accepts), a real `cntr_low`, an FF21 readout, and the
 `INSTALL [for install]` parameter acceptance (the CA-in-one-EF case).
+
+## Phase 3c-3c-2b outcome (the compatibility test, the TAR probe, the batch)
+
+`POST /api/cap-compat`, `POST /api/tar-probe` and
+`POST /api/ram-batch/start|stop|clear` + `GET /api/ram-batch/status` are
+served from `ServerState`.  The pure half joins `simple_server/capram.py`
+(the import-boundary helpers `version_pair`, `cap_import_end`,
+`cap_import_aids`, `cap_compat_blocks`, `probe_import_versions`,
+`probe_unmatched`, the composed `cap_compat_plan`, the `TAR_PROBE_DEFAULT_APDU`
+constant and the batch `delete_plan`); `simple_server/ota.py` gains the pure
+`tar_probe_verdict`.  The card exchanges reuse the existing machinery
+unchanged: `_ram_plan_run` (the compat chain is an ordinary plan truncated at
+the Import boundary, so it gets the format probe, the step records, the
+counter seeding/persistence and the `cntr_low` verdict for free),
+`_ram_send_gp_apdu` (the TAR probe's per-TAR packets), `ota.spi1_for_tar`/
+`ota.preset_keyset_by_kvn`/`ota.counter_seed` and `capram.install_plan`/
+`reinstall_plan`/`delete_plan` (the batch's plan, built once at Start).
+
+Request contract (unchanged from the legacy, so the PWA is untouched):
+`cap-compat` takes `cap_hex`, `probe_imports`/`probe_additions`,
+`load_block_size` (1..240), `preset_id` + the usual `spi1`/`spi2`/`kic`/
+`kid`/`tar`/`cntr` overrides and `ram_format`; its response is the legacy
+shape (`success`/`imports_ok`, `steps`, `boundary_block`/`total_blocks`,
+`load_file_aid`/`module_aid`, `probe_imports`/`probe_unmatched`,
+`load_block_size*`, `final_cntr`, and on rejection `failed_step`/`error`/
+`cntr_low`).  `tar-probe` takes `preset_id`, an optional `tars` subset,
+`apdu`, `spi1` (the fallback only), `spi2`, `cntr` (the first row) and
+`includeCpi`; it answers `results[]` (`tar`, `label`, `spi1`, `kvn`,
+`verdict`, `sw`, `por_status`/`por_sw`/`por_data`, `bytes`, `segments`),
+`registered`/`total`, `final_cntr`, `kvn`, `spi1`/`spi2`/`apdu`.
+`ram-batch/start` takes a `kind` (`install-cap` default, `delete`,
+`reinstall-app`) plus that kind's fields and answers the full status with
+`ok: true`; `status` is the panel payload (`active`, `phase`, `kind`,
+`attempts` (last 500), `attempts_total`, `current`, `notice`, `counts`,
+`started`, `stopped`, `progress`) and `stop`/`clear` answer it / `{ok}`.
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **The batch state is per state, not a module global.**  `ServerState`
+  owns `ram_batch`/`ram_batch_lock` (the legacy `_RAM_BATCH`/`_RAM_BATCH_LOCK`),
+  so two servers in one process are independent and the tests need no global
+  reset.  The worker reads the real attributes (`connected`,
+  `card_ready_session`, `card_session`, `iccid`, `presets`) - there is no
+  `_CARD_CONNECTED` module global to misread (the v3.28.0 audit's bug class
+  cannot recur).  `close()` now stops the worker (bounded join) so a server
+  shutdown never leaves a thread polling a dead state, and its card teardown
+  acquires the card lock with `CLOSE_LOCK_TIMEOUT` (2 s) and **skips the
+  teardown** when a batch install still holds it for its chain - shutdown is
+  bounded end to end instead of blocking on a card exchange.
+- **The worker's wait is `self._closed.wait(RAM_BATCH_POLL)`**, not
+  `time.sleep`: shutdown returns promptly instead of after up to 0.5 s.
+- **`/api/ram-batch/start` answers 409 via a typed error.**  `BatchBusyError`
+  (another batch / a test run) -> 409, `ValueError` and every plan-level
+  exception -> 400 (the legacy's `RuntimeError`/generic split).  The
+  `/api/ram-batch/stop` endpoint is the second `CARD_FREE_POST` and
+  `/api/ram-batch/status` joins `CARD_FREE_GET` (the worker holds the card lock
+  for a whole install); no other endpoint's lock behaviour changed.
+- **The compatibility test clears the last-block flag when the Import ends in
+  the last block.**  The legacy truncation `seq[:1 + boundary]` equals the
+  full LOAD list for a tiny CAP (`boundary == total`), whose final block then
+  carries P1.b8 (GP Card Spec v2.3.1 Table 11-56) and would complete - and so
+  commit - the load file, contradicting the "nothing is committed" invariant.
+  The plan clears the flag (`cap_compat_plan`): the payload and the block
+  counter are untouched, only the file is not completed.  For a real CAP the
+  Import ends long before the last block, so this only affects a tiny archive;
+  the flag is asserted by `CapCompatTests.test_the_last_block_flag_is_cleared`.
+  **Consequence to keep in mind:** the verdict rests on the observed
+  behaviour - a card that evaluates the import list only when the load file
+  *completes* is never asked (the truncated chain stops at the boundary block,
+  and the de-flagged `boundary == total` case never marks the file complete),
+  so for such a card a true "rejected" would read as a false
+  `imports_ok: true`.  No such card is known; the alternative is a real load
+  followed by a cascade DELETE (`delete_plan`, which exists for the
+  batch/`delete` kinds and would commit and then remove the package) - not
+  implemented for the compat test, whose contract is "nothing is committed".
+- **The TAR probe request is pre-flighted.**  `apdu` (even hex, 1..255
+  octets) and `spi2` (one hex byte) are validated before any packet: the
+  legacy let a malformed APDU fail in every row's encoder, whose `encode_error`
+  record maps to the `refused` verdict - an operator typo read as "no
+  application is registered".  Both are a `400` now.
+- **The per-card install re-checks the card under the lock.**  The ICCID and
+  the preset are matched before `card_lock` (the worker's poll is lock-free),
+  so the chain verifies `card_session` and the normalised ICCID again once it
+  holds the lock and records the card as `skipped` ("the card changed before
+  the install started") if either moved - a swap in that window must not run
+  the previous card's plan.
+- **The generic compat failure text is the legacy's.**  A refused ENVELOPE
+  leaves no step-level detail, so `_ram_plan_run`'s `<step> failed` fallback is
+  replaced with "the card rejected the import list" (the PWA's verdict wording
+  keys on the failure kind, not this string).
+- **`/api/status` gains `ram_batch`** (the summary: no attempts list) so the
+  panel's headline rides the 2 s poll; the detailed report is fetched only when
+  the summary changed (the v3.28.7 stale-guard logic is the PWA's).
+- **The deleted `probe_imports` stays out of `/api/ram-install`** (the
+  v3.6.48 decision): the diagnostic lives in the compat operation.
+
+**Pinned legacy behaviour (not a deviation):** the TAR probe decodes each row
+with its **own TAR's** response form - `rm = ota.tar_is_rm(preset, tar)` - so a
+free (non-role) TAR's answer stays `response_type: raw` with no fabricated
+status word.  That is the legacy's per-packet `_ram_send_gp_apdu` rule and the
+v3.21.0 invariant behind the PWA's "App SW" column
+(`test_a_non_rm_tar_keeps_its_answer_raw`).
+
+Tests: **57 batch/compat/tar tests (`tests/test_simple_batch.py`) + 8 drift
+(`CapCompatDriftTests`); the full suite is 2026**.  **No live card has run
+these endpoints yet** - the fixture is a synthetic CAP ZIP, a scripted fake
+transport and a fake `_ram_plan_run` (the batch's per-card decisions), so the
+first bench run is the acceptance check: a real `.cap`'s import boundary (does
+the card reject exactly there?), the four TAR-probe verdicts on the live
+applications, and the batch across a real card swap (the ICCID match and the
+per-card counter).
 
 ## Spec compliance (spec-checker)
 
@@ -766,6 +879,27 @@ Every spec-sensitive module is verified against the pinned PDFs
   transport, so the first bench run (a real `.cap`, the card's accepted RAM
   command format, a real `cntr_low`, an FF21 readout and the CA-in-one-EF
   acceptance) is the cutover gate.
+- **Phase 3c-3c-2b (spec-checked, no live-card run yet):** the import-list
+  question is JC VM Specification v2.2.2 §4.5.2 (the compatibility rule: equal
+  major versions, the CAP's minor not above the resident package's - the spec
+  fixes the rule, **not** *when* a card evaluates it; the observed live
+  rejections land in the block containing the Import component's last byte),
+  with §6.2/Table 6-3 (the component order), §6.6 (`import_component`, the
+  `packages[]` of `package_info`) and §6.3 (`package_info`:
+  `minor_version, major_version, AID_length, AID[]` - the `version_pair`
+  order).  The Directory's positional size array (index = tag - 1, the value =
+  the component's `size` item) is §6.4, the rule the drift fixture follows, and
+  the flag cleared on a `boundary == total` case is LOAD P1.b8 (GP Card Spec
+  v2.3.1 §11.6.2/Table 11-56).  The TAR probe's per-row SPI1 is the TAR's MSL
+  (TS 102 226 §8.2.1.3.2.4), its counter persistence follows TS 102 225 A.1
+  (one counter per keyset) and its verdict is the ENVELOPE answer plus the
+  PoR (TS 102 225 §5.2 Table 3), with the response form following the packet's
+  TAR (TS 102 226 §4 - a non-RM TAR's payload stays raw, v3.21.0); the delete
+  plan is GP §11.2/Tables 11-20-11-23 (P2.b8 = related objects).  No coding
+  deviation is kept; the refinements are the last-block flag clearing and the
+  documented decisions above (the request pre-flights, the per-card lock
+  re-check, the bounded shutdown).  **No live card has run these endpoints**:
+  every fixture is scripted.
 
 ## Phase 3c API surface (locked decisions)
 

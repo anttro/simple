@@ -6,7 +6,7 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a/3b/3c-1): the state and the card lifecycle
+Scope (Phase 3c-3a/3b/3c-1/3c-2): the state and the card lifecycle
 (:meth:`ServerState.open`, :meth:`~ServerState.equip`,
 :meth:`~ServerState.reset`, :meth:`~ServerState.disconnect`, the presence
 monitor and the background STATUS poll), the HTTP handler and the
@@ -17,12 +17,13 @@ serving and the endpoints - ``GET /api/version``, ``GET /api/status``,
 file endpoints ``POST /api/tree|select|read|write`` (3c-3b) and the
 preset/plain-SCP80 set ``GET/POST /api/presets`` +
 ``/api/presets/update|delete|import|import-outfile``, ``POST /api/verify-adm``,
-``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1), plus the
-CAP analysis and the single-card RAM installs ``POST /api/cap-info``,
-``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a).  Every
-other API path is a 404 until the remaining 3c-3c endpoints (the CAP
-compatibility test, the TAR probe, the batch install, the test runner,
-eSIM/SCP81/netsim) and 3c-3d/3d land.
+``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1), the CAP
+analysis and the single-card RAM installs ``POST /api/cap-info``,
+``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a), plus
+``POST /api/cap-compat``, ``POST /api/tar-probe`` and the batch install
+``POST /api/ram-batch/start|stop|clear`` + ``GET /api/ram-batch/status``
+(3c-3c-2b).  Every other API path is a 404 until the remaining 3c-3c
+endpoints (the test runner, eSIM/SCP81/netsim) and 3c-3d/3d land.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -88,10 +89,11 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     'ServerState', 'make_handler', 'build_http_server', 'reader_names',
-    'CardBusyError', 'NoCardSessionError', 'CARD_FREE_GET', 'CARD_FREE_POST',
-    'DEFAULT_TERMINAL_PROFILE', 'DEFAULT_POLL_INTERVAL', 'POLL_CHAIN_MAX',
-    'VERSION', 'ARR_READ_PATHS', 'PBR_READ_PATHS', 'check_reader',
-    'decode_iccid',
+    'CardBusyError', 'BatchBusyError', 'NoCardSessionError', 'CARD_FREE_GET',
+    'CARD_FREE_POST', 'DEFAULT_TERMINAL_PROFILE', 'DEFAULT_POLL_INTERVAL',
+    'POLL_CHAIN_MAX', 'RAM_BATCH_POLL', 'RAM_BATCH_ATTEMPTS_MAX',
+    'CLOSE_LOCK_TIMEOUT', 'VERSION', 'ARR_READ_PATHS', 'PBR_READ_PATHS',
+    'check_reader', 'decode_iccid',
 ]
 
 #: The server version served by ``GET /api/version``.  The entry point (Phase
@@ -112,22 +114,35 @@ DEFAULT_POLL_INTERVAL = 30
 #: lock (v3.25.1 - the live EP BAP's 1100 PROVIDE LOCAL INFORMATION storm).
 POLL_CHAIN_MAX = 10
 
+#: The batch install worker's card-state poll interval (seconds) and the number
+#: of attempts its report keeps (the total keeps counting, so a long run stays
+#: readable).
+RAM_BATCH_POLL = 0.5
+RAM_BATCH_ATTEMPTS_MAX = 500
+
+#: How long :meth:`ServerState.close` waits for the card lock before it skips
+#: the teardown: a batch install holds the lock for its whole chain, and a
+#: shutdown must not block on a blocking card exchange.
+CLOSE_LOCK_TIMEOUT = 2.0
+
 #: ``/api/`` GETs served without the card lock: pure cached state and the
 #: reader list (the UI polls them while a long card operation runs).  The list
 #: grows as the endpoints are ported (the legacy list is the reference);
 #: ``/api/arr`` and ``/api/pbr`` are the session caches the file manager reads
-#: while a snapshot scan is running, and ``/api/presets`` is the server-side
-#: preset store (no card involved).
+#: while a snapshot scan is running, ``/api/presets`` is the server-side
+#: preset store (no card involved) and ``/api/ram-batch/status`` is the batch
+#: panel's poll (the worker holds the card lock for a whole install).
 CARD_FREE_GET = frozenset([
     '/api/status', '/api/version', '/api/readers', '/api/arr', '/api/pbr',
-    '/api/presets',
+    '/api/presets', '/api/ram-batch/status',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
 #: ``_CARD_FREE_POST``).  ``/api/cap-info`` only analyzes the uploaded archive
 #: (no card, no preset); a long RAM install must not block the PWA's CAP
-#: analysis with its progress poll.
-CARD_FREE_POST = frozenset(['/api/cap-info'])
+#: analysis with its progress poll.  ``/api/ram-batch/stop`` only sets a flag
+#: and must work while the batch worker holds the card lock inside an install.
+CARD_FREE_POST = frozenset(['/api/cap-info', '/api/ram-batch/stop'])
 
 #: The EF.ARR copies an FCP ``8B`` security attribute can reference (the legacy
 #: ``ARR_READ_PATHS``, label for label): the MF copy, the DF.TELECOM/DF.GSM
@@ -173,6 +188,14 @@ class CardBusyError(RuntimeError):
 
 class NoCardSessionError(RuntimeError):
     """A card endpoint was called with no equipped card (the endpoint's 503)."""
+
+
+class BatchBusyError(RuntimeError):
+    """A batch install cannot start: another batch or a test run owns the card.
+
+    The endpoint answers ``409`` (the legacy's ``RuntimeError`` -> 409); a
+    *request* problem stays a :class:`ValueError` (400).
+    """
 
 
 def _is_transport_error(exc):
@@ -384,10 +407,11 @@ class ServerState(object):
     sequence); :meth:`equip` re-initializes the current card and
     :meth:`disconnect` tears the session down.
 
-    **Threads.**  Two daemon threads are owned here: the background STATUS poll
-    (:meth:`start_poll`, started by :meth:`open`) and the presence observer,
-    which is pyscard's own ``CardMonitor`` observer rather than a thread we
-    spin (see :meth:`start_monitor`).  :meth:`close` stops both.
+    **Threads.**  Three daemon threads can be owned here: the background
+    STATUS poll (:meth:`start_poll`, started by :meth:`open`), the batch
+    install worker (:meth:`ram_batch_start`) and the presence observer, which
+    is pyscard's own ``CardMonitor`` observer rather than a thread we spin (see
+    :meth:`start_monitor`).  :meth:`close` stops all of them.
 
     **The injected hooks.**  ``transport_factory(reader_name)`` builds a
     transport (default :class:`simple_server.transport.PcscLink`);
@@ -518,6 +542,14 @@ class ServerState(object):
         #: carries this payload instead (the legacy ``_RAM_PROGRESS``, v3.6.34).
         self.ram_progress = {'active': False, 'kind': '', 'step': 0, 'total': 0,
                              'name': '', 'started': 0.0}
+        #: The batch install run (the legacy ``_RAM_BATCH``), per state: the
+        #: plan built once at Start, the per-card attempts and counts, the
+        #: stop flag.  ``ram_batch_lock`` guards it (the worker, the status
+        #: poll and the stop endpoint run on different threads); the card
+        #: exchange inside a card uses :attr:`card_lock`.
+        self.ram_batch = None
+        self.ram_batch_lock = threading.RLock()
+        self._ram_batch_thread = None
         #: Set by :meth:`close`: the auto-equip worker observes it between
         #: attempts so a shutdown never races a fresh equip.
         self._closed = threading.Event()
@@ -653,20 +685,31 @@ class ServerState(object):
     def close(self):
         """Stop the background threads and drop the card session.
 
-        ``_closed`` is set first so the auto-equip worker never starts another
-        attempt, then the worker is joined (bounded: its retry wait observes
-        the same event).  **Caveat:** a worker stuck inside a blocking
-        ``SCardTransmit`` cannot be cancelled - the legacy watchdog has the
-        same limit (pcsc-lite serializes a disconnect behind the pending
-        transmit), so the join is bounded and shutdown proceeds without it.
+        ``_closed`` is set first so the auto-equip worker and the batch
+        worker's wait never start another attempt, then both are joined
+        (bounded: their waits observe the same event).  **Caveat:** a worker
+        stuck inside a blocking ``SCardTransmit`` cannot be cancelled - the
+        legacy watchdog has the same limit (pcsc-lite serializes a disconnect
+        behind the pending transmit), so the join is bounded and shutdown
+        proceeds without it.  **The card teardown is bounded too**: a batch
+        install holds :attr:`card_lock` for its whole chain, so the lock is
+        acquired with :data:`CLOSE_LOCK_TIMEOUT` and the teardown is skipped
+        when the install is still running (the process is shutting down; the
+        worker is a daemon and its ``_closed`` check ends the loop after the
+        chain).
         """
         self._closed.set()
         self.stop_poll()
         self.stop_monitor()
+        self._stop_ram_batch_worker()
         thread = self._equip_thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
-        with self.card_lock:
+        if not self.card_lock.acquire(timeout=CLOSE_LOCK_TIMEOUT):
+            log.debug('close: the card lock is held by a running operation - '
+                      'skipping the teardown')
+            return
+        try:
             self._teardown_session(bump=True)
             self.card_present = False
             transport, self.transport = self.transport, None
@@ -675,6 +718,8 @@ class ServerState(object):
                     transport.disconnect()
                 except Exception:
                     pass
+        finally:
+            self.card_lock.release()
 
     def switch_reader(self, name):
         """Switch the active PC/SC reader (``POST /api/reader``).
@@ -2206,6 +2251,596 @@ class ServerState(object):
                 'name': progress.get('name', ''),
                 'elapsed': (round(time.time() - started, 1) if started else 0)}
 
+    # ---- the CAP compatibility test (3c-3c-2b) ----------------------------
+
+    def cap_compat(self, body):
+        """``POST /api/cap-compat``: can this card satisfy the CAP's imports?
+
+        The plan (the parsed ``.cap``, the diagnostic import probe, the block
+        completing the Import component) is :func:`simple_server.capram.
+        cap_compat_plan`'s; the truncated chain - ``INSTALL [for load]`` plus
+        the LOAD blocks up to the boundary - then runs on the equipped card.
+        Stopping there answers the LOAD/import gate (JC VM Specification
+        v2.2.2 §4.5.2: the major versions must be equal and the CAP's minor not
+        above the resident package's; the observed live rejections land in the
+        boundary block) **without committing anything**: no ``INSTALL [for
+        install]``, and the last-block flag is cleared when the Import ends in
+        the load file's last block
+        (:func:`~simple_server.capram.cap_compat_plan`).  The link gate stays
+        the real install's.
+
+        The response is the legacy shape the PWA reads: ``success`` and
+        ``imports_ok`` (the verdict), ``steps``, ``boundary_block``/
+        ``total_blocks``, ``load_file_aid``/``module_aid``, ``ram_format``,
+        ``probe_imports``/``probe_unmatched``, ``load_block_size*``,
+        ``final_cntr`` and - on a rejection - ``failed_step``, ``error``,
+        ``cntr_low``.  The generic "<step> failed" becomes the legacy's "the
+        card rejected the import list": a refused ENVELOPE carries no
+        step-level detail.
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        plan = capram.cap_compat_plan(body)
+        response = self._ram_plan_run(body, plan)
+        response['imports_ok'] = bool(response.get('success'))
+        if not response.get('success'):
+            error = str(response.get('error') or '')
+            if not error or error.endswith(' failed'):
+                response['error'] = 'the card rejected the import list'
+        log.info('CAP-COMPAT: %s - imports %s (LOADs to %d/%d)', str(
+            response.get('load_file_aid') or ''),
+            'OK' if response.get('imports_ok') else 'REJECTED',
+            int(response.get('boundary_block') or 0),
+            int(response.get('total_blocks') or 0))
+        return response
+
+    # ---- the TAR probe (3c-3c-2b) -----------------------------------------
+
+    def tar_probe(self, body):
+        """``POST /api/tar-probe``: one secured packet per preset TAR.
+
+        The probe checks the **preset's TAR list only** (v3.26.0): a ``tars``
+        list selects a subset, a TAR outside the preset is refused - there is
+        no free-TAR input any more.  Each row uses its own TAR's MSL for SPI1
+        (the request's ``spi1`` is only the fallback the preset does not need)
+        and its own **default keyset**, and sends the harmless SELECT MF
+        (:data:`~simple_server.capram.TAR_PROBE_DEFAULT_APDU`) so the card's
+        answer to the *packet* is the verdict (`registered`/`no_answer`/
+        `no_por`/`refused`, :func:`simple_server.ota.tar_probe_verdict`).
+
+        Every TAR's SPI1 and keyset is resolved **before the first packet**:
+        a security MSL without a keyset or a TAR without a counter check
+        refuses the whole probe instead of leaving it half-run; the probe
+        command and ``spi2`` are pre-flighted the same way (a malformed APDU
+        would otherwise turn into one ``encode_error`` per row, i.e. a
+        `refused` verdict for every TAR).  Each accepted packet consumes a
+        counter, persisted per keyset (the server owns the counters, v3.20.0);
+        an explicit ``cntr`` applies to the first row only.
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        preset_id = str(body.get('preset_id') or '').strip()
+        if not preset_id:
+            raise ValueError('preset_id is required - the probe checks the '
+                             'preset TAR list')
+        preset = self.presets.get(preset_id)
+        if not preset:
+            raise ValueError('unknown preset')
+        spi1_base = str(body.get('spi1') or '').strip().upper()
+        spi2 = str(body.get('spi2') or '01').strip().upper()
+        if not re.fullmatch(r'[0-9A-F]{2}', spi2):
+            raise ValueError('spi2 must be one hex byte')
+        apdu = re.sub(r'\s', '', str(
+            body.get('apdu') or capram.TAR_PROBE_DEFAULT_APDU)).upper()
+        # Pre-flight the probe command.  A malformed one only fails inside
+        # each row's encoder, where the `encode_error` record reads as a
+        # `refused` verdict for every TAR - an operator typo would look like
+        # "no application is registered".
+        if (not apdu or len(apdu) % 2
+                or not re.fullmatch(r'[0-9A-F]+', apdu)):
+            raise ValueError('apdu must be an even number of hex digits')
+        if len(apdu) > 2 * 255:
+            raise ValueError('apdu is larger than the 255-octet data field')
+        role_label = {'isd': 'ISD', 'uiccRfm': 'UICC RFM',
+                      'usimRfm': 'ADF RFM'}
+        by_tar = {}
+        for entry in (preset.get('tars') or []):
+            tar = str(entry.get('tar') or '').strip().upper()
+            if tar:
+                by_tar[tar] = entry
+        wanted = body.get('tars')
+        if isinstance(wanted, list) and wanted:
+            entries = []
+            for item in wanted:
+                tar = str(item).replace(' ', '').upper()
+                entry = by_tar.get(tar)
+                if entry is None:
+                    raise ValueError(
+                        'TAR %s is not in the preset - the probe checks the '
+                        'preset TAR list only' % tar)
+                entries.append((tar, entry))
+        else:
+            entries = [(tar, entry) for tar, entry in by_tar.items()]
+        # Resolve every TAR's SPI1 and keyset before the first packet is sent.
+        resolved = []
+        for tar, entry in entries:
+            tar_spi1, _warning = ota.spi1_for_tar(preset, tar, spi1_base,
+                                                 prefer_msl=True)
+            if not scp80.counter_tracked(tar_spi1):
+                raise ValueError(
+                    'the TAR probe needs a counter check - SPI1 %s for TAR %s '
+                    'has none (b5b4 = 00)' % (tar_spi1, tar))
+            row_kvn = entry.get('keyset')
+            row_keyset = None
+            if row_kvn:
+                row_keyset = ota.preset_keyset_by_kvn(preset, row_kvn)
+                if row_keyset is None:
+                    raise ValueError(
+                        'keyset %02X (TAR %s) is not defined in the preset'
+                        % (row_kvn, tar))
+            else:
+                msl = str(entry.get('msl') or '')
+                if msl and msl != '00':
+                    raise ValueError(
+                        'TAR %s needs a default keyset (its MSL %s requires '
+                        'security) - set it in the Cards tab' % (tar, msl))
+            label = (str(entry.get('desc') or '').strip()
+                     or role_label.get(entry.get('role') or '', ''))
+            resolved.append((tar, label, tar_spi1, row_kvn, row_keyset))
+        explicit_cntr = str(body.get('cntr') or '').strip().upper()
+        state = {'steps': [], 'encode_error': None, 'failure': {},
+                 'cntr': '00000000', 'preset_id': preset_id, 'kvn': None}
+        secured = {'spi1': spi1_base, 'spi2': spi2, 'kic': '00', 'kid': '00',
+                   'tar': '000000', 'kic_key': '', 'kid_key': '',
+                   'include_cpi': body.get('includeCpi', True)}
+        log.info('TAR-PROBE: %d TAR(s), APDU %s, SPI %s/%s', len(entries),
+                 apdu, spi1_base or '-', spi2)
+        self._ram_progress_begin('tar-probe', len(entries))
+        try:
+            for index, (tar, _label, tar_spi1, row_kvn,
+                        row_keyset) in enumerate(resolved):
+                self._ram_progress_step(index, 'TAR ' + tar)
+                secured['tar'] = tar
+                secured['spi1'] = tar_spi1
+                secured['kic'] = str((row_keyset or {}).get('kic') or '00')
+                secured['kid'] = str((row_keyset or {}).get('kid') or '00')
+                secured['kic_key'] = str((row_keyset or {}).get('kicKey') or '')
+                secured['kid_key'] = str((row_keyset or {}).get('kidKey') or '')
+                state['kvn'] = row_kvn
+                # The response form follows the packet's TAR (TS 102 226 §4,
+                # the legacy's per-packet rule): only a remote-management TAR
+                # answers with the compact/scripting structures, so a non-RM
+                # TAR's secured data stays raw and no status word is invented
+                # from bytes that merely happen to parse (v3.21.0).
+                state['rm'] = ota.tar_is_rm(preset, tar)
+                # Each keyset has its own counter (TS 102 225 A.1): seed the
+                # row's from the store (an explicit `cntr` is the first row's).
+                if index == 0 and explicit_cntr:
+                    state['cntr'] = explicit_cntr
+                else:
+                    state['cntr'] = (ota.counter_seed(
+                        self.presets, {'preset_id': preset_id}, row_kvn)
+                        or '00000000')
+                self._ram_send_gp_apdu(secured, state, 'TAR ' + tar, apdu)
+        finally:
+            self._ram_progress_end()
+        results = []
+        for (tar, label, tar_spi1, row_kvn, _keyset), step in zip(
+                resolved, state['steps']):
+            results.append({
+                'tar': tar, 'label': label, 'spi1': tar_spi1, 'kvn': row_kvn,
+                'verdict': ota.tar_probe_verdict(step),
+                'sw': step.get('sw'),
+                'por_status': step.get('por_status'),
+                'por_sw': step.get('por_sw'),
+                'por_data': step.get('por_data'),
+                'bytes': step.get('bytes'), 'segments': step.get('segments'),
+            })
+        registered = sum(1 for row in results
+                         if row['verdict'] == 'registered')
+        # The top-level `kvn`/`spi1` are the legacy's: the first row's keyset
+        # and the request's `spi1` fallback - **not** a row's effective SPI1
+        # (which is the row's `spi1` in `results`).
+        return {'success': True, 'results': results, 'steps': state['steps'],
+                'registered': registered, 'total': len(results),
+                'final_cntr': state['cntr'],
+                'kvn': resolved[0][3] if resolved else None,
+                'spi1': spi1_base, 'spi2': spi2, 'apdu': apdu}
+
+    # ---- the batch install (3c-3c-2b) -------------------------------------
+
+    def ram_batch_active(self):
+        """True while a batch runs (the start guard; the test-runner guard
+        will ask too)."""
+        with self.ram_batch_lock:
+            return bool(self.ram_batch and self.ram_batch.get('active'))
+
+    def _ram_batch_new_state(self, plan):
+        """A fresh run's state: the plan is card independent, everything else
+        is resolved at each card."""
+        return {'active': True, 'phase': 'waiting_card', 'stop': False,
+                'started': time.time(), 'stopped': None, 'plan': plan,
+                'session': None, 'seen': {}, 'attempts': [],
+                'attempts_total': 0,
+                'counts': {'installed': 0, 'already_absent': 0,
+                           'failed': 0, 'skipped': 0},
+                'current': None, 'notice': ''}
+
+    def _ram_batch_record(self, rec):
+        """Record one attempt in the current run.
+
+        The report keeps the last :data:`RAM_BATCH_ATTEMPTS_MAX` entries (the
+        total keeps counting), the counts update and the notice names the
+        outcome for the panel's headline.
+        """
+        state = self.ram_batch
+        if state is None:
+            return
+        with self.ram_batch_lock:
+            rec.setdefault('ts', time.time())
+            state['attempts'].append(rec)
+            if len(state['attempts']) > RAM_BATCH_ATTEMPTS_MAX:
+                del state['attempts'][:-RAM_BATCH_ATTEMPTS_MAX]
+            state['attempts_total'] += 1
+            result = rec.get('result')
+            if result in state['counts']:
+                state['counts'][result] += 1
+            who = rec.get('iccid') or 'the card'
+            # "Card <ICCID>" - a card without a readable ICCID is "The card"
+            # (the old placeholder produced "Card the card skipped: ...").
+            card = ('Card %s' % who) if rec.get('iccid') else 'The card'
+            if result == 'installed':
+                # the success verb follows the operation (the counts bucket is
+                # 'installed' for every kind - "the operation succeeded")
+                kind = ((state.get('plan') or {}).get('kind')) or 'install-cap'
+                verb = {'delete': 'deleted',
+                        'reinstall-app': 'reinstalled'}.get(kind, 'installed')
+                state['notice'] = '%s %s.' % (card, verb)
+            elif result == 'already_absent':
+                state['notice'] = '%s was already absent.' % card
+            elif result == 'failed':
+                step = rec.get('failed_step') or ''
+                sw = rec.get('por_sw') or rec.get('sw') or ''
+                state['notice'] = '%s failed%s%s.' % (
+                    card, (' at ' + step) if step else '',
+                    (' (' + sw + ')') if sw else '')
+            else:
+                state['notice'] = '%s was skipped: %s.' % (
+                    card, rec.get('reason') or '')
+        detail = rec.get('reason') or rec.get('failed_step') or ''
+        label = {'already_absent': 'already absent'}.get(result, result)
+        log.info('RAM-BATCH: %s%s%s', label,
+                 (' ' + who) if rec.get('iccid') else '',
+                 (' - ' + detail) if detail else '')
+
+    @staticmethod
+    def _ram_batch_failure_fields(result):
+        """The failing step's name and status words for the batch report.
+
+        The panel shows e.g. ``LOAD (3/7) - 6A80``: ``por_sw`` is the card's
+        own answer to the remote command, ``sw`` the transport status word.
+        """
+        steps = result.get('steps') or []
+        index = result.get('failed_step')
+        rec = (steps[index - 1]
+               if isinstance(index, int) and 0 < index <= len(steps)
+               else (steps[-1] if steps else {}))
+        return {'failed_step': rec.get('name') or '',
+                'por_sw': rec.get('por_sw') or '',
+                'por_status': rec.get('por_status') or '',
+                'por_error': rec.get('por_error') or '',
+                'sw': rec.get('sw') or ''}
+
+    @staticmethod
+    def _ram_batch_steps_fields(result):
+        """The attempt's per-step verdict tail for the panel.
+
+        The last three steps (name, ok, remote SW) plus the chain length; a
+        delete step that answered "not found" counts as ok, while a step the
+        transport refused (``envelope_error`` - it has no ``por_error``) is
+        never ok.  A full LOAD chain stays short in the report.
+        """
+        steps = result.get('steps') or []
+        out = []
+        for step in steps[-3:]:
+            out.append({'name': step.get('name') or '',
+                        'ok': ((not step.get('por_error')
+                                and step.get('por_status') != 'envelope_error')
+                               or bool(step.get('delete_not_found'))),
+                        'sw': step.get('por_sw') or '',
+                        'not_found': bool(step.get('delete_not_found'))})
+        return {'steps': out, 'steps_total': len(steps)}
+
+    def _ram_batch_handle_card(self, state, session=None):
+        """One equipped card: match the preset by ICCID, then run the plan.
+
+        The preset is matched by ICCID (:meth:`PresetStore.find_by_iccid`); its
+        ISD role TAR supplies the keyset and the counter seed (v3.26.0/v3.20.0).
+        A card already attempted in this run - any outcome - is reported, never
+        re-installed: restarting the batch is the deliberate retry.
+
+        ``session`` is the card session the worker decided on; the ICCID and
+        the preset are read *before* the card lock, so the chain re-checks both
+        under the lock and skips the card if either moved (a swap in between
+        must never run another card's plan - the v3.28.0 audit class).
+        """
+        session = self.card_session if session is None else session
+        iccid = presets_store.normalize_iccid(self.iccid or '')
+        if not iccid:
+            self._ram_batch_record({'result': 'skipped',
+                                    'reason': 'no ICCID readable'})
+            return
+        with self.ram_batch_lock:
+            seen_outcome = state['seen'].get(iccid)
+        if seen_outcome is not None:
+            self._ram_batch_record({
+                'iccid': iccid, 'result': 'skipped',
+                'reason': 'already processed in this batch (%s)'
+                          % seen_outcome})
+            return
+        store = self.presets
+        preset = store.find_by_iccid(iccid) if store is not None else None
+        if preset is None:
+            with self.ram_batch_lock:
+                state['seen'][iccid] = 'no preset'
+            self._ram_batch_record({'iccid': iccid, 'result': 'skipped',
+                                    'reason': 'no preset matches this ICCID'})
+            return
+        name = preset.get('name') or ''
+        body = {'preset_id': preset.get('id') or '',
+                'tar': presets_store.role_tar(preset, 'isd')}
+        with self.ram_batch_lock:
+            state['seen'][iccid] = 'pending'
+            state['current'] = {'iccid': iccid, 'preset': name,
+                                'started': time.time()}
+            state['phase'] = 'installing'
+            # A new card's install supersedes the previous attempt's headline:
+            # the notice reports the *last finished* card, so it must not
+            # linger while the next card is being installed (v3.28.1).
+            state['notice'] = ''
+        started = time.time()
+        result = None
+        error = None
+        request_error = False
+        try:
+            with self.card_lock:
+                if (self.card_session != session
+                        or presets_store.normalize_iccid(
+                            self.iccid or '') != iccid):
+                    # The card was swapped while the preset was being matched:
+                    # the plan belongs to the previous card - skip it (the new
+                    # session is the next poll's card).
+                    raise ValueError('the card changed before the install '
+                                     'started')
+                result = self._ram_plan_run(body, state['plan'])
+        except ValueError as exc:
+            # A request/eligibility error (the preset's ISD keyset, the plan):
+            # the install never started - the card is skipped.
+            error = str(exc)
+            request_error = True
+        except Exception as exc:            # a lost card, a transport error
+            error = str(exc)
+        finally:
+            with self.ram_batch_lock:
+                state['current'] = None
+                if not state['stop']:
+                    state['phase'] = 'waiting_card'
+        duration = int((time.time() - started) * 1000)
+        if result is not None and result.get('success'):
+            outcome = 'installed'
+            rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+                   'duration_ms': duration,
+                   'final_cntr': result.get('final_cntr'),
+                   'load_file_aid': result.get('load_file_aid'),
+                   'module_aid': result.get('module_aid'),
+                   'nv_delta': result.get('nv_delta')}
+            rec.update(self._ram_batch_steps_fields(result))
+            # A delete run whose DELETE answered "not found" is a success (the
+            # object is gone, the goal is met) but not a deletion: report it as
+            # "already absent" and count it separately (v3.36.0).  Only the
+            # delete kind - a reinstall's tolerated pre-delete is not the
+            # outcome.
+            if ((state.get('plan') or {}).get('kind') == 'delete'
+                    and any(step.get('delete_not_found')
+                            for step in (result.get('steps') or []))):
+                outcome = 'already_absent'
+                rec['result'] = outcome
+                rec['not_found'] = True
+        elif result is not None:
+            outcome = 'failed'
+            rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+                   'duration_ms': duration,
+                   'final_cntr': result.get('final_cntr'),
+                   'cntr_low': bool(result.get('cntr_low')),
+                   'error': result.get('error') or ''}
+            rec.update(self._ram_batch_failure_fields(result))
+            rec.update(self._ram_batch_steps_fields(result))
+        elif request_error:
+            outcome = 'skipped'
+            rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+                   'duration_ms': duration,
+                   'reason': error or 'the install could not start'}
+        else:
+            outcome = 'failed'
+            rec = {'iccid': iccid, 'preset': name, 'result': outcome,
+                   'duration_ms': duration,
+                   'error': error or 'the install failed'}
+        with self.ram_batch_lock:
+            state['seen'][iccid] = outcome
+        self._ram_batch_record(rec)
+
+    def _ram_batch_worker(self, state):
+        """The batch loop: wait for a new card session, install, record, repeat.
+
+        A card already equipped at Start installs immediately.  The equip must
+        have finished (``card_ready_session`` matches) - acting mid-equip
+        would consume the session with a bogus "no ICCID" skip (the v3.28.0
+        audit).  The stop flag ends the loop; a running install always
+        finishes first (`stop` is checked between cards, never inside a
+        chain).
+        """
+        try:
+            while True:
+                with self.ram_batch_lock:
+                    if state['stop']:
+                        break
+                session = self.card_session
+                with self.ram_batch_lock:
+                    if state['stop']:
+                        break
+                    connected = bool(self.connected
+                                     and self.card_ready_session == session)
+                    fresh = connected and session != state['session']
+                    if fresh:
+                        state['session'] = session
+                    elif state['phase'] != 'installing':
+                        state['phase'] = 'waiting_card'
+                if not fresh:
+                    if self._closed.wait(RAM_BATCH_POLL):
+                        break
+                    continue
+                try:
+                    self._ram_batch_handle_card(state, session)
+                except Exception as exc:
+                    # An unattended bulk run must survive a surprise: the card
+                    # is recorded and the loop keeps waiting for the next one.
+                    log.warning('RAM-BATCH: card handling error: %s', exc)
+                    self._ram_batch_record(
+                        {'result': 'skipped',
+                         'reason': 'unexpected error: %s' % exc})
+        finally:
+            with self.ram_batch_lock:
+                state['active'] = False
+                state['current'] = None
+                state['phase'] = 'stopped' if state['stop'] else 'finished'
+                state['stopped'] = time.time()
+                phase, total = state['phase'], state['attempts_total']
+            log.info('RAM-BATCH: %s after %d attempts', phase, total)
+
+    def ram_batch_start(self, body):
+        """``POST /api/ram-batch/start``: validate the plan, spawn the worker.
+
+        ``kind`` selects the operation: ``install-cap`` (the ``.cap`` chain,
+        optionally with the delete-package pre-step), ``delete`` (one GP
+        DELETE) or ``reinstall-app`` (DELETE the instance + INSTALL [for
+        install]).  The plan is card independent, so it is built **once** here -
+        a bad file or parameter is a 400 before any card is touched.
+
+        Raises :class:`~simple_server.server.BatchBusyError` (409) when another
+        batch or a test run is active and :class:`ValueError` (400) for a bad
+        request.  No card is needed: the worker waits for one.
+        """
+        with self.ram_batch_lock:
+            if self.ram_batch_active():
+                raise BatchBusyError('a batch is already running - stop it '
+                                     'first')
+            if self.test_running:
+                raise BatchBusyError('a test run is active - stop it first')
+        body = dict(body or {})
+        kind = str(body.get('kind') or 'install-cap').strip().lower()
+        if kind == 'install-cap':
+            plan = capram.install_plan(body)
+        elif kind == 'delete':
+            plan = capram.delete_plan(body)
+        elif kind == 'reinstall-app':
+            plan = capram.reinstall_plan(body)
+        else:
+            raise ValueError("kind must be 'install-cap', 'delete' or "
+                             "'reinstall-app'")
+        state = self._ram_batch_new_state(plan)
+        with self.ram_batch_lock:
+            self.ram_batch = state
+        thread = threading.Thread(target=self._ram_batch_worker,
+                                  args=(state,), name='ram-batch', daemon=True)
+        with self.ram_batch_lock:
+            self._ram_batch_thread = thread
+        thread.start()
+        log.info('RAM-BATCH: started (%s, %d step(s))', plan['kind'],
+                 len(plan['seq']))
+        return state
+
+    def ram_batch_stop(self):
+        """Request a batch stop; ``False`` when no batch is running.
+
+        A running install finishes first - an interrupted LOAD chain can leave
+        a half-loaded package - then the worker ends the run.  The endpoint is
+        card-free (:data:`CARD_FREE_POST`), so the button works while the
+        worker holds the card lock.
+        """
+        with self.ram_batch_lock:
+            if self.ram_batch is None or not self.ram_batch.get('active'):
+                return False
+            self.ram_batch['stop'] = True
+            self.ram_batch['phase'] = 'stopping'
+        log.info('RAM-BATCH: stop requested')
+        return True
+
+    def ram_batch_clear(self):
+        """Drop a finished run's report; ``False`` while a batch is active."""
+        with self.ram_batch_lock:
+            if self.ram_batch and self.ram_batch.get('active'):
+                return False
+            self.ram_batch = None
+        return True
+
+    def ram_batch_status(self):
+        """The batch panel's status payload (the summary plus the attempts)."""
+        with self.ram_batch_lock:
+            state = self.ram_batch
+            if state is None:
+                return {'active': False, 'phase': 'idle', 'kind': None,
+                        'attempts': [], 'attempts_total': 0, 'current': None,
+                        'notice': '',
+                        'counts': {'installed': 0, 'already_absent': 0,
+                                   'failed': 0, 'skipped': 0},
+                        'started': None, 'stopped': None, 'progress': None}
+            current = state.get('current')
+            return {'active': bool(state.get('active')),
+                    'phase': state.get('phase'),
+                    'kind': ((state.get('plan') or {}).get('kind')) or None,
+                    'attempts': list(state['attempts']),
+                    'attempts_total': state['attempts_total'],
+                    'current': dict(current) if current else None,
+                    'notice': state.get('notice') or '',
+                    'counts': dict(state['counts']),
+                    'started': state.get('started'),
+                    'stopped': state.get('stopped'),
+                    'progress': (self.ram_progress_payload()
+                                 if current else None)}
+
+    def ram_batch_summary(self):
+        """The small ``/api/status.ram_batch`` summary (None when no run).
+
+        The panel's headline rides the card-free 2 s status poll, so it must
+        not carry the attempts list - the detailed report is fetched only when
+        the summary says it changed (v3.28.0).
+        """
+        with self.ram_batch_lock:
+            state = self.ram_batch
+            if state is None:
+                return None
+            current = state.get('current')
+            return {'active': bool(state.get('active')),
+                    'phase': state.get('phase'),
+                    'kind': ((state.get('plan') or {}).get('kind')) or None,
+                    'current': dict(current) if current else None,
+                    'notice': state.get('notice') or '',
+                    'attempts_total': state['attempts_total'],
+                    'counts': dict(state['counts']),
+                    'started': state.get('started'),
+                    'stopped': state.get('stopped')}
+
+    def _stop_ram_batch_worker(self):
+        """End the batch worker at shutdown (a bounded join, see :meth:`close`)."""
+        with self.ram_batch_lock:
+            if self.ram_batch is not None:
+                self.ram_batch['stop'] = True
+            thread = self._ram_batch_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -2566,6 +3201,10 @@ class ServerState(object):
             # install chains hold the card lock, so the modal's live status
             # rides this 2 s poll (the legacy ``ram_progress``, v3.6.34).
             'ram_progress': self.ram_progress_payload(),
+            # The batch install's headline (the legacy ``ram_batch`` summary):
+            # the PWA renders the phase/counts/notice on every 2 s poll and
+            # fetches the detailed report only when it changed.
+            'ram_batch': self.ram_batch_summary(),
             'terminal_profile': self.terminal_profile,
         }
 
@@ -2757,6 +3396,8 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.pbr_cache())
                 elif path == '/api/presets':
                     self._send_json(self.state_ref.presets_info())
+                elif path == '/api/ram-batch/status':
+                    self._send_json(self.state_ref.ram_batch_status())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -2810,6 +3451,16 @@ def make_handler(state, log_requests=False):
                     self._post_ram_install(body)
                 elif path == '/api/ram-install-app':
                     self._post_ram_install_app(body)
+                elif path == '/api/cap-compat':
+                    self._post_cap_compat(body)
+                elif path == '/api/tar-probe':
+                    self._post_tar_probe(body)
+                elif path == '/api/ram-batch/start':
+                    self._post_ram_batch_start(body)
+                elif path == '/api/ram-batch/stop':
+                    self._post_ram_batch_stop(body)
+                elif path == '/api/ram-batch/clear':
+                    self._post_ram_batch_clear(body)
                 elif path == '/api/presets':
                     self._post_presets(body)
                 elif path == '/api/presets/update':
@@ -2974,6 +3625,51 @@ def make_handler(state, log_requests=False):
         def _post_ram_install_app(self, body):
             self._post_card(lambda: self.state_ref.ram_install_app(body),
                             {'success': False})
+
+        # ---- the CAP compatibility test, the TAR probe and the batch (3c-3c-2b)
+
+        def _post_cap_compat(self, body):
+            """The import-list verdict: a rejection is a 200 with success false."""
+            self._post_card(lambda: self.state_ref.cap_compat(body),
+                            {'success': False, 'imports_ok': False})
+
+        def _post_tar_probe(self, body):
+            self._post_card(lambda: self.state_ref.tar_probe(body),
+                            {'success': False})
+
+        def _post_ram_batch_start(self, body):
+            """Start the batch: 409 while busy, 400 for a bad request/plan.
+
+            The plan is built before the worker starts, so a malformed ``.cap``
+            (and every other plan refusal) is the caller's 400 - never a
+            silently half-started run.
+            """
+            try:
+                self.state_ref.ram_batch_start(body)
+            except BatchBusyError as exc:
+                self._send_json({'error': str(exc)}, 409)
+                return
+            except Exception as exc:        # ValueError and a plan-level error
+                self._send_json({'error': str(exc)}, 400)
+                return
+            resp = self.state_ref.ram_batch_status()
+            resp['ok'] = True
+            self._send_json(resp)
+
+        def _post_ram_batch_stop(self, body):
+            if not self.state_ref.ram_batch_stop():
+                self._send_json({'error': 'no batch is running'}, 409)
+                return
+            resp = self.state_ref.ram_batch_status()
+            resp['ok'] = True
+            self._send_json(resp)
+
+        def _post_ram_batch_clear(self, body):
+            if not self.state_ref.ram_batch_clear():
+                self._send_json({'error': 'a batch is running - stop it first'},
+                                409)
+                return
+            self._send_json({'ok': True})
 
         # A PresetError (a refused store mutation) is the dispatch's 400 - the
         # inner handlers only add their own status for the non-error answers.

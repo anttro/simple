@@ -17,6 +17,7 @@ Ported legacy helpers, name for name::
     _cntr_low_fields         -> cntr_low_fields
     _ram_next_cntr           -> next_counter
     _tar_is_rm               -> tar_is_rm (RM_TAR_ALLOCATIONS)
+    _tar_probe_verdict       -> tar_probe_verdict
     _preset_keysets          -> preset_keysets
     _preset_keyset_by_kvn    -> preset_keyset_by_kvn
     _preset_keyset_check     -> preset_keyset_check
@@ -56,6 +57,7 @@ __all__ = [
     'RM_TAR_ALLOCATIONS', 'BAD_FORMAT_NAMES', 'COUNTER_PROBE_DEFAULT_APDU',
     'COUNTER_PROBE_CEILING', 'COUNTER_PROBE_MAX_ATTEMPTS', 'COUNTER_PROBE_SPI2',
     'kvn_of', 'counter_valid', 'cntr_low_fields', 'next_counter', 'tar_is_rm',
+    'tar_probe_verdict',
     'preset_keysets', 'preset_keyset_by_kvn', 'preset_keyset_check',
     'resolve_operation_keyset', 'op_keyset_resolve', 'counter_seed',
     'counter_persist', 'spi1_for_tar', 'normalise_ram_format',
@@ -175,6 +177,31 @@ def tar_is_rm(preset, tar):
         if entry.get('role') and str(entry.get('tar') or '').strip().upper() == t:
             return True
     return t in RM_TAR_ALLOCATIONS
+
+
+def tar_probe_verdict(step):
+    """Classify one TAR probe step: the card's ENVELOPE verdict plus the PoR.
+
+    * ``registered`` - the ENVELOPE was accepted (``9000``) **and** the
+      application answered with its own status word or data: a remote
+      management application owns that TAR;
+    * ``no_answer`` - accepted, but the application answered with nothing
+      (an empty PoR): a registered address whose application stays silent;
+    * ``no_por`` - accepted, no response packet at all (the SPI2 asked for
+      one and the card dropped it);
+    * ``refused`` - the ENVELOPE itself failed (typically ``6200``), so the
+      card has no application registered on that TAR.
+
+    ``step`` is a step record from the RAM sender (``por_status``,
+    ``por_sw``, ``por_data``).
+    """
+    status = str((step or {}).get('por_status') or '')
+    if status == 'por_ok':
+        return ('registered' if (step.get('por_sw') or step.get('por_data'))
+                else 'no_answer')
+    if status == 'no_por':
+        return 'no_por'
+    return 'refused'
 
 
 def preset_keysets(preset):
