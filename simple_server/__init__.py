@@ -14,6 +14,10 @@ the Data available / Channel status events).
 Phase 3c-3a: the server state (the card lifecycle, the presence monitor, the
 background STATUS poll) and the HTTP handler with the static PWA serving and
 the first endpoints (version/status/readers/reader/equip/reset).
+Phase 3c-3b: the file endpoints (tree/select/read/write) on the file model,
+the FCP parser and :class:`~simple_server.commands.FileOps`, the card-free
+EF.ARR/EF.PBR session caches, and :mod:`simple_server.pbr` (the EF.PBR
+phonebook decoder and the tree injection).
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

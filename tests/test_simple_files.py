@@ -284,6 +284,17 @@ class FileModelTests(unittest.TestCase):
         self.assertEqual(self.model.path_chain('ADF.USIM/6F07'),
                          ['A0000000871002', '6F07'])
 
+    def test_path_chain_accepts_an_already_resolved_file(self):
+        # The file endpoints resolve a selector once (model walk + PBR/custom
+        # probe) and then need that file's chain - no second resolution, which
+        # would re-raise ambiguity for a bare selector they already indexed.
+        info = self.model.resolve('MF/7F10/6F3A')
+        self.assertEqual(self.model.path_chain(info), ['3F00', '7F10', '6F3A'])
+        adf = self.model.resolve('ADF.USIM')
+        self.assertEqual(self.model.path_chain(adf), ['A0000000871002'])
+        self.assertEqual(self.model.path_chain(self.model.resolve('MF')),
+                         ['3F00'])
+
     def test_children_and_iter_all(self):
         names = [info.name for info in self.model.children('MF')]
         self.assertIn('DF.TELECOM', names)

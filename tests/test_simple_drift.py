@@ -19,8 +19,10 @@ Add a table or a parser here when the port gains one.
 import pathlib
 import contextlib
 import io
+import json
 import sys
 import threading
+import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -35,6 +37,7 @@ import pysim_simple_server.testscript as legacy_ts  # noqa: E402
 
 from simple_server import bip as B  # noqa: E402
 from simple_server import cat_session as C  # noqa: E402
+from simple_server import pbr as PB  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
 from simple_server import tr as R  # noqa: E402
 
@@ -843,6 +846,58 @@ class BipSessionParityTests(unittest.TestCase):
                     cat.sent, label)
                 self.assertEqual(ours_terminal.pending, theirs_terminal.pending,
                                  label)
+
+
+class PbrDriftTests(unittest.TestCase):
+    """The EF.PBR (TS 31.102 §4.4.2.1) parser is a straight port."""
+
+    def test_the_tables(self):
+        self.assertEqual(PB.PBR_KINDS, legacy.PBR_KINDS)
+        self.assertEqual(PB.PBR_CONTAINERS, legacy.PBR_CONTAINERS)
+
+    def test_the_parsers_agree_on_the_shared_vectors(self):
+        cases = json.loads((PROJECTS / 'simple' / 'frontend' / 'tests' /
+                            'pbr_vectors.json').read_text(encoding='utf-8'))
+        self.assertTrue(cases['cases'])
+        for case in cases['cases']:
+            self.assertEqual(PB.parse_pbr(case['records']),
+                             legacy._pbr_parse(case['records']), case['name'])
+
+    def test_the_path_normaliser_agrees(self):
+        aid = 'A0000000871002FF33FF0181FFFF8900'
+        aids = {aid: 'ADF.USIM'}
+        for segments in (['3f00', '7f10', '5f3a', '4f30'], ['mf', ''],
+                         None, [], ['ADF.USIM', '5F3A'],
+                         ['MF', 'ADF.USIM', '5F3A'], ['MF', aid, '5F3A'],
+                         ['5F3A']):
+            self.assertEqual(PB.norm_path(segments, aids),
+                             legacy._pbr_norm_path(segments, aids), segments)
+            self.assertEqual(PB.norm_path(segments),
+                             legacy._pbr_norm_path(segments), segments)
+
+    def test_the_tree_helpers_agree(self):
+        """Both review rules, on both sides: a full path is never answered by
+        another DF's copy, and a bare FID only when a single copy is cached.
+        The children comparison also pins the injection's dedupe and shape."""
+        record = 'A80AC0024F3A02C5034F0904'
+        cache = [
+            {'fid': '4F30', 'path': 'MF/7F10/5F3A/4F30', 'records': [record]},
+            {'fid': '4F30', 'path': 'ADF.USIM/5F3A/4F30', 'records': [record]},
+        ]
+        holder = types.SimpleNamespace(pbr=cache)
+        children = [{'name': 'EF.PBR', 'fid': '4F30', 'isDir': False},
+                    {'name': 'EF.ADN', 'fid': '4F3A', 'isDir': False}]
+        for path in (['MF', '7F10', '5F3A'], ['ADF.USIM', '5F3A'],
+                     ['MF', '5F3A'], ['5F3A'], ['MF', '7F10', '5F3B'],
+                     [], None):
+            self.assertEqual(PB.files_for_node(cache, path),
+                             legacy._pbr_files_for_node(holder, path), path)
+            ours = [dict(child) for child in children]
+            theirs = [dict(child) for child in children]
+            self.assertEqual(
+                PB.inject_children(cache, path, ours),
+                legacy._pbr_inject_children(holder, path, theirs), path)
+            self.assertEqual(ours, theirs, path)
 
 
 if __name__ == '__main__':

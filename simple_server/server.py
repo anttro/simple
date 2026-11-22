@@ -6,24 +6,32 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a): the state and the card lifecycle (:meth:`ServerState.open`,
+Scope (Phase 3c-3a/3b): the state and the card lifecycle (:meth:`ServerState.open`,
 :meth:`~ServerState.equip`, :meth:`~ServerState.reset`,
 :meth:`~ServerState.disconnect`, the presence monitor and the background STATUS
 poll), the HTTP handler + :class:`http.server.ThreadingHTTPServer` factory over
-it, the static PWA serving and the first endpoints - ``GET /api/version``,
-``GET /api/status``, ``GET /api/readers``, ``POST /api/reader``,
-``POST /api/equip`` and ``POST /api/reset``.  Every other API path is a 404
-until the file/preset/SCP80/RAM/test/eSIM/SCP81/netsim endpoints land in
-3c-3b/3c-3c.
+it, the static PWA serving and the endpoints - ``GET /api/version``,
+``GET /api/status``, ``GET /api/readers``, ``GET /api/arr``, ``GET /api/pbr``,
+``POST /api/reader``, ``POST /api/equip``, ``POST /api/reset`` (3c-3a) and the
+file endpoints ``POST /api/tree|select|read|write`` (3c-3b).  Every other API
+path is a 404 until the preset/SCP80/RAM/test/eSIM/SCP81/netsim endpoints land
+in 3c-3c.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
 ``/api/commands``/``/api/cardinfo``; ``/api/status`` has our own shape (no
 pySim concepts); ``/api/apdu`` (3c-3b) keeps the automatic proactive handler on
-an ``91XX`` answer.  The card lock discipline is the legacy one: every
-``/api/`` GET/POST is serialized by the one ``threading.RLock`` except the
-card-free GET allowlist (:data:`CARD_FREE_GET`) and the static PWA files, so a
-long card operation cannot starve the UI's state poll.
+an ``91XX`` answer.  ``/api/read`` has **no** ``mode: 'decoded'``: the legacy
+mode ran pySim's server-side EF decoders, the PWA decodes the same raw bytes
+client-side, so the mode is refused with a 400 instead of being silently
+ignored.  The file endpoints replace the legacy pySim-shell calls with the
+file model + :class:`~simple_server.commands.FileOps`; a model-unknown 4-hex
+FID is probed without an ``allow_probe`` flag (the legacy flag/detach dance
+protected pySim's model, which is never mutated here).  The card lock
+discipline is the legacy one: every ``/api/`` GET/POST is serialized by the one
+``threading.RLock`` except the card-free GET allowlist
+(:data:`CARD_FREE_GET`) and the static PWA files, so a long card operation
+cannot starve the UI's state poll.
 
 Provenance / legacy parity: :class:`ServerState` ports the legacy
 ``_apply_equipped_card`` (the post-equip refresh + TERMINAL PROFILE), the
@@ -45,6 +53,7 @@ POLL INTERVAL / POLLING OFF wishes, adopted by the poll); TS 102 221 §13.2
 import json
 import logging
 import os
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,13 +65,14 @@ from simple_server import cards
 from simple_server import cat_session
 from simple_server import commands
 from simple_server import files as files_module
+from simple_server import pbr as pbr_module
 from simple_server.transport import PcscLink, ReaderError
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     'ServerState', 'make_handler', 'build_http_server', 'reader_names',
-    'CardBusyError', 'CARD_FREE_GET', 'CARD_FREE_POST',
+    'CardBusyError', 'NoCardSessionError', 'CARD_FREE_GET', 'CARD_FREE_POST',
     'DEFAULT_TERMINAL_PROFILE', 'DEFAULT_POLL_INTERVAL', 'POLL_CHAIN_MAX',
     'VERSION', 'ARR_READ_PATHS', 'PBR_READ_PATHS', 'check_reader',
     'decode_iccid',
@@ -88,10 +98,11 @@ POLL_CHAIN_MAX = 10
 
 #: ``/api/`` GETs served without the card lock: pure cached state and the
 #: reader list (the UI polls them while a long card operation runs).  The list
-#: is deliberately small in 3c-3a; the later endpoints add themselves as they
-#: are ported (the legacy list is the reference).
+#: grows as the endpoints are ported (the legacy list is the reference);
+#: ``/api/arr`` and ``/api/pbr`` are the session caches the file manager reads
+#: while a snapshot scan is running.
 CARD_FREE_GET = frozenset([
-    '/api/status', '/api/version', '/api/readers',
+    '/api/status', '/api/version', '/api/readers', '/api/arr', '/api/pbr',
 ])
 
 #: POSTs that must answer while the card lock is held (the legacy
@@ -139,6 +150,10 @@ class CardBusyError(RuntimeError):
     to be caught as "busy", so every failed switch lost its status (and the
     PWA never saw the bumped ``card_session``).
     """
+
+
+class NoCardSessionError(RuntimeError):
+    """A card endpoint was called with no equipped card (the endpoint's 503)."""
 
 
 def _is_transport_error(exc):
@@ -230,6 +245,76 @@ def decode_iccid(data):
     return digits
 
 
+#: A 2-byte hex FID (the only selector shape a custom-file probe accepts).
+_FID_RE = re.compile(r'^[0-9A-F]{4}$')
+
+#: The status words the file endpoints name for the PWA's status line (the
+#: legacy ``/api/read|write`` wording).  The status word itself stays in the
+#: response, in the lower case form :class:`simple_server.commands.FileOps`
+#: reports (the PWA compares ``6982``/``9804`` for its inline ADM action).
+_SW_ERRORS = {
+    '6982': 'Security status not satisfied',
+    '6983': 'PIN blocked',
+    '6985': 'Conditions of use not satisfied',
+    '6a88': 'Referenced data not found',
+    '6a82': 'File not found',
+}
+
+
+def _sw_error(sw):
+    """A human name for a status word (lower-case hex in, legacy names out)."""
+    return _SW_ERRORS.get(str(sw or '').strip().lower(), 'Error')
+
+
+def _norm_segments(segments):
+    """Normalise a selector chain: upper case, ``3F00`` -> ``MF``, no empties.
+
+    A segment may itself carry a path (``'MF/7F10'``); the chain is flattened.
+    """
+    out = []
+    for segment in segments or ():
+        text = str(segment if segment is not None else '').strip().upper()
+        for part in text.split('/'):
+            part = part.strip()
+            if not part:
+                continue
+            out.append('MF' if part == '3F00' else part)
+    return out
+
+
+def _body_segments(body):
+    """The target selector chain of a file-endpoint request body.
+
+    ``path`` names the whole chain; otherwise the selector is ``fid`` (the
+    PWA sends both, the FID is authoritative) or ``name``, and the parent
+    chain is ``parent_path`` (a list, or a ``'/'`` string).
+
+    A bare ``parent_sel`` (the legacy single-segment form) is resolved as a
+    root selector: it works for an ADF name/AID and for a DF FID that is
+    unique in the model, and a FID that appears in several DFs is
+    :class:`~simple_server.files.AmbiguousFile` (a 404) rather than a guess -
+    the probe is then rooted at MF.  ``parent_path`` is the unambiguous form
+    and what the PWA sends.
+    """
+    path = body.get('path')
+    if path:
+        return _norm_segments([path])
+    fid = body.get('fid')
+    name = fid if fid else body.get('name')
+    parent_path = body.get('parent_path')
+    if parent_path:
+        if isinstance(parent_path, (list, tuple)):
+            parents = list(parent_path)
+        else:
+            parents = [parent_path]
+    else:
+        parent_sel = body.get('parent_sel')
+        parents = [parent_sel] if parent_sel else []
+    if name is not None and str(name).strip():
+        parents.append(name)
+    return _norm_segments(parents)
+
+
 class ServerState(object):
     """One server's mutable state: the link, the card and the session caches.
 
@@ -283,9 +368,11 @@ class ServerState(object):
       preference, not the card's).
     * The network-state monitor is a field here; its read/compute port belongs
       with the network endpoints (3c-3c), so ``netstate`` stays ``None``.
-    * ``selection`` is owned by this state but only the file endpoints (3c-3b)
-      populate it; the post-equip reads restore MF and never publish a
-      selection.
+    * ``selection`` is owned by this state and published by the file endpoints
+      (3c-3b) - ``{path, name, fid, kind, size, record_len, num_records}``; the
+      post-equip reads restore MF and never publish a selection.  It describes
+      the last file a file endpoint addressed, not a live mirror of the card's
+      selected file.
     """
 
     def __init__(self, transport=None, transport_factory=None, reader=None,
@@ -684,12 +771,17 @@ class ServerState(object):
 
     # ---- the card-free reads ----------------------------------------------
 
-    def _file_ops(self):
-        """A :class:`~simple_server.commands.FileOps` for the equipped card."""
+    def _file_ops(self, transport=None):
+        """A :class:`~simple_server.commands.FileOps` for the equipped card.
+
+        ``transport`` overrides the link (the file endpoints pass their
+        instrumented proxy); the CLA and the SELECT form follow the card class
+        (``00``+FCP for a UICC/eUICC, ``a0``+the TS 51 011 form for a 2G SIM).
+        """
         card = self.card
         uicc = card is None or card.kind in ('uicc', 'euicc')
         return commands.FileOps(
-            self.transport,
+            transport if transport is not None else self.transport,
             cla='00' if uicc else 'a0',
             status_cla=(card.cla if card is not None else '80'),
             sel_fcp=uicc)
@@ -751,6 +843,455 @@ class ServerState(object):
             self._file_ops().select_mf()
         except Exception as exc:
             log.debug('MF restore failed: %s', exc)
+
+    # ---- the file endpoints (3c-3b) ---------------------------------------
+    #
+    # The PWA's file manager, its "probe all files" walk, the snapshot scan and
+    # the Profiler's tree walk address a file the same two ways: a full ``path``
+    # ('MF/2FE2', 'ADF.USIM/6F07') or a selector (``fid``/``name``) plus its
+    # parent chain (``parent_sel``/``parent_path``).  Resolution goes through
+    # the file model segment by segment, so it stays parent-scoped: a same-FID
+    # file under another DF is never picked.
+    #
+    # A model-unknown 4-hex FID under a model-known DF is a **custom file** -
+    # and the EF.PBR phonebook files are exactly that (they are not in the
+    # standard list, so the tree injects them).  It is selected by FID with no
+    # ``allow_probe`` flag: the legacy probe/detach dance existed to protect
+    # pySim's model from the probe, and this model is never mutated by a
+    # select.
+
+    def file_tree(self, body):
+        """``POST /api/tree``: the requested node's children from the model.
+
+        The node itself is SELECTed first - that is what answers ``exists``
+        (and probes a custom file) - then its children come from
+        :meth:`~simple_server.files.FileModel.children` and the EF.PBR
+        injection (:func:`simple_server.pbr.inject_children`).  ADF roots are
+        appended under MF: an ADF sits beside MF in the model (it is selected
+        by its DF name, TS 102 221 §11.1.1.1) but the tree shows it as an MF
+        child, carrying its ``aid`` so the Profiler's walk can root it by AID.
+
+        The model lists what the standard file list describes, not what the
+        card holds: a file or ADF the card does not have appears in the tree
+        and answers ``exists: false`` when it is selected.
+        """
+        ops, _timed = self._file_endpoint_ops()
+        info, probe, fcp, path = self._select_node(body, ops)
+        children = self._model_children(info)
+        pbr_module.inject_children(self.pbr,
+                                   pbr_module.norm_path(path.split('/')),
+                                   children)
+        return {'exists': True,
+                'name': (info.name if info is not None
+                         else path.rsplit('/', 1)[-1]),
+                'fid': (info.fid or None) if info is not None else probe[1],
+                'file_type': self._node_file_type(info, fcp),
+                'children': children}
+
+    def file_select(self, body):
+        """``POST /api/select``: SELECT the node and report its FCP metadata.
+
+        The response is the legacy shape the PWA's file manager, the snapshot
+        scan and the Profiler consume (``file_size``/``record_len``/
+        ``num_of_rec``/``fci_hex``/``apdu_times``); ``fci_hex`` is the raw
+        SELECT response (the FCP/FCI template) or ``None`` when the card
+        returned none (a 2G SIM's SELECT carries no FCP).  The file becomes
+        the published ``/api/status`` ``selection``.
+        """
+        ops, timed = self._file_endpoint_ops()
+        info, probe, fcp, path = self._select_node(body, ops)
+        self._publish_selection(info, probe, fcp, path)
+        return {'name': (info.name if info is not None
+                         else path.rsplit('/', 1)[-1]),
+                'fid': (info.fid or None) if info is not None else probe[1],
+                'file_type': self._node_file_type(info, fcp),
+                'file_size': fcp.file_size,
+                'record_len': fcp.record_len,
+                'num_of_rec': fcp.num_of_rec,
+                'fci_hex': fcp.raw or None,
+                'apdu_times': timed.times,
+                'exists': True}
+
+    def file_read(self, body):
+        """``POST /api/read``: SELECT and read the file.
+
+        A transparent EF answers ``data`` (upper-case hex, the whole file); a
+        linear-fixed/cyclic EF answers ``records`` as ``[{num, data}]``
+        (1-based).  ``mode`` is ``'raw'`` only - the legacy ``'decoded'`` mode
+        ran pySim's server-side EF decoders, which this server does not have;
+        the PWA decodes client-side from these same bytes, so the mode is
+        refused with a 400 instead of being silently ignored.
+
+        A card-level read failure (a refused READ) is a ``200`` with
+        ``success: false`` and the card's ``sw`` - the PWA prints the status
+        word and offers its ADM action for ``6982``/``9804`` (the legacy lower
+        case form).  Only a failed SELECT is a ``404`` (the file is not there).
+
+        A record file whose FCP announces a count **must** be read to that
+        count: a refusal mid-file is a ``success: false`` with the refusing
+        ``sw`` and the partial ``records`` (see :meth:`_read_records`).  A
+        reported count is the card's promise; the PWA's ``if (rd && rd.success)``
+        would otherwise store a truncated list in a snapshot or profile.
+        """
+        mode = str(body.get('mode') or 'raw').strip().lower()
+        if mode != 'raw':
+            raise ValueError(
+                "mode %r is not supported: /api/read returns the raw bytes "
+                "(mode 'raw'); the decoded view is client-side.  The legacy "
+                "'decoded' mode was pySim's server-side EF decoder and is "
+                "gone with pySim." % (body.get('mode'),))
+        ops, timed = self._file_endpoint_ops()
+        info, probe, fcp, path = self._select_node(body, ops)
+        file_type = self._node_file_type(info, fcp)
+        self._publish_selection(info, probe, fcp, path)
+        try:
+            if file_type in ('linear_fixed', 'cyclic'):
+                records, sw, refusal = self._read_records(ops, fcp)
+                if refusal is None:
+                    result = {'success': True, 'sw': sw,
+                              'file_type': file_type, 'records': records}
+                else:
+                    refused_sw, message = refusal
+                    result = {'success': False, 'sw': refused_sw,
+                              'file_type': file_type,
+                              'error': (_sw_error(refused_sw) if refused_sw
+                                        else message),
+                              'records': records}
+            else:
+                data, sw = ops.read_file(fcp)
+                result = {'success': True, 'sw': sw, 'file_type': file_type,
+                          'data': bytes(data or b'').hex().upper()}
+        except (commands.FileError, ValueError) as exc:
+            sw = getattr(exc, 'sw', None)
+            return {'success': False, 'sw': sw, 'file_type': file_type,
+                    'error': _sw_error(sw) if sw else str(exc)}
+        result['apdu_times'] = timed.times
+        return result
+
+    def file_write(self, body):
+        """``POST /api/write``: SELECT and UPDATE BINARY/UPDATE RECORD.
+
+        ``data`` (hex) and ``record_nr`` are validated **before** the
+        selection, so a malformed request spends no APDU.  A record file takes
+        ``record_nr`` (default record 1, the legacy behaviour); a transparent
+        file takes no ``record_nr`` (``UPDATE RECORD`` on a transparent EF is
+        a caller error, not the card's) - that mismatch is known only after
+        the SELECT and is refused **before any write**.  An EF.ARR write
+        refreshes the session cache: the ``8B`` references the file manager
+        resolves may have changed.
+
+        A card-level write failure is a ``200`` with ``success: false`` and the
+        card's status word, like :meth:`file_read`.
+        """
+        payload = commands.data_bytes(body.get('data'))
+        record = body.get('record_nr')
+        record = (commands.record_number(record)
+                  if record not in (None, '') else None)
+        ops, _timed = self._file_endpoint_ops()
+        info, probe, fcp, path = self._select_node(body, ops)
+        file_type = self._node_file_type(info, fcp)
+        if record is not None and file_type not in ('linear_fixed', 'cyclic'):
+            raise ValueError('record_nr %d was given but the file is %s, not '
+                             'a record file' % (record, file_type))
+        self._publish_selection(info, probe, fcp, path)
+        try:
+            if record is not None or file_type in ('linear_fixed', 'cyclic'):
+                sw = ops.update_record(record or 1, payload)
+            else:
+                sw = ops.update_binary(0, payload)
+        except (commands.FileError, ValueError) as exc:
+            sw = getattr(exc, 'sw', None)
+            return {'success': False, 'sw': sw,
+                    'error': _sw_error(sw) if sw else str(exc)}
+        self._refresh_arr_after_write(info, probe)
+        return {'success': True, 'sw': sw}
+
+    def arr_cache(self):
+        """The cached EF.ARR copies (``GET /api/arr``) - card-free.
+
+        The legacy response shape: ``{ok, session, arrs}``; ``arrs`` is ``[]``
+        when the card has no readable copy (the PWA then resolves no ``8B``
+        reference).
+        """
+        arrs = self.arr
+        return {'ok': bool(arrs), 'session': int(self.card_session),
+                'arrs': arrs or []}
+
+    def pbr_cache(self):
+        """The cached EF.PBR records (``GET /api/pbr``) - card-free.
+
+        ``{ok, session, pbrs}``; the PWA owns the decoder (``efDecPbr``), the
+        server serves the raw records.
+        """
+        pbrs = self.pbr
+        return {'ok': bool(pbrs), 'session': int(self.card_session),
+                'pbrs': pbrs or []}
+
+    def _file_endpoint_ops(self):
+        """``(FileOps, TimedTransport)`` for one file endpoint.
+
+        The timing proxy is per request (the snapshot scan reads
+        ``apdu_times``), so one request can never see another's timings.  A
+        cardless server raises :class:`NoCardSessionError` (the endpoint
+        answers 503) instead of failing inside the exchange.
+        """
+        if not self.connected or self.transport is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        timed = commands.TimedTransport(self.transport)
+        return self._file_ops(timed), timed
+
+    def _select_node(self, body, ops):
+        """Resolve the request and SELECT it; ``(info, probe, fcp, path)``.
+
+        ``info`` is the model file, ``probe`` the ``(parent_info, fid)`` pair
+        of a model-unknown FID (exactly one of the two is set), ``fcp`` the
+        last SELECT's parsed FCP and ``path`` the canonical FID path the
+        status ``selection`` and the PBR comparison use.
+        """
+        info, probe, chain, path = self._resolve_target(_body_segments(body))
+        fcp = ops.select_path(chain)
+        return info, probe, fcp, path
+
+    def _resolve_target(self, segments):
+        """Resolve a selector chain to ``(info, probe, chain, path)``.
+
+        Three shapes: a model file (``info`` set), a model-unknown FID under a
+        model-known DF (``probe`` set - a custom file) and an all-FID chain the
+        model does not describe, which is walked by FID from MF (or from the
+        ADF it starts with) - the PWA's custom files may sit under a parent DF
+        the standard list does not know.  Nothing is added to the model either
+        way.
+        """
+        segments = _norm_segments(segments)
+        if not segments:
+            raise files_module.UnknownFile('empty file selector')
+        try:
+            info, probe = self._resolve_segments(segments)
+        except files_module.UnknownFile:
+            chain = self._raw_chain(segments)
+            if chain is None:
+                raise
+            return None, (None, segments[-1]), chain, '/'.join(segments)
+        if info is not None:
+            return info, None, self.files.path_chain(info), info.path
+        parent, fid = probe
+        return (None, probe, self.files.path_chain(parent) + [fid],
+                '%s/%s' % (parent.path, fid))
+
+    def _raw_chain(self, segments):
+        """A SELECT chain for an all-FID selector the model does not describe.
+
+        The chain is rooted at MF (``3F00``) or at the DF/ADF the first segment
+        names in the model; every following segment must be a 4-hex FID.  A
+        SELECT by FID needs no model entry - that is the whole rule - so this
+        only decides the root.  Returns ``None`` when the shape does not fit.
+        """
+        if len(segments) < 2:
+            return None
+        if segments[0] == 'MF':
+            root, rest = self.files.resolve('MF'), segments[1:]
+        else:
+            root, _error = self._model_path([segments[0]])
+            rest = segments[1:]
+            if root is None or not root.is_df:
+                return None
+        if not rest or not all(_FID_RE.match(segment) for segment in rest):
+            return None
+        return self.files.path_chain(root) + list(rest)
+
+    def _resolve_segments(self, segments):
+        """Resolve a selector chain to a model file or a custom-file probe.
+
+        Returns ``(info, None)`` for a model file and ``(None, (parent, fid))``
+        for a model-unknown 4-hex FID whose parent DF the model knows.  Raises
+        :class:`~simple_server.files.UnknownFile`/
+        :class:`~simple_server.files.AmbiguousFile` otherwise (an ambiguous
+        bare selector is never guessed).
+        """
+        segments = _norm_segments(segments)
+        if not segments:
+            raise files_module.UnknownFile('empty file selector')
+        unknown = files_module.UnknownFile(
+            'no file matches the selector %s' % '/'.join(segments))
+        info, error = self._model_path(segments)
+        if info is not None:
+            return info, None
+        if len(segments) == 1 and not isinstance(error,
+                                                files_module.UnknownFile):
+            raise error or unknown
+        fid = segments[-1]
+        if not _FID_RE.match(fid):
+            raise error or unknown
+        if len(segments) == 1:
+            parent = self.files.resolve('MF')
+        else:
+            parent, parent_error = self._model_path(segments[:-1])
+            if parent is None:
+                raise parent_error or unknown
+        if not parent.is_df:
+            raise files_module.FileModelError(
+                'the parent %s of FID %s is an EF, not a DF'
+                % (parent.name, fid))
+        return None, (parent, fid)
+
+    def _model_path(self, segments):
+        """Resolve a segment chain in the model; ``(None, error)`` when unknown.
+
+        The retry without a leading ``MF`` covers the PWA's whole-chain form
+        for an ADF (``MF/ADF.USIM/6F07``) and its AID form: an ADF is a root
+        of its own.  It fires only when the second segment really is an ADF -
+        an unconditional retry turned a wrong ``MF/EF.IMPI`` into ADF.ISIM's
+        file (the selector says "an EF.IMPI directly under MF", which does not
+        exist).  The returned error is the first attempt's (the authoritative
+        selector), not the retry's.
+        """
+        attempts = [segments]
+        if len(segments) > 1 and segments[0] == 'MF' \
+                and self._is_adf_selector(segments[1]):
+            attempts.append(segments[1:])
+        error = None
+        for index, attempt in enumerate(attempts):
+            try:
+                return self.files.resolve_path('/'.join(attempt)), None
+            except files_module.FileModelError as exc:
+                if index == 0:
+                    error = exc
+        return None, error
+
+    def _is_adf_selector(self, segment):
+        """True when ``segment`` names an ADF (the only root the retry drops).
+
+        The ``MF/<ADF>/...`` retry exists because an ADF is a model root; a
+        second segment that is an EF (or that the model does not know) must
+        keep the path authoritative.
+        """
+        try:
+            info = self.files.resolve(segment)
+        except files_module.FileModelError:
+            return False
+        return info.kind == 'adf'
+
+    def _model_children(self, info):
+        """The tree children of a model node, in the PWA's node shape."""
+        if info is None:                # a probed file: an EF has no children
+            return []
+        children = []
+        for child in self.files.children(info):
+            entry = {'name': child.name, 'fid': child.fid or None,
+                     'isDir': child.is_df}
+            if child.kind == 'adf' and child.aid:
+                entry['aid'] = child.aid
+            if child.source == 'custom':
+                entry['custom'] = True
+            children.append(entry)
+        if info.kind == 'mf':
+            # An ADF is a root beside MF in the model but an MF child in the
+            # tree (the PWA roots an ADF node at the ADF and the Profiler's
+            # walk roots an ADF child by its AID).
+            for adf in self.files.iter_all():
+                if adf.kind != 'adf':
+                    continue
+                entry = {'name': adf.name, 'fid': None, 'isDir': True}
+                if adf.aid:
+                    entry['aid'] = adf.aid
+                if adf.source == 'custom':
+                    entry['custom'] = True
+                children.append(entry)
+        return children
+
+    @staticmethod
+    def _node_file_type(info, fcp):
+        """The API's ``file_type``: 'df' for a DF/ADF/MF, else the EF structure.
+
+        A named EF whose SELECT returned no (or an unparseable) FCP reports
+        'transparent', like the legacy ``_get_file_type``.  A descriptor whose
+        structure bits are RFU (TS 102 221 Table 11.5) keeps the legacy
+        ``'no_info_given'`` (``fcp.STRUCTURES``' ``'no_info'`` is the parser's
+        internal name) - the PWA's stored profiles and snapshots pin that
+        string with ``===``.  A probed custom file follows its FCP too; a
+        probed DF carries the ``38`` descriptor, so it reads
+        ``'no_info_given'``, not 'transparent'.
+        """
+        if info is not None and info.is_df:
+            return 'df'
+        structure = getattr(fcp, 'structure', None)
+        if structure is None:
+            return 'transparent'
+        if structure == 'no_info':
+            return 'no_info_given'
+        return structure
+
+    def _publish_selection(self, info, probe, fcp, path):
+        """Publish the ``/api/status`` ``selection`` of the addressed file.
+
+        The shape the Phase 3c status block expects:
+        ``{path, name, fid, kind, size, record_len, num_records}``.  It
+        describes the last file a file endpoint addressed - not a live mirror
+        of the card's selected file (an EF.ARR write's cache refresh leaves an
+        ARR copy selected on the card while the selection still names the
+        written file).
+        """
+        fid = (info.fid if info is not None else probe[1]) or None
+        self.selection = {
+            'path': path,
+            'name': (info.name if info is not None else fid),
+            'fid': fid,
+            'kind': (info.kind if info is not None else 'ef'),
+            'size': fcp.file_size,
+            'record_len': fcp.record_len,
+            'num_records': fcp.num_of_rec,
+        }
+
+    @staticmethod
+    def _read_records(ops, fcp):
+        """Read every record of the selected record-structured file.
+
+        Bounded by the FCP's record count.  A card that does not report the
+        count is read until it refuses a record (the legacy pySim
+        ``read_records`` tolerance - ``num_of_rec`` is ``None``, not ``0``),
+        and a refusal of record 1 is an error.
+
+        Returns ``(records, sw, refusal)``.  ``refusal`` is ``None`` when the
+        whole announced file was read; otherwise it is ``(sw, message)`` for
+        the record that stopped the loop.  A **reported** count is the card's
+        promise, so stopping short of it is not a success: pySim's
+        ``read_records`` raised ``SwMatchError`` there, and the legacy
+        ``_cmd_exception`` turned that into ``{'success': false, ...}``.
+        """
+        limit = 255 if fcp.num_of_rec is None else fcp.num_of_rec
+        records = []
+        sw = commands.FCP_SW
+        refusal = None
+        while len(records) < limit:
+            index = len(records) + 1
+            try:
+                data, sw = ops.read_file(fcp, rec=index)
+            except (commands.FileError, ValueError) as exc:
+                if not records:
+                    raise
+                if fcp.num_of_rec is not None:
+                    sw = getattr(exc, 'sw', None)
+                    refusal = (sw, str(exc))
+                break
+            records.append({'num': index,
+                            'data': bytes(data or b'').hex().upper()})
+        return records, sw, refusal
+
+    def _refresh_arr_after_write(self, info, probe):
+        """Re-read the EF.ARR cache after a write to one of its copies.
+
+        Port of the legacy ``_arr_refresh_after_write``: the ``8B`` security
+        attribute references the file manager resolves point into those
+        records, so a write makes the cache stale.  Best effort - a failed
+        re-read keeps the session.
+        """
+        fid = str(info.fid if info is not None else probe[1]).upper()
+        if fid not in ('2F06', '6F06'):
+            return
+        try:
+            self.arr = self._read_ef_cache(ARR_READ_PATHS, ARR_RECORD_LIMIT)
+        except Exception as exc:
+            log.debug('EF.ARR refresh after write failed: %s', exc)
 
     # ---- the background STATUS poll ---------------------------------------
 
@@ -1283,6 +1824,10 @@ def make_handler(state, log_requests=False):
                 elif path == '/api/readers':
                     self._send_json({'readers': self.state_ref._readers(),
                                      'active': self.state_ref.reader_name})
+                elif path == '/api/arr':
+                    self._send_json(self.state_ref.arr_cache())
+                elif path == '/api/pbr':
+                    self._send_json(self.state_ref.pbr_cache())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -1311,6 +1856,14 @@ def make_handler(state, log_requests=False):
                     return
                 if path == '/api/reader':
                     self._post_reader(body)
+                elif path == '/api/tree':
+                    self._post_file(self.state_ref.file_tree, body)
+                elif path == '/api/select':
+                    self._post_file(self.state_ref.file_select, body)
+                elif path == '/api/read':
+                    self._post_file(self.state_ref.file_read, body)
+                elif path == '/api/write':
+                    self._post_file(self.state_ref.file_write, body)
                 elif path == '/api/equip':
                     self._post_lifecycle(self.state_ref.equip)
                 elif path == '/api/reset':
@@ -1355,6 +1908,41 @@ def make_handler(state, log_requests=False):
                                  **self.state_ref.status()}, 503)
                 return
             self._send_json(status)
+
+        def _post_file(self, action, body):
+            """One file endpoint, with the 3c-3a error classification.
+
+            * a resolution/selection failure (:class:`~simple_server.files.
+              FileModelError`, a :class:`~simple_server.commands.FileError`) is
+              the PWA's "not found": ``404`` with ``exists``/``success`` false;
+            * a request parameter (:class:`ValueError`) is a ``400``;
+            * no card session is a ``503`` with the status body;
+            * a **transport** error tears the link down and re-arms the
+              auto-equip (``503``): the card is usually still inserted, so the
+              session is rebuilt instead of staying dead;
+            * anything else is a ``500`` that **keeps the session** - a
+              decoder/protocol error must not lose a healthy card.
+            """
+            try:
+                self._send_json(action(body))
+            except (files_module.FileModelError, commands.FileError) as exc:
+                self._send_json({'success': False, 'exists': False,
+                                 'error': str(exc)}, 404)
+            except ValueError as exc:
+                self._send_json({'error': str(exc)}, 400)
+            except NoCardSessionError as exc:
+                self._send_json({'success': False, 'exists': False,
+                                 'error': str(exc),
+                                 **self.state_ref.status()}, 503)
+            except Exception as exc:
+                if not _is_transport_error(exc):
+                    raise
+                log.warning('%s: transport error: %s', self.path, exc)
+                state = self.state_ref
+                state.disconnect(stale=True, keep_present=True)
+                state.auto_equip()
+                self._send_json({'success': False, 'exists': False,
+                                 'error': str(exc), **state.status()}, 503)
 
     return SimpleHandler
 

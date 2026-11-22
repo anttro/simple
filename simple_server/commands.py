@@ -1,7 +1,7 @@
 # coding=utf-8
 """File operations over a duck-typed transport (SELECT/READ/UPDATE/STATUS).
 
-APDU codings (TS 102 221 §11.1.1/.4/.5/.6, ISO/IEC 7816-4):
+APDU codings (TS 102 221 V18.4.0 §11.1.1/.3/.4/.5/.6, ISO/IEC 7816-4):
 
 * SELECT by FID: ``00 A4 00 04 02 <fid> 00`` - P2 = ``04`` = "Return FCP
   template" (Table 11.2) and Le = ``00`` so the whole FCP is returned
@@ -10,11 +10,13 @@ APDU codings (TS 102 221 §11.1.1/.4/.5/.6, ISO/IEC 7816-4):
 * SELECT by DF name (AID): ``00 A4 04 04 <len> <aid> 00`` - P1 = ``04``
   (Table 11.1, selection by DF name); the trailing Le has the same purpose.
 * READ BINARY: ``00 B0 <P1 P2> <Le>`` - P1 b7-b1 + P2 are the 15-bit offset
-  (§11.1.4.2, Table 11.10).
+  (§11.1.3.2, Table 11.10).
+* UPDATE BINARY: ``00 D6 <P1 P2> <Lc> <data>`` - the same offset field, no Le
+  (§11.1.4.2).
 * READ RECORD: ``00 B2 <rec> 04 <Le>`` - P1 is the record number, P2 ``04``
-  is the absolute mode (Table 11.11).
-* UPDATE BINARY/RECORD: ``00 D6``/``00 DC`` with the same addressing and the
-  data as Lc + value, no Le.
+  is the absolute mode (§11.1.5.2, Table 11.11).
+* UPDATE RECORD: ``00 DC <rec> 04 <Lc> <data>`` - the same addressing, no Le
+  (§11.1.6.2).
 * STATUS: ``80 F2 00 00 00`` (the CAT CLA, P2 ``00`` = the selected DF's
   SELECT response data, Le ``00``).  The CAT status **poll** uses P2 ``0C`` and
   lives in :meth:`simple_server.cat_session.CatSession.send_status`.
@@ -22,16 +24,26 @@ APDU codings (TS 102 221 §11.1.1/.4/.5/.6, ISO/IEC 7816-4):
 The transport only needs ``send_apdu(bytes) -> (bytes, bytes)`` (the status
 word as two bytes); :class:`simple_server.transport.PcscLink` provides it, and
 the tests drive a fake.  This module is otherwise pure.
+
+:class:`TimedTransport` is the per-request instrumentation the file endpoints
+use for ``apdu_times``: it wraps a transport and records the duration of every
+SELECT / READ BINARY / READ RECORD - the categories the PWA's snapshot timing
+statistics aggregate.  It measures at this level (not through a
+:class:`simple_server.transport.ApduTracer` on the link) so a fake transport
+is measured exactly like the PC/SC one and one request can be timed without
+touching the shared link state.
 """
 
 import re
+import time
 
 from simple_server import fcp as fcp_module
 from simple_server.util import sw_matches
 
 __all__ = [
     'FileError', 'FileNotFound', 'UnexpectedStatusWord', 'FileOps',
-    'FCP_SW', 'NOT_FOUND_SW',
+    'FCP_SW', 'NOT_FOUND_SW', 'TIMED_INS', 'TimedTransport', 'classify_apdu',
+    'data_bytes', 'record_number',
 ]
 
 # The SELECT answers that mean "this file is not here" (6A82 = file or
@@ -39,6 +51,10 @@ __all__ = [
 # selection form they refuse).
 NOT_FOUND_SW = ('6a82', '6a86')
 FCP_SW = '9000'
+
+#: The command APDUs the file endpoints time, by instruction byte (the PWA's
+#: ``apdu_times`` categories: SELECT, READ BINARY, READ RECORD).
+TIMED_INS = {'A4': 'select', 'B0': 'read_binary', 'B2': 'read_record'}
 
 _HEX_RE = re.compile(r'^[0-9A-F]*$')
 
@@ -213,7 +229,7 @@ class FileOps(object):
         return self._read_binary_at(offset, length)[0]
 
     def _read_record_at(self, rec_num, length):
-        rec_num = _record_number(rec_num)
+        rec_num = record_number(rec_num)
         if not 1 <= length <= 256:
             raise ValueError('READ RECORD length must be 1..256, got %d'
                              % length)
@@ -231,15 +247,15 @@ class FileOps(object):
         if not 0 <= offset <= 0x7FFF:
             raise ValueError('UPDATE BINARY offset must be 0..0x7FFF, got %d'
                              % offset)
-        payload = _data_bytes(data)
+        payload = data_bytes(data)
         apdu = self._apdu('D6', '%02X' % ((offset >> 8) & 0xFF),
                           '%02X' % (offset & 0xFF), payload)
         return self._require(apdu)[1]
 
     def update_record(self, rec_num, data):
         """UPDATE RECORD ``rec_num`` (1-based); returns the status word."""
-        rec_num = _record_number(rec_num)
-        payload = _data_bytes(data)
+        rec_num = record_number(rec_num)
+        payload = data_bytes(data)
         apdu = self._apdu('DC', '%02X' % rec_num, '04', payload)
         return self._require(apdu)[1]
 
@@ -306,7 +322,7 @@ class FileOps(object):
         return collected, sw
 
 
-def _record_number(rec_num):
+def record_number(rec_num):
     try:
         rec_num = int(rec_num)
     except (TypeError, ValueError):
@@ -317,7 +333,7 @@ def _record_number(rec_num):
     return rec_num
 
 
-def _data_bytes(data):
+def data_bytes(data):
     """Accept bytes or a hex string; validate the short-APDU length."""
     if isinstance(data, (bytes, bytearray)):
         raw = bytes(data)
@@ -327,3 +343,40 @@ def _data_bytes(data):
         raise ValueError('the data field is %d bytes; a short APDU carries '
                          '1..255' % len(raw))
     return raw
+
+
+def classify_apdu(apdu):
+    """The timing category of a command APDU (its INS byte), or ``None``."""
+    apdu = bytes(apdu)
+    if len(apdu) < 4:
+        return None
+    return TIMED_INS.get('%02X' % apdu[1])
+
+
+class TimedTransport(object):
+    """A transport proxy recording ``{'type','ms'}`` per timed exchange.
+
+    ``times`` is the list the file endpoints publish as ``apdu_times`` - one
+    entry per SELECT / READ BINARY / READ RECORD, in command order (the order
+    matters: the PWA zips the ``read_record`` entries with the record list).
+    The duration covers the whole ``send_apdu`` exchange, i.e. including the
+    T=0 GET RESPONSE rounds, like the legacy tracer's command-to-response
+    measurement.  Every other transport attribute is delegated unchanged.
+    """
+
+    def __init__(self, transport):
+        self.transport = transport
+        self.times = []
+
+    def send_apdu(self, apdu):
+        started = time.monotonic()
+        data, sw = self.transport.send_apdu(bytes(apdu))
+        category = classify_apdu(apdu)
+        if category is not None:
+            elapsed = int(round((time.monotonic() - started) * 1000))
+            self.times.append({'type': category, 'ms': elapsed})
+        return data, sw
+
+    def __getattr__(self, name):
+        return getattr(self.transport, name)
+

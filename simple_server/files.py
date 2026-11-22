@@ -427,12 +427,15 @@ class FileModel(object):
     def path_chain(self, selector):
         """The ordered selectors to SELECT to reach a file.
 
-        A 2-byte FID is selected by FID (``00A4 0004 02 <fid>``); an ADF is
-        selected by its AID (its ``84`` DF name), because an ADF has no FID.
-        ``MF`` is ``3F00``, so ``EF.ADN`` under DF.TELECOM yields
-        ``['3F00', '7F10', '6F3A']`` and a USIM file starts with the USIM AID.
+        ``selector`` is a name/FID/path (:meth:`resolve`) or a
+        :class:`FileInfo` the caller already resolved.  A 2-byte FID is
+        selected by FID (``00A4 0004 02 <fid>``); an ADF is selected by its AID
+        (its ``84`` DF name), because an ADF has no FID.  ``MF`` is ``3F00``,
+        so ``EF.ADN`` under DF.TELECOM yields ``['3F00', '7F10', '6F3A']`` and
+        a USIM file starts with the USIM AID.
         """
-        info = self.resolve(selector)
+        info = selector if isinstance(selector, FileInfo) else self.resolve(
+            selector)
         chain = []
         node = info
         while node is not None:

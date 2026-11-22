@@ -344,7 +344,8 @@ detected card, `CatSession`, `BipSession`, session caches, the background
 STATUS poll thread and the presence observer; `make_handler` /
 `build_http_server` serve the static PWA and the first endpoints
 (`GET /api/version|status|readers`, `POST /api/reader|equip|reset`) over a
-`ThreadingHTTPServer`.  Every other API path is a JSON 404 until 3c-3b/3c-3c.
+`ThreadingHTTPServer`.  Every other API path is a JSON 404 until 3c-3b/3c-3c
+(the file endpoints landed in 3c-3b, see the next section).
 The module is named `server.py` like the legacy (the design note's `http.py`
 alternative was not taken); its suite is `tests/test_simple_http.py`.
 
@@ -404,6 +405,97 @@ Deliberate, documented decisions:
   observes (and joins it, bounded).  A worker stuck inside a blocking
   `SCardTransmit` cannot be cancelled - the same limit the legacy stuck-card
   watchdog documents.
+
+## Phase 3c-3b outcome (the file endpoints)
+
+`POST /api/tree`, `POST /api/select`, `POST /api/read`, `POST /api/write` and
+the card-free `GET /api/arr` / `GET /api/pbr` are served from the file model,
+`FileOps` and the FCP parser - no pySim shell, no output parsing.  The new
+module is `simple_server/pbr.py` (the EF.PBR decoder + the tree injection);
+the endpoints live on `ServerState` (`file_tree`, `file_select`, `file_read`,
+`file_write`, `arr_cache`, `pbr_cache`) so the handler stays a thin
+dispatcher.  Suite: `tests/test_simple_http.py` (the file-endpoint classes) +
+`tests/test_simple_drift.py` (the PBR tables/parser against the legacy copy).
+
+The request contract is unchanged (the PWA is not touched): a full `path`, or
+`fid`/`name` plus `parent_sel`/`parent_path`; responses keep the legacy field
+names (`exists`, `file_type`, `file_size`, `record_len`, `num_of_rec`,
+`fci_hex`, `children[{name,fid,isDir,aid?,pbr?,sfi?,custom?}]`,
+`records[{num,data}]`, `success`, `sw`, `apdu_times`).
+
+Deliberate, documented decisions:
+
+- **`allow_probe` is gone** (always allowed).  A model-unknown 4-hex FID under
+  a model-known DF is selected directly - that is exactly the PBR-injected
+  phonebook file.  The legacy flag plus its probe/detach dance existed to keep
+  pySim's model clean; this model is never mutated by a select.  A selector
+  chain the model does not describe at all (a custom DF) is walked by FID from
+  MF or from the ADF it starts with - a SELECT by FID needs no model entry.
+- **The tree lists the model, not the card.**  A node the card does not have
+  appears and answers `exists: false` when selected (the PWA's probe walk
+  marks it absent).  ADF roots are appended under MF with their `aid`: an ADF
+  is a model root beside MF (selected by its DF name, TS 102 221 §11.1.1.1)
+  but the PWA's node path is rooted at the ADF and the Profiler's walk roots
+  an ADF child by its AID.
+- **The EF.PBR injection is request-time**, as in the legacy: the node's
+  resolved FID path is normalised (`MF`/`3F00`, upper case, ADF by name, and a
+  leading `MF` before an ADF dropped) and compared against the cached
+  `pbr.path` labels; a full path is never answered by another DF's copy and a
+  bare DF FID only when a single copy is cached.  The PBR files are not added
+  to the model - this phase keeps the legacy's request-time injection
+  (the Phase 0 design note's "PBR as first-class files" would make the
+  injection unnecessary and remains an option for a later phase).
+- **`/api/read` has no `mode: 'decoded'`.**  The legacy mode ran pySim's
+  server-side EF decoders; the PWA decodes the same raw bytes client-side
+  (v3.32.7 already removed the only PWA caller), so a `mode` other than
+  `'raw'` answers 400 with the reason instead of being silently ignored.
+- **`apdu_times` is a per-request instrumented exchange**
+  (`commands.TimedTransport`), not a link tracer: it measures SELECT / READ
+  BINARY / READ RECORD at the transport call, so a fake transport is timed
+  like PC/SC and one request cannot see another's entries.  The shape is the
+  legacy's list of `{type, ms}` (the PWA's snapshot scan filters it by type and
+  aggregates the statistics client-side).
+- **Error classification** (the 3c-3a rule): a resolution/selection failure is
+  the PWA's 404 (`exists`/`success` false), a request parameter a 400, no card
+  session a 503 with the status body, a **transport** error a 503 after
+  tearing the link down and re-arming the auto-equip, and anything else a 500
+  that **keeps the session** (a decoder/protocol bug must not lose a healthy
+  card).  A card-level READ/WRITE refusal is a 200 with `success: false` and
+  the lower-case status word (the PWA compares `6982`/`9804` for its inline
+  ADM action).  A **`6982`/`9804` on SELECT** is that 404 without a `sw` (the
+  legacy parity: the SELECT failure carries no status word in the body), so
+  the PWA's inline Verify ADM never appears for a select refusal - a frontend
+  change would be needed to offer it there.
+- **A card whose SELECT returns no FCP is known-unsupported for `/api/read`**
+  (a 2G SIM on the TS 51 011 form, or a UICC omitting the FCP): the read is
+  FCP-driven (`read_file` needs `fcp.file_size` for a transparent EF and
+  `record_len` for a record EF), so every read answers `success: false` with
+  "the FCP carries no file size".  The legacy was equally broken.  **A
+  decision is needed before 3c-3c**: either accept an explicit `length` on the
+  request, or read with READ BINARY `Le = 256` and stop on a short read (the
+  TS 102 221 §11.1.3.2 behaviour a caller without a size implies).  Pinned by
+  `tests/test_simple_http.py` (`test_a_card_without_an_fcp_cannot_be_read`) so
+  a future fix is visible.
+- **`selection`** (`/api/status`) is published by select/read/write:
+  `{path, name, fid, kind, size, record_len, num_records}`.  It describes the
+  last file a file endpoint addressed, not a live mirror of the card's
+  selected file (the EF.ARR refresh after a write leaves an ARR copy selected
+  on the card).
+- **An EF.ARR write refreshes the cache** (`_arr_refresh_after_write`): the
+  `8B` references the file manager resolves may have changed.  A failed
+  refresh is logged, never fatal.
+- **A `record_nr` on a transparent file is a 400** (a caller error, not the
+  card's); `data` and `record_nr` are validated before the SELECT, so a
+  malformed request spends no APDU.
+
+Not ported / open: the legacy's `mode: 'decoded'` (gone by design), the
+advisory `allow_probe: false` (ignored - see above), and no card has run these
+endpoints yet - the fixture is a fake transport, so the first bench run is a
+cutover gate (a DF's real FCI, a card whose SELECT returns no FCP, and a
+phonebook whose PBR record is longer than one record).  The no-FCP read is
+**known-unsupported** until the decision above; the drift guard
+(`tests/test_simple_drift.py`) compares `files_for_node`/`inject_children`
+against the legacy copies, not just the tables and the parser.
 
 ## Spec compliance (spec-checker)
 

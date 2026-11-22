@@ -26,6 +26,7 @@ from urllib.request import Request, urlopen
 
 from simple_server import cards
 from simple_server import cat_session
+from simple_server import pbr
 from simple_server import server as server_module
 from simple_server import transport
 from simple_server.server import (ServerState, build_http_server, decode_iccid)
@@ -155,6 +156,183 @@ class FakePresetStore(object):
 
     def list(self):
         return []
+
+
+# ---- the file endpoints' fake filesystem (Phase 3c-3b) ---------------------
+#
+# One fake UICC with a small filesystem: the FIDs the standard file list knows
+# (MF, EF.ICCID, EF.ARR, DF.TELECOM, DF.PHONEBOOK, EF.PBR) plus **EF.ADN 4F3A,
+# which the standard list does not list under DF.PHONEBOOK** - it is the
+# PBR-injected phonebook file and therefore the custom-file probe path a real
+# card exercises.
+
+def fcp(*objects):
+    """An FCP template (tag 62) around the given data objects (hex strings)."""
+    body = ''.join(objects)
+    return bytes.fromhex('62%02X' % (len(body) // 2) + body)
+
+
+FD_TRANSPARENT = '82020101'
+FD_DF = '820138'
+
+
+def fd_linear(record_len, records):
+    """A linear-fixed file descriptor (TS 102 221 Table 11.5: 4A 00 len n)."""
+    return '8205' + '4A00%04X%02X' % (record_len, records)
+
+
+ADN_RECORDS = ['A0' * 28, 'B1' * 28]
+# The EF.PBR record of the file-endpoint fixture: one type-1 container with
+# EF.ADN (FID + SFI '02') and EF.PBC (FID + SFI '04') - the SFI-bearing form,
+# so the injected tree children carry their ``sfi``.
+PBR_STRUCTURE = ['A80AC0034F3A02C5034F0904']
+IMSI_CONTENT = '082949709911111111'
+
+FILE_MODEL = {
+    '3F00': {'fcp': fcp(FD_DF)},
+    '2FE2': {'fcp': fcp(FD_TRANSPARENT, '8002000A', '83022FE2'),
+             'content': ICCID_HEX},
+    '2F06': {'fcp': fcp(fd_linear(10, 5), '83022F06'),
+             'records': ARR_RECORDS},
+    '7F10': {'fcp': fcp(FD_DF)},
+    '7F20': {'fcp': fcp(FD_DF)},
+    '5F3A': {'fcp': fcp(FD_DF)},
+    '4F30': {'fcp': fcp(fd_linear(10, 1), '80020A83024F30'),
+             'records': PBR_STRUCTURE},
+    '4F3A': {'fcp': fcp(fd_linear(28, 2), '800238', '83024F3A'),
+             'records': ADN_RECORDS},
+    '6F07': {'fcp': fcp(FD_TRANSPARENT, '80020009', '83026F07'),
+             'content': IMSI_CONTENT},
+}
+
+
+class FileCard(object):
+    """A UICC with a real filesystem behind it (``FILE_MODEL``).
+
+    Selection is tracked by FID/AID (the fixture's FIDs are unique), so the
+    parent chain is only asserted through the APDUs the server sends; UPDATEs
+    mutate the served content, so a later read - or the EF.ARR cache refresh -
+    sees the new bytes.  ``refuse`` maps an operation name
+    (``read_binary``/``read_record``/``update_binary``/``update_record``/
+    ``select``) to a status word the fake answers instead; ``refuse_records``
+    maps a record number to a status word (one refused record mid-file).
+    """
+
+    def __init__(self, files=None, refuse=None, refuse_records=None):
+        self.files = {fid: dict(entry) for fid, entry in FILE_MODEL.items()}
+        for fid, entry in (files or {}).items():
+            self.files[fid] = dict(entry)
+        self.refuse = dict(refuse or {})
+        # {record_number: sw}: a card that refuses one record mid-file (a
+        # protected record, a stale record) while the FCP announces more.
+        self.refuse_records = dict(refuse_records or {})
+        self.selected = None
+        self.sent = []
+        self.writes = []
+        self.reader_name = 'Fake reader'
+        self.protocol = 1
+        self.atr = ATR
+
+    # -- the transport shape --------------------------------------------
+    def reset_card(self):
+        return 1
+
+    def connect(self):
+        return self
+
+    def disconnect(self):
+        pass
+
+    def get_atr(self):
+        return self.atr
+
+    def send_apdu(self, apdu):
+        apdu = bytes(apdu)
+        self.sent.append(apdu)
+        answer = self._answer(apdu)
+        return answer if answer is not None else (b'', b'\x6a\x82')
+
+    # -- the filesystem --------------------------------------------------
+    def _answer(self, apdu):
+        ins = apdu[1]
+        if apdu[0] == 0x80 and ins in (0x10, 0xF2):     # TP / STATUS poll
+            return b'', b'\x90\x00'
+        if ins == 0xA4:
+            return self._refused('select') or self._select(apdu)
+        if self.selected is None or self.selected not in self.files:
+            return b'', b'\x6a\x82'
+        if ins == 0xB0:
+            return self._refused('read_binary') or self._read_binary(apdu)
+        if ins == 0xB2:
+            refused = self._refused('read_record')
+            if refused is None:
+                sw = self.refuse_records.get(apdu[2])
+                refused = (b'', bytes.fromhex(sw)) if sw else None
+            return refused or self._read_record(apdu)
+        if ins == 0xD6:
+            return self._refused('update_binary') or self._update_binary(apdu)
+        if ins == 0xDC:
+            return self._refused('update_record') or self._update_record(apdu)
+        return b'', b'\x6a\x81'
+
+    def _refused(self, operation):
+        sw = self.refuse.get(operation)
+        return (b'', bytes.fromhex(sw)) if sw else None
+
+    def _select(self, apdu):
+        if apdu[2] == 0x04:                          # by DF name (AID)
+            aid = apdu[5:5 + apdu[4]].hex().upper()
+            if aid == cards.AID_USIM:
+                self.selected = 'ADF.USIM'
+                return self.files['3F00']['fcp'], b'\x90\x00'
+            return b'', b'\x6a\x82'
+        fid = apdu[5:7].hex().upper()
+        entry = self.files.get(fid)
+        if entry is None:
+            return b'', b'\x6a\x82'
+        self.selected = fid
+        return entry['fcp'], b'\x90\x00'
+
+    def _read_binary(self, apdu):
+        offset = (apdu[2] << 8) | apdu[3]
+        length = apdu[4] or 256
+        content = bytes.fromhex(self.files[self.selected].get('content') or '')
+        return content[offset:offset + length], b'\x90\x00'
+
+    def _read_record(self, apdu):
+        records = self.files[self.selected].get('records') or []
+        number = apdu[2]
+        if not 1 <= number <= len(records):
+            return b'', b'\x6a\x83'
+        return bytes.fromhex(records[number - 1]), b'\x90\x00'
+
+    def _update_binary(self, apdu):
+        offset = (apdu[2] << 8) | apdu[3]
+        data = apdu[5:5 + apdu[4]].hex().upper()
+        self.writes.append((self.selected, None, data))
+        content = self.files[self.selected].get('content') or ''
+        self.files[self.selected]['content'] = (
+            content[:2 * offset] + data + content[2 * (offset + apdu[4]):])
+        return b'', b'\x90\x00'
+
+    def _update_record(self, apdu):
+        number = apdu[2]
+        data = apdu[5:5 + apdu[4]].hex().upper()
+        self.writes.append((self.selected, number, data))
+        records = list(self.files[self.selected].get('records') or [])
+        if not 1 <= number <= len(records):
+            return b'', b'\x6a\x83'
+        records[number - 1] = data
+        self.files[self.selected]['records'] = records
+        return b'', b'\x90\x00'
+
+
+def open_file_state(handler=None, **kwargs):
+    """A cardless state with ``FileCard`` equipped (its caches populated)."""
+    state = make_state(**kwargs)
+    fake = handler if handler is not None else FileCard()
+    state.open(transport=fake, start_threads=False)
+    return state, fake
 
 
 def make_state(**kwargs):
@@ -877,6 +1055,702 @@ class CachePathTests(unittest.TestCase):
                                'records': PBR_RECORDS}])
         finally:
             state.close()
+
+
+class FileTreeTests(HTTPTestBase):
+    """``POST /api/tree``: the file model's children, not pySim's tree output."""
+
+    def test_mf_lists_the_model_children_and_the_adf_roots(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/tree', {'name': 'MF'})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['exists'])
+        self.assertEqual(body['name'], 'MF')
+        self.assertEqual(body['fid'], '3F00')
+        self.assertEqual(body['file_type'], 'df')
+        children = {child['name']: child for child in body['children']}
+        self.assertEqual(children['EF.ICCID']['fid'], '2FE2')
+        self.assertFalse(children['EF.ICCID']['isDir'])
+        self.assertTrue(children['DF.TELECOM']['isDir'])
+        # An ADF is a model root beside MF but an MF child in the tree, and it
+        # carries its AID (the Profiler's walk roots an ADF by the AID).
+        self.assertTrue(children['ADF.USIM']['isDir'])
+        self.assertEqual(children['ADF.USIM']['aid'], cards.AID_USIM)
+        for child in body['children']:
+            self.assertIn('name', child)
+            self.assertIn('fid', child)
+            self.assertIn('isDir', child)
+
+    def test_a_df_lists_its_children_with_the_injected_pbr_files(self):
+        state, _fake = open_file_state()
+        self.assertTrue(state.pbr, 'the equip read must cache EF.PBR')
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/tree', {
+            'name': 'DF.PHONEBOOK', 'fid': '5F3A',
+            'parent_sel': 'MF', 'parent_path': ['MF', '7F10']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body['name'], body['fid']), ('DF.PHONEBOOK', '5F3A'))
+        self.assertEqual(body['file_type'], 'df')
+        children = {child['name']: child for child in body['children']}
+        # The model's own children stay...
+        self.assertIn('EF.PBR', children)
+        self.assertFalse(children['EF.PBR'].get('pbr', False))
+        # ...and the PBR-referenced phonebook files are appended.
+        self.assertEqual(children['EF.ADN']['fid'], '4F3A')
+        self.assertTrue(children['EF.ADN']['pbr'])
+        self.assertEqual(children['EF.ADN']['sfi'], '02')
+        self.assertFalse(children['EF.ADN']['isDir'])
+        self.assertEqual(children['EF.PBC']['sfi'], '04')
+        # A file the model already lists is never added twice.
+        self.assertEqual([child['fid'] for child in body['children']].count(
+            '4F30'), 1)
+
+    def test_the_pbr_injection_matches_the_requests_own_df(self):
+        # The cache holds the ADF copy only: the MF/DF.TELECOM phonebook DF
+        # must not be answered by it, while the ADF's DF is.
+        state, _fake = open_file_state()
+        state.pbr = [{'fid': '4F30', 'path': 'ADF.USIM/5F3A/4F30',
+                      'record_len': 10, 'num_records': 1,
+                      'records': PBR_RECORDS}]
+        self.track(state)
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/tree', {
+            'name': 'DF.PHONEBOOK', 'fid': '5F3A', 'parent_path': ['MF', '7F10']})
+        self.assertEqual(status, 200, body)
+        self.assertNotIn('4F3A', [child['fid'] for child in body['children']])
+        status, body = harness.json('POST', '/api/tree', {
+            'name': 'DF.PHONEBOOK', 'fid': '5F3A', 'parent_path': ['MF', 'ADF.USIM']})
+        self.assertEqual(status, 200, body)
+        self.assertIn('4F3A', [child['fid'] for child in body['children']])
+
+    def test_a_custom_file_is_probed_without_the_flag(self):
+        # EF.ADN under DF.PHONEBOOK is not in the standard list; the request
+        # carries no allow_probe, and the FID is still selected.
+        state, fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/tree', {
+            'name': 'EF.ADN', 'fid': '4F3A',
+            'parent_path': ['MF', '7F10', '5F3A']})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['exists'])
+        self.assertEqual((body['name'], body['fid']), ('4F3A', '4F3A'))
+        self.assertEqual(body['file_type'], 'linear_fixed')
+        self.assertEqual(body['children'], [])
+        selects = [apdu.hex().upper() for apdu in fake.sent
+                   if apdu[:2] == b'\x00\xa4']
+        self.assertEqual(selects[-4:],
+                         ['00A40004023F0000', '00A40004027F1000',
+                          '00A40004025F3A00', '00A40004024F3A00'])
+
+    def test_an_absent_custom_file_is_exists_false(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/tree', {
+            'name': 'EF.X', 'fid': 'A1B2', 'parent_path': ['MF']})
+        self.assertEqual(status, 404)
+        self.assertFalse(body['exists'])
+        self.assertIn('A1B2', body['error'])
+
+    def test_an_unknown_model_node_is_a_404(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/tree', {'name': 'EF.NOPE', 'parent_path': ['MF']})
+        self.assertEqual(status, 404)
+        self.assertFalse(body['exists'])
+        self.assertIn('EF.NOPE', body['error'])
+
+    def test_an_ambiguous_bare_fid_is_never_guessed(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/tree', {'fid': '5F3A'})
+        self.assertEqual(status, 404)
+        self.assertIn('ambiguous', body['error'])
+
+    def test_a_cardless_server_is_a_503(self):
+        state = self.track(make_state())
+        status, body = self.served(state).json(
+            'POST', '/api/tree', {'name': 'MF'})
+        self.assertEqual(status, 503)
+        self.assertFalse(body['exists'])
+        self.assertIn('no card session', body['error'])
+        self.assertFalse(body['connected'])
+
+
+class FileSelectTests(HTTPTestBase):
+    def test_the_metadata_and_the_published_selection(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/select', {
+            'name': 'EF.ICCID', 'fid': '2FE2', 'parent_path': ['MF']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['name'], 'EF.ICCID')
+        self.assertEqual(body['fid'], '2FE2')
+        self.assertEqual(body['file_type'], 'transparent')
+        self.assertEqual(body['file_size'], 10)
+        self.assertIsNone(body['record_len'])
+        self.assertIsNone(body['num_of_rec'])
+        self.assertTrue(body['fci_hex'].startswith('620C82020101'))
+        self.assertTrue(body['exists'])
+        self.assertTrue(body['apdu_times'])
+        self.assertEqual({entry['type'] for entry in body['apdu_times']},
+                         {'select'})
+        self.assertEqual(state.selection, {
+            'path': 'MF/2FE2', 'name': 'EF.ICCID', 'fid': '2FE2', 'kind': 'ef',
+            'size': 10, 'record_len': None, 'num_records': None})
+        self.assertEqual(state.status()['selection'], state.selection)
+
+    def test_a_record_file_reports_the_record_metadata(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['file_type'], 'linear_fixed')
+        self.assertEqual(body['record_len'], 10)
+        self.assertEqual(body['num_of_rec'], 5)
+        self.assertEqual(state.selection['num_records'], 5)
+
+    def test_an_adf_file_is_selected_by_its_aid(self):
+        state, fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'ADF.USIM/6F07'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['name'], 'EF.IMSI')
+        self.assertEqual(body['fid'], '6F07')
+        self.assertEqual(body['file_size'], 9)
+        self.assertEqual(state.selection['path'], 'ADF.USIM/6F07')
+        self.assertIn('00A4040407A000000087100200',
+                      [apdu.hex().upper() for apdu in fake.sent])
+
+    def test_an_adf_addressed_by_aid_resolves(self):
+        # The PWA's Profiler walk sends the ADF's AID in the parent path while
+        # the file manager sends its name; both fold onto the same node.
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/select', {
+            'name': 'EF.IMSI', 'fid': '6F07', 'parent_sel': 'MF',
+            'parent_path': ['MF', cards.AID_USIM]})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['name'], 'EF.IMSI')
+
+    def test_a_custom_df_chain_is_walked_by_fid(self):
+        # A PWA custom file may sit under a DF the standard list does not
+        # describe; every segment is then a FID and the chain is selected from
+        # MF without any model entry.
+        state, fake = open_file_state(handler=FileCard(files={
+            'A1B2': {'fcp': fcp(FD_DF)},
+            'A1B3': {'fcp': fcp(FD_TRANSPARENT, '800204', '8302A1B3'),
+                     'content': 'DEADBEEF'},
+        }))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/A1B2/A1B3'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body['name'], body['fid']), ('A1B3', 'A1B3'))
+        selects = [apdu.hex().upper() for apdu in fake.sent
+                   if apdu[:2] == b'\x00\xa4']
+        self.assertEqual(selects[-3:],
+                         ['00A40004023F0000', '00A4000402A1B200',
+                          '00A4000402A1B300'])
+
+    def test_a_failed_select_is_a_404(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/9F9F'})
+        self.assertEqual(status, 404)
+        self.assertFalse(body['exists'])
+        self.assertIn('9F9F', body['error'])
+        self.assertIsNone(state.selection)
+
+    def test_a_sim_uses_the_ts_51_011_select_form(self):
+        # A 2G SIM's file access is CLA A0 and the TS 51 011 §9.2.1 SELECT
+        # (P1/P2 00, no Le, no FCP).
+        state = self.track(make_state())
+        fake = FileCard()
+        state.transport = fake
+        state.card = cards.CardType(kind='sim', cla='a0', aids=[], atr=ATR)
+        state.connected = True
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['file_type'], 'transparent')
+        selects = [apdu.hex().upper() for apdu in fake.sent]
+        self.assertEqual(selects, ['A0A40000023F00', 'A0A40000022FE2'])
+
+    def test_a_probed_node_keeps_the_legacy_structure_name(self):
+        # A probed custom node has no model kind, so the FCP decides.  A DF's
+        # descriptor byte 38 has the RFU structure bits (TS 102 221 Table
+        # 11.5: file type 111, b3-b1 000), which pySim's enum - and therefore
+        # the legacy /api/select - names 'no_info_given'; the PWA's stored
+        # profiles and snapshots pin that exact string with ===.
+        state, _fake = open_file_state(handler=FileCard(files={
+            'A1B2': {'fcp': fcp(FD_DF)}}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/A1B2'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['file_type'], 'no_info_given')
+        self.assertEqual(body['fid'], 'A1B2')
+
+    def test_the_adf_retry_only_drops_mf_before_an_adf(self):
+        # A whole-chain ADF path (MF/ADF.USIM/6F07) is retried without its
+        # leading MF because an ADF is a model root; an EF second segment is
+        # not: MF/EF.IMPI says "an EF.IMPI directly under MF", which does not
+        # exist, and the old unconditional retry silently selected ADF.ISIM's
+        # copy instead of answering 404.
+        state, fake = open_file_state()
+        self.track(state)
+        sent = len(fake.sent)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/EF.IMPI'})
+        self.assertEqual(status, 404, body)
+        self.assertIn('EF.IMPI', body['error'])
+        self.assertEqual(len(fake.sent), sent,
+                         'an unresolved selector must spend no APDU')
+
+    def test_a_whole_chain_adf_path_is_retried(self):
+        # The other half of the same rule: the PWA's MF/ADF.USIM/... form
+        # still resolves (an ADF is a root of its own).
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/select', {'path': 'MF/ADF.USIM/6F07'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['name'], 'EF.IMSI')
+
+    def test_a_card_without_an_fcp_cannot_be_read(self):
+        # A 2G SIM's SELECT carries no FCP (TS 51 011 §9.2.1) and a UICC may
+        # omit it too.  /api/read is FCP-driven, so it refuses instead of
+        # guessing a length: this is a KNOWN unsupported case until the
+        # decision recorded in docs/pysim-phaseout.md (an explicit `length`,
+        # or READ BINARY Le=256 stopping on a short read) - the legacy server
+        # failed here as well, and this test makes a future fix visible.
+        state, _fake = open_file_state(handler=FileCard(files={
+            '2FE2': {'fcp': b'', 'content': ICCID_HEX}}))
+        self.track(state)
+        harness = self.served(state)
+        status, body = harness.json(
+            'POST', '/api/select', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['file_type'], 'transparent')
+        self.assertIsNone(body['file_size'])
+        self.assertIsNone(body['fci_hex'])
+        status, body = harness.json('POST', '/api/read', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['success'])
+        self.assertIsNone(body['sw'])
+        self.assertIn('no file size', body['error'])
+
+
+class FileReadTests(HTTPTestBase):
+    def test_a_transparent_read(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2', 'mode': 'raw'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['sw'], '9000')
+        self.assertEqual(body['file_type'], 'transparent')
+        self.assertEqual(body['data'], ICCID_HEX.upper())
+        self.assertNotIn('records', body)
+        types = [entry['type'] for entry in body['apdu_times']]
+        self.assertEqual(types.count('read_binary'), 1)
+        self.assertEqual(types, sorted(types, key=lambda t: t != 'select'))
+
+    def test_a_record_read_reports_every_record(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['file_type'], 'linear_fixed')
+        self.assertEqual(body['records'],
+                         [{'num': index + 1, 'data': value}
+                          for index, value in enumerate(ARR_RECORDS)])
+        record_times = [entry['ms'] for entry in body['apdu_times']
+                        if entry['type'] == 'read_record']
+        self.assertEqual(len(record_times), len(ARR_RECORDS))
+
+    def test_an_adf_read(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'ADF.USIM/6F07'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['data'], IMSI_CONTENT)
+
+    def test_a_refused_read_is_success_false_with_the_sw(self):
+        # The PWA prints the SW and offers its inline ADM action for '6982'
+        # (it compares the lower case form).
+        state, _fake = open_file_state(
+            handler=FileCard(refuse={'read_binary': '6982'}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['success'])
+        self.assertEqual(body['sw'], '6982')
+        self.assertEqual(body['error'], 'Security status not satisfied')
+        self.assertEqual(body['file_type'], 'transparent')
+
+    def test_a_refused_record_mid_file_is_not_a_success(self):
+        # The FCP announces 5 records; the card refuses the 3rd (a protected
+        # record).  The legacy ran pySim's read_records, whose SwMatchError
+        # became {'success': false, ...}, and the PWA's `if (rd && rd.success)`
+        # then skipped the content - a truncated list must never look
+        # complete (it would land in a snapshot or profile verbatim).
+        state, _fake = open_file_state(
+            handler=FileCard(refuse_records={3: '6985'}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['success'])
+        self.assertEqual(body['sw'], '6985')
+        self.assertEqual(body['error'], 'Conditions of use not satisfied')
+        self.assertEqual(body['file_type'], 'linear_fixed')
+        self.assertEqual(body['records'],
+                         [{'num': index + 1, 'data': value}
+                          for index, value in enumerate(ARR_RECORDS[:2])])
+
+    def test_an_fcp_without_a_record_count_reads_until_refused(self):
+        # TS 102 221 §11.1.1.4.3: bytes 5-6 of the file descriptor are the
+        # record length, byte 7 the record count.  A 4-byte descriptor
+        # (8204 4A000010) stops at the record length, so the card promises no
+        # count - the tolerant read-until-refused behaviour stays for exactly
+        # this case (the legacy pySim read_records).
+        state, _fake = open_file_state(handler=FileCard(files={
+            '2F06': {'fcp': fcp('82044A000010', '83022F06'),
+                     'records': ARR_RECORDS[:2]}}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['sw'], '9000')
+        self.assertEqual(body['records'],
+                         [{'num': index + 1, 'data': value}
+                          for index, value in enumerate(ARR_RECORDS[:2])])
+
+    def test_two_requests_do_not_share_apdu_times(self):
+        # The timing proxy is per request (the snapshot scan aggregates the
+        # list); a shared instrument would append the second request's
+        # exchanges to the first's list.
+        state, _fake = open_file_state()
+        self.track(state)
+        harness = self.served(state)
+        _, first = harness.json('POST', '/api/read', {'path': 'MF/2FE2'})
+        _, second = harness.json('POST', '/api/read', {'path': 'MF/2F06'})
+        self.assertEqual([entry['type'] for entry in first['apdu_times']],
+                         ['select', 'select', 'read_binary'])
+        self.assertEqual([entry['type'] for entry in second['apdu_times']],
+                         ['select', 'select']
+                         + ['read_record'] * len(ARR_RECORDS))
+
+    def test_the_decoded_mode_is_refused_before_the_card(self):
+        state, fake = open_file_state()
+        self.track(state)
+        sent = len(fake.sent)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2', 'mode': 'decoded'})
+        self.assertEqual(status, 400)
+        self.assertIn('not supported', body['error'])
+        self.assertIn('client-side', body['error'])
+        self.assertEqual(len(fake.sent), sent,
+                         'a refused request must not touch the card')
+
+    def test_a_failed_read_select_is_a_404(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/9F9F'})
+        self.assertEqual(status, 404)
+        self.assertFalse(body['success'])
+        self.assertIn('9F9F', body['error'])
+
+    def test_a_protocol_error_keeps_the_session(self):
+        # A decoder/protocol failure must not tear a healthy card down (the
+        # 3c-3a classification: only a transport error does).
+        state, _fake = open_file_state()
+
+        class Broken(FileCard):
+            def _read_binary(self, apdu):
+                raise IndexError('bad TLV')
+
+        state.transport = Broken()
+        state.auto_equip = lambda *args, **kwargs: self.fail(
+            'a protocol error must not re-arm the auto-equip')
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 500)
+        self.assertIn('bad TLV', body['error'])
+        self.assertTrue(state.connected)
+        self.assertIsNotNone(state.cat)
+
+    def test_a_transport_error_tears_the_link_down_and_rearms(self):
+        state, _fake = open_file_state()
+        calls = []
+        state.auto_equip = lambda *args, **kwargs: calls.append('equip')
+
+        class Unplugged(FileCard):
+            def _read_binary(self, apdu):
+                raise transport.ReaderError('PC/SC link is not connected')
+
+        state.transport = Unplugged()
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 503)
+        self.assertIn('PC/SC link', body['error'])
+        self.assertFalse(body['connected'])
+        self.assertFalse(state.connected)
+        self.assertTrue(state.card_present,
+                        'the card is usually still inserted')
+        self.assertEqual(calls, ['equip'])
+
+
+class FileWriteTests(HTTPTestBase):
+    def test_a_transparent_write(self):
+        state, fake = open_file_state()
+        self.track(state)
+        arr_before = [dict(entry) for entry in state.arr]
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2FE2', 'data': '11' * 10})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body, {'success': True, 'sw': '9000'})
+        self.assertIn('00D600000A' + '11' * 10,
+                      [apdu.hex().upper() for apdu in fake.sent])
+        # A non-ARR write leaves the ARR cache alone.
+        self.assertEqual(state.arr, arr_before)
+
+    def test_a_record_write_defaults_to_record_one(self):
+        state, fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2F06', 'data': 'DD' * 10})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'])
+        self.assertIn('00DC01040A' + 'DD' * 10,
+                      [apdu.hex().upper() for apdu in fake.sent])
+
+    def test_an_arr_write_refreshes_the_cache(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        self.assertEqual(state.arr[0]['records'][0], ARR_RECORDS[0])
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2F06', 'data': 'EE' * 10, 'record_nr': 3})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'])
+        self.assertEqual(state.arr[0]['records'][0], ARR_RECORDS[0])
+        self.assertEqual(state.arr[0]['records'][2], 'EE' * 10,
+                         'the EF.ARR session cache must be re-read')
+
+    def test_a_record_write_with_an_explicit_number(self):
+        state, fake = open_file_state()
+        self.track(state)
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2F06', 'data': 'CC' * 10, 'record_nr': 2})
+        self.assertEqual(status, 200, body)
+        self.assertIn('00DC02040A' + 'CC' * 10,
+                      [apdu.hex().upper() for apdu in fake.sent])
+
+    def test_a_bad_payload_is_a_400_before_the_card(self):
+        state, fake = open_file_state()
+        self.track(state)
+        sent = len(fake.sent)
+        harness = self.served(state)
+        for payload in ('ABC', '', 'ZZ'):
+            status, body = harness.json('POST', '/api/write', {
+                'path': 'MF/2FE2', 'data': payload})
+            self.assertEqual(status, 400, payload)
+            self.assertIn('hex', body['error'])
+        self.assertEqual(len(fake.sent), sent,
+                         'a refused request must not touch the card')
+
+    def test_record_nr_on_a_transparent_file_is_a_400(self):
+        state, fake = open_file_state()
+        self.track(state)
+        sent = len(fake.sent)
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2FE2', 'data': '11' * 10, 'record_nr': 1})
+        self.assertEqual(status, 400)
+        self.assertIn('record file', body['error'])
+        # The file's shape is known only after the SELECT; what must never
+        # happen is an UPDATE.
+        self.assertGreaterEqual(len(fake.sent), sent)
+        self.assertEqual(fake.writes, [])
+
+    def test_a_refused_write_reports_the_sw_and_keeps_the_cache(self):
+        state, _fake = open_file_state(
+            handler=FileCard(refuse={'update_record': '6982'}))
+        self.track(state)
+        arr_before = [dict(entry) for entry in state.arr]
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2F06', 'data': 'DD' * 10})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['success'])
+        self.assertEqual(body['sw'], '6982')
+        self.assertEqual(body['error'], 'Security status not satisfied')
+        self.assertEqual(state.arr, arr_before)
+
+    def test_a_cardless_server_is_a_503(self):
+        state = self.track(make_state())
+        status, body = self.served(state).json('POST', '/api/write', {
+            'path': 'MF/2FE2', 'data': '11' * 10})
+        self.assertEqual(status, 503)
+        self.assertFalse(body['success'])
+        self.assertIn('no card session', body['error'])
+
+
+class FileCacheRouteTests(HTTPTestBase):
+    """``GET /api/arr`` and ``GET /api/pbr``: the session caches, card-free."""
+
+    def test_the_caches_are_served_with_the_session(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        harness = self.served(state)
+        status, body = harness.json('GET', '/api/arr')
+        self.assertEqual(status, 200)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['session'], state.card_session)
+        self.assertEqual(body['arrs'][0]['path'], 'MF/2F06')
+        status, body = harness.json('GET', '/api/pbr')
+        self.assertEqual(status, 200)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['session'], state.card_session)
+        self.assertEqual([entry['path'] for entry in body['pbrs']],
+                         ['MF/7F10/5F3A/4F30', 'ADF.USIM/5F3A/4F30'])
+
+    def test_they_answer_while_the_card_lock_is_held(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        harness = self.served(state)
+        with state.card_lock:
+            status, body = harness.json('GET', '/api/arr')
+            self.assertEqual(status, 200)
+            self.assertTrue(body['ok'])
+            status, body = harness.json('GET', '/api/pbr')
+            self.assertEqual(status, 200)
+            self.assertTrue(body['ok'])
+
+    def test_a_cardless_server_answers_empty(self):
+        state = self.track(make_state())
+        harness = self.served(state)
+        for path, key in (('/api/arr', 'arrs'), ('/api/pbr', 'pbrs')):
+            status, body = harness.json('GET', path)
+            self.assertEqual(status, 200, path)
+            self.assertFalse(body['ok'])
+            self.assertEqual(body[key], [])
+
+    def test_a_disconnect_clears_the_caches(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        harness = self.served(state)
+        state.disconnect()
+        status, body = harness.json('GET', '/api/arr')
+        self.assertEqual(status, 200)
+        self.assertFalse(body['ok'])
+        self.assertEqual(body['arrs'], [])
+        status, body = harness.json('GET', '/api/pbr')
+        self.assertFalse(body['ok'])
+        self.assertEqual(body['pbrs'], [])
+
+
+PBR_VECTORS = json.loads(
+    open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
+        __file__))), 'frontend', 'tests', 'pbr_vectors.json'),
+        encoding='utf-8').read())
+
+PBR_ENTRY = {'fid': '4F30', 'path': 'MF/7F10/5F3A/4F30', 'record_len': 10,
+             'num_records': 1, 'records': ['A80AC0034F3A02C5034F0904']}
+
+
+class PbrParserTests(unittest.TestCase):
+    """The pure EF.PBR port (:mod:`simple_server.pbr`), pinned to the PWA."""
+
+    def test_the_shared_vectors(self):
+        self.assertTrue(PBR_VECTORS['cases'])
+        for case in PBR_VECTORS['cases']:
+            parsed = pbr.parse_pbr(case['records'])
+            expected = []
+            for link in case['links']:
+                if not link.get('kind'):
+                    continue        # a raw-preserved unknown tag is not a file
+                if any(entry['fid'] == link['fid'] for entry in expected):
+                    continue        # the parser deduplicates by FID (first wins)
+                expected.append({'fid': link['fid'], 'kind': link['kind'],
+                                 'link': link['link'], 'sfi': link['sfi']})
+            self.assertEqual(parsed, expected, case['name'])
+            self.assertEqual([entry['fid'] for entry in parsed],
+                             case['files'], case['name'])
+
+    def test_the_containers_the_sfi_forms_and_the_padding(self):
+        # type 1 (A8) and type 2 (A9) containers; 'C0 02' carries just the FID,
+        # 'C6 03' the FID + SFI (TS 31.102 §4.4.2.1).
+        parsed = pbr.parse_pbr(['A808C0024F3AC1024F09'
+                                'A90AC6034F0B06C7034F0C07'])
+        self.assertEqual([entry['link'] for entry in parsed], [1, 1, 2, 2])
+        self.assertEqual([entry['sfi'] for entry in parsed],
+                         [None, None, '06', '07'])
+        self.assertEqual([entry['kind'] for entry in parsed],
+                         ['EF.ADN', 'EF.IAP', 'EF.GRP', 'EF.AAS'])
+        # FF padding is not a link; a truncated TLV keeps the earlier ones.
+        self.assertEqual(pbr.parse_pbr(['A80AC0034F3A02C5034F0904' + 'FF' * 8]),
+                         pbr.parse_pbr(['A80AC0034F3A02C5034F0904']))
+        self.assertEqual(
+            [entry['fid'] for entry in pbr.parse_pbr(['A80AC0034F3A02C5034F09'])],
+            [])
+        self.assertEqual(pbr.parse_pbr(['A80AC0034F3A02C5034F0904C5'])[1]['fid'],
+                         '4F09')
+
+    def test_the_path_normaliser(self):
+        self.assertEqual(pbr.norm_path(['3f00', '7f10', '5f3a', '4f30']),
+                         ['MF', '7F10', '5F3A', '4F30'])
+        self.assertEqual(pbr.norm_path(['mf', '']), ['MF'])
+        self.assertEqual(pbr.norm_path(None), [])
+        # An ADF is its own root: the PWA's whole-chain form folds onto it,
+        # and an AID address folds onto the ADF's name.
+        aid = cards.AID_USIM
+        self.assertEqual(pbr.norm_path(['MF', 'ADF.USIM', '5F3A']),
+                         ['ADF.USIM', '5F3A'])
+        self.assertEqual(pbr.norm_path(['MF', aid, '5F3A'], {aid: 'ADF.USIM'}),
+                         ['ADF.USIM', '5F3A'])
+
+    def test_the_injection_rules(self):
+        cache = [PBR_ENTRY]
+        children = [{'name': 'EF.PBR', 'fid': '4F30', 'isDir': False}]
+        self.assertEqual(
+            pbr.inject_children(cache, ['MF', '7F10', '5F3A'], children), 2)
+        self.assertEqual(
+            children[1], {'name': 'EF.ADN', 'fid': '4F3A', 'isDir': False,
+                          'pbr': True, 'sfi': '02'})
+        # A known FID is not added twice; an unrelated DF is untouched.
+        self.assertEqual(pbr.inject_children(
+            cache, ['MF', '7F10', '5F3A'],
+            [{'name': 'EF.ADN', 'fid': '4F3A', 'isDir': False}]), 1)
+        self.assertEqual(pbr.inject_children(cache, ['MF', '7F10', '5F3B'], []),
+                         0)
+        self.assertEqual(pbr.inject_children(None, ['MF', '7F10', '5F3A'], []),
+                         0)
+        # A full path is never answered by another DF's copy...
+        adf_only = [dict(PBR_ENTRY, path='ADF.USIM/5F3A/4F30')]
+        self.assertEqual(
+            pbr.inject_children(adf_only, ['MF', '7F10', '5F3A'], []), 0)
+        self.assertEqual(
+            pbr.inject_children(adf_only, ['ADF.USIM', '5F3A'], []), 2)
+        # ...while a bare FID is answered only when a single copy is cached.
+        self.assertEqual(pbr.inject_children(adf_only, ['5F3A'], []), 2)
+        both = [PBR_ENTRY, dict(PBR_ENTRY, path='ADF.USIM/5F3A/4F30')]
+        self.assertEqual(pbr.inject_children(both, ['5F3A'], []), 0)
 
 
 class FakeCat(object):
