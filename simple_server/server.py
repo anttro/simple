@@ -6,20 +6,27 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a/3b): the state and the card lifecycle (:meth:`ServerState.open`,
-:meth:`~ServerState.equip`, :meth:`~ServerState.reset`,
-:meth:`~ServerState.disconnect`, the presence monitor and the background STATUS
-poll), the HTTP handler + :class:`http.server.ThreadingHTTPServer` factory over
-it, the static PWA serving and the endpoints - ``GET /api/version``,
-``GET /api/status``, ``GET /api/readers``, ``GET /api/arr``, ``GET /api/pbr``,
-``POST /api/reader``, ``POST /api/equip``, ``POST /api/reset`` (3c-3a) and the
-file endpoints ``POST /api/tree|select|read|write`` (3c-3b).  Every other API
-path is a 404 until the preset/SCP80/RAM/test/eSIM/SCP81/netsim endpoints land
-in 3c-3c.
+Scope (Phase 3c-3a/3b/3c-1): the state and the card lifecycle
+(:meth:`ServerState.open`, :meth:`~ServerState.equip`,
+:meth:`~ServerState.reset`, :meth:`~ServerState.disconnect`, the presence
+monitor and the background STATUS poll), the HTTP handler and the
+:class:`http.server.ThreadingHTTPServer` factory over it, the static PWA
+serving and the endpoints - ``GET /api/version``, ``GET /api/status``,
+``GET /api/readers``, ``GET /api/arr``, ``GET /api/pbr``,
+``POST /api/reader``, ``POST /api/equip``, ``POST /api/reset`` (3c-3a), the
+file endpoints ``POST /api/tree|select|read|write`` (3c-3b) and the
+preset/plain-SCP80 set ``GET/POST /api/presets`` +
+``/api/presets/update|delete|import|import-outfile``, ``POST /api/verify-adm``,
+``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1).  Every other
+API path is a 404 until the remaining 3c-3c endpoints (RAM install/batch, the
+TAR probe, the test runner, eSIM/SCP81/netsim) and 3c-3d/3d land.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
-``/api/commands``/``/api/cardinfo``; ``/api/status`` has our own shape (no
+``/api/commands``/``/api/cardinfo``, and **no ``/api/sp-verify``** (the PWA's
+"Verify vs pySim" builds its reference with pySim itself, which this server
+does not have - the SCP80 packet builder is pinned to the same vectors by the
+unit tests instead); ``/api/status`` has our own shape (no
 pySim concepts); ``/api/apdu`` (3c-3b) keeps the automatic proactive handler on
 an ``91XX`` answer.  ``/api/read`` has **no** ``mode: 'decoded'``: the legacy
 mode ran pySim's server-side EF decoders, the PWA decodes the same raw bytes
@@ -58,6 +65,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
 
 from simple_server import bip as bip_module
@@ -65,7 +73,11 @@ from simple_server import cards
 from simple_server import cat_session
 from simple_server import commands
 from simple_server import files as files_module
+from simple_server import ota
 from simple_server import pbr as pbr_module
+from simple_server import scp80
+from simple_server import sms
+from simple_server import util
 from simple_server.transport import PcscLink, ReaderError
 
 log = logging.getLogger(__name__)
@@ -100,9 +112,11 @@ POLL_CHAIN_MAX = 10
 #: reader list (the UI polls them while a long card operation runs).  The list
 #: grows as the endpoints are ported (the legacy list is the reference);
 #: ``/api/arr`` and ``/api/pbr`` are the session caches the file manager reads
-#: while a snapshot scan is running.
+#: while a snapshot scan is running, and ``/api/presets`` is the server-side
+#: preset store (no card involved).
 CARD_FREE_GET = frozenset([
     '/api/status', '/api/version', '/api/readers', '/api/arr', '/api/pbr',
+    '/api/presets',
 ])
 
 #: POSTs that must answer while the card lock is held (the legacy
@@ -266,6 +280,47 @@ def _sw_error(sw):
     return _SW_ERRORS.get(str(sw or '').strip().lower(), 'Error')
 
 
+#: The request-body fields whose values are SCP80 key material (masked in the
+#: optional request log).  The project policy says card keys in local logs are
+#: not a risk, but masking them is cheap and keeps a pasted log shareable;
+#: identities and preset names stay visible for diagnostics.
+_REDACT_FIELDS = ('adm', 'pin1', 'puk1', 'pin2', 'puk2', 'kicKey', 'kidKey',
+                  'pskKey', 'psk_hex')
+
+
+def redact_body(body):
+    """A copy of a request body with its key material masked (the request log).
+
+    The preset endpoints carry the keysets both at the top level
+    (``POST /api/presets``, the import) and under ``fields`` (the update), so
+    both are walked.  The outfile import's ``text`` is deliberately logged
+    verbatim: it is the vendor file, which carries the card's KIC/KID keys by
+    nature and is pasted as-is for diagnostics.
+    """
+    if not isinstance(body, dict):
+        return body
+    out = dict(body)
+    for field in _REDACT_FIELDS:
+        if out.get(field):
+            out[field] = '<redacted>'
+    if isinstance(out.get('psk_map'), dict):
+        out['psk_map'] = {key: '<redacted>' for key in out['psk_map']}
+    elif isinstance(out.get('psk_map'), list):
+        out['psk_map'] = [
+            dict(entry, psk_hex='<redacted>')
+            if isinstance(entry, dict) and entry.get('psk_hex') else entry
+            for entry in out['psk_map']]
+    if isinstance(out.get('fields'), dict):
+        out['fields'] = redact_body(out['fields'])
+    if isinstance(out.get('keysets'), list):
+        out['keysets'] = [redact_body(entry) if isinstance(entry, dict)
+                          else entry for entry in out['keysets']]
+    if isinstance(out.get('presets'), list):
+        out['presets'] = [redact_body(entry) if isinstance(entry, dict)
+                          else entry for entry in out['presets']]
+    return out
+
+
 def _norm_segments(segments):
     """Normalise a selector chain: upper case, ``3F00`` -> ``MF``, no empties.
 
@@ -332,11 +387,14 @@ class ServerState(object):
     **The injected hooks.**  ``transport_factory(reader_name)`` builds a
     transport (default :class:`simple_server.transport.PcscLink`);
     ``transport`` injects one directly (tests); ``presets`` injects the card
-    preset store (default ``pysim_simple_server.presets.PresetStore``);
-    ``presence_install`` registers the presence observer (tests replace it to
-    avoid real pyscard polling).  ``monitor=False`` disables the presence
-    observer and ``open(start_threads=False)`` keeps the background poll off -
-    the two test seams.
+    preset store (default ``pysim_simple_server.presets.PresetStore``), and
+    ``presets_path`` builds that store at the given file (the entry point's
+    ``--card-presets`` - the store is pysim-free, so it is a direct
+    dependency); ``presence_install`` registers the presence observer (tests
+    replace it to avoid real pyscard polling).  ``monitor=False`` disables the
+    presence observer and ``open(start_threads=False)`` keeps the background
+    poll off - the two test seams.  ``sms_oa``/``sms_sc`` are the SMS-PP
+    download addresses (the legacy CLI options).
 
     **Simplifications vs the legacy server** (documented, not hidden):
 
@@ -376,9 +434,10 @@ class ServerState(object):
     """
 
     def __init__(self, transport=None, transport_factory=None, reader=None,
-                 presets=None, web_dir=None,
+                 presets=None, presets_path=None, web_dir=None,
                  terminal_profile=DEFAULT_TERMINAL_PROFILE,
                  poll_interval=DEFAULT_POLL_INTERVAL, menu_timeout=60,
+                 sms_oa='12345', sms_sc='12345678912',
                  auto_equip=True, monitor=True, version=VERSION,
                  presence_install=None, presence_remove=None,
                  readers_fn=None):
@@ -400,8 +459,18 @@ class ServerState(object):
 
         self.card_lock = threading.RLock()
         self.files = files_module.FileModel.from_asset()
-        self.presets = (presets if presets is not None
-                        else presets_store.PresetStore())
+        if presets is not None:
+            self.presets = presets
+        elif presets_path is not None:
+            # The entry point's ``--card-presets``: the store path is a
+            # deployment concern, so it is a constructor argument here.
+            self.presets = presets_store.PresetStore(path=presets_path)
+        else:
+            self.presets = presets_store.PresetStore()
+        # The SMS-PP download addresses (the legacy ``server.sms_oa``/
+        # ``sms_sc`` CLI options).
+        self.sms_oa = str(sms_oa or '12345')
+        self.sms_sc = str(sms_sc or '12345678912')
 
         self.card = None
         self.cat = None
@@ -418,6 +487,11 @@ class ServerState(object):
         self.arr = None
         self.pbr = None
         self.netstate = None
+        #: The ADM latch the 3d test runner will read: the last card session an
+        #: ADM verify succeeded in (and, for a failed gate, the one it failed
+        #: in - set by the suite runner, not by ``/api/verify-adm``).
+        self.adm_session = None
+        self.adm_failed_session = None
 
         # The poll state: the operator's preference (poll_enabled), the
         # effective interval and the card's POLLING OFF wish.  poll_interval 0
@@ -1293,6 +1367,495 @@ class ServerState(object):
         except Exception as exc:
             log.debug('EF.ARR refresh after write failed: %s', exc)
 
+    # ---- the preset store (3c-3c-1) ---------------------------------------
+
+    def presets_info(self):
+        """``GET /api/presets``: the store info plus every preset (card-free)."""
+        store = self.presets
+        info = (store.info() if hasattr(store, 'info')
+                else {'path': getattr(store, 'path', None)})
+        info = dict(info)
+        info['presets'] = store.list()
+        return info
+
+    def preset_add(self, body):
+        """``POST /api/presets``: create a preset; returns the stored shape."""
+        try:
+            return self.presets.add(body)
+        except OSError as exc:
+            raise self._store_failure(exc) from exc
+
+    def preset_update(self, body):
+        """``POST /api/presets/update``: a partial/full edit; None if unknown."""
+        fields = body.get('fields')
+        if not isinstance(fields, dict):
+            fields = {k: v for k, v in body.items()
+                      if k not in ('id', 'fields')}
+        try:
+            return self.presets.update(body.get('id'), fields)
+        except OSError as exc:
+            raise self._store_failure(exc) from exc
+
+    def preset_delete(self, body):
+        """``POST /api/presets/delete``: the legacy ``{ok, removed}`` body."""
+        try:
+            removed = self.presets.remove(body.get('id'))
+        except OSError as exc:
+            raise self._store_failure(exc) from exc
+        return {'ok': True, 'removed': bool(removed)}
+
+    def preset_import(self, body):
+        """``POST /api/presets/import``: ``merge``/``replace`` (legacy shape)."""
+        items = body.get('presets')
+        if not isinstance(items, list) or len(items) > 1000:
+            raise ValueError('presets must be a list of at most 1000 entries')
+        mode = body.get('mode') if body.get('mode') in ('merge', 'replace') \
+            else 'merge'
+        try:
+            result = self.presets.import_presets(items, mode)
+        except OSError as exc:
+            raise self._store_failure(exc) from exc
+        result['ok'] = True
+        return result
+
+    def preset_import_outfile(self, body):
+        """``POST /api/presets/import-outfile``: the vendor-outfile import.
+
+        Without ``mode`` this is a dry run: the parsed presets and the report
+        come back for the preview (the UI picks the common name, the 16-byte
+        algorithm, the TAR table and its per-row keyset first); with ``mode``
+        the same parse runs and the presets are imported.  A structurally
+        invalid file is never partially imported (the preview shows the error,
+        the import refuses).
+        """
+        text = body.get('text')
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError('text is required (the outfile contents)')
+        tars = body.get('tars')
+        if tars is not None and not isinstance(tars, list):
+            raise ValueError('tars must be a list of TAR entries')
+        tar_keyset = body.get('tar_keyset')
+        if tar_keyset in (None, ''):
+            tar_keyset = None
+        else:
+            try:
+                tar_keyset = int(tar_keyset)
+            except (TypeError, ValueError):
+                tar_keyset = -1
+            if not 1 <= tar_keyset <= presets_store.KVN_MAX:
+                raise ValueError('tar_keyset must be 1-%02X'
+                                 % presets_store.KVN_MAX)
+        # A misspelled algorithm must not silently pick one: the 16-byte key's
+        # algorithm nibble decides whether the card accepts the packet at all.
+        algorithm16 = str(body.get('algorithm16') or '3des2').strip().lower()
+        if algorithm16 not in outfile.ALGORITHM16_CHOICES:
+            raise ValueError('algorithm16 must be one of: %s'
+                             % ', '.join(outfile.ALGORITHM16_CHOICES))
+        mode = body.get('mode')
+        if mode in (None, ''):
+            mode = None
+        elif mode not in ('merge', 'replace'):
+            raise ValueError("mode must be 'merge', 'replace' or omitted "
+                             '(a preview)')
+        parsed = outfile.parse_outfile(
+            text,
+            name=str(body.get('name') or ''),
+            algorithm16=algorithm16,
+            tars=tars,
+            tar_keyset=tar_keyset,
+            start_counter=body.get('start_counter'))
+        if mode is None:
+            return {'ok': True, 'preview': True,
+                    'presets': parsed['presets'], 'report': parsed['report']}
+        if parsed['report'].get('error'):
+            raise ValueError(parsed['report']['error'])
+        try:
+            result = self.presets.import_presets(parsed['presets'], mode)
+        except OSError as exc:
+            raise self._store_failure(exc) from exc
+        response = {'ok': True, 'preview': False,
+                    'report': parsed['report']}
+        response.update(result)
+        return response
+
+    @staticmethod
+    def _store_failure(exc):
+        """A store I/O failure the handler answers as a JSON 500."""
+        return RuntimeError('preset store write failed: %s' % exc)
+
+    # ---- ADM verification (3c-3c-1) ---------------------------------------
+
+    def verify_adm(self, body):
+        """``POST /api/verify-adm``: VERIFY the card's ADM PIN (TS 102 221).
+
+        The key comes from the request's ``adm`` or the named preset's ``adm``
+        (4-16 hex digits in byte pairs, :data:`presets_store.ADM_PATTERN`),
+        right-padded to the 8 CHV bytes with ``'f'`` like pySim's
+        ``verify_adm``.  ``chv`` is the CHV number as a hex string (one byte,
+        e.g. ``'0A'``) or as an integer byte value (``10`` is 0x0A, not a
+        hex-encoded ``10``); it defaults to ``0x0A``.  The structured result
+        warns about the remaining attempts - every failed VERIFY consumes one
+        and a blocked ADM cannot be recovered here.
+        """
+        if not self.connected or self.transport is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        adm = re.sub(r'\s', '', str(body.get('adm') or '')).upper()
+        if not adm and body.get('preset_id'):
+            preset = self.presets.get(str(body.get('preset_id')))
+            if preset is None:
+                raise ValueError('unknown preset id')
+            adm = re.sub(r'\s', '', str(preset.get('adm') or '')).upper()
+            if not adm:
+                raise ValueError('the preset has no ADM key')
+        if not re.fullmatch(presets_store.ADM_PATTERN, adm):
+            raise ValueError('adm must be 4-16 hex digits')
+        chv = body.get('chv')
+        if isinstance(chv, int):
+            # an integer is the byte value itself (10 = 0x0A), never a
+            # hex-encoded string - the two readings disagree for 10..99
+            chv_value = chv
+        else:
+            try:
+                chv_value = (0x0A if chv in (None, '')
+                             else int(str(chv), 16))
+            except (TypeError, ValueError):
+                raise ValueError('chv must be one hex byte') from None
+        if not 0 <= chv_value <= 0xFF:
+            raise ValueError('chv must be one hex byte')
+        # The card's own CLA (00 UICC / A0 2G SIM), exactly like pySim-shell's
+        # verify_adm - the startup placeholder could answer 6E00 on a UICC.
+        cla = self._file_ops().cla
+        fc = util.rpad(adm.lower(), 16)
+        apdu = bytes.fromhex(cla + '2000' + '%02X' % chv_value + '08' + fc)
+        _data, sw = self.transport.send_apdu(apdu)
+        sw = bytes(sw or b'').hex().upper()
+        log.info('VERIFY ADM -> SW: %s', sw)
+        if sw == '9000':
+            # the latch the 3d runner's ADM gate reads
+            self.adm_session = self.card_session
+            self.adm_failed_session = None
+            return {'ok': True, 'sw': sw}
+        if re.fullmatch(r'63C[0-9A-F]', sw):
+            return {'ok': False, 'sw': sw, 'attempts_left': int(sw[3], 16)}
+        if sw in ('6983', '9804'):
+            return {'ok': False, 'sw': sw, 'blocked': True}
+        return {'ok': False, 'sw': sw,
+                'error': ('Security status not satisfied' if sw == '6982'
+                          else 'Error')}
+
+    # ---- the plain SCP80 secured-packet send (3c-3c-1) --------------------
+
+    def send_ota(self, body):
+        """``POST /api/send-ota``: deliver one secured packet (SCP80/TS 102 225).
+
+        Two request paths: ``sp`` is a pre-built packet (sent as it is - its
+        own counter is the caller's bookkeeping value) and ``apdu`` is a raw
+        C-APDU the server wraps (the packet may span several SMs, TS 31.115
+        §4.3).  The keyset: an explicit KIc/KID wins, otherwise the preset's
+        default keyset for the packet's TAR (``tar``, else the ISD role entry
+        for an ``apdu`` send) supplies both bytes and keys.  The counter: an
+        explicit ``cntr`` wins, otherwise the preset store's value for the
+        keyset; the effective value is echoed and the accepted one persisted
+        (v3.20.0).  The response is the PWA's shape - ``success``, ``sw``,
+        ``bytes``, ``segments``, ``por``, ``cntr``, ``final_cntr``,
+        ``cntr_low``, ``warning`` - and a warning ENVELOPE still gets its PoR
+        decoded so a low counter shows as ``cntr_low`` instead of a bare
+        failure.
+
+        ``ram_format`` rewrites an explicit expanded Command Scripting
+        template (TS 102 226 §5.2.1); its per-operation ``auto`` detection
+        belongs to the RAM operation sender (3c-3c-2), which will probe like
+        the legacy ``_ram_detect_format``.  The plain send cannot probe without
+        a RAM step, so ``auto`` reports the compact form it actually sends
+        (the decision is recorded in ``docs/pysim-phaseout.md``).
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        store = self.presets
+        sp = str(body.get('sp') or '').strip()
+        apdu = str(body.get('apdu') or '').strip()
+        preset_id = str(body.get('preset_id') or '').strip()
+        # The packet's keyset number (b8..b5 of KIc/KID, TS 102 225 A.2) must
+        # be consistent - a mismatch is invalid input (the card rejects it
+        # with "Unidentified security error") - and, when a preset is named,
+        # defined in it.  Both are refused before anything is built.
+        kvn, err = ota.kvn_of(body.get('kic', ''), body.get('kid', ''))
+        if err:
+            raise ValueError(err)
+        err = ota.preset_keyset_check(store, preset_id, body.get('kic', ''),
+                                      body.get('kid', ''))
+        if err:
+            raise ValueError(err)
+        preset_ref = store.get(preset_id) if preset_id else None
+        # SPI1: the caller's value wins (a hand send may deliberately ask for
+        # more security than the TAR's minimum), with a warning below the
+        # TAR's MSL; without one it is derived from the MSL of the packet's
+        # TAR (TS 102 226 §8.2.1.3.2.4).  An APDU send without a TAR uses the
+        # preset's ISD role entry.
+        tar_ref = str(body.get('tar') or '').strip().upper()
+        if not tar_ref and apdu and preset_ref:
+            tar_ref = presets_store.role_tar(preset_ref, 'isd')
+        spi1, spi_warn = ota.spi1_for_tar(preset_ref, tar_ref,
+                                          body.get('spi1'))
+        spi2 = str(body.get('spi2') or '01').strip().upper()
+        spi2_val = int(spi2, 16)
+        # Only a packet whose SPI1 asks the card to check the counter has a
+        # counter to track (TS 102 225 §5.1.1 b5b4): with b5b4 = 00 the field
+        # is ignored and never updated, so nothing is advanced or persisted.
+        counter_tracked = scp80.counter_tracked(spi1)
+        include_cpi = body.get('includeCpi', True)
+        # The response form follows the command's TAR (TS 102 226 §4): only an
+        # RM TAR answers with the RM structures; a hand send may name any TAR
+        # (a pre-built `sp` may name none - unknown, structural fallback).
+        rm = ota.tar_is_rm(preset_ref,
+                           body.get('tar') or ('000000' if apdu else ''))
+        ram_format = None
+        if apdu:
+            tar = str(body.get('tar') or '').strip().upper() or '000000'
+            kvn, kic, kid, keyset_err = ota.op_keyset_resolve(store, body, tar)
+            if keyset_err:
+                raise ValueError(keyset_err)
+            if not (kic and kid):
+                raise ValueError(
+                    'the packet needs KIc/KID - name a preset with a keyset '
+                    'for TAR %s or pass them explicitly' % tar)
+            kic_key = str(body.get('kicKey') or '').strip()
+            kid_key = str(body.get('kidKey') or '').strip()
+            # The counter: an explicit `cntr` wins; otherwise the preset
+            # store's value for the packet's keyset (v3.20.0).
+            cntr = ota.counter_seed(store, body, kvn)
+            if body.get('ram_format') is not None:
+                ram_format = ota.normalise_ram_format(body.get('ram_format'))
+                apdu = ota.format_apdu(apdu, ram_format)
+                if ram_format == 'auto':
+                    # the RAM operation sender's per-operation probe (3c-3c-2)
+                    ram_format = 'compact'
+            try:
+                packet, _spi = scp80.build_secured_packet(
+                    spi1, spi2, kic, kid, tar, cntr, apdu, kic_key, kid_key)
+            except scp80.Scp80Error as exc:
+                raise ValueError(str(exc)) from exc
+            sp_hex = bytes(packet).hex()
+        else:
+            # Regular SCP80: the pre-built packet carries its own counter;
+            # `cntr` is the caller's bookkeeping value for final_cntr.
+            sp_hex = sp
+            cntr = str(body.get('cntr') or '').strip().upper()
+        if cntr and not counter_tracked:
+            log.info('OTA SEND: counter not tracked (SPI1 %s: no counter '
+                     'check)', spi1)
+        log.info('OTA SEND: SPI %s %s KIc %s KID %s TAR %s CNTR %s LEN %dB',
+                 spi1, spi2, body.get('kic', ''), body.get('kid', ''),
+                 body.get('tar', ''), cntr, len(sp_hex) // 2)
+        if apdu:
+            log.info('OTA C-APDU: %s', apdu)
+        log.info('OTA SECURED-PACKET: %s', sp_hex)
+        capture = cat_session.PorSubmitCapture()
+        result = self._send_secured_packet(sp_hex, include_cpi=include_cpi,
+                                           submit_handler=capture)
+        cmd_len = len(body.get('apdu') or '') // 2 or None
+        if not result.get('success'):
+            resp = dict(result)
+            if ram_format is not None:
+                resp['ram_format'] = ram_format
+            # A warning ENVELOPE may still carry the PoR (the card's counter
+            # verdict): decode it so the caller sees cntr_low.
+            failed_por_hex = (result.get('response_data')
+                              or capture.submit_response_hex())
+            failed_por = ota.decode_por(
+                spi1, spi2, body.get('kic', ''), body.get('kid', ''),
+                cntr, body.get('kicKey', ''), body.get('kidKey', ''),
+                failed_por_hex, cmd_len=cmd_len, rm=rm)
+            if failed_por:
+                resp['por'] = failed_por
+                low = ota.cntr_low_fields(failed_por.get('response_status'))
+                if low:
+                    resp.update(low)
+                    log.info('OTA CNTR-LOW: the packet counter is not above '
+                             "the card's")
+                # only a packet the card accepted consumes the counter (a
+                # warning ENVELOPE can still carry a por_ok PoR); a rejected
+                # one must leave the store untouched
+                if (ota.counter_valid(cntr) and counter_tracked
+                        and failed_por.get('response_status')
+                        in ('por_ok', 'actual_response_sms_submit')):
+                    resp['final_cntr'] = ota.next_counter(cntr)
+            log.info('OTA SEND FAILED: %s', result.get('error'))
+        else:
+            resp = {'success': True, 'sw': result.get('sw'),
+                    'response_data': result.get('response_data'),
+                    'bytes': result.get('bytes'),
+                    'segments': result.get('segments')}
+            por_src = 'envelope'
+            por_hex = resp.get('response_data') or ''
+            submit_hex = capture.submit_response_hex()
+            if submit_hex:
+                por_hex = submit_hex
+                por_src = 'sms-submit'
+            elif capture.submit_tpdu_hex:
+                # no assembled UD: fall back to a raw RPI packet
+                tpdu = bytes.fromhex(capture.submit_tpdu_hex)
+                index = tpdu.find(b'\x02\x71\x00')
+                if index >= 0:
+                    por_hex = tpdu[index:].hex()
+                    por_src = 'sms-submit'
+            por = ota.decode_por(
+                spi1, spi2, body.get('kic', ''), body.get('kid', ''),
+                cntr, body.get('kicKey', ''), body.get('kidKey', ''),
+                por_hex, cmd_len=cmd_len, rm=rm)
+            if (bool(spi2_val & 0x01) and result.get('sw') == '9000'
+                    and not por_hex and not capture.submit_tpdu_hex):
+                # the PoR was requested and the card did not answer - true for
+                # pre-built packets (the keyless form) too
+                resp['por_missing'] = True
+                log.info('OTA SEND: the card answered 9000 with no PoR '
+                         '(SPI2 %s requests one)', spi2)
+            if por:
+                resp['por'] = por
+                low = ota.cntr_low_fields(por.get('response_status'))
+                if low:
+                    # a 9000/91xx ENVELOPE can still carry a cntr_low PoR
+                    resp.update(low)
+                    log.info('OTA CNTR-LOW: the packet counter is not above '
+                             "the card's")
+                log.info('OTA PoR[%s]: status=%s TAR=%s CNTR=%s PCNTR=%s '
+                         'RPL=%s RHL=%s', por_src, por.get('response_status'),
+                         por.get('tar'), por.get('cntr'), por.get('pcntr'),
+                         por.get('rpl'), por.get('rhl'))
+            elif por_hex:
+                log.info('OTA PoR[%s]: undecodable raw=%s', por_src, por_hex)
+            else:
+                log.info('OTA PoR[%s]: none', por_src)
+            accepted = (por is None or por.get('response_status')
+                        in ('por_ok', 'actual_response_sms_submit'))
+            if ram_format is not None:
+                resp['ram_format'] = ram_format
+            # The counter to use next, reported for the RAM and the plain
+            # SCP80 path alike; the server persists it.  A pre-built packet
+            # may come without a counter and a packet whose SPI1 does not ask
+            # the card to check it has none to track - nothing is reported
+            # then (and int('') never happens).  A rejected verdict reports
+            # nothing either: the store must not move on a packet the card
+            # did not consume.
+            if ota.counter_valid(cntr) and counter_tracked and accepted:
+                resp['final_cntr'] = ota.next_counter(cntr)
+        if cntr:
+            # echo the effective counter (a request without one got the
+            # preset's value - v3.20.0)
+            resp['cntr'] = cntr
+        if counter_tracked:
+            ota.counter_persist(store, preset_id, resp.get('final_cntr'),
+                                'send-ota', kvn)
+        if spi_warn:
+            resp['warning'] = spi_warn
+        return resp
+
+    def _send_secured_packet(self, sp_hex, include_cpi=True, submit_handler=None,
+                             max_segments=scp80.SCP80_MAX_SEGMENTS):
+        """Deliver a secured packet as SMS-PP download ENVELOPEs.
+
+        TS 31.115 §4.3: the whole command packet is split into SMS user-data
+        parts (the first SM carries the concatenation IE plus the CPI IE, the
+        following ones only the concatenation IE); the card reassembles them.
+        One ENVELOPE per segment, the late-PoR STATUS poll only after the last
+        (a concatenated download cannot have produced its PoR before the card
+        got every part).  Returns the legacy result dict - ``success``,
+        ``bytes``, ``segments``, ``sw``, ``response_data`` or ``error``.
+        """
+        try:
+            packet = bytes.fromhex(str(sp_hex or '').strip())
+        except ValueError as exc:
+            return {'success': False, 'bytes': 0, 'segments': 0,
+                    'error': 'Invalid secured packet: %s' % exc}
+        if not packet:
+            return {'success': False, 'bytes': 0, 'segments': 0,
+                    'error': 'Empty secured packet'}
+        parts = scp80.split_secured_packet(packet, include_cpi=include_cpi)
+        total = len(parts)
+        if total > max_segments:
+            return {'success': False, 'bytes': len(packet), 'segments': total,
+                    'error': 'Secured packet too large: %d segments (max %d - '
+                             'the card concatenation buffer)'
+                             % (total, max_segments)}
+        data, sw = b'', b''
+        log.info('OTA SEND: %d SMS segment(s), %d bytes', total, len(packet))
+        for index, part in enumerate(parts):
+            try:
+                tpdu = sms.build_sms_tpdu(part, total, index + 1,
+                                          oa_number=self.sms_oa,
+                                          include_cpi=include_cpi)
+            except sms.SmsError as exc:
+                return {'success': False, 'bytes': len(packet),
+                        'segments': total, 'error': str(exc)}
+            data, sw = self.cat.send_envelope(
+                tpdu, sm_sc=self.sms_sc, submit_handler=submit_handler,
+                poll_status=(index == total - 1))
+            sw_hex = bytes(sw or b'').hex().upper()
+            log.info('OTA SEND: ENVELOPE %d/%d -> %s', index + 1, total,
+                     sw_hex)
+            if sw_hex != '9000' and not sw_hex.startswith('91'):
+                # A warning (62xx/63xx, e.g. a low counter) may still hold the
+                # PoR: pass it on so the caller can name the card's verdict
+                # instead of a bare ENVELOPE failure.
+                late_por = (submit_handler.submit_response_hex()
+                            if submit_handler is not None else '')
+                return {'success': False, 'sw': sw_hex, 'bytes': len(packet),
+                        'segments': total,
+                        'response_data': (bytes(data).hex().upper() if data
+                                          else late_por or None),
+                        'error': 'ENVELOPE failed at segment %d' % (index + 1)}
+        return {'success': True, 'bytes': len(packet), 'segments': total,
+                'sw': bytes(sw or b'').hex().upper(),
+                'response_data': (bytes(data).hex().upper() if data else None)}
+
+    # ---- the counter-sync probe (3c-3c-1) ---------------------------------
+
+    def counter_probe(self, body):
+        """``POST /api/counter-probe``: sync a preset's counter with the card.
+
+        Sends a read-only SELECT MF with increasing counter values until the
+        card accepts one (PoR ``por_ok``), then persists ``accepted + 1``
+        (monotonic).  Every rejected attempt is a no-op on the card; the
+        ceiling and the attempt budget bound the search away from the 40-bit
+        maximum.  The parameters, the ladder and the verdict rules live in
+        :func:`simple_server.ota.counter_probe`.
+        """
+        if not self.connected or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        preset_id = str(body.get('preset_id') or '').strip()
+        if not preset_id:
+            raise ValueError('preset_id is required')
+        if not hasattr(self.presets, 'get'):
+            raise RuntimeError('preset store not initialized')
+        preset = self.presets.get(preset_id)
+        if not preset:
+            raise ValueError('unknown preset')
+        log.info('counter probe: preset %s, start %s, ceiling %s',
+                 preset.get('name'), body.get('cntr', ''),
+                 body.get('ceiling', ota.COUNTER_PROBE_CEILING))
+
+        def send_fn(params, cntr):
+            """One probe attempt: build, deliver and decode the PoR."""
+            packet, _spi = scp80.build_secured_packet(
+                params['spi1'], params['spi2'], params['kic'], params['kid'],
+                params['tar'], cntr, params['apdu'], params['kic_key'],
+                params['kid_key'])
+            sp_hex = bytes(packet).hex()
+            capture = cat_session.PorSubmitCapture()
+            send = self._send_secured_packet(sp_hex, include_cpi=True,
+                                             submit_handler=capture)
+            por_hex = send.get('response_data') or capture.submit_response_hex()
+            por = (ota.decode_por(
+                params['spi1'], params['spi2'], params['kic'], params['kid'],
+                cntr, params['kic_key'], params['kid_key'], por_hex,
+                cmd_len=len(params['apdu']) // 2,
+                rm=ota.tar_is_rm(preset, params['tar'])) if por_hex else None)
+            return send, por
+
+        return ota.counter_probe(self.presets, preset, body, send_fn)
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -1601,6 +2164,9 @@ class ServerState(object):
         post-equip reads restore MF and never publish a selection.
         ``test_run`` is the run state (the runner lands in 3c-3c) and
         ``scp80`` the counter/keyset state (3c-3b), both placeholders now.
+        ``adm_verified`` is the ADM latch of the current card session (the
+        legacy's ``rs.adm_verified``): a successful VERIFY until the next
+        equip/disconnect.
         """
         cat = self.cat
         suspended = (bool(getattr(cat, 'poll_suspended', False))
@@ -1632,6 +2198,11 @@ class ServerState(object):
             'card': self.card_info(),
             'iccid': self.iccid if self.connected else None,
             'selection': self.selection if self.connected else None,
+            # The ADM latch: a VERIFY that succeeded in the current card
+            # session (the legacy's `rs.adm_verified`); an equip/disconnect
+            # bumps `card_session` and clears it.
+            'adm_verified': bool(self.connected
+                                 and self.adm_session == self.card_session),
             'proactive_mode': self.proactive_mode(),
             'poll': {'enabled': bool(self.poll_enabled),
                      'suspended': suspended,
@@ -1828,6 +2399,8 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.arr_cache())
                 elif path == '/api/pbr':
                     self._send_json(self.state_ref.pbr_cache())
+                elif path == '/api/presets':
+                    self._send_json(self.state_ref.presets_info())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -1838,8 +2411,6 @@ def make_handler(state, log_requests=False):
 
         def _dispatch_post(self):
             path = self.path.split('?', 1)[0]
-            if log_requests:
-                log.info('POST %s', self.path)
             try:
                 body = self._read_body()
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -1849,6 +2420,9 @@ def make_handler(state, log_requests=False):
                 log.exception('POST %s failed reading the body', self.path)
                 self._send_json({'error': str(exc)}, 500)
                 return
+            if log_requests:
+                log.info('POST %s %s', self.path,
+                         json.dumps(redact_body(body), ensure_ascii=False))
             try:
                 if not isinstance(body, dict):
                     self._send_json({'error': 'the request body must be a '
@@ -1868,14 +2442,36 @@ def make_handler(state, log_requests=False):
                     self._post_lifecycle(self.state_ref.equip)
                 elif path == '/api/reset':
                     self._post_lifecycle(self.state_ref.reset)
+                elif path == '/api/verify-adm':
+                    self._post_adm(body)
+                elif path == '/api/send-ota':
+                    self._post_ota(body)
+                elif path == '/api/counter-probe':
+                    self._post_counter_probe(body)
+                elif path == '/api/presets':
+                    self._post_presets(body)
+                elif path == '/api/presets/update':
+                    self._post_presets_update(body)
+                elif path == '/api/presets/delete':
+                    self._post_presets_delete(body)
+                elif path == '/api/presets/import':
+                    self._post_presets_import(body)
+                elif path == '/api/presets/import-outfile':
+                    self._post_presets_import_outfile(body)
                 else:
                     self._send_json({'error': 'Not found'}, 404)
+            except presets_store.PresetError as exc:
+                # a refused store mutation: the store's message is the answer
+                self._send_json({'error': str(exc)}, 400)
             except ValueError as exc:
                 # An endpoint's own validation error: its 400, not a JSON one.
                 self._send_json({'error': str(exc)}, 400)
             except Exception as exc:
                 log.exception('POST %s failed', self.path)
-                self._send_json({'error': str(exc)}, 500)
+                # The PWA reads `success`/`ok` on its card operations; a 500
+                # must still be a negative answer, not just an `error` key.
+                self._send_json({'error': str(exc),
+                                 'success': False, 'ok': False}, 500)
 
         # ---- the POST endpoints ---------------------------------------
 
@@ -1943,6 +2539,81 @@ def make_handler(state, log_requests=False):
                 state.auto_equip()
                 self._send_json({'success': False, 'exists': False,
                                  'error': str(exc), **state.status()}, 503)
+
+        # ---- the preset / SCP80 endpoints (3c-3c-1) -------------------
+
+        def _card_failure(self, exc, extra):
+            """The card endpoints' 3c-3a classification (shared tail).
+
+            A transport error tears the link down and re-arms the auto-equip
+            (the card is usually still inserted); every other exception is
+            re-raised - a decoder/protocol error must not lose a healthy card.
+            """
+            if not _is_transport_error(exc):
+                # An active exception is being handled by the caller, whose
+                # dispatch turns it into its 500 without touching the link.
+                raise
+            log.warning('%s: transport error: %s', self.path, exc)
+            state = self.state_ref
+            state.disconnect(stale=True, keep_present=True)
+            state.auto_equip()
+            self._send_json(dict(extra, error=str(exc), **state.status()), 503)
+
+        def _post_card(self, action, extra):
+            """A card endpoint's classification (the shared `_card_failure` tail).
+
+            * no card session is a ``503`` with the status body;
+            * a request parameter (:class:`ValueError`) is a ``400``;
+            * a **transport** error tears the link down and re-arms the
+              auto-equip (``503``); anything else is re-raised, so the dispatch
+              answers its 500 without touching a healthy card.
+            """
+            try:
+                resp = action()
+            except NoCardSessionError as exc:
+                self._send_json(dict(extra, error=str(exc),
+                                     **self.state_ref.status()), 503)
+            except ValueError as exc:
+                self._send_json(dict(extra, error=str(exc)), 400)
+            except Exception as exc:
+                self._card_failure(exc, extra)
+            else:
+                self._send_json(resp)
+
+        def _post_adm(self, body):
+            self._post_card(lambda: self.state_ref.verify_adm(body),
+                            {'ok': False})
+
+        def _post_ota(self, body):
+            self._post_card(lambda: self.state_ref.send_ota(body),
+                            {'success': False})
+
+        def _post_counter_probe(self, body):
+            self._post_card(lambda: self.state_ref.counter_probe(body),
+                            {'success': False})
+
+        # A PresetError (a refused store mutation) is the dispatch's 400 - the
+        # inner handlers only add their own status for the non-error answers.
+
+        def _post_presets(self, body):
+            preset = self.state_ref.preset_add(body)
+            self._send_json({'ok': True, 'preset': preset})
+
+        def _post_presets_update(self, body):
+            preset = self.state_ref.preset_update(body)
+            if preset is None:
+                self._send_json({'error': 'unknown preset id'}, 404)
+                return
+            self._send_json({'ok': True, 'preset': preset})
+
+        def _post_presets_delete(self, body):
+            self._send_json(self.state_ref.preset_delete(body))
+
+        def _post_presets_import(self, body):
+            self._send_json(self.state_ref.preset_import(body))
+
+        def _post_presets_import_outfile(self, body):
+            self._send_json(self.state_ref.preset_import_outfile(body))
 
     return SimpleHandler
 

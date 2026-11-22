@@ -34,9 +34,11 @@ if str(PY_SIM) not in sys.path:
 
 import pysim_simple_server.server as legacy  # noqa: E402
 import pysim_simple_server.testscript as legacy_ts  # noqa: E402
+from pysim_simple_server import presets as presets_store  # noqa: E402
 
 from simple_server import bip as B  # noqa: E402
 from simple_server import cat_session as C  # noqa: E402
+from simple_server import ota as O  # noqa: E402
 from simple_server import pbr as PB  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
 from simple_server import tr as R  # noqa: E402
@@ -848,9 +850,298 @@ class BipSessionParityTests(unittest.TestCase):
                                  label)
 
 
+class OtaDriftTests(unittest.TestCase):
+    """The SCP80 operation helpers are a behavioural port (Phase 3c-3c-1).
+
+    The preset TAR/keyset rules, the counter handling and the PoR decode decide
+    what the card receives and how its answer is read, so a divergence would be
+    silently wrong on hardware; the vectors below pin both implementations to
+    the same result.
+    """
+
+    # A role entry whose TAR is *not* a standard Annex D allocation: only the
+    # role branch makes it remote management (the fixtures' role TARs used to
+    # sit in RM_TAR_ALLOCATIONS too, so that branch was never exercised).
+    ROLE_PRESET = {
+        'tars': [{'role': 'isd', 'tar': 'F0F0F0', 'msl': '16', 'keyset': 1}],
+        'keysets': [{'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                     'kidKey': 'BB' * 16, 'cntr': '0000000001'}],
+    }
+    # A v3.8.0 flat preset: the card-wide key fields are one keyset (the
+    # `preset_keysets` fallback; the store normalises these on load).
+    FLAT_PRESET = {
+        'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16, 'kidKey': 'BB' * 16,
+        'counter': '0000000001',
+        'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16'}],
+    }
+
+    PRESETS = [
+        {'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16'},
+                  {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '00'}],
+         'keysets': [{'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                      'kidKey': 'BB' * 16, 'cntr': '0000000001'}]},
+        {'tars': [{'tar': 'B00000', 'msl': '16', 'keyset': 1}],
+         'keysets': [{'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+                      'kidKey': 'BB' * 16, 'cntr': '0000000001'}]},
+        ROLE_PRESET,
+        FLAT_PRESET,
+    ]
+
+    @staticmethod
+    def por(tar='000000', cntr='0000000005', status=0x00, secured=''):
+        body = (bytes.fromhex(tar + cntr) + bytes([0x00, status])
+                + bytes.fromhex(secured))
+        return (bytes.fromhex('027100') + len(body).to_bytes(2, 'big')
+                + bytes([10]) + body).hex()
+
+    def test_the_tables(self):
+        self.assertEqual(O.RM_TAR_ALLOCATIONS, legacy.RM_TAR_ALLOCATIONS)
+        self.assertEqual(O.BAD_FORMAT_NAMES, legacy._BAD_FORMAT_NAMES)
+        self.assertEqual(O.COUNTER_PROBE_DEFAULT_APDU,
+                         legacy.COUNTER_PROBE_DEFAULT_APDU)
+        self.assertEqual(O.COUNTER_PROBE_CEILING, legacy.COUNTER_PROBE_CEILING)
+        self.assertEqual(O.COUNTER_PROBE_MAX_ATTEMPTS,
+                         legacy.COUNTER_PROBE_MAX_ATTEMPTS)
+        self.assertEqual(O.COUNTER_PROBE_SPI2, legacy.COUNTER_PROBE_SPI2)
+
+    def test_the_keyset_number_rule(self):
+        for kic, kid in (('15', '15'), ('15', '25'), ('', ''), ('15', ''),
+                         ('25', ''), ('ZZ', '15'), ('15', 'zz')):
+            self.assertEqual(O.kvn_of(kic, kid), legacy._kvn_of(kic, kid),
+                             '%r/%r' % (kic, kid))
+
+    def test_the_counter_helpers(self):
+        for cntr in ('', '1', '0000000001', 'FFFFFFFFFF', 'xyz'):
+            self.assertEqual(O.counter_valid(cntr),
+                             legacy._counter_valid(cntr), cntr)
+        for cntr in ('0000000001', '0000000009', 'FFFFFFFFFE'):
+            self.assertEqual(O.next_counter(cntr, True),
+                             legacy._ram_next_cntr(cntr, True), cntr)
+            self.assertEqual(O.next_counter(cntr, False),
+                             legacy._ram_next_cntr(cntr, False), cntr)
+        for status in ('por_ok', 'cntr_low', 'rc_cc_ds_failed', None):
+            self.assertEqual(O.cntr_low_fields(status),
+                             legacy._cntr_low_fields(status), status)
+
+    def test_the_keyset_table_helpers(self):
+        for preset in self.PRESETS + [None, {}]:
+            self.assertEqual(O.preset_keysets(preset),
+                             legacy._preset_keysets(preset))
+            for tar in ('000000', 'B00000', 'F0F0F0', ''):
+                self.assertEqual(O.tar_is_rm(preset, tar),
+                                 legacy._tar_is_rm(preset, tar), tar)
+                for explicit in ('', '16', '26'):
+                    for prefer in (False, True):
+                        label = '%s/%s/%s' % (tar, explicit, prefer)
+                        try:
+                            ours = ('ok', O.spi1_for_tar(
+                                preset, tar, explicit, prefer))
+                        except ValueError as exc:
+                            ours = ('error', str(exc))
+                        try:
+                            theirs = ('ok', legacy._spi1_for_tar(
+                                preset, tar, explicit, prefer))
+                        except ValueError as exc:
+                            theirs = ('error', str(exc))
+                        self.assertEqual(ours, theirs, label)
+
+    def test_the_role_entry_and_the_flat_preset_fallbacks(self):
+        # F0F0F0 is not a standard Annex D allocation: only the preset's role
+        # entry makes it remote management (the branch the old fixtures missed,
+        # because their role TARs were allocations too).
+        self.assertFalse(O.tar_is_rm(None, 'F0F0F0'))
+        self.assertTrue(O.tar_is_rm(self.ROLE_PRESET, 'F0F0F0'))
+        # A flat v3.8.0 preset's card-wide keys are one keyset, and its role
+        # entry still decides the response form.
+        keysets = O.preset_keysets(self.FLAT_PRESET)
+        self.assertEqual(len(keysets), 1)
+        self.assertEqual((keysets[0]['kic'], keysets[0]['kid']), ('15', '15'))
+        self.assertEqual(keysets[0]['cntr'], '0000000001')
+        self.assertEqual(O.preset_keyset_by_kvn(self.FLAT_PRESET, 1), keysets[0])
+        self.assertTrue(O.tar_is_rm(self.FLAT_PRESET, '000000'))
+
+    def test_the_ram_format_helpers(self):
+        for value in (None, '', 'auto', 'compact', 'expanded', 'expanded-ae',
+                      'EXPANDED', 'nonsense'):
+            self.assertEqual(O.normalise_ram_format(value),
+                             legacy._ram_normalize_format(value), repr(value))
+        for apdu in ('80F24000024F0000', '00', 'AA' * 200):
+            for form in ('definite', 'indefinite'):
+                self.assertEqual(O.wrap_expanded_apdu(apdu, form),
+                                 legacy._wrap_expanded_apdu(apdu, form),
+                                 '%s/%s' % (form, apdu[:8]))
+
+    def test_the_probe_parameters(self):
+        for preset in self.PRESETS:
+            for body in ({}, {'kvn': 1}, {'kvn': 99},
+                         {'cntr': '5', 'ceiling': '100', 'max_attempts': 3},
+                         {'spi2': '01'}, {'ceiling': '0'}):
+                try:
+                    ours = ('ok', O.counter_probe_params(preset, body))
+                except ValueError as exc:
+                    ours = ('error', str(exc))
+                try:
+                    theirs = ('ok', legacy._counter_probe_params(preset, body))
+                except ValueError as exc:
+                    theirs = ('error', str(exc))
+                self.assertEqual(ours, theirs, repr(body))
+        for start, ceiling, attempts in (('1', 'FFFFFFFF', 40),
+                                         ('1', '1', 40), ('5', '10', 2),
+                                         ('0', 'FFFFFFFF', 1), ('zz', '10', 4)):
+            self.assertEqual(
+                O.counter_probe_candidates(start, ceiling, attempts),
+                legacy._counter_probe_candidates(start, ceiling, attempts),
+                '%s/%s/%s' % (start, ceiling, attempts))
+
+    def test_the_response_scripting_parser(self):
+        for data in ('', 'AB0780010123029000', 'AF80800101230290000000',
+                     'AB03900102', 'AA00', 'AB0A80010123029000800101'):
+            self.assertEqual(O.parse_response_scripting(bytes.fromhex(data)),
+                             legacy._parse_response_scripting(
+                                 bytes.fromhex(data)), data)
+
+    def test_the_por_decode(self):
+        packets = ['']
+        for secured in ('', '019000', '800110', 'AB0780010123029000',
+                        'AF80800101230290000000'):
+            for status in (0x00, 0x02):
+                packets.append(self.por(secured=secured, status=status))
+        for rm in (True, False, None):
+            for packet in packets:
+                for cmd_len in (None, 1, 7):
+                    label = '%s/%s/%s' % (rm, packet[:16], cmd_len)
+                    self.assertEqual(
+                        O.decode_por('16', '01', '15', '15', '0000000005',
+                                     '', '', packet, cmd_len=cmd_len, rm=rm),
+                        legacy._decode_por('16', '01', '15', '15',
+                                           '0000000005', '', '', packet,
+                                           cmd_len=cmd_len, rm=rm), label)
+
+
+class _RawPresetStore(object):
+    """A store-shaped view of raw preset dicts, without the store's validation.
+
+    ``resolve_operation_keyset`` must refuse a security TAR without a keyset
+    itself, even though the real store refuses to save such a preset - a
+    hand-edited file or an imported one can still reach it.
+    """
+
+    def __init__(self, presets):
+        self._presets = presets
+
+    def get(self, pid):
+        return self._presets.get(str(pid or '').strip().lower())
+
+    def find_keyset(self, pid, kvn):
+        preset = self.get(pid)
+        if preset is None:
+            return None
+        return next((ks for ks in O.preset_keysets(preset)
+                     if presets_store.keyset_kvn(ks) == kvn), None)
+
+
+class OtaKeysetResolutionTests(unittest.TestCase):
+    """The v3.26.0 per-TAR keyset rules (review fixes that must not regress).
+
+    An explicit KIc/KID is an API override; otherwise the TAR's default keyset
+    supplies the keys, an MSL 00 TAR without one is the spec's no-security
+    ``00``/``00`` form, and a security TAR without one (or a TAR outside the
+    preset without explicit keys) is refused before a packet is built.
+    """
+
+    PRESET = {
+        'id': 'p', 'name': 'Two keysets',
+        'tars': [
+            {'role': 'isd', 'tar': '000000', 'msl': '16', 'keyset': 1},
+            # MSL 00 without a keyset: legal (the no-security form)
+            {'role': 'uiccRfm', 'tar': 'B00000', 'msl': '00'},
+            # a security TAR without a keyset: the refusal case
+            {'tar': 'F0F0F1', 'msl': '16'},
+            # a TAR naming a keyset the preset does not define
+            {'tar': 'F0F0F3', 'msl': '16', 'keyset': 3},
+        ],
+        'keysets': [
+            {'kic': '15', 'kid': '15', 'kicKey': 'AA' * 16,
+             'kidKey': 'BB' * 16, 'cntr': '0000000001'},
+            {'kic': '25', 'kid': '25', 'kicKey': 'CC' * 16,
+             'kidKey': 'DD' * 16, 'cntr': '0000000002'},
+        ],
+    }
+
+    def setUp(self):
+        self.store = _RawPresetStore({'p': self.PRESET})
+
+    def test_an_explicit_keyset_overrides_the_tars_default(self):
+        body = {'preset_id': 'p', 'kic': '35', 'kid': '35'}
+        self.assertEqual(
+            O.resolve_operation_keyset(self.store, body, '000000'),
+            (3, None))
+        # the request's own bytes stay untouched (no TAR keys were filled in)
+        self.assertEqual((body['kic'], body['kid']), ('35', '35'))
+        self.assertNotIn('kicKey', body)
+
+    def test_an_msl_00_tar_without_a_keyset_is_the_no_security_form(self):
+        body = {'preset_id': 'p'}
+        self.assertEqual(
+            O.resolve_operation_keyset(self.store, body, 'B00000'),
+            (None, None))
+        self.assertEqual((body['kic'], body['kid']), ('00', '00'))
+        self.assertEqual((body['kicKey'], body['kidKey']), ('', ''))
+
+    def test_a_security_tar_without_a_keyset_is_refused(self):
+        body = {'preset_id': 'p'}
+        kvn, err = O.resolve_operation_keyset(self.store, body, 'F0F0F1')
+        self.assertIsNone(kvn)
+        self.assertIn('needs a default keyset', err)
+        self.assertNotIn('kic', body)
+
+    def test_a_tar_outside_the_preset_needs_explicit_keys(self):
+        kvn, err = O.resolve_operation_keyset(
+            self.store, {'preset_id': 'p'}, 'F0F0F9')
+        self.assertIsNone(kvn)
+        self.assertIn('is not in the preset', err)
+        # ... and with explicit keys the operation may proceed
+        body = {'preset_id': 'p', 'kic': '25', 'kid': '25'}
+        self.assertEqual(
+            O.resolve_operation_keyset(self.store, body, 'F0F0F9'),
+            (2, None))
+
+    def test_an_undefined_keyset_number_is_refused(self):
+        kvn, err = O.resolve_operation_keyset(
+            self.store, {'preset_id': 'p'}, 'F0F0F3')
+        self.assertIsNone(kvn)
+        self.assertIn('keyset 03 is not defined', err)
+        # the packet-key check refuses the same number independently of a TAR
+        self.assertIn('keyset 3 is not defined',
+                      O.preset_keyset_check(self.store, 'p', '35', '35'))
+        self.assertIsNone(O.preset_keyset_check(self.store, 'p', '15', '15'))
+        self.assertIsNone(O.preset_keyset_check(self.store, 'p', '00', '00'))
+
+    def test_no_preset_resolves_nothing(self):
+        body = {}
+        self.assertEqual(
+            O.resolve_operation_keyset(self.store, body, '000000'),
+            (None, None))
+        self.assertEqual(body, {})
+        # the full resolver reports number 0 for the empty bytes and fills
+        # nothing: the caller's own request is sent as it is
+        self.assertEqual(O.op_keyset_resolve(self.store, {}, '000000'),
+                         (0, '', '', None))
+
+    def test_op_keyset_resolve_uses_the_isd_role_entry_and_the_counter(self):
+        body = {'preset_id': 'p'}
+        self.assertEqual(O.op_keyset_resolve(self.store, body),
+                         (1, '15', '15', None))
+        self.assertEqual(body['kicKey'], 'AA' * 16)
+        self.assertEqual(O.counter_seed(self.store, body, 1), '0000000001')
+        # an explicit counter wins over the store's value
+        self.assertEqual(
+            O.counter_seed(self.store, {'preset_id': 'p', 'cntr': '42'}, 1),
+            '42')
+
+
 class PbrDriftTests(unittest.TestCase):
     """The EF.PBR (TS 31.102 §4.4.2.1) parser is a straight port."""
-
     def test_the_tables(self):
         self.assertEqual(PB.PBR_KINDS, legacy.PBR_KINDS)
         self.assertEqual(PB.PBR_CONTAINERS, legacy.PBR_CONTAINERS)

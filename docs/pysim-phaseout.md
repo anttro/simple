@@ -497,6 +497,70 @@ phonebook whose PBR record is longer than one record).  The no-FCP read is
 (`tests/test_simple_drift.py`) compares `files_for_node`/`inject_children`
 against the legacy copies, not just the tables and the parser.
 
+## Phase 3c-3c-1 outcome (the preset store + the plain SCP80 send)
+
+`GET/POST /api/presets` + `/api/presets/update|delete|import|import-outfile`,
+`POST /api/verify-adm`, `POST /api/send-ota` and `POST /api/counter-probe` are
+served from `ServerState`.  The new module is `simple_server/ota.py` - the
+pure operation logic: the per-TAR default keyset (v3.26.0), the MSL-derived
+SPI1 (TS 102 226 §8.2.1.3.2.4), the server-owned counter (v3.20.0), the RAM
+command format helpers, the response-packet (PoR) decode and the bounded
+counter-sync probe.  The store and the vendor-outfile parser are reused from
+`pysim_simple_server/presets.py` / `outfile.py` (both pysim-free), so no data
+moves yet.  Suites: `tests/test_simple_http.py` (the preset/ADM/SCP80/probe
+classes) + `tests/test_simple_drift.py` (the operation helpers against the
+legacy copies, the keyset-resolution rules).
+
+Deliberate, documented decisions (the first three are the deviations from the
+legacy):
+
+- **`ram_format: 'auto'` does not probe on the plain send.**  The legacy
+  detected the card's RAM command format per operation with a read-only
+  `GET STATUS [ISD]` probe (`_ram_detect_format`); that probe consumes counters
+  and belongs to a RAM step.  **Decision:** the RAM operation sender (3c-3c-2)
+  will probe; until it lands the plain send builds the compact form and reports
+  `ram_format: 'compact'` in its answer.  If the RAM probe is not ported,
+  `auto` must become a 400 pointing at the RAM operation - never a silent
+  compact packet (stated in `ota.format_apdu`'s docstring).
+- **The pre-built `sp` path is not keyset-resolved.**  A packet built by the
+  PWA carries its own KIc/KID, counter and TAR, so the server sends it as it
+  is (the legacy parity).  Only the `apdu` path resolves the preset's TAR
+  keyset, seeds the counter and persists the accepted value; the `sp` path
+  keeps the caller's bookkeeping counter.
+- **`_por_header_parse` is folded into `scp80.decode_resp`.**  The legacy had
+  a second decode entry point for a secured data too short for the compact
+  Table 5.1 form (a 2-byte applet reply); here the same header, deciphering,
+  PCNTR and RC/CC/DS checks run before the compact parse, so `ota.decode_por`
+  has one path (a malformed packet or a failed check is still no PoR at all).
+- **`/api/sp-verify` is dropped** (the locked API-surface decision): its
+  reference packet came from pySim's `OtaDialectSms.encode_cmd`, which no
+  longer exists in this server, and a JS-vs-Python symmetry check is not a
+  correctness proof.  The builders stay pinned to the same byte vectors by the
+  unit tests instead.
+- **`/api/verify-adm` gains two request fields** (`preset_id`, `chv`) while
+  keeping the legacy result shape: `preset_id` verifies the stored preset's
+  ADM, and `chv` is the CHV number as a hex string (`'0A'`) or an integer byte
+  (`10` = 0x0A, not a hex-encoded 10); the default stays `0x0A`.  The latch is
+  the per-session `adm_session`, exposed as `/api/status.adm_verified` (the
+  legacy's `rs.adm_verified`) and cleared by any equip/disconnect.
+- **The keyset rules are the v3.26.0 review fixes** and are pinned by
+  `OtaKeysetResolutionTests`: an explicit KIc/KID overrides the TAR's default
+  keyset; an MSL 00 TAR without a keyset gets the spec's no-security
+  `00`/`00` KIc/KID and empty keys; a security MSL without a keyset is refused
+  ("set it in the Cards tab"); a TAR outside the preset needs explicit
+  keys; an undefined keyset number is refused; no preset resolves nothing.
+- **The store-I/O errors are a JSON 500** (`preset store write failed: ...`)
+  with `success: false`/`ok: false`, while a store *validation* refusal
+  (`PresetError`) stays a 400; the request log masks the top-level `keysets`
+  keys as well as the `fields` ones (the outfile `text` is logged verbatim -
+  it is the vendor file and carries the keys by nature).
+
+Tests: **42 HTTP + 8 drift; the full suite is 1872**.  **No live card has run
+these endpoints yet** - every exchange is a scripted fake transport, so the
+fake-transport fixtures are the cutover gate: the first bench run (a real
+preset-store verify, an APDU SCP80 send with a seeded counter, and a
+`cntr_low` verdict) is the acceptance check.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -549,6 +613,22 @@ Every spec-sensitive module is verified against the pinned PDFs
   card has run this module**: every fixture is an existing capture replayed
   through the fake transport, so the first bench run (equip + TERMINAL
   PROFILE + a menu session + a secured packet) is a cutover gate.
+- **Phase 3c-3c-1 (spec-checked, no live-card run yet):** the SCP80 operation
+  logic was checked against TS 102 225 §5.1.1 (the SPI coding, CNTR/PCNTR and
+  the b5b4 counter tracking), §5.1.2/A.1 (the keyset number and the dedicated
+  counter per key version), §5.2 Table 3 (the response packet, its status byte
+  and the CNTR copy), TS 102 226 §4 (a non-RM TAR's payload is application
+  data), §5.1.2 Table 5.1 (the compact response and the command-count bound),
+  §5.2.2/Table 5.12 (the Response Scripting template and the Bad format
+  error types) and §8.2.1.3.2.4 (the Minimum SPI1), plus TS 101 220 V18.3.0
+  Annex D Table D.1 for the ISD/RFM TAR allocations (`RM_TAR_ALLOCATIONS` is
+  the curated subset this tool treats as remote management by default; a
+  preset's role entries are added at call time).  No coding deviation is
+  kept; the one tool-level decision is the `auto` format above (it reports
+  the compact form until the RAM sender probes).  **No live card has run this
+  module**: every fixture is a scripted fake transport, so the first bench
+  run (a real preset-store verify, a seeded APDU send and a `cntr_low`
+  verdict) is the cutover gate.
 
 ## Phase 3c API surface (locked decisions)
 

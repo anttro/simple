@@ -18,6 +18,9 @@ Phase 3c-3b: the file endpoints (tree/select/read/write) on the file model,
 the FCP parser and :class:`~simple_server.commands.FileOps`, the card-free
 EF.ARR/EF.PBR session caches, and :mod:`simple_server.pbr` (the EF.PBR
 phonebook decoder and the tree injection).
+Phase 3c-3c-1: the preset store endpoints, ADM verification and the plain
+SCP80 send/counter-probe endpoints, and :mod:`simple_server.ota` (the per-TAR
+keyset and counter rules, the RAM command format helpers and the PoR decode).
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

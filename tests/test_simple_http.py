@@ -4,16 +4,22 @@
 The suite needs no card and no pysim: every exchange is driven through a
 scripted fake transport (``send_apdu`` answers registered by APDU prefix), and
 the HTTP endpoints are exercised on a real :class:`ThreadingHTTPServer` bound to
-an ephemeral loopback port with ``urllib.request``.
+an ephemeral loopback port with ``urllib.request``.  The preset store and the
+outfile parser come from ``pysim_simple_server`` - both are pysim-free and are
+what the new server reuses until the fork moves them.
 
 Spec anchors: TS 102 221 §11.2 (the CAT APDUs), §13.2 (EF.ICCID), §14.6.2 (the
 idle poll); TS 102 223 §6.4.6/§6.4.14 (POLL INTERVAL / POLLING OFF); TS 31.102
-§4.4.2.1 (EF.PBR) and ISO 7816-4 Table 25 / TS 102 221 §11.1.1.4 (the FCP
-``8B`` EF.ARR reference).
+§4.4.2.1 (EF.PBR); ISO 7816-4 Table 25 / TS 102 221 §11.1.1.4 (the FCP
+``8B`` EF.ARR reference); TS 102 225 §5.1.1/§5.2 and TS 31.115 §4.2/§4.3
+(SCP80: the SPI bits, the response packet, the concatenated SMS-PP download);
+TS 102 226 §5.1.2/§5.2.2 (the compact / scripting response forms).
 """
 
 import json
 import os
+import pathlib
+import shutil
 import socket
 import tempfile
 import threading
@@ -24,9 +30,13 @@ from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from pysim_simple_server import presets as presets_store
+
 from simple_server import cards
 from simple_server import cat_session
+from simple_server import ota
 from simple_server import pbr
+from simple_server import scp80
 from simple_server import server as server_module
 from simple_server import transport
 from simple_server.server import (ServerState, build_http_server, decode_iccid)
@@ -354,10 +364,11 @@ def open_state(handler=None, **kwargs):
 class HTTPHarness(object):
     """A real ThreadingHTTPServer on an ephemeral loopback port."""
 
-    def __init__(self, state, web_dir=None):
+    def __init__(self, state, web_dir=None, log_requests=False):
         self.state = state
         self.server = build_http_server('127.0.0.1', 0, state,
-                                        web_dir=web_dir)
+                                        web_dir=web_dir,
+                                        log_requests=log_requests)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(
             target=self.server.serve_forever,
@@ -417,8 +428,9 @@ class HTTPTestBase(unittest.TestCase):
             state.close()
         self._states = []
 
-    def served(self, state, web_dir=None):
-        self.harness = HTTPHarness(state, web_dir=web_dir)
+    def served(self, state, web_dir=None, log_requests=False):
+        self.harness = HTTPHarness(state, web_dir=web_dir,
+                                   log_requests=log_requests)
         return self.harness
 
     def track(self, state):
@@ -451,6 +463,7 @@ class VersionStatusTests(HTTPTestBase):
         self.assertIsNone(body['card'])
         self.assertIsNone(body['iccid'])
         self.assertIsNone(body['selection'])
+        self.assertFalse(body['adm_verified'])
         self.assertEqual(body['proactive_mode'], 'idle')
         self.assertEqual(body['poll'], {'enabled': True, 'suspended': False,
                                         'interval': 30})
@@ -473,6 +486,7 @@ class VersionStatusTests(HTTPTestBase):
         self.assertEqual(body['atr'], ATR.hex())
         self.assertEqual(body['iccid'], ICCID_DIGITS)
         self.assertIsNone(body['selection'])
+        self.assertFalse(body['adm_verified'])
         self.assertEqual(body['card_session'], 1)
         self.assertEqual(body['card_ready_session'], 1)
         self.assertEqual(body['proactive_mode'], 'polling')
@@ -2177,6 +2191,893 @@ class DecodeIccidTests(unittest.TestCase):
     def test_even_length_digit_string_is_kept_whole(self):
         self.assertEqual(decode_iccid('21436587092143658709'),
                          '12345678901234567890')
+
+
+# ---- the preset store and the plain SCP80 endpoints (Phase 3c-3c-1) --------
+#
+# The preset fixtures are synthetic (the repo rule: no card-specific keys).
+# The 16-byte keys are a 3DES2 keyset (KIc/KID nibble 5, TS 102 225 A.2), which
+# is what the role TARs' default MSL 0x16 (counter check + ciphering + CC)
+# needs.
+
+KIC_KEY = '00112233445566778899AABBCCDDEEFF'
+KID_KEY = 'FFEEDDCCBBAA99887766554433221100'
+
+ROLE_TARS = [{'role': role, 'tar': tar, 'msl': '16', 'keyset': 1}
+             for role, tar in (('isd', '000000'), ('uiccRfm', 'B00000'),
+                               ('usimRfm', 'B00001'))]
+
+# A small vendor outfile (the ALFA layout: a var_out: column line, the ICCID as
+# digits + the odd-nibble F pad, one KICn/KIDn pair per keyset).
+OUTFILE_TEXT = '\n'.join([
+    'var_out:IMSI ICCID KIC1 KID1 KIC2 KID2',
+    '250197700000000 ' + ICCID_DIGITS + 'F ' + KIC_KEY + ' ' + KID_KEY +
+    ' ' + KIC_KEY + ' ' + KID_KEY,
+])
+
+
+def preset_fields(**kwargs):
+    """The request body of a complete synthetic preset (role TARs included)."""
+    fields = {
+        'name': 'Bench card',
+        'iccid': ICCID_DIGITS,
+        'keysets': [{'kic': '15', 'kid': '15', 'kicKey': KIC_KEY,
+                     'kidKey': KID_KEY, 'cntr': '1'}],
+        'tars': [dict(entry) for entry in ROLE_TARS],
+    }
+    fields.update(kwargs)
+    return fields
+
+
+def temp_preset_store(testcase):
+    """A real :class:`PresetStore` in a throw-away directory."""
+    root = tempfile.mkdtemp(prefix='simple-presets-')
+    testcase.addCleanup(shutil.rmtree, root, True)
+    return presets_store.PresetStore(path=pathlib.Path(root) /
+                                     'card_presets.json')
+
+
+def preset_with_store(testcase, **kwargs):
+    store = temp_preset_store(testcase)
+    return store, store.add(preset_fields(**kwargs))
+
+
+class StoreSeamTests(unittest.TestCase):
+    """The constructor seams the 3d entry point supplies (no HTTP here)."""
+
+    def test_presets_path_builds_the_store_and_the_sms_addresses_are_kept(self):
+        root = tempfile.mkdtemp(prefix='simple-presets-')
+        self.addCleanup(shutil.rmtree, root, True)
+        path = pathlib.Path(root) / 'card_presets.json'
+        state = make_state(presets=None, presets_path=path)
+        self.addCleanup(state.close)
+        self.assertEqual(str(state.presets.path), str(path))
+        self.assertFalse(path.exists())
+        self.assertEqual((state.sms_oa, state.sms_sc),
+                         ('12345', '12345678912'))
+        custom = make_state(presets=None, presets_path=path,
+                            sms_oa='99999', sms_sc='11121314')
+        self.addCleanup(custom.close)
+        self.assertEqual((custom.sms_oa, custom.sms_sc), ('99999', '11121314'))
+
+
+def por_packet(tar='000000', cntr='0000000005', status=0x00, secured=''):
+    """An SCP80 response packet (TS 102 225 §5.2 Table 3) with the RPI UDH.
+
+    ``UDHL RPI | RPL RHL TAR CNTR PCNTR STS secured data``; RHL 10 means no
+    RC/CC (the requests below use SPI2 ``01``: a PoR, no response signature).
+    """
+    body = (bytes.fromhex(tar + cntr) + bytes([0x00, status])
+            + bytes.fromhex(secured))
+    return (bytes.fromhex('027100') + len(body).to_bytes(2, 'big')
+            + bytes([10]) + body)
+
+
+def envelope_tpdu(apdu):
+    """The ``8B`` SMS TPDU child of an ENVELOPE (SMS-PP download) APDU."""
+    index = apdu.find(b'\x8b')
+    offset = index + 1
+    length = apdu[offset]
+    if length & 0x80:                       # BER long form (a >127-byte TPDU)
+        count = length & 0x7f
+        length = int.from_bytes(apdu[offset + 1:offset + 1 + count], 'big')
+        offset += 1 + count
+    else:
+        offset += 1
+    return apdu[offset:offset + length]
+
+
+class OtaCard(CardScript):
+    """A UICC whose ENVELOPEs answer queued ``(data, sw)`` pairs.
+
+    An answer may be a callable ``(apdu, count) -> (data, sw)`` (the counter
+    probe's ladder needs the sent counter).  Every ENVELOPE is recorded.
+    """
+
+    def __init__(self, envelope_answers=None, **kwargs):
+        super().__init__(**kwargs)
+        self.envelope_answers = list(envelope_answers or [])
+        self.envelopes = []
+
+    def __call__(self, apdu):
+        if apdu[:2] == b'\x80\xc2':
+            self.envelopes.append(apdu)
+            if self.envelope_answers:
+                answer = self.envelope_answers.pop(0)
+                return answer(apdu, len(self.envelopes)) \
+                    if callable(answer) else answer
+            return b'', b'\x6a\x82'
+        return super().__call__(apdu)
+
+    def open_state(self, testcase, store, **state_kwargs):
+        """``ServerState`` with this card equipped and the store injected."""
+        state = make_state(presets=store, reader='Reader A', **state_kwargs)
+        state.open(transport=FakeTransport(handler=self), start_threads=False)
+        testcase.track(state)
+        return state
+
+
+class PresetEndpointTests(HTTPTestBase):
+    """The server-side preset store over HTTP (card-free)."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = temp_preset_store(self)
+
+    def test_list_is_card_free_and_carries_the_path(self):
+        state = self.track(make_state(presets=self.store))
+        status, body = self.served(state).json('GET', '/api/presets')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['presets'], [])
+        self.assertEqual(body['path'], str(self.store.path))
+        self.assertEqual(body['count'], 0)
+
+    def test_presets_stay_answerable_while_the_card_lock_is_held(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        with state.card_lock:
+            status, body = harness.json('GET', '/api/presets')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['presets'], [])
+
+    def test_create_update_delete_round_trip(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/presets', preset_fields())
+        self.assertEqual(status, 200)
+        self.assertTrue(body['ok'])
+        preset = body['preset']
+        self.assertTrue(preset['id'])
+        self.assertEqual(preset['keysets'][0]['cntr'], '0000000001')
+        status, listing = harness.json('GET', '/api/presets')
+        self.assertEqual(len(listing['presets']), 1)
+        status, updated = harness.json(
+            'POST', '/api/presets/update',
+            {'id': preset['id'], 'fields': {'name': 'Renamed'}})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated['preset']['name'], 'Renamed')
+        # a partial edit keeps the keysets and TARs
+        self.assertEqual(updated['preset']['keysets'][0]['kic'], '15')
+        self.assertEqual(len(updated['preset']['tars']), 3)
+        status, removed = harness.json('POST', '/api/presets/delete',
+                                       {'id': preset['id']})
+        self.assertEqual(status, 200)
+        self.assertTrue(removed['removed'])
+        status, listing = harness.json('GET', '/api/presets')
+        self.assertEqual(listing['presets'], [])
+
+    def test_update_of_an_unknown_id_is_404(self):
+        state = self.track(make_state(presets=self.store))
+        status, body = self.served(state).json(
+            'POST', '/api/presets/update', {'id': 'nope', 'fields': {}})
+        self.assertEqual(status, 404)
+        self.assertEqual(body['error'], 'unknown preset id')
+
+    def test_duplicate_iccid_is_refused(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        status, _body = harness.json('POST', '/api/presets', preset_fields())
+        self.assertEqual(status, 200)
+        status, body = harness.json(
+            'POST', '/api/presets',
+            preset_fields(name='Second', iccid=ICCID_DIGITS))
+        self.assertEqual(status, 400)
+        self.assertIn('already exists', body['error'])
+        # the spaced/raw forms normalise to the same card
+        status, body = harness.json(
+            'POST', '/api/presets',
+            preset_fields(name='Third', iccid=ICCID_HEX))
+        self.assertEqual(status, 400)
+        self.assertIn('already exists', body['error'])
+
+    def test_validation_errors_answer_400(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        cases = [
+            ({'name': 'No keysets'}, 'at least one keyset'),
+            (preset_fields(name=''), 'name is required'),
+            (preset_fields(keysets=[{'kic': '15', 'kid': '25', 'kicKey': KIC_KEY,
+                                     'kidKey': KID_KEY, 'cntr': '1'}]),
+             'same keyset number'),
+            (preset_fields(tars=[{'role': 'isd', 'tar': 'XYZ', 'msl': '16',
+                                  'keyset': 1}]), 'TAR must be three hex bytes'),
+        ]
+        for fields, message in cases:
+            with self.subTest(message=message):
+                status, body = harness.json('POST', '/api/presets', fields)
+                self.assertEqual(status, 400)
+                self.assertIn(message, body['error'])
+
+    def test_import_merge_and_replace(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        status, body = harness.json(
+            'POST', '/api/presets/import',
+            {'presets': [preset_fields()], 'mode': 'merge'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body['added'], 1)
+        # the same card again is a skipped duplicate, never fatal
+        status, body = harness.json(
+            'POST', '/api/presets/import',
+            {'presets': [preset_fields()], 'mode': 'merge'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body['added'], 0)
+        self.assertEqual(body['skipped'], 1)
+        # replace wipes the store first
+        status, body = harness.json(
+            'POST', '/api/presets/import',
+            {'presets': [preset_fields(name='Replacement')], 'mode': 'replace'})
+        self.assertEqual(status, 200)
+        listing = state.presets.list()
+        self.assertEqual([p['name'] for p in listing], ['Replacement'])
+
+    def test_import_of_a_non_list_is_400(self):
+        state = self.track(make_state(presets=self.store))
+        status, body = self.served(state).json(
+            'POST', '/api/presets/import', {'presets': 'nope'})
+        self.assertEqual(status, 400)
+        self.assertIn('at most 1000', body['error'])
+
+    def test_outfile_preview_then_import(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/presets/import-outfile',
+                                    {'text': OUTFILE_TEXT})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['preview'])
+        self.assertEqual(len(body['presets']), 1)
+        self.assertEqual(body['presets'][0]['iccid'], ICCID_DIGITS)
+        self.assertEqual(body['report']['cards'], 1)
+        # the preview stored nothing
+        self.assertEqual(state.presets.list(), [])
+        status, body = harness.json(
+            'POST', '/api/presets/import-outfile',
+            {'text': OUTFILE_TEXT, 'mode': 'merge'})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['preview'])
+        self.assertEqual(body['added'], 1)
+        stored = state.presets.list()
+        self.assertEqual(stored[0]['iccid'], ICCID_DIGITS)
+        # the inferred KIc/KID bytes carry the column number and the 3DES2
+        # nibble (a 16-byte key, TS 102 225 A.2)
+        self.assertEqual([ks['kic'] for ks in stored[0]['keysets']],
+                         ['15', '25'])
+        self.assertEqual(stored[0]['keysets'][0]['cntr'], '0000000001')
+
+    def test_outfile_validation(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        cases = [
+            ({}, 'text is required'),
+            ({'text': OUTFILE_TEXT, 'algorithm16': 'des'},
+             'algorithm16 must be one of'),
+            ({'text': OUTFILE_TEXT, 'mode': 'upsert'},
+             "mode must be 'merge', 'replace' or omitted"),
+            ({'text': OUTFILE_TEXT, 'tar_keyset': 16},
+             'tar_keyset must be 1-0F'),
+            ({'text': OUTFILE_TEXT, 'tars': 'nope'},
+             'tars must be a list'),
+        ]
+        for fields, message in cases:
+            with self.subTest(message=message):
+                status, body = harness.json('POST',
+                                            '/api/presets/import-outfile',
+                                            fields)
+                self.assertEqual(status, 400)
+                self.assertIn(message, body['error'])
+
+    def test_an_invalid_outfile_is_never_partially_imported(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/presets/import-outfile',
+                                    {'text': 'just a banner\n'})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['preview'])
+        self.assertEqual(body['presets'], [])
+        self.assertIn('column-name line', body['report']['error'])
+        status, body = harness.json('POST', '/api/presets/import-outfile',
+                                    {'text': 'just a banner\n', 'mode': 'merge'})
+        self.assertEqual(status, 400)
+        self.assertIn('column-name line', body['error'])
+        self.assertEqual(state.presets.list(), [])
+
+    def test_the_request_log_redacts_the_keyset_keys(self):
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state, log_requests=True)
+        with self.assertLogs('simple_server.server', level='INFO') as logs:
+            status, _body = harness.json('POST', '/api/presets',
+                                         preset_fields())
+        self.assertEqual(status, 200)
+        text = '\n'.join(logs.output)
+        # the top-level `keysets` list carries the KIC/KID keys of a create
+        self.assertIn('<redacted>', text)
+        self.assertNotIn(KIC_KEY, text)
+        self.assertNotIn(KID_KEY, text)
+
+    def test_a_store_io_failure_is_a_json_500(self):
+        preset = self.store.add(preset_fields())
+        state = self.track(make_state(presets=self.store))
+        harness = self.served(state)
+        cases = [
+            ('/api/presets',
+             preset_fields(name='New', iccid='8970119000004600099')),
+            ('/api/presets/update',
+             {'id': preset['id'], 'fields': {'name': 'Renamed'}}),
+            ('/api/presets/delete', {'id': preset['id']}),
+            ('/api/presets/import',
+             {'presets': [preset_fields(name='Imported',
+                                        iccid='8970119000004600097')],
+              'mode': 'merge'}),
+        ]
+        for path, body in cases:
+            with mock.patch.object(self.store, '_save',
+                                   side_effect=OSError('disk full')):
+                status, answer = harness.json('POST', path, body)
+            self.assertEqual(status, 500, path)
+            self.assertIn('preset store write failed', answer['error'])
+            self.assertFalse(answer['success'], path)
+            self.assertFalse(answer['ok'], path)
+
+
+class VerifyAdmTests(HTTPTestBase):
+    """``POST /api/verify-adm``: the VERIFY and its structured result."""
+
+    class AdmCard(CardScript):
+        def __init__(self, sw):
+            super().__init__()
+            self.sw = sw
+            self.verifies = []
+
+        def __call__(self, apdu):
+            if apdu[:2] == b'\x00\x20':
+                self.verifies.append(apdu)
+                return b'', bytes.fromhex(self.sw)
+            return super().__call__(apdu)
+
+    def adm_state(self, sw):
+        card = self.AdmCard(sw)
+        state = make_state(presets=temp_preset_store(self), reader='Reader A')
+        state.open(transport=FakeTransport(handler=card), start_threads=False)
+        self.track(state)
+        return state, card
+
+    def test_ok(self):
+        state, card = self.adm_state('9000')
+        harness = self.served(state)
+        status, body = harness.json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'ok': True, 'sw': '9000'})
+        # VERIFY: the card CLA, CHV 0x0A, 8 bytes, right-padded with 'f'
+        self.assertEqual(card.verifies[0].hex().upper(),
+                         '0020000A08AABBCCFFFFFFFFFF')
+        # the ADM latch the 3d runner will read
+        self.assertEqual(state.adm_session, state.card_session)
+        # ... and the status badge the PWA's header reads
+        status, status_body = harness.json('GET', '/api/status')
+        self.assertEqual(status, 200)
+        self.assertTrue(status_body['adm_verified'])
+
+    def test_an_equip_clears_the_adm_verified_flag(self):
+        state, _card = self.adm_state('9000')
+        harness = self.served(state)
+        status, _body = harness.json('POST', '/api/verify-adm',
+                                     {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        status, status_body = harness.json('GET', '/api/status')
+        self.assertTrue(status_body['adm_verified'])
+        # A re-initialization is a new card session: the latch is per session
+        # (the legacy's rs.adm_verified lived on the per-equip shell state).
+        state.equip()
+        self.assertEqual(state.card_session, 2)
+        status, status_body = harness.json('GET', '/api/status')
+        self.assertEqual(status, 200)
+        self.assertTrue(status_body['connected'])
+        self.assertFalse(status_body['adm_verified'])
+
+    def test_chv_accepts_a_hex_string_or_an_integer_byte(self):
+        state, card = self.adm_state('9000')
+        harness = self.served(state)
+        status, _body = harness.json('POST', '/api/verify-adm',
+                                     {'adm': 'AABBCC', 'chv': '0A'})
+        self.assertEqual(status, 200)
+        status, _body = harness.json('POST', '/api/verify-adm',
+                                     {'adm': 'AABBCC', 'chv': 10})
+        self.assertEqual(status, 200)
+        # 10 is the byte value 0x0A, not the hex-encoded string '10' (0x10)
+        self.assertEqual([apdu[3] for apdu in card.verifies], [0x0A, 0x0A])
+        status, body = harness.json('POST', '/api/verify-adm',
+                                    {'adm': 'AABBCC', 'chv': 256})
+        self.assertEqual(status, 400)
+        self.assertIn('chv must be one hex byte', body['error'])
+
+
+    def test_wrong_key_reports_the_attempts_left(self):
+        state, _card = self.adm_state('63C2')
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['ok'])
+        self.assertEqual(body['attempts_left'], 2)
+        self.assertEqual(body['sw'], '63C2')
+
+    def test_blocked(self):
+        state, _card = self.adm_state('6983')
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'ok': False, 'sw': '6983', 'blocked': True})
+
+    def test_the_matched_preset_supplies_the_key(self):
+        store, preset = preset_with_store(self, adm='AABBCC')
+        card = self.AdmCard('9000')
+        state = make_state(presets=store, reader='Reader A')
+        state.open(transport=FakeTransport(handler=card), start_threads=False)
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'preset_id': preset['id']})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['ok'])
+        self.assertIn(bytes.fromhex('AABBCCFFFFFFFFFF'), card.verifies[0])
+
+    def test_a_preset_without_a_key_and_a_malformed_key_are_400(self):
+        store, preset = preset_with_store(self)
+        card = self.AdmCard('9000')
+        state = make_state(presets=store, reader='Reader A')
+        state.open(transport=FakeTransport(handler=card), start_threads=False)
+        self.track(state)
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/verify-adm',
+                                    {'preset_id': preset['id']})
+        self.assertEqual(status, 400)
+        self.assertIn('no ADM key', body['error'])
+        status, body = harness.json('POST', '/api/verify-adm',
+                                    {'preset_id': 'nope'})
+        self.assertEqual(status, 400)
+        self.assertIn('unknown preset id', body['error'])
+        status, body = harness.json('POST', '/api/verify-adm',
+                                    {'adm': 'XYZ'})
+        self.assertEqual(status, 400)
+        self.assertIn('adm must be 4-16 hex digits', body['error'])
+        self.assertEqual(card.verifies, [])
+
+    def test_the_request_log_redacts_the_key(self):
+        state, _card = self.adm_state('9000')
+        harness = self.served(state, log_requests=True)
+        with self.assertLogs('simple_server.server', level='INFO') as logs:
+            status, _body = harness.json('POST', '/api/verify-adm',
+                                         {'adm': 'AABBCCDD'})
+        self.assertEqual(status, 200)
+        text = '\n'.join(logs.output)
+        self.assertIn('/api/verify-adm', text)
+        self.assertIn('<redacted>', text)
+        self.assertNotIn('AABBCCDD', text)
+
+    def test_no_card_is_503(self):
+        state = self.track(make_state(presets=temp_preset_store(self)))
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 503)
+        self.assertIn('no card session', body['error'])
+
+
+class SendOtaTests(HTTPTestBase):
+    """``POST /api/send-ota``: the packet build, delivery, PoR and counter."""
+
+    def setUp(self):
+        super().setUp()
+        self.store, self.preset = preset_with_store(self)
+
+    def ota_state(self, answers):
+        card = OtaCard(answers)
+        state = card.open_state(self, self.store)
+        return state, card
+
+    def preset_id(self):
+        return self.preset['id']
+
+    def test_the_prebuilt_packet_path(self):
+        state, card = self.ota_state([(por_packet(tar='B00000'), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'sp': '00151015000050B0000000000000000100',
+            'preset_id': self.preset_id(), 'kic': '15', 'kid': '15',
+            'tar': 'B00000', 'spi1': '16', 'spi2': '01',
+            'cntr': '0000000005'})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['sw'], '9000')
+        self.assertEqual(body['bytes'], 17)
+        self.assertEqual(body['segments'], 1)
+        self.assertEqual(body['cntr'], '0000000005')
+        self.assertEqual(body['final_cntr'], '0000000006')
+        self.assertEqual(body['por']['response_status'], 'por_ok')
+        self.assertEqual(body['por']['tar'], 'B00000')
+        self.assertEqual(body['por']['response_type'], 'none')
+        # the accepted counter is persisted for that keyset
+        self.assertEqual(self.store.get(self.preset_id())['keysets'][0]['cntr'],
+                         '0000000006')
+        # the pre-built packet was sent verbatim
+        self.assertTrue(envelope_tpdu(card.envelopes[0]).endswith(
+            bytes.fromhex('00151015000050B0000000000000000100')))
+
+    def test_the_apdu_path_is_pinned_to_the_packet_builder(self):
+        state, card = self.ota_state([(por_packet(), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['success'])
+        # SPI1 defaults to the TAR's MSL (0x16), the keyset and counter come
+        # from the preset's ISD entry
+        expected, _spi = scp80.build_secured_packet(
+            '16', '01', '15', '15', '000000', '0000000001', '00A40000023F00',
+            KIC_KEY, KID_KEY)
+        self.assertEqual(body['bytes'], len(expected))
+        self.assertEqual(body['segments'], 1)
+        self.assertEqual(body['cntr'], '0000000001')
+        self.assertEqual(body['final_cntr'], '0000000002')
+        self.assertIn(expected, envelope_tpdu(card.envelopes[0]))
+        self.assertEqual(self.store.get(self.preset_id())['keysets'][0]['cntr'],
+                         '0000000002')
+
+    def test_the_counter_is_seeded_from_the_store(self):
+        state, card = self.ota_state([(por_packet(), b'\x90\x00'),
+                                      (por_packet(), b'\x90\x00')])
+        harness = self.served(state)
+        first = harness.json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertEqual(first['cntr'], '0000000001')
+        second = harness.json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertEqual(second['cntr'], '0000000002')
+        self.assertEqual(second['final_cntr'], '0000000003')
+        # the second packet literally carries the seeded counter (SPI1 0x16
+        # ciphers it, so compare against the built packet)
+        seeded, _spi = scp80.build_secured_packet(
+            '16', '01', '15', '15', '000000', '0000000002', '00A40000023F00',
+            KIC_KEY, KID_KEY)
+        self.assertIn(seeded, envelope_tpdu(card.envelopes[1]))
+
+    def test_a_large_apdu_is_a_concatenated_download(self):
+        state, card = self.ota_state([(por_packet(), b'\x90\x00'),
+                                      (por_packet(), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': 'AA' * 200, 'preset_id': self.preset_id(),
+            'spi2': '01'})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['segments'], 2)
+        self.assertEqual(len(card.envelopes), 2)
+        first = envelope_tpdu(card.envelopes[0])
+        second = envelope_tpdu(card.envelopes[1])
+        # TS 31.115 §4.3: the concatenation IE is in every SM (ref 01, total
+        # 02) and the OTA CPI IE only in the first
+        self.assertIn(bytes.fromhex('0003010201'), first)
+        self.assertIn(bytes.fromhex('0003010202'), second)
+        self.assertIn(bytes.fromhex('7000'), first)
+        # the two parts are the splitter's own cut
+        packet, _spi = scp80.build_secured_packet(
+            '16', '01', '15', '15', '000000', '0000000001', 'AA' * 200,
+            KIC_KEY, KID_KEY)
+        parts = scp80.split_secured_packet(packet)
+        self.assertIn(parts[0], first)
+        self.assertIn(parts[1], second)
+
+    def test_a_low_counter_verdict_is_reported(self):
+        state, _card = self.ota_state(
+            [(por_packet(status=0x02), b'\x62\x00')])
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'sp': '00151015000050B0000000000000000100',
+            'preset_id': self.preset_id(), 'kic': '15', 'kid': '15',
+            'tar': 'B00000', 'spi1': '16', 'spi2': '01',
+            'cntr': '0000000001'})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertTrue(body['cntr_low'])
+        self.assertEqual(body['por']['response_status'], 'cntr_low')
+        self.assertNotIn('final_cntr', body)
+        # a rejected packet never moves the store counter
+        self.assertEqual(self.store.get(self.preset_id())['keysets'][0]['cntr'],
+                         '0000000001')
+
+    def test_the_compact_por_form(self):
+        state, _card = self.ota_state(
+            [(por_packet(secured='019000'), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertEqual(body['por']['response_type'], 'compact')
+        self.assertEqual(body['por']['decoded']['last_status_word'], '9000')
+        self.assertEqual(body['por']['decoded']['number_of_commands'], 1)
+
+    def test_the_scripting_por_form(self):
+        state, _card = self.ota_state(
+            [(por_packet(secured='AB0780010123029000'), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertEqual(body['por']['response_type'], 'scripting')
+        self.assertEqual(body['por']['decoded']['last_status_word'], '9000')
+
+    def test_a_non_rm_tar_reports_raw_data(self):
+        # a TAR outside the preset is the receiving application's own target:
+        # its response is never decoded as a remote-management response
+        state, _card = self.ota_state(
+            [(por_packet(tar='F0F0F0', secured='800110'), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'sp': '00151015000050F0F0F00000000000000100',
+            'preset_id': self.preset_id(), 'kic': '15', 'kid': '15',
+            'tar': 'F0F0F0', 'spi1': '16', 'spi2': '01',
+            'cntr': '0000000005'})[1]
+        self.assertEqual(body['por']['response_type'], 'raw')
+        self.assertEqual(body['por']['decoded']['last_status_word'], '')
+        self.assertEqual(body['por']['decoded']['last_response_data'],
+                         '800110')
+
+    def test_the_compact_command_count_guard(self):
+        # a command count above the plaintext command length proves the data
+        # is not a compact RM response (TS 102 226 §5.1.2 Table 5.1)
+        state, _card = self.ota_state(
+            [(por_packet(secured='800110'), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertEqual(body['por']['response_type'], 'raw')
+
+    def test_a_requested_por_that_never_arrived_is_flagged(self):
+        state, _card = self.ota_state([(b'', b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})[1]
+        self.assertTrue(body['success'])
+        self.assertTrue(body['por_missing'])
+        self.assertTrue(body['final_cntr'])
+
+    def test_missing_preset_keyset_errors(self):
+        state, _card = self.ota_state([(por_packet(), b'\x90\x00')])
+        harness = self.served(state)
+        # a TAR the preset does not carry (an explicit SPI1 keeps the MSL
+        # derivation from refusing first, so the TAR-table rule is reached)
+        status, body = harness.json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'tar': 'F0F0F0', 'spi1': '16', 'spi2': '01'})
+        self.assertEqual(status, 400)
+        self.assertIn('not in the preset', body['error'])
+        # an unknown preset leaves the packet without a keyset
+        status, body = harness.json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': 'nope',
+            'tar': '000000', 'spi1': '16', 'spi2': '01'})
+        self.assertEqual(status, 400)
+        self.assertIn('needs KIc/KID', body['error'])
+        # a KIc/KID number mismatch (TS 102 225 A.2)
+        status, body = harness.json('POST', '/api/send-ota', {
+            'sp': '00', 'preset_id': self.preset_id(), 'kic': '15',
+            'kid': '25', 'tar': 'B00000', 'spi1': '16', 'spi2': '01'})
+        self.assertEqual(status, 400)
+        self.assertIn('same keyset number', body['error'])
+        # a keyset number the preset does not define
+        status, body = harness.json('POST', '/api/send-ota', {
+            'sp': '00', 'preset_id': self.preset_id(), 'kic': '25',
+            'kid': '25', 'tar': 'B00000', 'spi1': '16', 'spi2': '01'})
+        self.assertEqual(status, 400)
+        self.assertIn('not defined in preset', body['error'])
+        self.assertEqual(len(_card.envelopes), 0)
+
+    def test_an_unknown_tar_without_spi1_is_refused(self):
+        state, _card = self.ota_state([(por_packet(), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'sp': '00', 'kic': '15', 'kid': '15', 'tar': 'F0F0F0',
+            'spi2': '01'})
+        self.assertEqual(status, 400)
+        self.assertIn('no MSL for TAR F0F0F0', body['error'])
+
+    def test_the_ram_format_rewrites_an_expanded_packet(self):
+        state, card = self.ota_state([(por_packet(), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '80F24000024F0000', 'preset_id': self.preset_id(),
+            'spi2': '01', 'ram_format': 'expanded'})[1]
+        self.assertTrue(body['success'])
+        self.assertEqual(body['ram_format'], 'expanded')
+        expected, _spi = scp80.build_secured_packet(
+            '16', '01', '15', '15', '000000', '0000000001',
+            ota.wrap_expanded_apdu('80F24000024F0000', 'definite'),
+            KIC_KEY, KID_KEY)
+        self.assertIn(expected, envelope_tpdu(card.envelopes[0]))
+
+    def test_auto_format_reports_the_compact_form_it_sent(self):
+        state, _card = self.ota_state([(por_packet(), b'\x90\x00')])
+        body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01', 'ram_format': 'auto'})[1]
+        self.assertEqual(body['ram_format'], 'compact')
+
+    def test_no_card_is_503(self):
+        state = self.track(make_state(presets=self.store))
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id()})
+        self.assertEqual(status, 503)
+        self.assertIn('no card session', body['error'])
+
+    def test_a_protocol_error_keeps_the_session(self):
+        # a decoder/protocol failure must not lose a healthy card (3c-3a)
+        state, _card = self.ota_state([])
+        session = state.card_session
+
+        def boom(sp_hex, **kwargs):
+            raise IndexError('bad TLV walk')
+
+        state._send_secured_packet = boom
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})
+        self.assertEqual(status, 500)
+        self.assertIn('bad TLV walk', body['error'])
+        self.assertTrue(state.connected)
+        self.assertEqual(state.card_session, session)
+
+    def test_a_transport_error_tears_the_link_down(self):
+        state, _card = self.ota_state([])
+        session = state.card_session
+        state.auto_equip = lambda *args, **kwargs: None
+
+        def boom(sp_hex, **kwargs):
+            raise transport.ReaderError('dead link')
+
+        state._send_secured_packet = boom
+        status, body = self.served(state).json('POST', '/api/send-ota', {
+            'apdu': '00A40000023F00', 'preset_id': self.preset_id(),
+            'spi2': '01'})
+        self.assertEqual(status, 503)
+        self.assertIn('dead link', body['error'])
+        self.assertFalse(state.connected)
+        self.assertIsNone(state.transport)
+        self.assertTrue(state.card_present)      # the card is usually inserted
+        self.assertEqual(state.card_session, session + 1)
+
+
+class CounterProbeTests(HTTPTestBase):
+    """``POST /api/counter-probe``: the bounded counter-sync ladder."""
+
+    def setUp(self):
+        super().setUp()
+        self.store, self.preset = preset_with_store(self)
+
+    def probe_state(self, answers):
+        card = OtaCard(answers)
+        return card.open_state(self, self.store), card
+
+    def stored_counter(self):
+        return self.store.get(self.preset['id'])['keysets'][0]['cntr']
+
+    def test_the_ladder_stops_at_the_first_accepted(self):
+        # start 1: the ladder is 2, 4, 8 - low, low, accepted
+        state, _card = self.probe_state([
+            (por_packet(status=0x02), b'\x90\x00'),
+            (por_packet(status=0x02), b'\x90\x00'),
+            (por_packet(cntr='0000000008'), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id']})
+        self.assertEqual(status, 200)
+        self.assertTrue(body['success'])
+        self.assertEqual(body['stopped'], 'accepted')
+        self.assertEqual([a['cntr'] for a in body['attempts']],
+                         ['0000000002', '0000000004', '0000000008'])
+        self.assertEqual(body['stored_cntr'], '0000000009')
+        self.assertEqual(self.stored_counter(), '0000000009')
+        # SPI2 b1 (PoR required) is forced on the RAM listing default 21
+        self.assertEqual(body['spi2'], '21')
+        self.assertEqual(body['spi1'], '16')
+
+    def test_the_ladder_only_advances_on_a_low_counter(self):
+        state, _card = self.probe_state([
+            (por_packet(status=0x01), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id']})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertEqual(len(body['attempts']), 1)
+        self.assertEqual(body['stopped'], 'error')
+        self.assertNotIn('counter_saved', body)
+        self.assertEqual(self.stored_counter(), '0000000001')
+
+    def test_a_post_low_counter_security_error_still_saves(self):
+        state, _card = self.probe_state([
+            (por_packet(status=0x02), b'\x90\x00'),
+            (por_packet(status=0x01), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id']})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertTrue(body['counter_saved'])
+        self.assertEqual(body['verdict'], 'rc_cc_ds_failed')
+        self.assertEqual(body['stored_cntr'], '0000000005')
+        self.assertIn('security settings', body['error'])
+        self.assertEqual(self.stored_counter(), '0000000005')
+
+    def test_no_por_is_an_error(self):
+        state, _card = self.probe_state([(b'', b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id']})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertIn('no PoR', body['error'])
+        self.assertEqual(self.stored_counter(), '0000000001')
+
+    def test_the_attempt_budget_bounds_the_ladder(self):
+        state, _card = self.probe_state([
+            (por_packet(status=0x02), b'\x90\x00'),
+            (por_packet(status=0x02), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id'],
+                                                 'max_attempts': 2})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertEqual(body['stopped'], 'attempts')
+        self.assertEqual(len(body['attempts']), 2)
+        self.assertIn('in 2 attempts', body['error'])
+
+    def test_the_ceiling_bounds_the_ladder(self):
+        # the first candidate (2) is above the ceiling 1
+        state, _card = self.probe_state([
+            (por_packet(status=0x02), b'\x90\x00')])
+        status, body = self.served(state).json('POST', '/api/counter-probe',
+                                                {'preset_id':
+                                                 self.preset['id'],
+                                                 'ceiling': '1'})
+        self.assertEqual(status, 200)
+        self.assertFalse(body['success'])
+        self.assertEqual(body['attempts'], [])
+        self.assertEqual(body['stopped'], 'ceiling')
+        self.assertIn('ceiling', body['error'])
+
+    def test_parameter_errors_are_400(self):
+        state, card = self.probe_state([])
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/counter-probe', {})
+        self.assertEqual(status, 400)
+        self.assertIn('preset_id is required', body['error'])
+        status, body = harness.json('POST', '/api/counter-probe',
+                                    {'preset_id': 'nope'})
+        self.assertEqual(status, 400)
+        self.assertIn('unknown preset', body['error'])
+        status, body = harness.json('POST', '/api/counter-probe',
+                                    {'preset_id': self.preset['id'],
+                                     'kvn': 5})
+        self.assertEqual(status, 400)
+        self.assertIn('not defined in the preset', body['error'])
+        status, body = harness.json('POST', '/api/counter-probe',
+                                    {'preset_id': self.preset['id'],
+                                     'ceiling': '0'})
+        self.assertEqual(status, 400)
+        self.assertIn('ceiling is below the current counter', body['error'])
+        self.assertEqual(card.envelopes, [])
 
 
 if __name__ == '__main__':
