@@ -478,10 +478,11 @@ class TestCatEnvelope(unittest.TestCase):
     def test_sms_pp_download_ber_long_form(self):
         tpdu = b'\x00' * 140
         built = cat.SmsPpDownload.build(('network', 'uicc'), tpdu)
-        # 4 (device identities) + 2 + 140 = 146 = 0x92, so D1 81 92
-        self.assertEqual(built[:3].hex(), 'd18192')
-        self.assertEqual(built[7:9].hex(), '8b8c')
-        self.assertEqual(len(built), 3 + 146)
+        # 4 (device identities) + 3 (8b 81 8c) + 140 = 147 = 0x93
+        self.assertEqual(built[:3].hex(), 'd18193')
+        # 128..255 octets use the BER long form (TS 101 220 §7.1.2 Table 7.6)
+        self.assertEqual(built[7:10].hex(), '8b818c')
+        self.assertEqual(len(built), 3 + 147)
         self.assertEqual(built[3:5].hex(), '8202')
 
     def test_sms_pp_download_class_round_trip(self):

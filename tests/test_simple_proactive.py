@@ -525,6 +525,16 @@ class BuildTrTests(unittest.TestCase):
                        {'result': 0, 'text': ''}).hex().upper(),
             '8103042300' + '02028182' + '83020000' + '0D00')
 
+    def test_a_long_text_uses_the_ber_long_form_length(self):
+        # TS 101 220 §7.1.2 Table 7.6: a Text string of 128 octets or more
+        # takes `81 nn` (the legacy emitted a raw octet, unreadable by a BER
+        # parser).
+        text = 'A' * 130
+        tr = R.build_tr(1, 0x21, 0x81, 0x82, None, None,
+                        {'result': 0, 'text': text, 'dcs': 4})
+        self.assertTrue(tr.hex().upper().endswith(
+            '0D' + '81' + '83' + '04' + '41' * 130))
+
     def test_item_identifier_follows_a_successful_result_only(self):
         self.assertEqual(
             R.build_tr(3, 0x24, 0x81, 0x82, None, None,

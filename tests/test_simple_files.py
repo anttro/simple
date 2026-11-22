@@ -368,12 +368,14 @@ class FileOpsTests(unittest.TestCase):
         self.assertEqual(link.sent_hex(), ['00d6001002aabb',
                                            '00dc0304020102'])
 
-    def test_status_uses_the_cat_cla(self):
+    def test_status_fcp_uses_the_cat_cla(self):
+        # P2 00 = the selected DF's SELECT response data (Table 11.9); the CAT
+        # status poll is CatSession.send_status (P2 0C).
         link = FakeLink([(b'', '9000')])
-        commands.FileOps(link).status()
+        commands.FileOps(link).status_fcp()
         self.assertEqual(link.sent_hex(), ['80f2000000'])
         link = FakeLink([(b'', '9000')])
-        commands.FileOps(link, status_cla='a0').status()
+        commands.FileOps(link, status_cla='a0').status_fcp()
         self.assertEqual(link.sent_hex(), ['a0f2000000'])
 
     def test_read_file_chunks_a_transparent_file(self):

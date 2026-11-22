@@ -187,8 +187,16 @@ class TlvObjectTests(unittest.TestCase):
         self.assertEqual((parsed.tag, parsed.value), (0xBF, b'\x00'))
 
     def test_comprehension_tlv_limits(self):
+        # 128..255 must use the BER long form (TS 101 220 §7.1.2 Table 7.6);
+        # 65535 is the cap (a longer value is refused).
+        self.assertEqual(tlv.ComprTlv(tag=0x8B, value=b'\x00' * 128).to_tlv()[:3],
+                         b'\x8b\x81\x80')
+        self.assertEqual(tlv.ComprTlv(tag=0x8B, value=b'\x00' * 255).to_tlv()[:3],
+                         b'\x8b\x81\xff')
+        self.assertEqual(tlv.ComprTlv(tag=0x8B, value=b'\x00' * 256).to_tlv()[:4],
+                         b'\x8b\x82\x01\x00')
         with self.assertRaises(ValueError):
-            tlv.ComprTlv(tag=0x01, value=b'\x00' * 256).to_tlv()
+            tlv.ComprTlv(tag=0x01, value=b'\x00' * 65536).to_tlv()
         with self.assertRaises(ValueError):
             tlv.ComprTlv(tag=0xBF43, value=b'').to_tlv()
 

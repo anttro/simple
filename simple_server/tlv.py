@@ -7,7 +7,8 @@ Two object flavours share one implementation:
   may be multi-octet (``BF 43``), and the length is the BER short/long form;
 * :class:`ComprTlv` - COMPREHENSION-TLV (TS 101 220 §7.1.1): exactly one tag
   octet (bit 8 is the comprehension-required flag; it is *not* interpreted
-  here) and exactly one length octet.
+  here) and the BER length field of §7.1.2 (Table 7.6: ``81 nn`` from 128
+  octets on - a COMPREHENSION-TLV uses the same length coding).
 
 The module functions reproduce the parsing semantics the existing server uses
 (``pysim_simple_server/server.py``), extended to walk multi-octet BER tags.
@@ -189,8 +190,11 @@ class ComprTlv(BerTlv):
     """A COMPREHENSION-TLV object (TS 101 220 §7.1.1).
 
     One tag octet (the comprehension-required flag is just part of the tag
-    value and is neither set nor stripped) and one length octet, so the value
-    is limited to 255 bytes.
+    value and is neither set nor stripped) and the BER length field of §7.1.2
+    (Table 7.6: ``81 nn`` from 128 octets on, ``82 nnnn`` from 256), so the
+    value may be longer than 255 bytes.  A one-octet length for a 128..255-byte
+    value would be read as a long-form indicator by every BER parser - the
+    defect the ENVELOPE's concatenated-SMS TPDU (``8b 81 82``) hits.
     """
 
     @classmethod
@@ -202,10 +206,10 @@ class ComprTlv(BerTlv):
         tag = encode_tag(self.tag)
         if len(tag) != 1:
             raise ValueError('a COMPREHENSION-TLV tag is exactly one octet')
-        if len(body) > 0xFF:
-            raise ValueError('COMPREHENSION-TLV value is %d bytes (max 255)'
+        if len(body) > 0xFFFF:
+            raise ValueError('COMPREHENSION-TLV value is %d bytes (max 65535)'
                              % len(body))
-        return tag + bytes([len(body)]) + body
+        return tag + encode_ber_len(len(body)) + body
 
 
 # ---- module-level parsing --------------------------------------------------

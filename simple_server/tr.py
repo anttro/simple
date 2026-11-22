@@ -217,7 +217,9 @@ def build_tr(cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag, respond,
     ``additional_info`` (int, default ``00``), ``text``/``dcs`` (§8.15 codings:
     ``00`` packed GSM 7-bit, ``04`` 8-bit, ``08`` UCS2; an empty text is the
     null text string), ``item_id`` (only for a successful result) and ``raw``
-    (extra TLVs, hex, appended last).
+    (extra TLVs, hex, appended last).  Every emitted length uses the BER coding
+    (TS 101 220 §7.1.2 Table 7.6), so a Text string of 128 octets or more gets
+    the ``81 nn`` form.
 
     ``general_result`` selects the Result object: the general form
     ``83 02 <result> <additional_info>`` (default - the scripted-TR shape) or
@@ -248,7 +250,9 @@ def build_tr(cmd_num, cmd_type, dev_src, dev_dst, cmd_qual, cd_tag, respond,
         else:
             dcs = int(respond.get('dcs', 0x00))
             body = encode_text(text, dcs)
-            out += bytes([0x0D, len(body) + 1, dcs]) + body
+            # The Text string's length covers the DCS octet + the body.
+            out += (bytes([0x0D]) + tlv.encode_ber_len(len(body) + 1)
+                    + bytes([dcs]) + body)
     if respond.get('item_id') is not None and result == 0x00:
         out += bytes([0x10, 0x01, respond['item_id'] & 0xFF])
     if respond.get('raw'):

@@ -198,8 +198,10 @@ interactive menu (`menu_fetch_handler`, `menu_send_response`,
 
 Deliberate, documented deviations from the legacy server - each one is
 cross-checked against the legacy bytes by `tests/test_simple_drift.py`
-(byte parity for the STATUS/TP/FETCH/TR/ENVELOPE/timer APDUs, the PLI
-dictionary, the input coding and the timer expiry envelope):
+(byte parity for the STATUS, TERMINAL PROFILE, FETCH, TERMINAL RESPONSE and
+ENVELOPE APDUs - the profile chain and the 91XX chain compared APDU by APDU,
+the FETCH length included -, the PLI dictionary, the input coding and the
+timer expiry envelope):
 
 - **The status word is bytes** (`b'\x91\x12'`) on the wire API instead of the
   legacy hex strings; the log entry's `tr_sw` and the menu response's `sw` stay
@@ -207,20 +209,39 @@ dictionary, the input coding and the timer expiry envelope):
 - **No stderr writes**: the legacy's per-exchange trace lines are `log.debug`/
   `log.info` records (the server's console/tracer layer owns presentation).
 - **The terminal-profile chain is bounded** by `chain_rounds` (the legacy loop
-  was unbounded; the same safety the v3.25.1/v3.37.0 chain bound gave) - it
-  keeps the legacy's `0xFF` FETCH length.
+  was unbounded; the same safety the v3.25.1/v3.37.0 chain bound gave).  Its
+  FETCH length is the legacy profile-chain form: the `91XX` length, with the
+  `0xFF` fallback for a bare `91` (a fixed `0xFF` made a T=1 card answer `6Cxx`
+  with its command left pending).
 - **The session owns sim_menu/event_list**: `send_terminal_profile` caches what
   it saw (the legacy caller did that assignment), and a background-poll timer is
   not created here - `poll_interval`/`poll_suspended` record the card's wishes
-  (§6.4.6/§6.4.14) for the server's poll.
-- **`busy`** replaces `_PROACTIVE_BUSY`, and the timer expiry waits on it as
-  well as on `stk_pending` (the session has no card lock).
+  (§6.4.6/§6.4.14, adopted in the profile chain too) for the server's poll.
+- **`busy`** replaces `_PROACTIVE_BUSY`; both the timer expiry and the menu
+  watchdog run their card exchanges under the injected `card_lock` (the
+  legacy `_CARD_LOCK`), waiting for `stk_pending`/`busy` *before* taking it.
 - **Refusals raise `CatSessionError`** where the legacy helpers returned an
   HTTP-shaped `(payload, 400)` or an `UnboundLocalError`.
-- **Kept, and flagged for review**: `handle_timer_command` emits the timer
+- **`stk_pending` is JSON-safe**: `raw` is the command's hex text (the legacy
+  stored no raw at all), so `/api/stk-status`'s `pending_data` serialises.
+- **A bare `91` in the 91XX chain fetches with Le `00` (256)**: the legacy
+  formatted `0x100` into the APDU as three hex digits, an odd-length APDU the
+  card cannot parse; the TP chain keeps the legacy `0xFF` fallback.
+- **Kept, and flagged for review (a)**: `handle_timer_command` emits the timer
   objects before the Result (the legacy form the live cards accepted) while
-  §6.8.0 puts the Result third - a behavioural change needs card evidence, so
-  the port pins the legacy bytes and documents the deviation.
+  TS 102 223 §6.8.0 (p. 102) puts the Result third - a behavioural change
+  needs card evidence, so the port pins the legacy bytes (and a `TODO` names
+  the cutover: order fix + bench run).
+- **Kept, and flagged for review (b)**: the Item identifier is sent only for a
+  successful SELECT ITEM, while §6.8.6 (p. 104) also requires it for "Help
+  information required by the user" - the API accepts `item_id`, so the fix
+  lands at cutover together with the PWA's help path.
+- **ENVELOPE lengths use the BER coding** (TS 101 220 §7.1.2 Table 7.6): the
+  `8B` TPDU object and the `D1` template are long-form from 128 octets on
+  (`8b 81 82`), which is what makes a concatenated SCP80/RAM segment's
+  ~130..150-octet TPDU valid.  `tlv.ComprTlv`, the input Text string and
+  `tr.build_tr`'s Text object follow the same rule (the legacy pySim TLV
+  library always did; only this port's own builders had one-octet lengths).
 
 Not done (later sub-phases): the BIP command handlers (injected), the HTTP
 endpoints and the card-session wiring.
@@ -260,6 +281,23 @@ Every spec-sensitive module is verified against the pinned PDFs
   `FF`) — a card deviation.  The server re-initializes after a switch anyway
   (`_esim_reinit`), so the Phase 3c switch orchestration should prefer
   `refreshFlag` FALSE; the legacy server still defaults TRUE/`01`.
+- **Phase 3c-1 (spec-checked, two kept deviations, no live-card run yet):**
+  the CAT session engine was checked against TS 102 221 V18.4.0 §11.1.2
+  (Table 11.9: P2 `0C` = "No data returned" - the STATUS poll) and §11.2
+  (TP/FETCH/TR/ENVELOPE APDU shapes), TS 102 223 V18.3.0 §6.8.0/§6.8.1
+  (TR structure, object order, echoed command details), §6.8.4 (the POLL
+  INTERVAL Duration echo), §6.8.5/§6.8.6 (the interactive answer objects),
+  §6.4.6/§6.4.14 (poll adoption) and §7.4 (timer expiration), and TS 101 220
+  §7.1.2 Table 7.6 (BER lengths - the `81 nn` long form from 128 octets,
+  which the ENVELOPE's concatenated TPDU needs; the old one-octet length was
+  a real defect, not a legacy quirk).  **Kept deviations:** (a) the timer
+  objects precede the Result in a TIMER MANAGEMENT answer (§6.8.0 puts the
+  Result third - kept for the live cards' byte parity, `TODO` for the
+  cutover); (b) the Item identifier is omitted for the `help` result of a
+  SELECT ITEM (§6.8.6 requires it - no PWA help path exists yet).  **No live
+  card has run this module**: every fixture is an existing capture replayed
+  through the fake transport, so the first bench run (equip + TERMINAL
+  PROFILE + a menu session + a secured packet) is a cutover gate.
 
 ## Phase 3c API surface (locked decisions)
 

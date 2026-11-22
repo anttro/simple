@@ -15,7 +15,9 @@ APDU codings (TS 102 221 §11.1.1/.4/.5/.6, ISO/IEC 7816-4):
   is the absolute mode (Table 11.11).
 * UPDATE BINARY/RECORD: ``00 D6``/``00 DC`` with the same addressing and the
   data as Lc + value, no Le.
-* STATUS: ``80 F2 00 00 00`` (the CAT CLA, Le ``00``).
+* STATUS: ``80 F2 00 00 00`` (the CAT CLA, P2 ``00`` = the selected DF's
+  SELECT response data, Le ``00``).  The CAT status **poll** uses P2 ``0C`` and
+  lives in :meth:`simple_server.cat_session.CatSession.send_status`.
 
 The transport only needs ``send_apdu(bytes) -> (bytes, bytes)`` (the status
 word as two bytes); :class:`simple_server.transport.PcscLink` provides it, and
@@ -243,8 +245,17 @@ class FileOps(object):
 
     # ---- STATUS ---------------------------------------------------------
 
-    def status(self):
-        """STATUS ``80F2000000``; returns the response FCP (TS 102 221 11.1.2)."""
+    def status_fcp(self):
+        """STATUS ``80F2000000`` (P2 00); returns the response FCP.
+
+        P2 ``00`` asks for the SELECT response data of the current DF
+        (TS 102 221 §11.1.2 Table 11.9: "Response parameters and data are
+        identical to the response parameters and data of the SELECT command").
+        The CAT **status poll** is a different exchange and lives in
+        :meth:`simple_server.cat_session.CatSession.send_status` (P2 ``0C``,
+        "No data returned"); this helper is for reading a DF's FCP and has no
+        production caller yet.
+        """
         apdu = self._apdu('F2', '00', '00', le=256, cla=self.status_cla)
         data, _sw = self._require(apdu)
         return fcp_module.parse_fcp(data)

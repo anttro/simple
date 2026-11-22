@@ -50,7 +50,8 @@ __all__ = [
     'POLL_NEGOTIATION_RESULTS', 'TAG_BEARER', 'TAG_CHANNEL_DATA',
     'TAG_CHANNEL_DATA_LENGTH', 'TAG_CHANNEL_STATUS', 'TAG_BUFFER_SIZE',
     'TAG_TRANSPORT_LEVEL', 'TAG_OTHER_ADDRESS', 'TAG_NAA',
-    'cmd_tlv', 'item_line', 'bcd_swap', 'duration_seconds', 'duration_text',
+    'cmd_tlv', 'command_tlvs', 'command_tlv_map',
+    'item_line', 'bcd_swap', 'duration_seconds', 'duration_text',
     'find_duration', 'parse_proactive_header', 'parse_setup_menu_command',
     'parse_display_text', 'parse_select_item', 'parse_setup_menu_items',
     'parse_get_inkey', 'parse_get_input', 'parse_other_address',
@@ -226,6 +227,12 @@ def _command_tlvs(raw):
 def _command_tlv_map(raw):
     """Top-level ``{tag: value}`` map of the command's TLVs (first wins)."""
     return tlv.tlv_map(_proactive_body(raw), multi_byte_tags=False)
+
+
+#: Public aliases: the CAT session (and any caller outside this module) must
+#: not reach into private names (``_command_tlvs``/``_command_tlv_map``).
+command_tlvs = _command_tlvs
+command_tlv_map = _command_tlv_map
 
 
 def cmd_tlv(tlvs, tag):
