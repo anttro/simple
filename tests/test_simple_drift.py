@@ -24,6 +24,7 @@ import sys
 import threading
 import types
 import unittest
+import zipfile
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
@@ -37,6 +38,7 @@ import pysim_simple_server.testscript as legacy_ts  # noqa: E402
 from pysim_simple_server import presets as presets_store  # noqa: E402
 
 from simple_server import bip as B  # noqa: E402
+from simple_server import capram as CR  # noqa: E402
 from simple_server import cat_session as C  # noqa: E402
 from simple_server import ota as O  # noqa: E402
 from simple_server import pbr as PB  # noqa: E402
@@ -1138,6 +1140,272 @@ class OtaKeysetResolutionTests(unittest.TestCase):
         self.assertEqual(
             O.counter_seed(self.store, {'preset_id': 'p', 'cntr': '42'}, 1),
             '42')
+
+
+class CapRamDriftTests(unittest.TestCase):
+    """The CAP/RAM builders and step logic are a behavioural port (3c-3c-2a).
+
+    These decide what the card receives (INSTALL/LOAD/DELETE and the install
+    parameters) and how its answer is read (the step verdict), so a divergence
+    would be silently wrong on hardware; the matrices below pin both
+    implementations to the same result.
+    """
+
+    AID = 'A0000003080000100001'
+    MODULE = 'A000000308000010000101'
+    LOAD = 'AA' * 40
+
+    @staticmethod
+    def cap_bytes(with_import=True):
+        """A minimal ``.cap`` archive (Header + Applet [+ Import])."""
+        def component(tag, payload):
+            return bytes([tag]) + len(payload).to_bytes(2, 'big') + payload
+        header = component(
+            0x01, (0xDECAFFED).to_bytes(4, 'big')
+            + bytes([1, 2, 0x04, 1, 2])
+            + bytes([len(bytes.fromhex(CapRamDriftTests.AID))])
+            + bytes.fromhex(CapRamDriftTests.AID))
+        applet = component(0x03, bytes([1, len(bytes.fromhex(
+            CapRamDriftTests.MODULE))]) + bytes.fromhex(CapRamDriftTests.MODULE)
+            + (1).to_bytes(2, 'big'))
+        parts = [('Header', header), ('Applet', applet)]
+        if with_import:
+            parts.insert(1, ('Import', component(
+                0x04, bytes([1]) + bytes([2, 1, 7])
+                + bytes.fromhex('A0000000620101'))))
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for name, data in parts:
+                archive.writestr('pkg/%s.cap' % name, data)
+        return buffer.getvalue()
+
+    def test_the_tables(self):
+        self.assertEqual(CR.REMOTE_SW_OK, legacy._RAM_REMOTE_SW_OK)
+        self.assertEqual(CR.DELETE_NOT_FOUND, legacy._RAM_DELETE_NOT_FOUND)
+        self.assertEqual(CR.RAM_PROBE_APDU, legacy._RAM_PROBE_APDU)
+        self.assertEqual(CR.RAM_PROBE_APDU_LE, legacy._RAM_PROBE_APDU_LE)
+
+    def test_the_length_helpers(self):
+        for value in ('', '00', 'AABB', 'AB' * 300):
+            self.assertEqual(CR.lv(value), legacy._lv(value), value[:8])
+        for length in list(range(0, 300)) + [0x100, 0xFFFF]:
+            self.assertEqual(CR.ber_len(length), legacy._ber_len(length), length)
+
+    def test_the_install_parameter_composition(self):
+        cases = [
+            (('', ''), {}),
+            (('', ''), {'nv_quota': 0, 'volatile_quota': 200}),
+            (('', ''), {'nv_quota': 0x10000}),
+            (('', ''), {'volatile_quota': 0.0}),
+            (('', ''), {'nv_quota': 200.0, 'volatile_quota': 100}),
+            (('', 'EF02CA00'), {}),
+            (('', 'EF02CA00'), {'nv_quota': 400}),
+            (('', 'EA02CA00'), {}),
+            (('', 'EA02CA00'), {'nv_quota': 400}),
+            (('', 'MA00'), {}),
+            (('C900EF00', ''), {}),
+            (('c900', 'ea00'), {}),
+            (('C900EF00', 'EA00'), {}),
+            # the refusals
+            (('C900EF00', 'EF02CA00'), {}),
+            # a malformed caller field the legacy tolerant walk still saw an
+            # EF in: `EF 80` (indefinite) and `C9 80 EF 02 CA 00` (the
+            # indefinite length swallows the next EF) - both refuse here
+            (('EF80', 'EF02CA00'), {}),
+            (('C980EF02CA00', 'EF02CA00'), {}),
+            (('', 'CA0C0102'), {}),
+            (('C900', ''), {'nv_quota': 100}),
+            (('zz', ''), {}),
+            (('', 'EF'), {}),
+            (('', 'EF80'), {}),
+            (('', 'EF81'), {}),
+            (('', 'EF03CA00'), {}),
+            (('', ''), {'nv_quota': 'x'}),
+            (('', ''), {'nv_quota': 1.5}),
+            (('', ''), {'nv_quota': 0x100000000}),
+        ]
+        for args, kwargs in cases:
+            label = '%r/%r' % (args, kwargs)
+            try:
+                ours = ('ok', CR.compose_install_params(*args, **kwargs))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._compose_install_params(*args, **kwargs))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, label)
+
+    def test_the_quota_and_ef_helpers(self):
+        for value in (0, 1, 200, 0x7FFF, 0x8000, 0xFFFF, 0x10000, 0xFFFFFFFF):
+            self.assertEqual(CR.quota_tlv('C8', value),
+                             legacy._quota_tlv('C8', value), value)
+        for value in (None, '', ' ', 0, '0', 200, '200'):
+            self.assertEqual(CR.quota_provided(value),
+                             legacy._quota_provided(value), repr(value))
+        for value in ('', 'EF00', 'EF02CA00', 'EF81 81 CA00', 'CA00', 'EF'):
+            try:
+                ours = ('ok', CR.single_ef_value(value))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._single_ef_value(value))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, repr(value))
+
+    def test_the_apdu_builders(self):
+        for kwargs in ({}, {'make_selectable': False},
+                       {'instance_aid': '0102030405060708'},
+                       {'privileges': '1D'},
+                       {'install_params': 'C900EF00'},
+                       {'stk_params': 'EA02CA00'},
+                       {'nv_quota': 1000, 'volatile_quota': 200}):
+            self.assertEqual(
+                CR.cap_install_apdu(self.AID, self.MODULE, **kwargs),
+                legacy._cap_install_apdu(self.AID, self.MODULE, **kwargs),
+                repr(kwargs))
+        for args in (('0102030405', '00'), ('A0000003080000100001', '1D')):
+            self.assertEqual(CR.cap_make_selectable_apdu(*args),
+                             legacy._cap_make_selectable_apdu(*args), args)
+        for aid in ('0102030405', '01 02:03', '', 'A0' * 16):
+            for cascade in (False, True):
+                self.assertEqual(CR.ram_delete_apdu(aid, cascade),
+                                 legacy._ram_delete_apdu(aid, cascade), aid)
+
+    def test_the_apdu_sequence(self):
+        for load in ('AA', 'AB' * 240, 'AC' * 300, ''):
+            for kwargs in ({}, {'block_size': 40}, {'block_size': 240,
+                                                   'sd_aid': '0909090909'},
+                           {'make_selectable': False, 'privileges': '1D'},
+                           {'install_params': 'C900',
+                            'stk_params': 'EA00'}):
+                self.assertEqual(
+                    CR.cap_apdu_sequence(self.AID, self.MODULE, load, **kwargs),
+                    legacy._cap_apdu_sequence(self.AID, self.MODULE, load,
+                                              **kwargs),
+                    '%s/%r' % (load[:8], kwargs))
+
+    def test_the_cap_parse(self):
+        for with_import in (True, False):
+            cap = self.cap_bytes(with_import=with_import).hex()
+            self.assertEqual(CR.cap_parse(cap), legacy._cap_parse(cap))
+
+    def test_the_cap_info(self):
+        cap = self.cap_bytes().hex()
+        ours = CR.cap_info_body({'cap_hex': cap})
+        theirs = legacy._cap_info_body({'cap_hex': cap})
+        self.assertEqual(ours['ok'], theirs['ok'])
+        self.assertEqual(ours['load_file_aid'], theirs['load_file_aid'])
+        self.assertEqual(ours['module_aid'], theirs['module_aid'])
+        self.assertEqual(ours['load_file_bytes'], theirs['load_file_bytes'])
+        # `components` is re-ordered into the load-file order (the PWA maps a
+        # LOAD block to a component by accumulating from the start); the
+        # legacy lists them in ZIP order, so the sets are compared, and the
+        # rest of the memory model must match exactly
+        self.assertEqual(sorted(ours['memory']['components'],
+                                key=lambda entry: entry['name']),
+                         sorted(theirs['memory']['components'],
+                                key=lambda entry: entry['name']))
+        ours_memory = dict(ours['memory'])
+        theirs_memory = dict(theirs['memory'])
+        ours_memory.pop('components')
+        theirs_memory.pop('components')
+        self.assertEqual(ours_memory, theirs_memory)
+        # an empty request is the same refusal message
+        with self.assertRaises(ValueError) as caught:
+            CR.cap_info_body({})
+        self.assertEqual(str(caught.exception),
+                         legacy._cap_info_body({})['error'])
+
+    def test_the_step_records(self):
+        def por(status='por_ok', sw='9000', data='', **kwargs):
+            return dict({'response_status': status, 'response_type': 'compact',
+                         'decoded': {'last_status_word': sw,
+                                     'last_response_data': data}}, **kwargs)
+        cases = [
+            (por(), '9000', 'abc', 120, 1),
+            (por(sw='6A88'), '9000', 'abc', 10, 1),
+            (por(sw='6200'), '9000', 'abc', 10, 2),
+            (por(sw='CAFE'), '9000', '', 10, 1),
+            (por(status='cntr_low', sw=''), '6200', 'abc', 1, 1),
+            (por(bad_format='02', bad_format_name='wrong length', sw=''),
+             '9000', 'abc', 1, 1),
+            (por(sw=''), '9000', '', 1, 1),
+            (None, '9000', '', 5, 1),
+            (None, '6A82', '', 5, 1),
+            (None, '9000', '0271000D0000', 5, 1),
+            ({'response_status': 'por_ok',
+              'responses': [{'status_word': '9000'},
+                            {'status_word': '6A86'}]}, '9000', '', 1, 1),
+        ]
+        for por_map, sw, raw, size, segments in cases:
+            self.assertEqual(
+                CR.step_result('LOAD (1/1)', sw, por_map, raw, size, segments),
+                legacy._ram_step_result('LOAD (1/1)', sw, por_map, raw, size,
+                                        segments),
+                repr(por_map)[:40])
+
+    def test_the_nv_helpers(self):
+        for rapdu in ('', '9000', 'FF210B810101820203E8830201F4',
+                      'FF21030102', 'FF21'):
+            self.assertEqual(
+                CR.decode_memory(bytes.fromhex(rapdu)) if rapdu else None,
+                legacy._scp81_decode_memory(bytes.fromhex(rapdu)) if rapdu
+                else None, rapdu)
+            self.assertEqual(CR.free_nv(rapdu), legacy._ram_free_nv(rapdu),
+                             rapdu)
+        for before, after in ((None, None), (1000, 400), (400, 1000),
+                              (1000, None), (None, 400)):
+            self.assertEqual(CR.nv_fields(before, after),
+                             legacy._ram_nv_fields(before, after))
+
+    def test_the_remote_sw_helpers(self):
+        for sw in ('', '9000', '9001', '61FF', '6200', '63C2', 'CAFE',
+                   '6A88', 'cafe'):
+            self.assertEqual(CR.remote_sw_ok(sw), legacy._ram_remote_sw_ok(sw),
+                             sw)
+        for por_map in (None, {}, {'decoded': {'last_status_word': '9000'}},
+                        {'responses': [{'status_word': '6A86'}]},
+                        {'responses': []}):
+            self.assertEqual(CR.por_remote_sw(por_map),
+                             legacy._por_remote_sw(por_map), repr(por_map))
+
+    def test_the_plans(self):
+        cap = self.cap_bytes().hex()
+        bodies = [
+            {'cap_hex': cap},
+            {'cap_hex': cap, 'load_block_size': 40, 'ram_format': 'expanded'},
+            {'cap_hex': cap, 'delete_package': True},
+            {'cap_hex': cap, 'volatile_quota': 200, 'nv_quota': 1000,
+             'make_selectable': False, 'privileges': '1D'},
+            {'cap_hex': cap, 'sd_aid': '0909090909',
+             'stk_params': 'EA02CA00'},
+        ]
+        for body in bodies:
+            self.assertEqual(CR.install_plan(body),
+                             legacy._ram_install_plan(body), repr(body)[:60])
+        app_bodies = [
+            {'loadfile_aid': self.AID, 'module_aid': self.MODULE},
+            {'loadfile_aid': self.AID, 'module_aid': self.MODULE,
+             'instance_aid': '0102030405060708', 'privileges': '1D'},
+            {'loadfile_aid': self.AID, 'module_aid': self.MODULE,
+             'install_params': 'C900EF00'},
+            {'loadfile_aid': self.AID, 'module_aid': self.MODULE,
+             'nv_quota': 0, 'volatile_quota': 0},
+            {'loadfile_aid': self.AID},
+        ]
+        for body in app_bodies:
+            label = repr(body)[:60]
+            try:
+                ours = ('ok', CR.reinstall_plan(body))
+            except ValueError as exc:
+                ours = ('error', str(exc))
+            try:
+                theirs = ('ok', legacy._ram_reinstall_plan(body))
+            except ValueError as exc:
+                theirs = ('error', str(exc))
+            self.assertEqual(ours, theirs, label)
 
 
 class PbrDriftTests(unittest.TestCase):

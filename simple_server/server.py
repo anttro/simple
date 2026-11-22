@@ -17,9 +17,12 @@ serving and the endpoints - ``GET /api/version``, ``GET /api/status``,
 file endpoints ``POST /api/tree|select|read|write`` (3c-3b) and the
 preset/plain-SCP80 set ``GET/POST /api/presets`` +
 ``/api/presets/update|delete|import|import-outfile``, ``POST /api/verify-adm``,
-``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1).  Every other
-API path is a 404 until the remaining 3c-3c endpoints (RAM install/batch, the
-TAR probe, the test runner, eSIM/SCP81/netsim) and 3c-3d/3d land.
+``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1), plus the
+CAP analysis and the single-card RAM installs ``POST /api/cap-info``,
+``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a).  Every
+other API path is a 404 until the remaining 3c-3c endpoints (the CAP
+compatibility test, the TAR probe, the batch install, the test runner,
+eSIM/SCP81/netsim) and 3c-3d/3d land.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -69,6 +72,7 @@ from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
 
 from simple_server import bip as bip_module
+from simple_server import capram
 from simple_server import cards
 from simple_server import cat_session
 from simple_server import commands
@@ -119,10 +123,11 @@ CARD_FREE_GET = frozenset([
     '/api/presets',
 ])
 
-#: POSTs that must answer while the card lock is held (the legacy
-#: ``_CARD_FREE_POST``).  No 3c-3a endpoint qualifies: starting a card operation
-#: is exactly what the lock serializes.
-CARD_FREE_POST = frozenset()
+#: POSTs that answer while another card operation holds the lock (the legacy
+#: ``_CARD_FREE_POST``).  ``/api/cap-info`` only analyzes the uploaded archive
+#: (no card, no preset); a long RAM install must not block the PWA's CAP
+#: analysis with its progress poll.
+CARD_FREE_POST = frozenset(['/api/cap-info'])
 
 #: The EF.ARR copies an FCP ``8B`` security attribute can reference (the legacy
 #: ``ARR_READ_PATHS``, label for label): the MF copy, the DF.TELECOM/DF.GSM
@@ -507,6 +512,12 @@ class ServerState(object):
         self._presence_observer = None
         self._readers_cache = None
         self._readers_at = 0.0
+        #: Live progress of the RAM operation in flight.  The install chains
+        #: hold the card lock for the whole request, so the PWA cannot learn the
+        #: step from the response; ``/api/status`` (card-free, polled every 2 s)
+        #: carries this payload instead (the legacy ``_RAM_PROGRESS``, v3.6.34).
+        self.ram_progress = {'active': False, 'kind': '', 'step': 0, 'total': 0,
+                             'name': '', 'started': 0.0}
         #: Set by :meth:`close`: the auto-equip worker observes it between
         #: attempts so a shutdown never races a fresh equip.
         self._closed = threading.Event()
@@ -1856,6 +1867,345 @@ class ServerState(object):
 
         return ota.counter_probe(self.presets, preset, body, send_fn)
 
+    # ---- the CAP analysis and the single-card RAM installs (3c-3c-2a) -----
+
+    def cap_info(self, body):
+        """``POST /api/cap-info``: analyze a ``.cap`` (card-free, read-only).
+
+        The structural parse plus the capmem estimate, in
+        :func:`simple_server.capram.cap_info_body`; nothing here touches the
+        card, the presets or the SCP80 counters.
+        """
+        return capram.cap_info_body(body)
+
+    def ram_install(self, body):
+        """``POST /api/ram-install``: load and install a ``.cap`` over SCP80.
+
+        The card-independent plan (the ``.cap`` parse and the INSTALL/LOAD
+        sequence) is built first, so a bad file or an invalid parameter
+        combination is a 400 before anything is sent; the plan then runs as one
+        chain on the equipped card (:meth:`_ram_plan_run`).  The caller holds
+        the card lock (the handler does).
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        plan = capram.install_plan(body)
+        return self._ram_plan_run(body, plan)
+
+    def ram_install_app(self, body):
+        """``POST /api/ram-install-app``: INSTALL [for install/make selectable].
+
+        For a package that is already loaded: ``mode: 'install'`` reinstalls
+        the applet instance (the plan deletes the instance first, tolerating
+        "not found"), ``mode: 'make_selectable'`` only re-runs INSTALL [for
+        make selectable].  Nothing is loaded - no ``.cap``, no LOAD.
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = dict(body or {})
+        mode = str(body.get('mode') or 'install').strip()
+        if mode == 'make_selectable':
+            instance_aid = str(body.get('instance_aid') or '')
+            instance_aid = re.sub(r'\s', '', instance_aid).upper()
+            if not instance_aid:
+                raise ValueError('instance_aid required')
+            privileges = (str(body.get('privileges') or '').replace(' ', '')
+                          or '00')
+            plan = {'kind': 'make-selectable',
+                    'seq': [{'name': 'INSTALL [for make selectable]',
+                             'apdu': capram.cap_make_selectable_apdu(
+                                 instance_aid, privileges)}],
+                    'spi2': str(body.get('spi2') or '01'),
+                    'include_cpi': body.get('includeCpi', True),
+                    'ram_format': ota.normalise_ram_format(
+                        body.get('ram_format'))}
+        elif mode == 'install':
+            # The install deletes the applet instance first (tolerating "not
+            # found") so re-installing with new parameters works in one step;
+            # the plan builder validates the AIDs and the parameter
+            # composition (a 400 here, never mid-chain).
+            plan = capram.reinstall_plan(body, kind='install-app')
+        else:
+            raise ValueError("mode must be 'install' or 'make_selectable'")
+        return self._ram_plan_run(body, plan)
+
+    def _ram_plan_run(self, body, plan):
+        """Run one RAM plan on the equipped card (the caller holds the lock).
+
+        A plan is a list of named steps (an INSTALL/LOAD chain, GP DELETEs, a
+        single INSTALL [for install]); a step flagged ``delete`` tolerates the
+        "not found" status words (:data:`simple_server.capram.DELETE_NOT_FOUND`
+        - the object is already gone, so the delete's goal is met and the chain
+        proceeds), while any other failure stops it.  The per-card part: the
+        preset's ISD TAR supplies the keyset (v3.26.0) and the counter is
+        seeded from the store (v3.20.0, its accepted value persisted per step).
+        A request error raises :class:`ValueError` (the endpoint's 400); a chain
+        failure comes back as ``{'success': False, ...}``.
+        """
+        if not self.connected or self.transport is None or self.cat is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        body = body or {}
+        preset_id = str(body.get('preset_id') or '').strip()
+        preset = self.presets.get(preset_id) if preset_id else None
+        tar = str(body.get('tar') or presets_store.role_tar(preset, 'isd')
+                  or '000000').strip().upper()
+        spi1, _warning = ota.spi1_for_tar(preset, tar, body.get('spi1'),
+                                          prefer_msl=True)
+        kvn, kic, kid, keyset_error = ota.op_keyset_resolve(self.presets, body,
+                                                           tar)
+        if keyset_error:
+            raise ValueError(keyset_error)
+        kic_key = str(body.get('kicKey') or '').strip()
+        kid_key = str(body.get('kidKey') or '').strip()
+        # The counter: an explicit `cntr` wins, else the preset's value for
+        # this keyset (the server owns the counters, v3.20.0).
+        counter = (ota.counter_seed(self.presets, body, kvn)
+                   or str(body.get('cntr') or '00000000'))
+        steps = []
+        state = {'steps': steps, 'encode_error': None, 'failure': {},
+                 'cntr': counter, 'preset_id': preset_id, 'kvn': kvn,
+                 'preset': preset, 'rm': ota.tar_is_rm(preset, tar)}
+        secured = {'spi1': spi1, 'spi2': plan['spi2'], 'kic': kic, 'kid': kid,
+                   'tar': tar, 'kic_key': kic_key, 'kid_key': kid_key,
+                   'include_cpi': plan['include_cpi']}
+        sequence = plan['seq']
+        kind = plan.get('kind') or 'ram'
+        label = 'RAM-%s' % kind.upper().replace('-', ' ')
+        nv_before = None
+        nv_after = None
+        self._ram_progress_begin(kind, len(sequence) + 1)
+        try:
+            # The RAM command format: detected per operation (a read-only probe
+            # step) unless the caller pinned compact/expanded.
+            ram_format = plan['ram_format']
+            if ram_format == 'auto':
+                self._ram_progress_step(0, 'FORMAT CHECK')
+                ram_format = self._ram_detect_format(secured, state)
+            if plan.get('load_size'):
+                log.info('%s: LOAD block size %d bytes', label,
+                         plan['load_size'])
+            log.info('%s: %d step(s), %s', label, len(sequence), ram_format)
+            # The NV footprint before the chain (best effort - a card without
+            # FF21 skips it).
+            if plan.get('nv'):
+                nv_before = self._ram_read_ff21(secured, state, ram_format,
+                                                'NV before')
+            for index, step in enumerate(sequence):
+                name = step['name']
+                self._ram_progress_step(index + 1, name)
+                ok = self._ram_send_gp_apdu(
+                    secured, state, name,
+                    ota.format_apdu(step['apdu'], ram_format))
+                if not ok and step.get('delete'):
+                    # a delete tolerates "not found": the object is already
+                    # gone, which is exactly what the delete wanted
+                    record = steps[-1] if steps else {}
+                    if str(record.get('por_sw') or '').upper() \
+                            in capram.DELETE_NOT_FOUND:
+                        record['delete_not_found'] = True
+                        ok = True
+                if not ok:
+                    # what the failed attempt consumed (a rejected load may keep
+                    # or discard its partial file - the delta tells which)
+                    if plan.get('nv'):
+                        nv_after = self._ram_read_ff21(
+                            secured, state, ram_format, 'NV after')
+                    response = {
+                        'success': False, 'steps': steps,
+                        'failed_step': len(steps),
+                        'error': (state['encode_error']
+                                  or state['failure'].get('error')
+                                  or ('%s failed' % name)),
+                        'final_cntr': state['cntr'],
+                        'ram_format': ram_format}
+                    response.update(plan.get('response') or {})
+                    response.update(capram.nv_fields(nv_before, nv_after))
+                    failed = steps[-1] if steps else {}
+                    response.update(
+                        ota.cntr_low_fields(failed.get('por_status')))
+                    if response.get('cntr_low'):
+                        log.info('%s: low counter - the packet counter is not '
+                                 "above the card's", label)
+                    return response
+            if plan.get('nv'):
+                nv_after = self._ram_read_ff21(secured, state, ram_format,
+                                               'NV after')
+        finally:
+            self._ram_progress_end()
+        response = {'success': True, 'steps': steps,
+                    'final_cntr': state['cntr'], 'ram_format': ram_format}
+        response.update(plan.get('response') or {})
+        response.update(capram.nv_fields(nv_before, nv_after))
+        log.info('%s: complete (%d step(s), cntr=%s)', label, len(sequence),
+                 state['cntr'])
+        return response
+
+    def _ram_send_gp_apdu(self, secured, state, step_name, apdu_hex,
+                          silent=False):
+        """Send one GP APDU as an SCP80 secured packet; ``True`` on success.
+
+        The step record is appended to ``state['steps']`` (and always available
+        as ``state['last_step']``).  ``secured`` carries the SCP80 parameters
+        (spi1, spi2, kic, kid, tar, kic_key, kid_key, include_cpi); ``state``
+        the mutable run state (steps, encode_error, failure, cntr, ...) and the
+        counter advances only for a packet the card accepted and only when the
+        packet asks it to check the counter (TS 102 225 §5.1.1 b5b4).
+
+        ``silent=True`` (the NV footprint reads) leaves no step record and no
+        failure note behind: the card's answer is only used by the caller, and
+        a rejected read must never fail the operation.
+        """
+        spi1, spi2 = secured['spi1'], secured['spi2']
+        try:
+            packet, _spi = scp80.build_secured_packet(
+                spi1, spi2, secured['kic'], secured['kid'], secured['tar'],
+                state['cntr'], apdu_hex, secured['kic_key'],
+                secured['kid_key'])
+            packet_hex = bytes(packet).hex()
+            log.info('RAM C-APDU (%s): %s', step_name, apdu_hex)
+            log.info('RAM SECURED-PACKET (%s): %s', step_name, packet_hex)
+        except ValueError as exc:
+            if not silent:
+                state['encode_error'] = str(exc)
+                state['steps'].append({'name': step_name,
+                                       'por_status': 'encode_error',
+                                       'sw': str(exc)})
+            log.warning('RAM: %s encode failed: %s', step_name, exc)
+            return False
+        # Capture the PoR from either transport: inline in the ENVELOPE answer
+        # or as a proactive SEND SHORT MESSAGE.  Cards differ - some always
+        # submit, whatever the SPI2 request bit says - so the capture is
+        # unconditional (v3.6.24).
+        capture = cat_session.PorSubmitCapture()
+        result = self._send_secured_packet(packet_hex,
+                                           include_cpi=secured['include_cpi'],
+                                           submit_handler=capture)
+        if not result.get('success'):
+            if not silent:
+                state['steps'].append({
+                    'name': step_name, 'por_status': 'envelope_error',
+                    'sw': result.get('sw') or result.get('error'),
+                    'bytes': result.get('bytes'),
+                    'segments': result.get('segments')})
+            log.warning('RAM: %s send failed: %s', step_name,
+                        result.get('error'))
+            return False
+        por_hex = result.get('response_data') or ''
+        last_sw = result.get('sw')
+        por_source = 'envelope'
+        submit_hex = capture.submit_response_hex()
+        if submit_hex:
+            por_hex = submit_hex
+            por_source = 'sms-submit'
+        elif capture.submit_tpdu_hex:
+            # no assembled UD: fall back to a raw RPI packet
+            tpdu = bytes.fromhex(capture.submit_tpdu_hex)
+            index = tpdu.find(b'\x02\x71\x00')
+            if index >= 0:
+                por_hex = tpdu[index:].hex()
+                por_source = 'sms-submit'
+        por = ota.decode_por(spi1, spi2, secured['kic'], secured['kid'],
+                             state['cntr'], secured['kic_key'],
+                             secured['kid_key'], por_hex,
+                             cmd_len=len(apdu_hex) // 2, rm=state.get('rm'))
+        step, error = capram.step_result(step_name, last_sw, por, por_hex,
+                                         result.get('bytes'),
+                                         result.get('segments'))
+        state['last_step'] = step
+        if not silent:
+            state['steps'].append(step)
+        log.info('RAM: %s PoR[%s] status=%s remote_sw=%s%s (%s B, %s SM)',
+                 step_name, por_source, step.get('por_status', '?'),
+                 step.get('por_sw', '-'),
+                 (' error=%s' % error) if error else '',
+                 result.get('bytes'), result.get('segments'))
+        if (step.get('por_status') in ('por_ok', 'no_por')
+                and scp80.counter_tracked(spi1)):
+            state['cntr'] = ota.next_counter(state['cntr'], True)
+            # ... and persist it right away: the server owns the counter now,
+            # so a crash mid-install cannot leave the preset behind the card.
+            ota.counter_persist(self.presets, state.get('preset_id'),
+                                state['cntr'],
+                                'ram-%s' % step_name.split()[0].lower(),
+                                state.get('kvn'))
+        if error:
+            if not silent:
+                state['failure']['error'] = '%s: %s' % (step_name, error)
+            return False
+        return True
+
+    def _ram_detect_format(self, secured, state):
+        """Detect the card's RAM command format for one operation.
+
+        Send the read-only GET STATUS [ISD] probe compact, then in the two
+        expanded codings; the first format whose remote SW succeeds wins
+        (compact preferred).  Cards implement different subsets: the reference
+        TCA loader sends the listing queries wrapped and unchained, while the
+        live card needs the compact chain (a length-mismatched template draws a
+        Bad format TLV, which the step record names).  The probe packets are
+        recorded as steps and consume counters only when accepted; the result
+        is used for this operation only - the next operation re-checks
+        (v3.6.24).
+        """
+        probes = (
+            ('compact', capram.RAM_PROBE_APDU),
+            ('expanded', ota.format_apdu(capram.RAM_PROBE_APDU_LE,
+                                         'expanded')),
+            ('expanded-ae', ota.format_apdu(capram.RAM_PROBE_APDU_LE,
+                                            'expanded-ae')),
+        )
+        for ram_format, apdu in probes:
+            scratch = {'steps': [], 'encode_error': None, 'failure': {},
+                       'cntr': state['cntr'],
+                       'preset_id': state.get('preset_id'),
+                       'kvn': state.get('kvn'),
+                       'preset': state.get('preset'),
+                       'rm': state.get('rm')}
+            ok = self._ram_send_gp_apdu(secured, scratch,
+                                        'FORMAT CHECK (%s)' % ram_format, apdu)
+            state['steps'].extend(scratch['steps'])
+            state['cntr'] = scratch['cntr']
+            if ok:
+                return ram_format
+        return 'compact'
+
+    def _ram_read_ff21(self, secured, state, ram_format, label):
+        """Best-effort GET DATA FF21 read: the free NV bytes, or ``None``.
+
+        Sent through the normal step sender with ``silent=True``, so it
+        consumes and advances the counter correctly but leaves no step record
+        or failure note behind.  A card without FF21 (or a rejected read) must
+        never fail the operation (TS 102 226 §8.2.1.7.2).
+        """
+        apdu = ota.format_apdu('80CAFF2100', ram_format)
+        if not self._ram_send_gp_apdu(secured, state, label, apdu,
+                                      silent=True):
+            return None
+        return capram.free_nv((state.get('last_step') or {}).get('por_data'))
+
+    def _ram_progress_begin(self, kind, total):
+        self.ram_progress.update({'active': True, 'kind': str(kind), 'step': 0,
+                                  'total': int(total or 0), 'name': '',
+                                  'started': time.time()})
+
+    def _ram_progress_step(self, step, name):
+        self.ram_progress.update({'step': int(step), 'name': str(name or '')})
+
+    def _ram_progress_end(self):
+        self.ram_progress['active'] = False
+
+    def ram_progress_payload(self):
+        """The ``/api/status.ram_progress`` body (pure read of the progress)."""
+        progress = self.ram_progress
+        started = progress.get('started') or 0
+        return {'active': bool(progress.get('active')),
+                'kind': progress.get('kind', ''),
+                'step': int(progress.get('step') or 0),
+                'total': int(progress.get('total') or 0),
+                'name': progress.get('name', ''),
+                'elapsed': (round(time.time() - started, 1) if started else 0)}
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -2166,7 +2516,9 @@ class ServerState(object):
         ``scp80`` the counter/keyset state (3c-3b), both placeholders now.
         ``adm_verified`` is the ADM latch of the current card session (the
         legacy's ``rs.adm_verified``): a successful VERIFY until the next
-        equip/disconnect.
+        equip/disconnect.  ``ram_progress`` is the RAM operation in flight
+        (:attr:`ram_progress`): the install chain holds the card lock, so this
+        card-free poll is how its step/elapsed stay visible.
         """
         cat = self.cat
         suspended = (bool(getattr(cat, 'poll_suspended', False))
@@ -2210,6 +2562,10 @@ class ServerState(object):
             'test_run': {'running': bool(self.test_running)},
             'bip': bip_status,
             'scp80': None,
+            # The RAM operation in flight (step name/count and elapsed): the
+            # install chains hold the card lock, so the modal's live status
+            # rides this 2 s poll (the legacy ``ram_progress``, v3.6.34).
+            'ram_progress': self.ram_progress_payload(),
             'terminal_profile': self.terminal_profile,
         }
 
@@ -2448,6 +2804,12 @@ def make_handler(state, log_requests=False):
                     self._post_ota(body)
                 elif path == '/api/counter-probe':
                     self._post_counter_probe(body)
+                elif path == '/api/cap-info':
+                    self._post_cap_info(body)
+                elif path == '/api/ram-install':
+                    self._post_ram_install(body)
+                elif path == '/api/ram-install-app':
+                    self._post_ram_install_app(body)
                 elif path == '/api/presets':
                     self._post_presets(body)
                 elif path == '/api/presets/update':
@@ -2590,6 +2952,27 @@ def make_handler(state, log_requests=False):
 
         def _post_counter_probe(self, body):
             self._post_card(lambda: self.state_ref.counter_probe(body),
+                            {'success': False})
+
+        # ---- the CAP analysis and the single-card RAM installs (3c-3c-2a) --
+
+        def _post_cap_info(self, body):
+            """The card-free CAP analysis: a bad file is the caller's 400.
+
+            ``ok: false`` is kept in the body (the PWA reads ``ok`` and
+            ``error``), so its CAP panel shows the reason either way.
+            """
+            try:
+                self._send_json(self.state_ref.cap_info(body))
+            except ValueError as exc:
+                self._send_json({'ok': False, 'error': str(exc)}, 400)
+
+        def _post_ram_install(self, body):
+            self._post_card(lambda: self.state_ref.ram_install(body),
+                            {'success': False})
+
+        def _post_ram_install_app(self, body):
+            self._post_card(lambda: self.state_ref.ram_install_app(body),
                             {'success': False})
 
         # A PresetError (a refused store mutation) is the dispatch's 400 - the

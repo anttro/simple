@@ -421,11 +421,11 @@ def format_apdu(apdu_hex, ram_format):
     ``auto`` is the caller's format detection, which the RAM operation sender
     owns: it sends a read-only probe packet per operation (the legacy
     ``_ram_detect_format`` - it consumes counters, so it belongs to a RAM step,
-    not to a plain send).  **Decision (3c-3c-1):** the RAM sender will probe in
-    3c-3c-2; until then the plain send falls back to the compact form and
-    reports the form it actually sent.  If the RAM probe is never ported,
-    ``auto`` must become a 400 pointing at the RAM operation instead - never a
-    silent compact packet.
+    not to a plain send; ``ServerState._ram_detect_format``).  **Decision
+    (3c-3c-1):** the plain send does not probe - it builds the compact form and
+    reports the form it actually sent; the RAM endpoints (3c-3c-2a) do probe.
+    If a caller asks a plain send for ``auto`` on a card that only accepts an
+    expanded form, the RAM operation is the path to use.
     """
     if ram_format == 'expanded':
         return wrap_expanded_apdu(apdu_hex, 'definite')

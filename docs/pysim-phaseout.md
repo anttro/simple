@@ -561,6 +561,112 @@ fake-transport fixtures are the cutover gate: the first bench run (a real
 preset-store verify, an APDU SCP80 send with a seeded counter, and a
 `cntr_low` verdict) is the acceptance check.
 
+## Phase 3c-3c-2a outcome (the CAP analysis + the single-card RAM installs)
+
+`POST /api/cap-info` (card-free), `POST /api/ram-install` and
+`POST /api/ram-install-app` are served from `ServerState`.  The new module is
+`simple_server/capram.py` - the pure half: the `.cap` structural parse, the
+GP APDU builders (INSTALL [for load]/LOAD/INSTALL [for install]/INSTALL [for
+make selectable]/DELETE), the install-parameter composition, the capmem
+analysis, the step-record assembly and the NV decode.  The card exchange (one
+secured packet per GP APDU, the format probe, the silent FF21 reads, the chain
+runner) lives on `ServerState` like the plain send's
+`_send_secured_packet`.  Reused as-is: `ota` (the preset TAR keyset, the
+MSL-derived SPI1, the server-owned counter, the PoR decode), `scp80` (the
+packet build/split), `cat_session.PorSubmitCapture` and
+`pysim_simple_server.capmem`.  Suites: `tests/test_simple_ram.py` (64) +
+`tests/test_simple_drift.py` (`CapRamDriftTests`, 12).  The builders' positive
+APDUs are also pinned to the TCA reference trace
+(`samples/tca_ram_traces/test_mycard_keyset2_applet_full_load.log`, kept out of
+the repo): the trace's clear `INSTALL [for load]`, first 64-octet `LOAD` block
+and `INSTALL [for install]` are test constants (`ReferenceTraceTests`).
+
+Request contract (unchanged from the legacy, so the PWA is untouched):
+`cap_hex` (with `cap` accepted as an API alias), `sd_aid`, `delete_package`,
+`privileges`, `install_params`, `stk_params`, `make_selectable`,
+`nv_quota`/`volatile_quota`, `load_block_size` (1..240), `ram_format`
+(`auto`/`compact`/`expanded`/`expanded-ae`), `includeCpi`, `spi2`, and the
+preset resolution `preset_id` + an explicit `kic`/`kid`/`cntr`/`spi1` as the
+API overrides; `ram-install-app` also takes `mode`
+(`install`/`make_selectable`), `loadfile_aid`, `module_aid`, `instance_aid`.
+The response is the legacy shape the PWA reads: `success`, `steps[]`
+(`name`, `sw`, `bytes`, `segments`, `por_status`/`por_type`/`por_sw`/
+`por_data`/`por_raw`, `por_bad_format`, `por_error`, `delete_not_found`),
+`failed_step`, `error`, `final_cntr`, `ram_format`, `cntr_low`, the
+`load_file_aid`/`module_aid`/`load_block_size*` block and the `nv_before`/
+`nv_after`/`nv_delta` footprint.
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **`/api/cap-info` is card-free** (`CARD_FREE_POST`).  The legacy serialized
+  it behind the card lock although it never touches the card; the analysis
+  must stay answerable while a long chain runs (the PWA's progress poll).
+- **A malformed `.cap` (and an invalid install-parameter combination) is a
+  400.**  The legacy answered `/api/cap-info` `{ok: false, error}` with 200 and
+  dropped a malformed archive of `/api/ram-install` into its generic 500; here
+  every parse failure is a `ValueError` naming the problem (`the .cap is not a
+  ZIP archive`, `the .cap Header is truncated`, ...) and the endpoint answers
+  400 with `ok`/`success` false.  The PWA reads `ok`/`error` either way.
+  **Scope of "validated":** the `.cap` structure, `load_block_size`, the
+  install-parameter composition and the `privileges` width/hex (GP Table
+  11-43/11-44 allow only 1 or 3 octets; the builders refuse anything else).
+  `sd_aid`, `loadfile_aid`/`module_aid`/`instance_aid` and `spi2` are **not**
+  validated at plan time - the AIDs are only stripped of spaces and
+  uppercased, and a bad `spi2` fails when the first packet is encoded (a
+  `success: false` step, not a 400), so the caller must send valid values.
+- **`memory['components']` is re-ordered into the load-file order and lists
+  only those components** (JC VM Specification v2.2.2 §6.2/Table 6-3 - the
+  component load order is a JC VM rule, not GP's, and the TCA reference trace
+  follows it).  capmem lists every component the archive carries in ZIP order;
+  the report here follows the load file, so a component outside the order (a
+  `Debug.cap`, which the JC VM spec says is not for download) is dropped while
+  the legacy reported it after the load file.  The PWA maps a failed LOAD
+  block to the component it covers by accumulating those sizes from the load
+  file's start - the ZIP order is usually but not always the load order.
+- **`cntr: null` builds the all-zero counter.**  When
+  `ota.counter_seed()` finds no preset/keyset value, the body's `cntr` is read
+  with `str(body.get('cntr') or '00000000')`: a JSON `"cntr": null` yields
+  `'00000000'`, where the legacy left `state['cntr']` None.  The packet is
+  byte-identical (the keyset builder reads None as 0: TS 102 225 §5.2 Table 3),
+  but the response's `final_cntr` now carries the 8-digit zero string instead
+  of `null`.
+- **The RAM diagnostics are `log.info` and nothing configures INFO yet.**
+  `simple_server` has no logging setup (deliberately - a module-level
+  `basicConfig` would fight the embedding application), so at the default
+  WARNING level `RAM C-APDU`, `RAM SECURED-PACKET`, the per-step PoR lines and
+  `RAM-… complete` never reach `simple_lastrun.log`, the bench's primary
+  diagnostic.  **Decision:** the 3d entry point configures INFO for the
+  `simple_server` logger (with its stderr handler / the start script's
+  mirror), or those lines are raised to WARNING if INFO turns out too chatty;
+  the modules stay configuration-free.
+- **The step record assembly, the remote-SW policy and the DELETE tolerance
+  are the legacy's, unchanged**: `por_ok` + a remote SW outside
+  `{9000, CAFE, 61xx, 62xx, 63xx}` fails the step, a `9000` transport SW with
+  no PoR (`no_por`) does not, a `delete`-flagged step tolerates `6A88`/`6A82`
+  (the object is already gone) and any other failure stops the chain.  The
+  counter advances (and is persisted per step) only for an accepted packet
+  and only when SPI1.b5b4 asks the card to check it (TS 102 225 §5.1.1).
+- **`/api/status` gains `ram_progress`** (the legacy's `_RAM_PROGRESS`):
+  the chain holds the card lock, so the install modal's live step/elapsed
+  rides the card-free 2 s poll.  It is per-state here (no module global) and
+  `status()` only reads it.
+- **The plan is built before anything is sent** (a bad file, an invalid
+  block size or an invalid install-parameter combination is a 400 with zero
+  APDUs spent) and the keyset/preset resolution is the legacy operation rule
+  (the preset's ISD role entry, `prefer_msl=True`).
+- **Not ported (the locked API surface):** the CAP compatibility test
+  (`_cap_compat_blocks`, `_probe_import_versions`, `/api/cap-compat`), the
+  TAR probe, the batch plans/worker (`_ram_delete_plan`, `/api/ram-batch/*`)
+  and the RAM format's use by the *plain* send (still the 3c-3c-1 decision).
+
+Tests: **64 RAM + 12 drift; the full suite is 1961**.  **No live card has run
+these endpoints yet** - the fixture is a synthetic CAP ZIP and a scripted fake
+transport (the response packets are built by the test), so the first bench run
+is the acceptance check: a real `.cap` (the load-file parse and the block
+split at the card's buffer), the card's own RAM format probe (which of the
+three codings it accepts), a real `cntr_low`, an FF21 readout, and the
+`INSTALL [for install]` parameter acceptance (the CA-in-one-EF case).
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -629,6 +735,37 @@ Every spec-sensitive module is verified against the pinned PDFs
   module**: every fixture is a scripted fake transport, so the first bench
   run (a real preset-store verify, a seeded APDU send and a `cntr_low`
   verdict) is the cutover gate.
+- **Phase 3c-3c-2a (spec-checked, no live-card run yet):** the CAP/RAM
+  builders were checked against GP Card Specification v2.3.1 §11.5.2.1/Table
+  11-41 (the INSTALL P1 roles), §11.5.2.3.1/Table 11-42 (INSTALL [for load]
+  data field), §11.5.2.3.2/Table 11-43 (INSTALL [for install]: the privileges
+  length is `01` or `03` with a 1- or 3-octet value, the install-parameter
+  field), §11.5.2.3.3/Table 11-44 (make selectable), §11.5.2.3.7/Tables
+  11-48/11-49 (the install-parameter tags: `C9` mandatory, `C7`/`C8`/`CA`
+  nested in the System Specific Parameters `EF`, `EA` a sibling) and §9.7 (the
+  quota coding: a 2-byte integer up to 32767, a 4-byte integer above),
+  §11.6.2/Tables 11-56/11-57 (LOAD: P1.b8 = last block, P2 = the sequential
+  block number) with Table 11-58 (the `C4` Load File Data Block), §11.2/Tables
+  11-20-11-23 (DELETE) and §11.4/Tables 11-32-11-35 (GET STATUS); TS 102 226
+  V18.5.0 §8.2.1.3.2.1 (the CA is "included in the System Specific Parameters
+  (Tag 'EF')"; GP Table 11-49 nests `C7`/`C8` in that same EF, so the quotas
+  and the CA share one object), §8.2.1.3.2.2 (`EA` is a separate object) and
+  §8.2.1.7.2 (GET DATA FF21: `81`/`82`/`83`).  The CAP component
+  order is **not** a GP rule - it is the JC VM file structure (JC VM
+  Specification v2.2.2 §6.2/Table 6-3 "Reference Component Install Order") -
+  and the positive APDUs are pinned to the TCA reference trace
+  `samples/tca_ram_traces/test_mycard_keyset2_applet_full_load.log`
+  (INSTALL [for load], the first 64-octet LOAD block, INSTALL [for install];
+  the trace's caller-composed parameters carry an empty `EF 00`, which our
+  composer omits when composing from the `EA` primitive - both forms are the
+  same packet shape with no second EF).  Kept
+  deviation: the APDUs are case 3 (no trailing `Le`) although the GP tables
+  list `Le '00'` (the SCP80 scripting layer treats a trailing octet as a
+  phantom second command; see the module docstring).  **No live card has run
+  these endpoints**: the fixture is a synthetic CAP ZIP and a scripted fake
+  transport, so the first bench run (a real `.cap`, the card's accepted RAM
+  command format, a real `cntr_low`, an FF21 readout and the CA-in-one-EF
+  acceptance) is the cutover gate.
 
 ## Phase 3c API surface (locked decisions)
 
