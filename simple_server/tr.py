@@ -136,19 +136,48 @@ def tr_result_add_info_name(result, info):
     return None
 
 
+def _ctlv_at(raw, off):
+    """``(tag, value, next_off)`` of the CTLV at ``raw[off]``, or ``None``.
+
+    ``None`` for a truncated object (no tag/length octet, an incomplete BER
+    long form, or a value running past the end) - the caller stops the walk
+    instead of slicing garbage.  TS 101 220 Table 7.6: the COMPREHENSION-TLV
+    length is short form below 128, else ``81 nn`` / ``82 nnnn`` / ...
+    """
+    if off >= len(raw) or off + 1 >= len(raw):
+        return None
+    tag = raw[off]
+    first = raw[off + 1]
+    if first < 0x80:
+        length, voff = first, off + 2
+    else:
+        n = first & 0x7F
+        if n < 1 or off + 2 + n > len(raw):
+            return None
+        length = int.from_bytes(raw[off + 2:off + 2 + n], 'big')
+        voff = off + 2 + n
+    end = voff + length
+    if end > len(raw):
+        return None
+    return tag, raw[voff:end], end
+
+
 def tr_data_only(tr_tlv):
     """Strip the boilerplate CTLVs (command details, device identities, Result).
 
     Returns the command-specific data objects of a TERMINAL RESPONSE (the
     proactive log stores this form: ``tr_hex``), or ``b''`` when there are
-    none.  A truncated object ends the walk.
+    none.  A truncated object ends the walk.  The lengths are BER (short or
+    long form) - a text answer can exceed 127 octets (TS 101 220 Table 7.6).
     """
     tr_tlv = bytes(tr_tlv or b'')
     data = bytearray()
     off = 0
-    while off + 1 < len(tr_tlv):
-        tag, length = tr_tlv[off], tr_tlv[off + 1]
-        end = off + 2 + length
+    while off < len(tr_tlv):
+        parsed = _ctlv_at(tr_tlv, off)
+        if parsed is None:
+            break
+        tag, _value, end = parsed
         if tag not in _BOILERPLATE_TAGS:
             data.extend(tr_tlv[off:end])
         off = end
@@ -158,15 +187,20 @@ def tr_data_only(tr_tlv):
 def extract_tr_result(tr_tlv):
     """``(tag, value)`` of the Result CTLV (``03`` basic / ``83`` general).
 
-    ``None`` when the TERMINAL RESPONSE carries no Result object.
+    ``None`` when the TERMINAL RESPONSE carries no Result object.  The walk
+    uses BER lengths, so an object with a long-form length is skipped
+    correctly.
     """
     tr_tlv = bytes(tr_tlv or b'')
     off = 0
-    while off + 1 < len(tr_tlv):
-        tag, length = tr_tlv[off], tr_tlv[off + 1]
-        if tag in (0x03, 0x83) and off + 2 + length <= len(tr_tlv):
-            return (tag, tr_tlv[off + 2: off + 2 + length])
-        off += 2 + length
+    while off < len(tr_tlv):
+        parsed = _ctlv_at(tr_tlv, off)
+        if parsed is None:
+            break
+        tag, value, end = parsed
+        if tag in (0x03, 0x83):
+            return (tag, value)
+        off = end
     return None
 
 

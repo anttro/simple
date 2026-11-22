@@ -714,6 +714,14 @@ class TrHelpersTests(unittest.TestCase):
         # a response with no command-specific object has no data part
         self.assertEqual(R.tr_data_only(bytes.fromhex('810301030002028281030100')), b'')
 
+    def test_tr_data_only_handles_a_long_form_text(self):
+        # TS 101 220 Table 7.6: a 145-octet Text string (0D) uses '81 91'.
+        long_text = bytes([0x0D, 0x81, 0x91, 0x04]) + b'A' * 144
+        tr = bytes.fromhex('810301210002028281') + long_text + bytes.fromhex('030100')
+        self.assertEqual(R.tr_data_only(tr), long_text)
+        # the Result walk skips the long object and still finds the Result
+        self.assertEqual(R.extract_tr_result(tr), (0x03, b'\x00'))
+
     def test_extract_tr_result(self):
         # the basic (03) and the general (83) Result objects are both accepted
         self.assertEqual(
