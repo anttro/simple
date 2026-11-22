@@ -43,6 +43,7 @@ from simple_server import cat_session as C  # noqa: E402
 from simple_server import ota as O  # noqa: E402
 from simple_server import pbr as PB  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
+from simple_server import testrun as T  # noqa: E402
 from simple_server import tr as R  # noqa: E402
 
 
@@ -1649,6 +1650,200 @@ class PbrDriftTests(unittest.TestCase):
                 PB.inject_children(cache, path, ours),
                 legacy._pbr_inject_children(holder, path, theirs), path)
             self.assertEqual(ours, theirs, path)
+
+
+class TestRunDriftTests(unittest.TestCase):
+    """The single-script runner is a behavioural port (Phase 3c-3d-1).
+
+    The step checks, the report labels, the load-test bookkeeping and the
+    SCP80 precondition decide what the PWA shows and what the card is sent, so
+    a divergence would be silently wrong on hardware.  The per-state
+    :class:`simple_server.testrun.TestRunner` replaced the legacy module state;
+    everything below is a pure function on both sides.
+    """
+
+    def test_the_run_constants(self):
+        self.assertEqual(T.TEST_KIND_LABELS, legacy._TEST_KIND_LABELS)
+        self.assertEqual(T.TEST_BLOCKED_PATHS, legacy._TEST_BLOCKED_PATHS)
+        self.assertEqual(T.TEST_LOG_MAX, legacy._TEST_LOG_MAX)
+        self.assertEqual(T.TEST_STEP_TIMEOUT, legacy._TEST_STEP_TIMEOUT)
+        self.assertEqual(T.TEST_LOAD_MAX, legacy._TEST_LOAD_MAX)
+
+    def test_the_command_name_resolution(self):
+        for name in ('PROVIDE LOCAL INFORMATION', 'select item',
+                     'SEND SHORT MESSAGE', 'REFRESH', 'NOPE', ''):
+            self.assertEqual(T.command_type(name),
+                             legacy._test_command_type(name), name)
+
+    def test_the_load_iterations(self):
+        for body in ({}, {'iterations': None}, {'iterations': ''},
+                     {'iterations': '5'}, {'iterations': 7},
+                     {'iterations': 1.0}):
+            self.assertEqual(T.load_iterations(body),
+                             legacy._test_load_iterations(body), body)
+        for body in ({'iterations': 0}, {'iterations': -1},
+                     {'iterations': 1.5}, {'iterations': 'abc'},
+                     {'iterations': T.TEST_LOAD_MAX + 1},
+                     {'iterations': [2]}):
+            with self.assertRaises(ValueError):
+                legacy._test_load_iterations(body)
+            with self.assertRaises(ValueError):
+                T.load_iterations(body)
+
+    def test_the_load_state(self):
+        for count in (1, 2, 100):
+            ours = T.load_state(count)
+            theirs = legacy._test_load_state(count)
+            for key in ('enabled', 'suite', 'iterations', 'iteration', 'done',
+                        'failed_iteration', 'finished', 'elapsed_ms',
+                        'avg_ms'):
+                self.assertEqual(ours[key], theirs[key], (count, key))
+
+    def test_the_run_state_shape(self):
+        # the run dict is the legacy `_TEST_RUN`: the port adds the `kind`
+        # discriminator (3c-3d-2 branches on it) and nothing else - a key
+        # added on one side only would silently diverge.  Only the *shape* is
+        # compared here: `_TEST_RUN` is mutable module state that another
+        # test's run start rewrites, so the defaults are pinned by their own
+        # tests (the entry/check/load-state cases).
+        ours = T.empty_state()
+        theirs = legacy._TEST_RUN
+        self.assertEqual(set(ours) - {'kind'}, set(theirs))
+        self.assertIsNone(ours['kind'])
+        self.assertEqual(ours['load'], legacy._test_load_state(1))
+
+    def test_the_check_rows(self):
+        self.assertEqual(
+            T.check_result('SW', True, '9000', '9000', 'error'),
+            legacy._test_check_result('SW', True, '9000', '9000', 'error'))
+        self.assertEqual(
+            T.check_result('Error', False, 'x', 'y', 'warning', detail='why'),
+            legacy._test_check_result('Error', False, 'x', 'y', 'warning',
+                                      detail='why'))
+
+    def test_the_step_entries(self):
+        steps = [
+            {'type': 'action', 'kind': 'status', 'params': {}},
+            {'type': 'action', 'kind': 'scp80', 'label': 'my packet',
+             'params': {}},
+            {'type': 'expect', 'command': {'type': 0x21, 'name': None}},
+            {'type': 'expect', 'command': {'type': None, 'name': 'ANY'}},
+            {'type': 'expect', 'command': {'type': 0x24,
+                                           'name': 'SELECT ITEM'}},
+        ]
+        for index, step in enumerate(steps):
+            ours = T.entry(step, index)
+            theirs = legacy._test_entry(step, index)
+            for row in (ours, theirs):
+                row.pop('started')
+            self.assertEqual(ours, theirs, step)
+            self.assertEqual(T.step_label(step), (theirs['kind'],
+                                                  theirs['label']))
+
+    def test_the_action_checks(self):
+        por = {'response_status': 'por_ok',
+               'decoded': {'last_status_word': '9000',
+                           'last_response_data': '01'}}
+        cases = [
+            ({'sw': {'mode': 'exact', 'value': '9000'},
+              'data': {'mode': 'exact', 'value': 'AA'}, 'por': 'any'},
+             '9000', 'AA', None, 'status'),
+            ({'sw': {'mode': 'mask', 'value': '9???'},
+              'data': {'mode': 'exact', 'value': 'AA'}, 'por': 'any'},
+             '6A82', '', None, 'status'),
+            ({'sw': {'mode': 'exact', 'value': '9000'}, 'data': None,
+              'por': 'ok'}, '9000', '', por, 'scp80'),
+            ({'sw': {'mode': 'exact', 'value': '9000'}, 'data': None,
+              'por': 'none'}, '9000', '', por, 'scp80'),
+            ({'sw': {'mode': 'exact', 'value': '9000'}, 'data': None,
+              'por': {'status': 'ok',
+                      'sw': {'mode': 'exact', 'value': '9000'}}},
+             '9000', '', por, 'scp80'),
+            ({'sw': {'mode': 'exact', 'value': '9000'}, 'data': None,
+              'por': {'sw': {'mode': 'mask', 'value': '9???'}}},
+             '9000', '', {'response_status': 'raw', 'response_type': 'raw',
+                          'decoded': {'last_response_data': 'AB'}}, 'scp80'),
+        ]
+        for check, sw, data, por_row, kind in cases:
+            step = {'check': check, 'on_fail': 'error'}
+            self.assertEqual(T.action_checks(step, sw, data, por_row, kind),
+                             legacy._test_action_checks(step, sw, data,
+                                                        por_row, kind),
+                             (check, kind))
+
+    def test_the_por_checks(self):
+        por = {'response_status': 'por_ok',
+               'decoded': {'last_status_word': '9000',
+                           'last_response_data': '0102'}}
+        for spec, row in (({'status': 'ok'}, por),
+                          ({'sw': {'mode': 'mask', 'value': '9???'}}, por),
+                          ({'data': {'mode': 'exact', 'value': '0102'}},
+                           por),
+                          ({'status': 'ok'}, None),
+                          ({'sw': {'mode': 'exact', 'value': '9000'}},
+                           {'response_status': 'raw', 'response_type': 'raw',
+                            'decoded': {}})):
+            self.assertEqual(T.por_check_results(spec, row, 'warning'),
+                             legacy._por_check_results(spec, row, 'warning'),
+                             spec)
+
+    def test_the_scp80_precondition(self):
+        preset = {'keysets': [{'kic': '15', 'kid': '15', 'kicKey': '00' * 16,
+                               'kidKey': '00' * 16, 'cntr': '0000000001'}],
+                  'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16',
+                            'keyset': 1}]}
+        raw_scripts = [
+            {'name': 's', 'steps': [{'type': 'action', 'kind': 'status'}]},
+            {'name': 's', 'steps': [{'type': 'action', 'kind': 'scp80',
+                                     'params': {'apdu': '80E2900000'}}]},
+            {'name': 's', 'steps': [{'type': 'action', 'kind': 'scp80',
+                                     'params': {'apdu': '80E2900000',
+                                                'kvn': 2}}]},
+            {'name': 's', 'steps': [{'type': 'action', 'kind': 'scp80',
+                                     'params': {'apdu': '80E2900000',
+                                                'tar': 'B00000'}}]},
+        ]
+        presets = [preset, {'keysets': [], 'tars': []},
+                   {'keysets': [{'kic': '15', 'kid': '15', 'cntr': '1'}],
+                    'tars': []},
+                   {'keysets': preset['keysets'],
+                    'tars': [{'role': 'isd', 'tar': '000000', 'msl': '16'}]}]
+        for raw in raw_scripts:
+            ours = legacy_ts.normalise_script(raw, legacy._test_command_type)
+            theirs = legacy_ts.normalise_script(raw, T.command_type)
+            self.assertEqual(ours, theirs)
+            for candidate in presets:
+                self.assertEqual(
+                    T.preset_error(theirs, candidate),
+                    legacy._test_preset_error(ours, candidate),
+                    (raw, candidate))
+
+    def test_the_file_list_parser(self):
+        def ber(tag, value):
+            return bytes((tag, len(value))) + bytes(value)
+        raws = [
+            ber(0xD0, ber(0x81, bytes((1, 0x01, 0))) + ber(0x82, b'\x82\x81')
+                + ber(0x12, bytes((2,)) + bytes.fromhex('3F007F20'))),
+            ber(0xD0, ber(0x81, bytes((1, 0x01, 0))) + ber(0x82, b'\x82\x81')),
+            b'',
+        ]
+        for raw in raws:
+            self.assertEqual(T.parse_file_list(raw),
+                             legacy._parse_file_list(raw), raw.hex())
+
+    def test_the_sms_fields(self):
+        def ber(tag, value):
+            return bytes((tag, len(value))) + bytes(value)
+        tpdu = bytes.fromhex('01000A912143658709000002AB')
+        raws = [
+            ber(0xD0, ber(0x81, bytes((1, 0x13, 0))) + ber(0x82, b'\x82\x81')
+                + ber(0x06, bytes.fromhex('0A912143658709'))
+                + ber(0x8B, tpdu)),
+            ber(0xD0, ber(0x81, bytes((1, 0x21, 0))) + ber(0x82, b'\x82\x81')),
+        ]
+        for raw in raws:
+            self.assertEqual(T.sms_tpdu_fields(raw),
+                             legacy._sms_tpdu_fields(raw), raw.hex())
 
 
 if __name__ == '__main__':

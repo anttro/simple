@@ -475,6 +475,29 @@ class CatSession(object):
         p3 = 0x23 if self.cat_cla == 'a0' else 0x00
         return self._send(bytes([int(self.cat_cla, 16), 0xF2, 0x00, 0x0C, p3]))
 
+    def fetch_apdu(self, length):
+        """The FETCH command APDU (TS 102 221 §11.2.3) for ``length`` octets.
+
+        ``length`` is the count the card's ``91XX`` answer named; ``0`` means
+        "length unknown" (a bare ``9100``) and codes the full 256 octets as
+        ``00``.  The runner logs the APDU and reuses the same form in
+        :meth:`fetch`.
+        """
+        return self._fetch_apdu(0 if not length else int(length))
+
+    def fetch(self, length):
+        """FETCH the announced proactive command; ``(data, sw)`` as bytes."""
+        return self._send(self.fetch_apdu(length))
+
+    def send_terminal_response(self, tr_tlv):
+        """Answer a fetched command (TERMINAL RESPONSE, TS 102 221 §11.2.4).
+
+        Returns ``(data, sw)`` as bytes.  Raises :class:`CatSessionError` for
+        an empty payload - a bare ``14`` header would leave the command
+        unanswered.
+        """
+        return self._send(self._terminal_response_apdu(tr_tlv))
+
     def send_terminal_profile(self, tp_hex):
         """Send TERMINAL PROFILE and answer the commands it raises.
 

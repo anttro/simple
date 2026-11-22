@@ -21,6 +21,11 @@ phonebook decoder and the tree injection).
 Phase 3c-3c-1: the preset store endpoints, ADM verification and the plain
 SCP80 send/counter-probe endpoints, and :mod:`simple_server.ota` (the per-TAR
 keyset and counter rules, the RAM command format helpers and the PoR decode).
+Phase 3c-3c-2: the CAP analysis and the single-card RAM installs
+(:mod:`simple_server.capram`), the CAP compatibility test, the TAR probe and
+the batch install.
+Phase 3c-3d-1: the test-script store endpoints and the single-script run
+(:mod:`simple_server.testrun`, the per-state runner).
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

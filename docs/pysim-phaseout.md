@@ -900,7 +900,8 @@ Deliberate, documented decisions (deviations from the legacy):
   path has a verdict to evaluate and a PWA-visible `final_cntr` signal, so
   widening it would change the documented v3.6.58/v3.20.0 send behaviour and
   the PWA's counter sync; the difference is deliberate and recorded here.
-  Pinned by `test_a_packet_and_its_por` (acceptance),
+  Pinned by `test_a_packet_and_its_por` and
+  `test_a_9000_envelope_without_a_por_advances_the_counter` (acceptance),
   `test_a_rejected_packet_leaves_the_counter_untouched` (rejection),
   `test_an_unclear_refusal_still_advances_the_counter` /
   `test_a_transport_error_still_advances_the_counter` (unclear) and
@@ -926,8 +927,8 @@ Deliberate, documented decisions (deviations from the legacy):
   the default WARNING level these lines reach no handler until the 3d entry
   point configures INFO for the `simple_server` logger.
 
-Tests: **114 runner tests (`tests/test_simple_runner.py`) + 12 drift
-(`TestRunDriftTests`); the full suite is 2152**.  **No live card has run the
+Tests: **115 runner tests (`tests/test_simple_runner.py`) + 12 drift
+(`TestRunDriftTests`); the full suite is 2153**.  **No live card has run the
 runner yet** - the fixture is a scripted fake transport (the UICC startup, the
 STATUS/FETCH/TR queues and the ENVELOPE answers), so the first bench run is
 the acceptance check: a real menu selection by text, an applet's `91XX`

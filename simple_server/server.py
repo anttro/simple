@@ -6,7 +6,7 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a/3b/3c-1/3c-2): the state and the card lifecycle
+Scope (Phase 3c-3a/3b/3c-1/3c-2/3d-1): the state and the card lifecycle
 (:meth:`ServerState.open`, :meth:`~ServerState.equip`,
 :meth:`~ServerState.reset`, :meth:`~ServerState.disconnect`, the presence
 monitor and the background STATUS poll), the HTTP handler and the
@@ -19,11 +19,15 @@ preset/plain-SCP80 set ``GET/POST /api/presets`` +
 ``/api/presets/update|delete|import|import-outfile``, ``POST /api/verify-adm``,
 ``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1), the CAP
 analysis and the single-card RAM installs ``POST /api/cap-info``,
-``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a), plus
+``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a), the
 ``POST /api/cap-compat``, ``POST /api/tar-probe`` and the batch install
 ``POST /api/ram-batch/start|stop|clear`` + ``GET /api/ram-batch/status``
-(3c-3c-2b).  Every other API path is a 404 until the remaining 3c-3c
-endpoints (the test runner, eSIM/SCP81/netsim) and 3c-3d/3d land.
+(3c-3c-2b) and the test-script store + the single-script run
+``GET/POST /api/test/scripts`` + ``/api/test/scripts/update|delete|import``,
+``POST /api/test/run|stop|clear`` and ``GET /api/test/status`` (3c-3d-1, with
+the run engine in :mod:`simple_server.testrun`).  Every other API path is a
+404 until the remaining 3c-3c endpoints (eSIM/SCP81/netsim), the test suites
+(3c-3d-2) and 3d land.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -71,6 +75,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
+from pysim_simple_server import test_scripts as test_scripts_store
+from pysim_simple_server import testscript
 
 from simple_server import bip as bip_module
 from simple_server import capram
@@ -82,6 +88,7 @@ from simple_server import ota
 from simple_server import pbr as pbr_module
 from simple_server import scp80
 from simple_server import sms
+from simple_server import testrun
 from simple_server import util
 from simple_server.transport import PcscLink, ReaderError
 
@@ -135,6 +142,10 @@ CLOSE_LOCK_TIMEOUT = 2.0
 CARD_FREE_GET = frozenset([
     '/api/status', '/api/version', '/api/readers', '/api/arr', '/api/pbr',
     '/api/presets', '/api/ram-batch/status',
+    # the test runner's state and the script store: the PWA polls the status
+    # every 2 s while a run owns the card (the run holds the lock inside a
+    # step), and the store/index are card-free
+    '/api/test/status', '/api/test/scripts',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
@@ -142,7 +153,10 @@ CARD_FREE_GET = frozenset([
 #: (no card, no preset); a long RAM install must not block the PWA's CAP
 #: analysis with its progress poll.  ``/api/ram-batch/stop`` only sets a flag
 #: and must work while the batch worker holds the card lock inside an install.
-CARD_FREE_POST = frozenset(['/api/cap-info', '/api/ram-batch/stop'])
+#: ``/api/test/stop``/``/api/test/clear`` are the same for a run (the runner
+#: holds the card lock inside a step, so Stop must not queue behind it).
+CARD_FREE_POST = frozenset(['/api/cap-info', '/api/ram-batch/stop',
+                            '/api/test/stop', '/api/test/clear'])
 
 #: The EF.ARR copies an FCP ``8B`` security attribute can reference (the legacy
 #: ``ARR_READ_PATHS``, label for label): the MF copy, the DF.TELECOM/DF.GSM
@@ -407,11 +421,13 @@ class ServerState(object):
     sequence); :meth:`equip` re-initializes the current card and
     :meth:`disconnect` tears the session down.
 
-    **Threads.**  Three daemon threads can be owned here: the background
+    **Threads.**  Four daemon threads can be owned here: the background
     STATUS poll (:meth:`start_poll`, started by :meth:`open`), the batch
-    install worker (:meth:`ram_batch_start`) and the presence observer, which
-    is pyscard's own ``CardMonitor`` observer rather than a thread we spin (see
-    :meth:`start_monitor`).  :meth:`close` stops all of them.
+    install worker (:meth:`ram_batch_start`), the test-run worker with its
+    stuck-card watchdog (``test_runner``:
+    :class:`simple_server.testrun.TestRunner`) and the presence observer,
+    which is pyscard's own ``CardMonitor`` observer rather than a thread we
+    spin (see :meth:`start_monitor`).  :meth:`close` stops all of them.
 
     **The injected hooks.**  ``transport_factory(reader_name)`` builds a
     transport (default :class:`simple_server.transport.PcscLink`);
@@ -469,7 +485,7 @@ class ServerState(object):
                  sms_oa='12345', sms_sc='12345678912',
                  auto_equip=True, monitor=True, version=VERSION,
                  presence_install=None, presence_remove=None,
-                 readers_fn=None):
+                 readers_fn=None, test_scripts=None, test_scripts_path=None):
         self.version = version
         self.web_dir = web_dir
         self.terminal_profile = (terminal_profile or '')
@@ -496,6 +512,18 @@ class ServerState(object):
             self.presets = presets_store.PresetStore(path=presets_path)
         else:
             self.presets = presets_store.PresetStore()
+        # The test-script store (the runner's scripts).  The constructor takes
+        # the path (the entry point's ``--test-scripts``) or the store itself;
+        # the validator is the runner's own engine, so a stored script can
+        # never fail at run start for a validation reason.
+        if test_scripts is not None:
+            self.test_scripts = test_scripts
+        else:
+            self.test_scripts = test_scripts_store.TestScriptStore(
+                path=test_scripts_path, validator=testrun.validate_script)
+        # The single-script run: the per-state run state, the worker and the
+        # stuck-card watchdog (the legacy ``_TEST_RUN``/``_TEST_THREAD``).
+        self.test_runner = testrun.TestRunner(self)
         # The SMS-PP download addresses (the legacy ``server.sms_oa``/
         # ``sms_sc`` CLI options).
         self.sms_oa = str(sms_oa or '12345')
@@ -702,6 +730,7 @@ class ServerState(object):
         self.stop_poll()
         self.stop_monitor()
         self._stop_ram_batch_worker()
+        self.test_runner.close()
         thread = self._equip_thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
@@ -1616,7 +1645,9 @@ class ServerState(object):
         ``bytes``, ``segments``, ``por``, ``cntr``, ``final_cntr``,
         ``cntr_low``, ``warning`` - and a warning ENVELOPE still gets its PoR
         decoded so a low counter shows as ``cntr_low`` instead of a bare
-        failure.
+        failure.  A transport exception after the packet was handed to the
+        transport persists the counter as well (the outcome is unclear - see
+        the ``except`` below) and then propagates: the request still fails.
 
         ``ram_format`` rewrites an explicit expanded Command Scripting
         template (TS 102 226 §5.2.1); its per-operation ``auto`` detection
@@ -1708,8 +1739,21 @@ class ServerState(object):
             log.info('OTA C-APDU: %s', apdu)
         log.info('OTA SECURED-PACKET: %s', sp_hex)
         capture = cat_session.PorSubmitCapture()
-        result = self._send_secured_packet(sp_hex, include_cpi=include_cpi,
-                                           submit_handler=capture)
+        try:
+            result = self._send_secured_packet(sp_hex,
+                                               include_cpi=include_cpi,
+                                               submit_handler=capture)
+        except Exception:
+            # The transport failed mid-exchange: the packet may already have
+            # reached the card, so the outcome is unclear and the counter
+            # advances (the three-way rule the test runner follows too) - an
+            # unnecessarily skipped value is harmless, a card left expecting a
+            # higher one answers cntr_low forever.  The request itself still
+            # fails with the original exception (no response shape to keep).
+            if counter_tracked and ota.counter_valid(cntr):
+                ota.counter_persist(store, preset_id, ota.next_counter(cntr),
+                                    'send-ota', kvn)
+            raise
         cmd_len = len(body.get('apdu') or '') // 2 or None
         if not result.get('success'):
             resp = dict(result)
@@ -1808,7 +1852,8 @@ class ServerState(object):
         return resp
 
     def _send_secured_packet(self, sp_hex, include_cpi=True, submit_handler=None,
-                             max_segments=scp80.SCP80_MAX_SEGMENTS):
+                             max_segments=scp80.SCP80_MAX_SEGMENTS,
+                             handle_proactive=True):
         """Deliver a secured packet as SMS-PP download ENVELOPEs.
 
         TS 31.115 §4.3: the whole command packet is split into SMS user-data
@@ -1818,6 +1863,11 @@ class ServerState(object):
         (a concatenated download cannot have produced its PoR before the card
         got every part).  Returns the legacy result dict - ``success``,
         ``bytes``, ``segments``, ``sw``, ``response_data`` or ``error``.
+
+        ``handle_proactive=False`` keeps a ``91XX`` answer pending: the test
+        runner's scp80 step must not consume the command the script is about
+        to assert (its expectation fetches and answers it), and the late-PoR
+        STATUS poll is skipped for the same reason.
         """
         try:
             packet = bytes.fromhex(str(sp_hex or '').strip())
@@ -1846,6 +1896,7 @@ class ServerState(object):
                         'segments': total, 'error': str(exc)}
             data, sw = self.cat.send_envelope(
                 tpdu, sm_sc=self.sms_sc, submit_handler=submit_handler,
+                handle_proactive=handle_proactive,
                 poll_status=(index == total - 1))
             sw_hex = bytes(sw or b'').hex().upper()
             log.info('OTA SEND: ENVELOPE %d/%d -> %s', index + 1, total,
@@ -2841,6 +2892,239 @@ class ServerState(object):
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
 
+    # ---- the test scripts and the single-script run (3c-3d-1) --------------
+
+    def abort_card_transport(self):
+        """Try to cancel a blocking ``send_apdu``; the link is marked stale.
+
+        The stuck-card watchdog calls this (through
+        :meth:`simple_server.testrun.TestRunner.watchdog_check`): pyscard's
+        ``SCardTransmit`` has no timeout, so the only way to break a silent
+        card's exchange is to disconnect the PC/SC link.  The disconnect runs
+        on its own daemon thread and the call returns immediately - pcsc-lite
+        serializes the disconnect behind the pending transmit (both take the
+        per-context lock), so a synchronous call would block the watchdog
+        instead of cancelling anything.  **Never takes the card lock**: the
+        stuck runner holds it.  Where the platform does cancel, the blocked
+        call raises and the normal step-failure path finalises the run; where
+        it does not, the run stays flagged stuck until the driver returns.
+        Returns ``True`` when a PC/SC connection existed (the abort was
+        attempted).
+        """
+        connection = getattr(self.transport, '_con', None)
+        if connection is None:
+            log.warning('TEST-WATCHDOG: no PC/SC connection to abort')
+            self._transport_stale = True
+            return False
+
+        def _run():
+            try:
+                connection.disconnect()
+            except Exception as exc:
+                log.warning('TEST-WATCHDOG: PC/SC disconnect failed: %s', exc)
+            finally:
+                self._transport_stale = True
+
+        threading.Thread(target=_run, name='test-abort', daemon=True).start()
+        return True
+
+    def test_scripts_info(self):
+        """``GET /api/test/scripts``: the store info plus every script."""
+        store = self.test_scripts
+        info = dict(store.info())
+        info['scripts'] = store.list()
+        return info
+
+    def test_script_add(self, body):
+        """``POST /api/test/scripts``: create one script.
+
+        The body is ``{name, steps, suite_id?, require_adm?}`` or
+        ``{script: {...}}``.  The store validates with the runner's engine
+        (:class:`~pysim_simple_server.test_scripts.TestScriptError` -> the
+        dispatch's 400).  The suite membership rules (a suite must exist, a
+        create joins its member list) belong to the suite store (3c-3d-2): a
+        ``suite_id`` is stored as the entry's opaque field and a store that
+        never validates it (no suites yet) never refuses it.
+        """
+        script = (body.get('script') if isinstance(body.get('script'), dict)
+                  else body)
+        try:
+            stored = self.test_scripts.add(script)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        return {'ok': True, 'script': stored}
+
+    def test_script_update(self, body):
+        """``POST /api/test/scripts/update``: replace name/steps/require_adm.
+
+        Returns ``None`` for an unknown id (the endpoint's 404).  A changed
+        ``suite_id`` is the move operation and is ignored until the suites
+        land (3c-3d-2); an unchanged one keeps its value.
+        """
+        fields = (body.get('script') if isinstance(body.get('script'), dict)
+                  else body)
+        fields = {key: value for key, value in (fields or {}).items()
+                  if key not in ('id', 'suite_id')}
+        try:
+            return self.test_scripts.update(body.get('id'), fields)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+
+    def test_script_delete(self, body):
+        """``POST /api/test/scripts/delete``: the legacy ``{ok, removed}``."""
+        try:
+            removed = self.test_scripts.remove(body.get('id'))
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        return {'ok': True, 'removed': bool(removed)}
+
+    def test_script_import(self, body):
+        """``POST /api/test/scripts/import``: the merge/replace import.
+
+        The legacy shape (an old localStorage export included) is accepted;
+        invalid entries are reported in ``errors`` instead of failing the
+        whole import.  The suite guards of the legacy (a ``replace`` is
+        refused while a suite lists scripts, a target ``suite_id`` attaches
+        the imported scripts) need the suite store and land with it
+        (3c-3d-2).
+        """
+        items = body.get('scripts')
+        if not isinstance(items, list) or len(items) > 1000:
+            raise ValueError('scripts must be a list of at most 1000 entries')
+        mode = (body.get('mode') if body.get('mode') in ('merge', 'replace')
+                else 'merge')
+        try:
+            result = self.test_scripts.import_scripts(items, mode)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        result.pop('added_ids', None)
+        result['ok'] = True
+        return result
+
+    @staticmethod
+    def _test_store_failure(exc):
+        """A test-script store I/O failure (the handler answers a JSON 500)."""
+        return RuntimeError('test script store write failed: %s' % exc)
+
+    def test_run(self, body):
+        """``POST /api/test/run``: validate and start a single-script run.
+
+        The body carries the script inline (``script``, the PWA's edited copy)
+        or a stored ``script_id``, the optional ``preset_id`` (or an inline
+        ``preset`` for API callers) and ``iterations`` for a load test.  Every
+        precondition is checked before the card is touched: the busy guard
+        (a run or a batch), the iteration count, the script validation, the
+        preset resolution, the SCP80 keyset precondition and the ADM gate.
+        The ADM flag rides **inside** the script object (``require_adm``) -
+        the PWA sends it there and a stored script carries it.
+
+        Raises :class:`~simple_server.testrun.TestRunBusy` (409),
+        :class:`~simple_server.testrun.TestRunNotFound` (404),
+        :class:`~simple_server.testrun.TestAdmError` (400 + the ``adm``
+        state) or a :class:`ValueError` (400); a worker that cannot start is
+        a :class:`RuntimeError` (the handler's 500).
+        """
+        body = dict(body or {})
+        runner = self.test_runner
+        if runner.running or self.test_running:
+            raise testrun.TestRunBusy('a test script is already running')
+        if self.ram_batch_active():
+            raise testrun.TestRunBusy('a batch install is running - stop it '
+                                      'first')
+        iterations = testrun.load_iterations(body)
+        if str(body.get('suite_id') or '').strip():
+            raise testrun.TestRunError(
+                'test suites are not available in this server build yet '
+                '(Phase 3c-3d-2): run one script (script or script_id)')
+        script_raw, script_id, error = self._run_script_from_body(body)
+        if error:
+            raise testrun.TestRunNotFound(error)
+        try:
+            script = testscript.normalise_script(script_raw,
+                                                 testrun.command_type)
+        except testscript.ScriptError as exc:
+            raise testrun.TestRunError(str(exc))
+        preset, preset_error = self._run_preset_from_body(body)
+        if preset_error:
+            raise testrun.TestRunError(preset_error)
+        needs_scp80 = any(step['type'] == 'action'
+                          and step['kind'] == 'scp80'
+                          for step in script['steps'])
+        if needs_scp80:
+            error = testrun.preset_error(script, preset)
+            if error:
+                raise testrun.TestRunError(error)
+        ok, adm_info, adm_error = runner.ensure_adm(
+            preset, bool((script_raw or {}).get('require_adm')))
+        if not ok:
+            raise testrun.TestAdmError(adm_error, adm_info)
+        try:
+            runner.start(script, preset, script_id or None, adm_info,
+                         iterations)
+        except Exception as exc:
+            # A worker that cannot start is a server failure (the legacy's
+            # 500), not a refused request.
+            raise RuntimeError(
+                'could not start the test run: %s' % exc) from exc
+        return runner.snapshot()
+
+    def _run_script_from_body(self, body):
+        """The run's script: the inline ``script`` or the stored ``script_id``.
+
+        Returns ``(script_raw, script_id, error)``; ``error`` is ``None`` on
+        success.  A stored script is served as ``{name, steps, require_adm}``
+        - an entry that no longer validates is served exactly like any other
+        and fails the run's validation (the store never drops it).
+        """
+        script_raw = body.get('script')
+        script_id = str(body.get('script_id') or '').strip()
+        if isinstance(script_raw, dict):
+            return script_raw, script_id or None, None
+        if not script_id:
+            return None, None, None
+        store = getattr(self, 'test_scripts', None)
+        stored = store.get(script_id) if store else None
+        if stored is None:
+            return None, None, 'test script %s not found' % script_id
+        return ({'name': stored['name'], 'steps': stored['steps'],
+                 'require_adm': bool(stored.get('require_adm'))},
+                stored['id'], None)
+
+    def _run_preset_from_body(self, body):
+        """The run's preset: the inline ``preset`` body or the stored id.
+
+        Returns ``(preset, error)``; ``error`` is ``None`` on success.  The
+        PWA sends ``preset_id``, so a run always uses the store's
+        authoritative keysets, TARs and counters; the inline form stays for
+        external API callers.
+        """
+        preset = body.get('preset') or {}
+        if preset:
+            return preset, None
+        preset_id = str(body.get('preset_id') or '').strip()
+        if not preset_id:
+            return {}, None
+        preset = self.presets.get(preset_id)
+        if preset is None:
+            return None, 'card preset %s not found' % preset_id
+        return preset, None
+
+    def test_status(self):
+        """``GET /api/test/status``: the current (or last) run, card-free."""
+        return self.test_runner.snapshot()
+
+    def test_stop(self):
+        """``POST /api/test/stop``: request a stop, answer the run state."""
+        return self.test_runner.stop()
+
+    def test_clear(self):
+        """``POST /api/test/clear``: drop a finished report (``False``: 409)."""
+        return self.test_runner.clear()
+
+    def test_request_blocked(self, path):
+        """True when ``path`` must answer 409 because a run owns the card."""
+        return testrun.request_blocked(path, self.test_running)
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -3147,8 +3431,9 @@ class ServerState(object):
         endpoint (3c-3b) published one -
         ``{path, name, fid, kind, size, record_len, num_records}``; the
         post-equip reads restore MF and never publish a selection.
-        ``test_run`` is the run state (the runner lands in 3c-3c) and
-        ``scp80`` the counter/keyset state (3c-3b), both placeholders now.
+        ``test_run`` is the run state's summary (the full report is
+        ``GET /api/test/status``) and ``scp80`` the counter/keyset state
+        (3c-3b), the latter a placeholder now.
         ``adm_verified`` is the ADM latch of the current card session (the
         legacy's ``rs.adm_verified``): a successful VERIFY until the next
         equip/disconnect.  ``ram_progress`` is the RAM operation in flight
@@ -3362,8 +3647,18 @@ def make_handler(state, log_requests=False):
 
         # ---- dispatch --------------------------------------------------
 
+        def _blocked_by_run(self):
+            """Answer 409 when a test run owns the card (``TEST_BLOCKED_PATHS``)."""
+            if not self.state_ref.test_request_blocked(self.path):
+                return False
+            self._send_json({'error': 'test script running - card commands are '
+                                      'blocked until it finishes'}, 409)
+            return True
+
         def do_GET(self):
             path = self.path.split('?', 1)[0]
+            if self._blocked_by_run():
+                return
             if path in CARD_FREE_GET or not path.startswith('/api/'):
                 self._dispatch_get()
                 return
@@ -3372,6 +3667,8 @@ def make_handler(state, log_requests=False):
 
         def do_POST(self):
             path = self.path.split('?', 1)[0]
+            if self._blocked_by_run():
+                return
             if path in CARD_FREE_POST:
                 self._dispatch_post()
                 return
@@ -3398,6 +3695,10 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.presets_info())
                 elif path == '/api/ram-batch/status':
                     self._send_json(self.state_ref.ram_batch_status())
+                elif path == '/api/test/status':
+                    self._send_json(self.state_ref.test_status())
+                elif path == '/api/test/scripts':
+                    self._send_json(self.state_ref.test_scripts_info())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -3471,10 +3772,36 @@ def make_handler(state, log_requests=False):
                     self._post_presets_import(body)
                 elif path == '/api/presets/import-outfile':
                     self._post_presets_import_outfile(body)
+                elif path == '/api/test/scripts':
+                    self._send_json(self.state_ref.test_script_add(body))
+                elif path == '/api/test/scripts/update':
+                    stored = self.state_ref.test_script_update(body)
+                    if stored is None:
+                        self._send_json({'error': 'unknown test script id'}, 404)
+                    else:
+                        self._send_json({'ok': True, 'script': stored})
+                elif path == '/api/test/scripts/delete':
+                    self._send_json(self.state_ref.test_script_delete(body))
+                elif path == '/api/test/scripts/import':
+                    self._send_json(self.state_ref.test_script_import(body))
+                elif path == '/api/test/run':
+                    self._post_test_run(body)
+                elif path == '/api/test/stop':
+                    self._send_json(self.state_ref.test_stop())
+                elif path == '/api/test/clear':
+                    if not self.state_ref.test_clear():
+                        self._send_json({'error': 'test script is running'},
+                                        409)
+                    else:
+                        self._send_json(self.state_ref.test_status())
                 else:
                     self._send_json({'error': 'Not found'}, 404)
             except presets_store.PresetError as exc:
                 # a refused store mutation: the store's message is the answer
+                self._send_json({'error': str(exc)}, 400)
+            except test_scripts_store.TestScriptError as exc:
+                # a refused test-script mutation (validation): the store's own
+                # message is the endpoint's 400
                 self._send_json({'error': str(exc)}, 400)
             except ValueError as exc:
                 # An endpoint's own validation error: its 400, not a JSON one.
@@ -3693,6 +4020,24 @@ def make_handler(state, log_requests=False):
 
         def _post_presets_import_outfile(self, body):
             self._send_json(self.state_ref.preset_import_outfile(body))
+
+        # ---- the test scripts and the single-script run (3c-3d-1) ------
+
+        def _post_test_run(self, body):
+            """Start a run: 409 while busy, 404 for an unknown script id.
+
+            The validation/ADM refusals are a ``ValueError`` (the dispatch's
+            400); the ADM gate's structured state rides the body as ``adm``
+            so the PWA can show the attempts left.
+            """
+            try:
+                self._send_json(self.state_ref.test_run(body))
+            except testrun.TestRunBusy as exc:
+                self._send_json({'error': str(exc)}, 409)
+            except testrun.TestAdmError as exc:
+                self._send_json({'error': str(exc), 'adm': exc.adm}, 400)
+            except testrun.TestRunNotFound as exc:
+                self._send_json({'error': str(exc)}, 404)
 
     return SimpleHandler
 
