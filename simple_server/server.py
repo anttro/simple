@@ -6,7 +6,7 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a/3b/3c-1/3c-2/3d-1/3d-2/3e-1): the state and the card
+Scope (Phase 3c-3a/3b/3c-1/3c-2/3d-1/3d-2/3e-1/3e-2): the state and the card
 lifecycle (:meth:`ServerState.open`, :meth:`~ServerState.equip`,
 :meth:`~ServerState.reset`, :meth:`~ServerState.disconnect`, the presence
 monitor and the background STATUS poll), the HTTP handler and the
@@ -37,9 +37,15 @@ terminal-profile|rescue|status-poll|poll-toggle|pli-dict`` and the raw APDU
 ``POST /api/net-state-refresh`` and ``GET /api/mcc-mnc`` (the card-level ES10
 flow in :mod:`simple_server.esim`, the net-sim adapter in
 :mod:`simple_server.netsim`, the monitor and operator list in
-:mod:`simple_server.netmon`).  Every other API path is a 404 until the
-remaining 3c-3e endpoints (the SCP81/BIP control surface) land; 3d (the entry
-point and the cutover) is the last server work.
+:mod:`simple_server.netmon`).  Phase 3c-3e-2b adds the SCP81/BIP control
+surface: ``POST /api/scp81/bip``, ``POST /api/bip/control``,
+``GET /api/scp81/status|bip/status``, ``GET /api/scp81/log|bip/log``
+(``?after=``), ``POST /api/scp81/log-clear|bip/log-clear``,
+``GET /api/scp81/script``, ``POST /api/scp81/queue|psk-map|gen-install`` (the
+control and the script engine in :mod:`simple_server.scp81` on top of the
+per-server :class:`~simple_server.bip.BipSession` and the reusable
+:class:`pysim_simple_server.scp81.PskTlsServer`).  Every other API path is a
+404 until 3d (the entry point and the cutover) lands.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -114,6 +120,7 @@ from simple_server import ota
 from simple_server import pbr as pbr_module
 from simple_server import proactive
 from simple_server import scp80
+from simple_server import scp81 as scp81_module
 from simple_server import sms
 from simple_server import suites as suites_module
 from simple_server import testrun
@@ -186,6 +193,12 @@ CARD_FREE_GET = frozenset([
     # cached/asset reads (the monitor's card I/O is the endpoints' own POST),
     # so the Phone tab can render them during a long operation
     '/api/net-state', '/api/mcc-mnc',
+    # the SCP81/BIP control state (3c-3e-2b): the listener/session status, the
+    # terminal event log and the script's run state are cached state on the
+    # server-owned session - the SCP81/BIP views poll them (and a listener may
+    # run cardless), so they must answer while a long card operation runs
+    '/api/scp81/status', '/api/bip/status', '/api/scp81/script',
+    '/api/scp81/log', '/api/bip/log',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
@@ -197,7 +210,9 @@ CARD_FREE_GET = frozenset([
 #: holds the card lock inside a step, so Stop must not queue behind it).  The
 #: test-script/-suite store mutations touch no card: the editor must stay
 #: usable while a run owns the card (the legacy queued them behind the lock,
-#: an unnecessary wait).
+#: an unnecessary wait).  The two log clears only touch the terminal's log,
+#: which is the terminal side (a listener may run cardless) - the run block
+#: still applies to them, since TEST_BLOCKED_PATHS is checked first.
 CARD_FREE_POST = frozenset([
     '/api/cap-info', '/api/ram-batch/stop', '/api/test/stop', '/api/test/clear',
     '/api/test/scripts', '/api/test/scripts/update',
@@ -205,6 +220,7 @@ CARD_FREE_POST = frozenset([
     '/api/test/scripts/move', '/api/test/scripts/copy',
     '/api/test/suites', '/api/test/suites/update', '/api/test/suites/delete',
     '/api/test/suites/import',
+    '/api/scp81/log-clear', '/api/bip/log-clear',
 ])
 
 #: The EF.ARR copies an FCP ``8B`` security attribute can reference (the legacy
@@ -749,6 +765,20 @@ class ServerState(object):
         # the workers and the stuck-card watchdog (the legacy
         # ``_TEST_RUN``/``_TEST_THREAD``).
         self.test_runner = testrun.TestRunner(self)
+        # The BIP/SCP81 session control: **one persistent session per server**
+        # (the legacy module globals).  It owns the terminal (its channel log,
+        # the sink/TLS listener, owner/mode/target) and therefore outlives a
+        # card change: a listener started before a card, or kept across a
+        # swap, simply serves the next card's OPEN CHANNEL (the listener is
+        # the terminal side, not per-card state).  ``self.bip`` below is the
+        # alias for the *current card session* (``None`` when cardless), so
+        # the CAT hooks and the per-card status keep their meaning.
+        self.bip_session = bip_module.BipSession(
+            card_lock=self.card_lock,
+            card_connected=lambda: self.connected)
+        # The SCP81 control surface (3c-3e-2b): the listener start/stop, the
+        # script engine and the PSK table, on the same session.
+        self.scp81 = scp81_module.Scp81Control(self.bip_session)
         # The SMS-PP download addresses (the legacy ``server.sms_oa``/
         # ``sms_sc`` CLI options).
         self.sms_oa = str(sms_oa or '12345')
@@ -965,6 +995,16 @@ class ServerState(object):
         self.stop_monitor()
         self._stop_ram_batch_worker()
         self.test_runner.close()
+        # The SCP81/BIP listener is server-owned (it survives card changes),
+        # so the shutdown stops it explicitly.  Lock-free on purpose: the card
+        # teardown below takes the lock with a timeout, and the listener stop
+        # must not block the process exit behind a blocking card exchange -
+        # its channel cleanup is the terminal's disable() (a local socket
+        # close), and the teardown's own detach repeats it idempotently.
+        try:
+            self.bip_session.stop(lock=False)
+        except Exception as exc:
+            log.debug('BIP/SCP81 session stop failed: %s', exc)
         thread = self._equip_thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
@@ -990,10 +1030,14 @@ class ServerState(object):
         Rebuilds the transport for the chosen reader, resets and re-initializes
         its card and bumps ``card_session`` (each reader has its own card, so
         the previous selection/CAT session/ICCID/caches are meaningless).  The
-        endpoint refuses the switch while a test run or a BIP session owns the
-        card (:class:`CardBusyError` -> ``409``); a cardless reader is not an
-        error for the switch itself - the error is reported (``503`` with the
-        status body) and the reader stays selected for the next equip.
+        endpoint refuses the switch while a test run or a BIP/SCP81 session
+        owns the terminal (:class:`CardBusyError` -> ``409``) - the guard keys
+        on the persistent ``bip_session.owner``, not the per-card
+        :attr:`bip` alias, because a cardless listener would otherwise be
+        missed while the switch resets the card and kills its channels either
+        way.  A cardless reader is not an error for the switch itself - the
+        error is reported (``503`` with the status body) and the reader stays
+        selected for the next equip.
         """
         with self.card_lock:
             self.equipping = True
@@ -1002,7 +1046,7 @@ class ServerState(object):
                 if self.test_running:
                     raise CardBusyError(
                         'a test run owns the card; stop it first')
-                if self.bip is not None and self.bip.owner:
+                if self.bip_session.owner:
                     raise CardBusyError(
                         'a BIP session owns the card; stop it first')
                 old = self.transport
@@ -1052,9 +1096,11 @@ class ServerState(object):
             poll_interval=self.poll_interval,
             card_lock=self.card_lock,
             pli_data=self.pli_data)
-        self.bip = bip_module.BipSession(
-            self.cat, card_lock=self.card_lock,
-            card_connected=lambda: self.connected)
+        # The persistent BIP/SCP81 session serves this card from now on: the
+        # channels of the previous card were closed by the teardown, the
+        # listener (if any) kept running.
+        self.bip_session.attach_card(self.cat)
+        self.bip = self.bip_session
         self.connected = True
         self.card_present = True
         self.card_session += 1
@@ -1143,12 +1189,14 @@ class ServerState(object):
                 cat.cancel_menu_timeout()
             except Exception:
                 pass
-        bip, self.bip = self.bip, None
-        if bip is not None:
-            try:
-                bip.stop()
-            except Exception as exc:
-                log.debug('BIP session stop failed: %s', exc)
+        self.bip = None
+        # The BIP/SCP81 session is server-owned and survives a card change;
+        # only the old card's channels are dropped (the listener keeps
+        # serving the terminal side).  The detach is idempotent.
+        try:
+            self.bip_session.detach_card()
+        except Exception as exc:
+            log.debug('BIP session detach failed: %s', exc)
         self.card = None
         self.connected = False
         self.atr = None
@@ -4521,6 +4569,94 @@ class ServerState(object):
         return {'available': True, 'count': len(data),
                 'results': netmon.search(data, value('q'))}
 
+    # ---- the SCP81/BIP control endpoints (3c-3e-2b) -----------------------
+    #
+    # The SCP81 tab's listener/scripts and the Simulator's BIP pill.  The
+    # session (owner/mode/target/listener, the terminal and its log) is the
+    # persistent :attr:`bip_session`, so the status/log/script GETs answer
+    # card-free and a listener survives a card change; the control object
+    # (:mod:`simple_server.scp81`) owns the script engine and the PSK table.
+    #
+    # `POST /api/scp81/bip|bip/control|psk-map|queue` are card-locked like the
+    # legacy (they are not in :data:`CARD_FREE_POST`): a start/stop closes or
+    # enables the terminal's channels under the session's own lock, and a
+    # listener start must not interleave a card exchange.  `gen-install` is
+    # card-free work behind the same lock for simplicity (it is fast).
+
+    def bip_status(self):
+        """``GET /api/scp81/status`` / ``GET /api/bip/status`` (card-free).
+
+        ``{owner, bip, listener}`` - one shared shape for both views (the
+        legacy ``_bip_status_body``), with the TLS listener's own block
+        (identities, last handshake, framing) in ``listener``.
+        """
+        return self.scp81.status_body()
+
+    def bip_log(self, after=0):
+        """``GET /api/scp81/log`` / ``GET /api/bip/log`` (card-free).
+
+        The terminal's event log; ``?after=<seq>`` returns only newer
+        entries, capped to the last 200 for the UI (the terminal itself keeps
+        its own bounded history).
+        """
+        terminal = self.bip_session.terminal
+        return {'seq': terminal.seq,
+                'entries': terminal.entries_after(after)[-200:]}
+
+    def bip_log_clear(self):
+        """``POST /api/scp81/log-clear`` / ``POST /api/bip/log-clear``."""
+        terminal = self.bip_session.terminal
+        terminal.clear_log()
+        return {'ok': True, 'seq': terminal.seq}
+
+    def bip_control(self, body):
+        """``POST /api/bip/control``: the Simulator's BIP pill.
+
+        ``sink``/``redirect``/``passthru`` (the legacy ``_bip_control``);
+        starting replaces any session - the SCP81 listener included - and the
+        response reports what was stopped as ``replaced``.  A refusal is
+        ``{'ok': False, 'error': ...}`` (the endpoint answers 400).
+        """
+        return self.scp81.bip_control(body)
+
+    def scp81_bip(self, body):
+        """``POST /api/scp81/bip``: start/stop the SCP81 listener.
+
+        Modes ``tls`` (PSK TLS administration server), ``dump`` (capture
+        listener), ``redirect``/``passthru`` (no listener - the BIP session's
+        own modes).  Starting stops the running session (the BIP pill
+        included) and reports it as ``replaced``.
+        """
+        return self.scp81.start(body)
+
+    def scp81_script(self):
+        """``GET /api/scp81/script``: the configured script and its run state."""
+        return self.scp81.script_state()
+
+    def scp81_queue(self, body):
+        """``POST /api/scp81/queue``: replace/restart the command script.
+
+        ``{apdus|script, kind, force}``; refused mid-run without ``force``
+        (the caller's ``ok: False`` is the endpoint's 400).
+        """
+        return self.scp81.queue(body)
+
+    def scp81_psk_map(self, body):
+        """``POST /api/scp81/psk-map``: push card-preset PSK edits.
+
+        Replaces the table of the running TLS listener without a restart.
+        """
+        return self.scp81.update_psk_map(body)
+
+    def scp81_gen_install(self, body):
+        """``POST /api/scp81/gen-install``: ``.cap`` -> the RAM APDU list.
+
+        A generator for the PWA's "Install from .cap" script template:
+        nothing is queued and the file is never stored (the legacy contract
+        keeps ``ok: false`` in the body rather than a 4xx).
+        """
+        return self.scp81.gen_install(body)
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -4924,6 +5060,23 @@ class _PresenceObserver(object):
             log.warning('presence observer error: %s', exc)
 
 
+def _after_param(path):
+    """The ``?after=<seq>`` cursor of a BIP/SCP81 log request (0 if absent).
+
+    The legacy parsed the query by hand and fell back to ``0`` for anything
+    unparsable; a log cursor is not a request parameter worth a 400 (the
+    caller polls it, and a stale cursor only replays the log).
+    """
+    query = path.split('?', 1)[1] if '?' in path else ''
+    values = parse_qs(query, keep_blank_values=True).get('after') or []
+    if not values:
+        return 0
+    try:
+        return max(0, int(values[-1]))
+    except (TypeError, ValueError):
+        return 0
+
+
 def make_handler(state, log_requests=False):
     """Build the ``BaseHTTPRequestHandler`` class serving ``state``.
 
@@ -5128,6 +5281,13 @@ def make_handler(state, log_requests=False):
                     self._get_esim(self.state_ref.esim_profiles)
                 elif path == '/api/esim/notifications':
                     self._get_esim(self.state_ref.esim_notifications)
+                elif path in ('/api/scp81/status', '/api/bip/status'):
+                    self._send_json(self.state_ref.bip_status())
+                elif path in ('/api/scp81/log', '/api/bip/log'):
+                    self._send_json(self.state_ref.bip_log(
+                        _after_param(self.path)))
+                elif path == '/api/scp81/script':
+                    self._send_json(self.state_ref.scp81_script())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -5280,6 +5440,21 @@ def make_handler(state, log_requests=False):
                     self._post_card(
                         lambda: self.state_ref.net_state_refresh(body),
                         {'available': False})
+                elif path == '/api/scp81/bip':
+                    self._post_scp81(lambda: self.state_ref.scp81_bip(body))
+                elif path == '/api/bip/control':
+                    self._post_scp81(lambda: self.state_ref.bip_control(body))
+                elif path == '/api/scp81/psk-map':
+                    self._post_scp81(
+                        lambda: self.state_ref.scp81_psk_map(body))
+                elif path == '/api/scp81/queue':
+                    self._post_scp81(lambda: self.state_ref.scp81_queue(body))
+                elif path == '/api/scp81/gen-install':
+                    self._post_scp81(
+                        lambda: self.state_ref.scp81_gen_install(body),
+                        legacy_ok_false=True)
+                elif path in ('/api/scp81/log-clear', '/api/bip/log-clear'):
+                    self._send_json(self.state_ref.bip_log_clear())
                 else:
                     self._send_json({'error': 'Not found'}, 404)
             except presets_store.PresetError as exc:
@@ -5509,6 +5684,27 @@ def make_handler(state, log_requests=False):
                                 409)
                 return
             self._send_json({'ok': True})
+
+        # ---- the SCP81/BIP control (3c-3e-2b) -------------------------
+
+        def _post_scp81(self, action, legacy_ok_false=False):
+            """A SCP81/BIP control endpoint: a refusal is a 400 with its body.
+
+            The control responses carry their own ``ok``; a refusal
+            (``ok: false`` - a bad mode, a listener bind failure, a script
+            mid-run, no PSK configured) answers ``400`` so a caller can tell
+            it from a success.  ``/api/scp81/gen-install`` keeps the legacy's
+            ``200 {ok: false}`` (the PWA's CAP/script panel reads ``ok``
+            either way); its refusals are file/parameter problems, not a
+            request shape the caller can fix.
+            """
+            try:
+                resp = action()
+            except ValueError as exc:
+                self._send_json({'ok': False, 'error': str(exc)}, 400)
+                return
+            success = bool(resp.get('ok', True))
+            self._send_json(resp, 200 if (success or legacy_ok_false) else 400)
 
         # A PresetError (a refused store mutation) is the dispatch's 400 - the
         # inner handlers only add their own status for the non-error answers.

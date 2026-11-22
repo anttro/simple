@@ -148,11 +148,17 @@ class PskTlsServerTest(unittest.TestCase):
             self.assertTrue(reply.startswith(b'HTTP/1.1 204 No Content\r\n'))
             self.assertIn(b'X-Admin-Protocol: globalplatform-remote-admin/1.0', reply)
             tls.close()
-            deadline = time.time() + 3
-            while time.time() < deadline and srv.identity_seen is None:
+            # The server thread logs tls-response a moment after the client's
+            # close; under CPU load it can miss an immediate check (a flaky
+            # 1-in-4 long run before this wait).  Poll for the dialog's end.
+            deadline = time.time() + 2
+            kinds = []
+            while time.time() < deadline:
+                kinds = [k for k, _ in logs]
+                if srv.identity_seen is not None and 'tls-response' in kinds:
+                    break
                 time.sleep(0.05)
             self.assertEqual(srv.identity_seen, IDENT)
-            kinds = [k for k, _ in logs]
             self.assertIn('tls-handshake', kinds)
             self.assertIn('tls-request', kinds)
             self.assertIn('tls-response', kinds)

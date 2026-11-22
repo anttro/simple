@@ -41,6 +41,11 @@ equip-like re-initialization) on :mod:`simple_server.esim`, and the network
 side - the net-sim scenarios (:mod:`simple_server.netsim`, the legacy runner
 on the ported card), the network-state monitor (:mod:`simple_server.netmon`
 around the reused ``netstate``) and the MCC/MNC operator list search.
+Phase 3c-3e-2b: the SCP81/BIP control endpoints (:mod:`simple_server.scp81`) -
+the listener start/stop for the dump, TLS, redirect and passthru modes, the
+administration command-script engine, the PSK table, the ``.cap`` -> APDU
+generator and the generic BIP pill control - on top of the server-owned
+:class:`simple_server.bip.BipSession`.
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

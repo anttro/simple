@@ -852,6 +852,97 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(terminal.enabled)
 
 
+class SwapChannel(object):
+    """A channel the detach seam can close (the ``BipChannel`` slice)."""
+
+    def __init__(self, channel_id):
+        self.id = channel_id
+        self.closed_reported = False
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class SwapTerminal(FakeTerminal):
+    """A FakeTerminal that records the teardown order (the detach seam)."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self.closed_channels = []
+
+    def close_all(self, link_lost=False):
+        self.calls.append(('close_all', link_lost))
+        for channel_id, channel in list(self.channels.items()):
+            channel.close()
+            self.closed_channels.append(channel_id)
+            del self.channels[channel_id]
+
+    def take_pending_events(self):
+        self.calls.append(('take_pending_events',))
+        return super().take_pending_events()
+
+
+class CardSwapTests(unittest.TestCase):
+    """``attach_card``/``detach_card``: the terminal side survives a swap."""
+
+    def setUp(self):
+        self.terminal = SwapTerminal()
+        self.sink = FakeSink(port=4123)
+        self.session = bip.BipSession(terminal=self.terminal, sink=self.sink)
+
+    def test_detach_closes_the_channels_then_drains_the_events(self):
+        channel = SwapChannel(1)
+        self.terminal.channels[1] = channel
+        self.terminal._queue_link_status(1)       # a stale queued event
+        self.session.start({'mode': 'sink', 'port': 0})
+        self.session.attach_card(FakeCatSession([0x0A]))
+        self.session.detach_card()
+        self.assertIsNone(self.session.cat_session)
+        # the channels closed, marked so the monitor cannot re-queue for them
+        self.assertTrue(channel.closed)
+        self.assertTrue(channel.closed_reported)
+        self.assertEqual(self.terminal.closed_channels, [1])
+        # the drain runs after the close, and clears the stale event
+        self.assertEqual(self.terminal.calls,
+                         [('close_all', False), ('take_pending_events',)])
+        self.assertEqual(self.terminal.pending, [])
+        # the terminal side (listener/mode/owner/link_events) stays
+        self.assertIs(self.session.listener, self.sink)
+        self.assertEqual(self.session.mode, 'sink')
+        self.assertEqual(self.session.owner, 'bip')
+        self.assertTrue(self.session.link_events)
+
+    def test_attach_card_binds_a_new_session_and_ignores_a_repeat(self):
+        first = FakeCatSession([])
+        second = FakeCatSession([])
+        self.session.attach_card(first)
+        self.assertIs(self.session.cat_session, first)
+        self.session.attach_card(first)           # the same session: a no-op
+        self.assertIs(self.session.cat_session, first)
+        self.session.attach_card(second)
+        self.assertIs(self.session.cat_session, second)
+        # a detach clears it, so the next attach is meaningful again
+        self.session.detach_card()
+        self.assertIsNone(self.session.cat_session)
+        self.session.attach_card(first)
+        self.assertIs(self.session.cat_session, first)
+
+    def test_stop_without_the_card_lock_still_cleans_up(self):
+        self.session.start({'mode': 'sink', 'port': 0})
+        lock = RecordingLock()
+        self.session.card_lock = lock
+        replaced = self.session.stop(lock=False)
+        self.assertEqual(lock.entries, 0)
+        self.assertEqual(replaced, {'owner': 'bip', 'mode': 'sink'})
+        self.assertIsNone(self.session.listener)
+        self.assertIsNone(self.session.mode)
+        self.assertIsNone(self.session.owner)
+        self.assertFalse(self.terminal.enabled)
+        self.assertEqual(self.sink.stopped, 1)
+
+
 class LockingTests(unittest.TestCase):
     """``card_lock``: taken by the state changes, inherited from the session."""
 

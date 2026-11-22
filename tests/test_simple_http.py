@@ -781,13 +781,32 @@ class ReaderTests(HTTPTestBase):
         self.assertEqual(state.reader_name, 'Reader A')
 
     def test_reader_switch_is_refused_while_a_bip_session_owns_the_card(self):
-        state = self.track(make_state(reader='Reader A'))
-        state.bip = types.SimpleNamespace(owner='scp81')
-        status, body = self.served(state).json(
+        # The guard keys on the persistent `bip_session.owner`, not the
+        # per-card `bip` alias: a cardless listener (state.bip is None) must
+        # refuse the switch too - it resets the card and kills the channels.
+        for card in (False, True):
+            with self.subTest(card=card):
+                state = self.track(make_state(reader='Reader A'))
+                state.bip_session.owner = 'scp81'
+                state.bip = (types.SimpleNamespace(owner='scp81')
+                             if card else None)
+                status, body = self.served(state).json(
+                    'POST', '/api/reader', {'name': 'Reader B'})
+                self.assertEqual(status, 409)
+                self.assertIn('BIP session', body['error'])
+                self.assertEqual(state.reader_name, 'Reader A')
+
+    def test_reader_switch_is_allowed_when_the_bip_session_is_idle(self):
+        state = self.track(make_state(transport_factory=lambda name:
+                                      FakeTransport(handler=CardScript(),
+                                                    reader_name=name),
+                                      reader='Reader A'))
+        state.open(start_threads=False)
+        state.bip_session.owner = None
+        state.bip = None
+        status, _body = self.served(state).json(
             'POST', '/api/reader', {'name': 'Reader B'})
-        self.assertEqual(status, 409)
-        self.assertIn('BIP session', body['error'])
-        self.assertEqual(state.reader_name, 'Reader A')
+        self.assertEqual(status, 200)
 
     def test_reader_switch_to_a_cardless_reader_is_a_503_with_the_status(self):
         # ReaderError is a RuntimeError subclass: it used to be answered 409

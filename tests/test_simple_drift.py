@@ -2238,6 +2238,215 @@ class EsimDecodeDriftTests(unittest.TestCase):
                              legacy_esim._error_text(code))
 
 
+class Scp81DriftTests(unittest.TestCase):
+    """The SCP81 control and the script engine are a behavioural port (3c-3e-2b).
+
+    The administration dialog decides what the card executes and how its
+    answer is read, so a divergence would be silently wrong on hardware: the
+    template bytes, the response parse, the listing continuation, the PSK
+    table, the script state machine and the ``.cap`` -> APDU generator are
+    compared against the legacy copies below.
+    """
+
+    EXPLORE = ['80CAFF2100', '80F28002024F0000', '80CA008500']
+
+    def setUp(self):
+        legacy._scp81_reset_script(list(self.EXPLORE), 'drift')
+        legacy._SCP81_SCRIPT_TEMPLATE = 'indefinite'
+        legacy._SCP81_SCRIPT_CR_TAG = False
+        legacy._SCP81_NEXT_URI = None
+        legacy._SCP81_TARGETED_APP = None
+        from simple_server import scp81 as SC
+        self.SC = SC
+        self.engine = SC.ScriptEngine()
+        self.engine.reset(list(self.EXPLORE), 'drift')
+
+    def tearDown(self):
+        legacy._scp81_reset_script([], 'none')
+        legacy._SCP81_SCRIPT_TEMPLATE = 'indefinite'
+        legacy._SCP81_SCRIPT_CR_TAG = False
+        legacy._SCP81_NEXT_URI = None
+        legacy._SCP81_TARGETED_APP = None
+
+    def test_the_command_template(self):
+        for apdu in ('80CAFF2100', '00' * 4, '80E60C00' + 'AA' * 120,
+                     'E8' * 200):
+            for definite in (False, True):
+                for cr_tag in (False, True):
+                    label = '%s/%s/%s' % (apdu[:8], definite, cr_tag)
+                    self.assertEqual(
+                        self.SC.command_body(apdu, definite=definite,
+                                             cr_tag=cr_tag),
+                        legacy._scp81_command_body(apdu, definite=definite,
+                                                   cr_tag=cr_tag), label)
+
+    def test_the_response_parse(self):
+        cases = [
+            b'',
+            bytes.fromhex('af80' '800101' '2304' '93059000' '0000'),
+            bytes.fromhex('af80' '800102' '2304' '93059000' '2302' '6A82' '0000'),
+            bytes.fromhex('ab0c' '800101' '2304' '93059000'),
+            bytes.fromhex('2302' '6A82'),
+            bytes.fromhex('af80' '800101' '2381FC' + '00' * 0xFC + '0000'),
+            # a truncated TLV must stop the walk, not fabricate an R-APDU
+            bytes.fromhex('2305' '93059000'),
+            bytes.fromhex('2381' 'FF00'),
+        ]
+        for body in cases:
+            self.assertEqual(self.SC.parse_response(body),
+                             legacy._scp81_parse_response(body), body.hex())
+
+    def test_the_listing_continuation(self):
+        for apdu in ('80F28002024F0000', '80F24000024F0000', '80f21000024f0000',
+                     '80CAFF2100', '80F2', '', '0000000000', '80F28003024F0000'):
+            self.assertEqual(self.SC.continuation(apdu),
+                             legacy._scp81_continuation(apdu), apdu)
+
+    def test_the_psk_table_parse(self):
+        cases = [
+            None,
+            {},
+            [],
+            [{'identity': 'a', 'psk_hex': '0011'}],
+            [{'identity': ' a ', 'psk_hex': '00 11 '}],
+            [{'identity': '', 'psk_hex': '0011'}],
+            [{'identity': 'a', 'psk_hex': ''}],
+            [{'identity': 'a', 'psk_hex': 'zz'}],
+            [{'psk_hex': '0011'}],
+            ['nope'],
+            'nope',
+            {'a': '0011', 'b': '22'},
+            [{'identity': 'a', 'psk_hex': '0011'},
+             {'identity': 'b', 'psk_hex': 'nothex'}],
+        ]
+        for case in cases:
+            self.assertEqual(self.SC.parse_psk_map(case),
+                             legacy._parse_psk_map(case), repr(case))
+
+    def test_the_constants(self):
+        self.assertEqual(self.SC.MAX_PAGES, legacy.SCP81_MAX_PAGES)
+        self.assertEqual(self.SC.DEFAULT_PORT, 8443)
+        self.assertEqual(self.SC.OWNER_SCP81, 'scp81')
+
+    def test_the_blocked_paths(self):
+        # A test run owns the card: the same endpoints are refused on both
+        # sides (the SCP81/BIP control starts/stops sessions that touch it).
+        self.assertEqual(T.TEST_BLOCKED_PATHS, legacy._TEST_BLOCKED_PATHS)
+
+    def test_the_tls_listener_block_agrees(self):
+        from pysim_simple_server import scp81 as listener_module
+        listeners = [
+            listener_module.PskTlsServer(
+                '127.0.0.1', 0, psk_map={'89012345678901234567':
+                                         bytes.fromhex('00' * 16)},
+                chunked=True, compact_headers=True, tls_version='1.2'),
+            # the legacy single-key (wildcard) form
+            listener_module.PskTlsServer(
+                '127.0.0.1', 0, bytes.fromhex('11' * 16)),
+        ]
+        try:
+            for listener in listeners:
+                session = B.BipSession()
+                control = self.SC.Scp81Control(session)
+                self.assertIsNone(session.start_listener(
+                    listener, owner='scp81', mode='tls'))
+                old = legacy._BIP_LISTENER, legacy._BIP_MODE
+                legacy._BIP_LISTENER, legacy._BIP_MODE = listener, 'tls'
+                try:
+                    theirs = legacy._bip_listener_status()
+                finally:
+                    legacy._BIP_LISTENER, legacy._BIP_MODE = old
+                self.assertEqual(control.status_body()['listener'], theirs)
+                session.stop()
+        finally:
+            for listener in listeners:
+                listener.stop()
+
+    def _post(self, headers=None, body=b''):
+        ours = self.engine.responder('POST', '/api/scp81', headers or {}, body)
+        theirs = legacy._scp81_script_responder(
+            'POST', '/api/scp81', headers or {}, body)
+        self.assertEqual(ours[0], theirs[0])
+        self.assertEqual(ours[1], theirs[1])
+        self.assertEqual(ours[2], theirs[2])
+        self.assertEqual(self.engine.state(), legacy._scp81_script_state())
+        return ours
+
+    def test_the_script_run_agrees(self):
+        # a fresh dialog sends the first APDU
+        status, headers, body = self._post()
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['X-Admin-Next-URI'], '/api/scp81?req=1')
+        # the card reports it, so the second APDU goes out
+        report = bytes.fromhex('af80' '800101' '2304' '93059000' '0000')
+        status, _headers, _body = self._post(
+            {'x-admin-script-status': 'ok'}, report)
+        self.assertEqual(status, 200)
+        # a failed report still marks the APDU executed
+        self._post({'x-admin-script-status': 'failed'})
+        # the last APDU, then the session ends with 204
+        self._post({'x-admin-script-status': 'ok'}, report)
+        status, headers, body = self._post({'x-admin-script-status': 'ok'},
+                                           report)
+        self.assertEqual(status, 204)
+        self.assertEqual(body, b'')
+        self.assertTrue(self.engine.state()['complete'])
+
+    def test_the_resume_and_the_fresh_dialog_agree(self):
+        self._post()                                  # APDU 1 pending
+        # a resume resends the unreported APDU (position 0)
+        status, _headers, body = self._post({'x-admin-resume': 'true'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, legacy._scp81_command_body(self.EXPLORE[0]))
+        # a POST without headers is a fresh dialog: the script restarts
+        status, _headers, body = self._post()
+        self.assertEqual(status, 200)
+        self.assertEqual(body, legacy._scp81_command_body(self.EXPLORE[0]))
+
+    def test_the_listing_pages_agree(self):
+        # A truncated GET STATUS page ('63 10' = more occurrences) queues the
+        # continuation APDU (the same command with P2.b1 set) first.
+        self.engine.reset(['80F28002024F0000', '80CAFF2100'], 'drift')
+        legacy._scp81_reset_script(['80F28002024F0000', '80CAFF2100'], 'drift')
+        self._post()                                  # the GET STATUS pending
+        report = bytes.fromhex('af80' '800101' '2304' '93056310' '0000')
+        status, _headers, body = self._post(
+            {'x-admin-script-status': 'ok'}, report)
+        self.assertEqual(status, 200)
+        state = self.engine.state()
+        self.assertEqual(state['pages'], 1)
+        self.assertTrue(state['pending']['page'])
+        self.assertEqual(state['pending']['apdu'], '80F28003024F0000')
+        self.assertEqual(legacy._SCP81_SCRIPT_PAGE_QUEUE, [])
+
+    def test_the_cap_install_generator_agrees(self):
+        from simple_server import scp81 as SC
+        state = SRV.ServerState(monitor=False, readers_fn=lambda: [])
+        try:
+            cap_hex = CapRamDriftTests.cap_bytes().hex()
+            for body in ({}, {'cap_hex': cap_hex},
+                         {'cap_hex': cap_hex, 'sd_aid': 'A000000003000000',
+                          'make_selectable': False},
+                         {'cap_hex': cap_hex, 'nv_quota': 0,
+                          'volatile_quota': 200},
+                         {'cap_hex': cap_hex, 'install_params': 'CA00'},
+                         {'cap_hex': 'zz'}, {'cap_hex': '00'}):
+                ours = state.scp81.gen_install(dict(body))
+                theirs = legacy._scp81_gen_install(dict(body))
+                self.assertEqual(ours['ok'], theirs['ok'], repr(body)[:40])
+                if ours['ok']:
+                    self.assertEqual(ours['apdus'], theirs['apdus'],
+                                     repr(body)[:40])
+                    self.assertEqual(ours['load_file_aid'],
+                                     theirs['load_file_aid'])
+                    self.assertEqual(ours['module_aid'], theirs['module_aid'])
+                else:
+                    self.assertIn('error', ours)
+                    self.assertIn('error', theirs)
+        finally:
+            state.close()
+
+
 class MccMncDriftTests(unittest.TestCase):
     """The operator-list helpers are a port: same rows, same MVNO rule."""
 

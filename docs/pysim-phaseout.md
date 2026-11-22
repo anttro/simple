@@ -12,7 +12,7 @@
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green then) |
 | 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green then) |
 | 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green then, 1367 after the review fixes) |
-| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a (ES10) and 3b first half (proactive/TR layer) done; HTTP handler/CAT, the entry point and cutover remain |
+| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control); 3d (the pysim-free PWA cutover + the entry point) remains |
 
 ## Phase 0 outcome
 
@@ -1263,6 +1263,140 @@ post-switch verification, the model-unknown candidate path and the FCP-less
 REFRESH timing, the re-init on a real profile change, the simulator's writes
 on a real card and the monitor's operator resolution on real files remain the
 bench acceptance checks.
+
+## Phase 3c-3e-2b outcome (the SCP81/BIP control endpoints)
+
+The SCP81 tab's listener and scripts and the Simulator's BIP pill are served
+from `ServerState`: `POST /api/scp81/bip`, `POST /api/bip/control`,
+`GET /api/scp81/status|bip/status`, `GET /api/scp81/log|bip/log` (`?after=`),
+`POST /api/scp81/log-clear|bip/log-clear`, `GET /api/scp81/script` and
+`POST /api/scp81/queue|psk-map|gen-install`.  `simple_server/scp81.py` holds
+the control and the script engine; the listener/terminal stays
+`pysim_simple_server.scp81.PskTlsServer` and `httpota.TcpDumpServer`, the BIP
+session `simple_server.bip.BipSession` (3c-2) and the APDU builders
+`simple_server.capram` (the same code the RAM install uses).
+
+Ported, function for function: `_scp81_bip_control`, `_bip_control`,
+`_bip_session_stop`/`_bip_status_body`/`_bip_listener_status`,
+`_scp81_restart_run`/`_scp81_script_mid_run`/`_scp81_reset_script`/
+`_scp81_queue_script`/`_scp81_script_state`/`_scp81_script_responder`,
+`_scp81_command_body`/`_scp81_parse_response`/`_scp81_continuation`,
+`_parse_psk_map`/`_scp81_update_psk_map` and `_scp81_gen_install` - the
+`_SCP81_*`/`_BIP_*` globals became `Scp81Control`/`ScriptEngine` attributes of
+one server.  The port keeps the legacy's split of duties exactly: the
+administration script **runs on the card** (the SD fetches the C-APDU and
+reports the R-APDUs in its next POST), so these endpoints do no card I/O of
+their own - the card exchange is the BIP terminal's, and only the session
+start/stop touches the terminal under the card lock.
+
+Spec anchors: GPC v2.2 Amendment B §4.3 (the TLS-PSK dialect: the Table 4-2
+suites, TLS 1.0-1.2, no resumption) and §4.4/§4.4.2 (the `X-Admin-*`
+administration dialog; 204 ends the session), TS 102 226 §5.2.1 (the Command
+Scripting template `AA`/`AE 80`), §5.2.2/Table 5.12 (the Response Scripting
+template, the executed count `80` and the R-APDU `23`), §8.2.1.7.2 (GET DATA
+FF21), GP Card Specification v2.3.1 §11.4.2 (GET STATUS, `63 10` = more
+occurrences) and §11.5/§11.6 (INSTALL/LOAD).
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **The session is server-owned and survives a card change.**  The legacy kept
+  one global terminal and never reset it on equip/removal; this build has one
+  persistent `BipSession` per server (`state.bip_session`) and
+  `attach_card`/`detach_card` swap the CAT session on a re-init/removal: the
+  old card's channels are closed and their queued Channel status events
+  dropped, while the listener, mode, target, owner and `link_events` stay - a
+  listener started before a card (the normal "start, then trigger" workflow)
+  or kept across a swap serves the next card's OPEN CHANNEL.  The detach
+  closes the old channels first and drains the queued Channel status events
+  afterwards, with every channel marked `closed_reported` before it is
+  removed - the terminal's 250 ms monitor may still hold a snapshot of the
+  channel list, and its peer-close branch would otherwise queue a link-status
+  event for the gone card into the next card's session.  `state.bip` stays
+  the alias for the *current card session* (`None` when cardless), so the CAT
+  hooks and `/api/status` keep their per-card meaning.
+- **`start_listener` is the new seam**: the SCP81 control builds its TLS/dump
+  listener and hands it to the session, so the one-session rule (and the
+  `replaced` report) covers both controls without either handler writing the
+  other's globals.
+- **`_listener_status` no longer assumes an `accepted` counter**: the TLS
+  server has `conns` instead, so `/api/status`'s `bip` block reports
+  mode/host/port for it and the SCP81 control adds the TLS block (identities,
+  last handshake, framing) to its own status/log/start responses.  The SCP81
+  status body also carries three **additive** fields (`mode`, `target`,
+  `script` - the listener's mode, the channels' target and the script state)
+  so one poll drives the whole panel; `owner`/`bip`/`listener` stay the legacy
+  contract.
+- **A validation refusal is a `400`** (`{ok: false, error}`), not the legacy's
+  `200`.  The control endpoints' own `ok` mirrors the legacy field, so the PWA
+  reads both shapes; `gen-install` keeps the legacy `200 {ok: false}` (its
+  refusals are a file/parameter problem, and the docs pin that contract).
+- **Validation is stricter where a silent fallback hides a mistake**: the TLS
+  version and the `Connection` header are enums (a misspelled pin used to
+  silently widen the protocol window to `auto`), `chunk_size`/`answer_delay`/
+  `port` are validated as numbers, `link_events`/`chunked`/`compact_headers`/
+  `cr_tag`/`force`/`make_selectable` read the literal `"false"` as FALSE (the
+  v3.22.0 rule), the cipher list is checked before the listener binds (a bad
+  cipher used to raise inside the constructor *after* the socket was bound,
+  leaking it), and a start's script list is APDU-validated (the legacy queued
+  any string).
+- **The script state is locked.**  The listener answers on its connection
+  thread while the HTTP endpoints read/queue, so the engine state is guarded
+  by an `RLock`; the legacy relied on the blanket card lock, which the
+  listener thread never took (a pre-existing race).
+- **`/api/scp81/log|bip/log` and the status/script GETs are card-free**
+  (`CARD_FREE_GET`): the views poll them, and the listener may run cardless.
+  The control POSTs stay card-locked (the legacy order) and are in
+  `TEST_BLOCKED_PATHS` (already ported with the runner; a drift test now pins
+  the two sets equal).  **The two log clears joined `CARD_FREE_POST`**: they
+  only touch the terminal's log (the terminal side, which may run cardless),
+  so the Clear button need not queue behind a long card operation;
+  `TEST_BLOCKED_PATHS` is checked first, so a test run still refuses them.
+- **`_redact_psk_fields` is not ported**: the shared `redact_body` already
+  masks `psk_hex` and `psk_map`, so the request log is safe with one rule -
+  pinned by an `/api/scp81/bip` request-log assertion in
+  `tests/test_simple_scp81_api.py`.
+- **The previous session stops before the listener binds** (the legacy's
+  `_bip_session_stop` ran before the bind, unlike its validation).  A Start
+  on a port the old listener holds therefore rebinds it - the PWA's Start is
+  the normal way to apply the Options - and the script reset/rewrite runs
+  only after a successful bind, so a refused Start never swaps the running
+  script's progress.  Trade-off (documented in `Scp81Control.start` and
+  `docs/api.md`): a bind failure at a *foreign* port leaves no session at
+  all; only a validation refusal preserves the previous one.
+- **A listener construction error is the control's `{'ok': False,
+  'error': ...}`** (a 400): a taken port (`OSError`), `PskTlsServer`'s
+  Python-3.13 `RuntimeError` and an `ssl.SSLError` from `set_ciphers` are all
+  caught, never an escaped exception reaching the 500 catch-all (the legacy
+  handler happened to turn a bind failure into a 200).  The legacy listener
+  classes are used **unmodified**: the partially built `TcpDumpServer` of a
+  failed bind is finalized by the refcount as its traceback clears (CPython
+  reports a `ResourceWarning`; the socket is closed and no session is
+  created).
+- **The reader-switch guard keys on the persistent session**: `switch_reader`
+  refuses the switch while `bip_session.owner` is set (the SCP81 listener or
+  the BIP pill), not the per-card `state.bip` alias - a cardless listener
+  would otherwise slip through while the switch resets the card and kills the
+  channels.
+
+Tests: **57 API (`tests/test_simple_scp81_api.py`) + 11 drift
+(`Scp81DriftTests` in `tests/test_simple_drift.py`) + 3 lifecycle
+(`tests/test_simple_bip.py::CardSwapTests`); the full suite is 2438**.
+The API suite runs a cardless state through a real `ThreadingHTTPServer`
+(each listener mode, the PSK table and its reuse, the one-session replacement
+in both directions, the validation, the status/log cursor and clear, the
+script queue/state, `gen-install`, the shutdown and the card-change rule) and
+a **real TLS-PSK handshake** with a loopback client over the listener the
+endpoint started - the same wire path a card's BIP channel uses - including
+the 200/204 administration dialog, the R-APDU report, the resume/restart rule,
+an unknown identity and a live PSK-table update.  The drift tests pin the
+template bytes, the response parse (including BER long forms and truncation),
+the continuation, the PSK table, the script run/state machine and the
+`gen-install` list against the legacy copies.
+**No live card has run these endpoints**: a real card's OPEN CHANNEL through
+the started listener, the SD fetching the scripted C-APDUs and reporting the
+R-APDUs (the reference session's framing knobs), and the `63 10`/`CA FE`
+listing continuation on hardware remain the bench acceptance checks
+(`docs/scp81-findings.md` tracks the live outcomes).
 
 ## Spec compliance (spec-checker)
 

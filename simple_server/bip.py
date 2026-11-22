@@ -172,6 +172,15 @@ class BipSession(object):
     ``(host, port, on_rx=..., on_log=...)`` and required to expose ``host``,
     ``port``, ``accepted`` and ``stop()``).
 
+    The session object can be **server-owned** and outlive a card: the
+    listener is the terminal side, so :meth:`attach_card`/:meth:`detach_card`
+    (called by the server on a re-init/removal) swap the card's CAT session
+    and close the old card's channels while the listener, mode, target and
+    owner stay - a listener started before a card, or kept across a swap,
+    serves the next card's OPEN CHANNEL.  :meth:`start_listener` starts a
+    session around a listener built elsewhere (the SCP81 PSK TLS server,
+    :mod:`simple_server.scp81`), so the one-session rule covers both controls.
+
     **The events** are :meth:`data_available` (the terminal's ``on_data``
     monitor callback: tells the card that server bytes wait, §7.5.10) and
     :meth:`flush_channel_events` (the CAT session's ``bip_flush`` target: the
@@ -402,7 +411,7 @@ class BipSession(object):
         listener exposes its bound port - the control's ``port`` 0 means
         ephemeral, so this is where the operator finds the real one.  The
         legacy SCP81 TLS branch belongs to the SCP81 listener module
-        (Phase 3c-3), not here.
+        (:mod:`simple_server.scp81`), not here.
         """
         if not self.listener:
             if self.mode == 'redirect' and self.target:
@@ -412,9 +421,85 @@ class BipSession(object):
             if self.mode == 'passthru':
                 return {'mode': 'passthru'}
             return None
-        return {'mode': self.mode, 'host': self.listener.host,
-                'port': self.listener.port,
-                'connections': self.listener.accepted}
+        # The sink/dump listener counts its accepted connections; a listener
+        # built elsewhere (the SCP81 PSK TLS server) may not expose that, and
+        # its own block (identities, handshake) belongs to the SCP81 control.
+        status = {'mode': self.mode, 'host': self.listener.host,
+                  'port': self.listener.port}
+        accepted = getattr(self.listener, 'accepted', None)
+        if accepted is not None:
+            status['connections'] = accepted
+        return status
+
+    def attach_card(self, cat_session):
+        """Bind the session to a card's CAT session (an equip/re-init).
+
+        The session object is server-owned and survives a card change (the
+        listener is the terminal side, not per-card state); the card-specific
+        half is this hook and :meth:`detach_card`.  A no-op for the same
+        session (a re-report of the current card must not disturb the state
+        the running events read).
+        """
+        with self.card_lock:
+            with self._state_lock:
+                if self.cat_session is cat_session:
+                    return
+                self.cat_session = cat_session
+
+    def detach_card(self):
+        """A card change: keep the session, drop the old card's channels.
+
+        The channels belong to the card that opened them: they are closed and
+        their queued Channel status events dropped (there is no card to
+        notify), while the listener, mode, target, owner and ``link_events``
+        stay - a listener started before the card, or kept across a swap,
+        simply serves the next card's OPEN CHANNEL.  The two legacy controls
+        shared one terminal and never reset it on a card change; the port
+        closes the stale sockets explicitly (the legacy leaked them until the
+        next control call).
+
+        The close runs **before** the drain, and every channel is marked
+        ``closed_reported`` first: the terminal's 250 ms monitor may still
+        hold a snapshot of the channel list after this method removed them,
+        and its peer-close branch would otherwise queue a fresh link-status
+        event for the gone card into the next card's session.
+        """
+        with self.card_lock:
+            with self._state_lock:
+                self.cat_session = None
+                for channel in list(self.terminal.channels.values()):
+                    channel.closed_reported = True
+                self.terminal.close_all(link_lost=False)
+                self.terminal.take_pending_events()
+
+    def start_listener(self, listener, owner=OWNER, mode=None,
+                       link_events=None):
+        """Start (or replace) a session around a listener built by the caller.
+
+        The SCP81 control builds its PSK TLS / dump listener itself
+        (:mod:`simple_server.scp81`) and hands it here, so the one-session
+        rule and the terminal wiring stay in this class: the previous session
+        (whichever control started it) is stopped and its description
+        returned for the ``replaced`` field.  The listener is assumed bound
+        already; ``owner`` names the control (``scp81``/``bip``) and ``mode``
+        the listener kind (``tls``/``dump``/``sink``).  ``link_events``
+        overrides the Channel status events when given.  Returns the replaced
+        session description (or ``None``); the caller reads the new state
+        from :meth:`status` (which knows the caller's own listener block).
+        """
+        host, port = listener.host, int(listener.port)
+        with self.card_lock:
+            with self._state_lock:
+                replaced = self.stop()
+                if link_events is not None:
+                    self.link_events = bool(link_events)
+                self.terminal.on_data = self.data_available
+                self.listener = listener
+                self.mode = mode
+                self.target = (host, port)
+                self.terminal.enable(host, port, mode='redirect')
+                self.owner = owner
+                return replaced
 
     def start(self, body=None, owner=OWNER):
         """Start (or replace) the BIP session; returns the status + ``ok``.
@@ -513,7 +598,7 @@ class BipSession(object):
                 resp.update({'ok': True, 'replaced': replaced})
                 return resp
 
-    def stop(self):
+    def stop(self, lock=True):
         """Stop the active session; returns what was replaced (or None).
 
         Port of the legacy ``_bip_session_stop``: the listener is stopped, the
@@ -522,20 +607,33 @@ class BipSession(object):
         legacy ``_BIP.disable()``).  Runs under ``card_lock`` (see
         :meth:`start`); it nests fine inside a caller that already holds it
         when that lock is reentrant.
+
+        ``lock=False`` skips the card lock for a shutdown
+        (:meth:`~simple_server.server.ServerState.close`): the lock is
+        acquired with a timeout there, and a listener stop must not block the
+        process exit behind a blocking card exchange.  It is safe because
+        ``_stop_locked``'s channel cleanup is the terminal's ``disable()`` - a
+        local socket close, not a card exchange - and the teardown's
+        ``detach_card`` repeats the same cleanup idempotently.
         """
+        if not lock:
+            return self._stop_locked()
         with self.card_lock:
-            with self._state_lock:
-                replaced = None
-                if self.owner:
-                    replaced = {'owner': self.owner, 'mode': self.mode}
-                if self.listener is not None:
-                    self.listener.stop()
-                    self.listener = None
-                self.mode = None
-                self.target = None
-                self.owner = None
-                self.terminal.disable()
-                return replaced
+            return self._stop_locked()
+
+    def _stop_locked(self):
+        with self._state_lock:
+            replaced = None
+            if self.owner:
+                replaced = {'owner': self.owner, 'mode': self.mode}
+            if self.listener is not None:
+                self.listener.stop()
+                self.listener = None
+            self.mode = None
+            self.target = None
+            self.owner = None
+            self.terminal.disable()
+            return replaced
 
     # ---- the terminal-initiated events -----------------------------------
 

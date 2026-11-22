@@ -92,8 +92,8 @@ a 3.x PWA).
 | `/api/pli-qualifiers` | GET | List of qualifier codes with descriptions |
 | `/api/pli-dict` | GET | Current dictionary (hex values per qualifier) |
 | `/api/pli-dict` | POST | Update dictionary entries |
-| `/api/scp81/bip` | POST | Start/stop the HTTP OTA listener (dump capture or PSK TLS server) |
-| `/api/scp81/status` | GET | BIP terminal + listener state (channels, PSK identities, handshake identity, `owner`) |
+| `/api/scp81/bip` | POST | Start/stop the HTTP OTA listener (dump capture or PSK TLS server); a refusal is `400 {ok: false}` |
+| `/api/scp81/status` | GET | BIP terminal + listener state (channels, PSK identities, handshake identity, `owner`, `mode`, `target`, `script`) |
 | `/api/scp81/log` | GET | HTTP OTA event log (`?after=<seq>`) |
 | `/api/scp81/log-clear` | POST | Clear the HTTP OTA event log |
 | `/api/bip/control` | POST | Start/stop the generic BIP session (`sink` / `passthru` / `redirect`) |
@@ -1920,9 +1920,40 @@ Keys are never stored or logged.
 `script` is the APDU list served to the card (an explicit list, or `none`);
 the server is agnostic to what the APDUs do. `script_kind` is an optional
 label for the logs/results. Omitting `script` keeps the configured script and
-its run progress.
+its run progress. `script_template` (`indefinite` default / `definite`),
+`cr_tag`, `next_uri` (`%d` = the command id; empty omits the header,
+`X-Admin-Next-URI`), `targeted_app` (`X-Admin-Targeted-Application`),
+`chunked` (default `true`), `chunk_size`, `compact_headers`, `conn_header`
+(`none` / `keep-alive` / `close`), `tls_version` (`auto` / `1.0` / `1.1` /
+`1.2`), `cipher`, `keylog`, `answer_delay`, `link_events` (default `true`,
+all modes) and (dump mode) `port` follow the listener contract described in
+`GET /api/scp81/script` below.  `next_uri` and `targeted_app` must be free of
+control characters (they become response headers; a CRLF would split the
+response) - a value that carries one is a `400`.
 
-Stop either mode with `{"action": "stop"}` (also disables the BIP terminal).
+The response is the status body of the started session plus `ok` and
+`replaced` (the session that was stopped, `{"owner": ..., "mode": ...}`, or
+`null`): `owner`, `bip`, `listener` and the control's `mode`/`target`.
+A TLS start additionally echoes the legacy fields `script` (**the APDU list**,
+not the status endpoints' state dict), `script_kind`, `script_template`,
+`cr_tag`, `link_events`, `targeted_app` and `chunked`.  A `redirect`/`passthru`
+start answers the same `owner`/`bip`/`listener`/`mode`/`target` shape.
+
+**Refusals are `400` with `{"ok": false, "error": "..."}`** (a bad mode, a
+bad/missing PSK, an invalid knob, a taken port, TLS-PSK unavailable on
+Python < 3.13).  They differ from the legacy's `200 {ok: false}` so a caller
+can tell a refusal from a success.  Every field is validated *before* the
+running session is touched, so a refused request keeps it.  The previous
+session is stopped **before** the new listener binds (the legacy order), so a
+Start on the port the old listener holds rebinds it - the PWA's Start is the
+normal way to apply the Options.  The documented trade-off: a bind failure at
+a *foreign* port leaves no session behind (the previous one is already
+stopped); only a validation refusal preserves it.  The script reset/rewrite
+also happens only after a successful bind, so a refused Start never swaps the
+running script's progress.
+
+Stop either mode with `{"action": "stop"}` (also disables the BIP terminal);
+the response is the status body plus `ok`/`replaced`.
 
 ### `POST /api/bip/control`
 
@@ -1952,13 +1983,16 @@ Modes:
 
 `link_events` (default `true`) controls the terminal-side Channel status
 events (TS 102 223 7.5.11). An invalid request never disturbs a running
-session. Stop with `{"action": "stop"}`; the response carries the same body
-as the status endpoints.
+session; its refusal is a `400` with `{"ok": false, "error": "..."}` (the
+legacy answered `200 {ok: false}`). Stop with `{"action": "stop"}`; the
+response carries the same body as the status endpoints.
 
 ### `GET /api/bip/status`
 
 Same shape as `GET /api/scp81/status`: `{"owner": "bip"|"scp81"|null,
-"bip": {...}, "listener": {...}}`. A running sink reports
+"bip": {...}, "listener": {...}, "mode": ..., "target": ...,
+"script": {...}}` (the last three are the control's additive one-poll fields,
+see that endpoint). A running sink reports
 `{"mode": "sink", "host": ..., "port": ..., "connections": N}`.
 
 ### `GET /api/bip/log` / `POST /api/bip/log-clear`
@@ -1968,15 +2002,30 @@ The shared BIP event log (`?after=<seq>`) - identical to `/api/scp81/log`.
 ### `GET /api/scp81/status`
 
 ```json
-{"bip": {"enabled": true, "mode": "redirect", "target": "127.0.0.1:8443", "channels": [], "seq": 12},
+{"owner": "scp81",
+ "bip": {"enabled": true, "mode": "redirect", "target": "127.0.0.1:8443", "channels": [], "seq": 12},
  "listener": {"mode": "tls", "host": "127.0.0.1", "port": 8443,
               "psk_identities": ["89012345678901234567"], "psk_wildcard": false,
               "identity_seen": "89012345678901234567", "identity_matched": true,
-              "version_seen": "TLSv1.2", "cipher_seen": "PSK-AES128-CBC-SHA256"}}
+              "version_seen": "TLSv1.2", "cipher_seen": "PSK-AES128-CBC-SHA256"},
+ "mode": "tls", "target": "127.0.0.1:8443",
+ "script": {"script": ["80CAFF2100"], "next": 1, "total": 1, "done": [0],
+            "pending": null, "pages": 0, "pages_queued": 0, "complete": true,
+            "kind": "Explore ISD", "template": "indefinite", "cr_tag": false,
+            "results": [{"index": 1, "pos": 0, "page": false,
+                         "apdu": "80CAFF2100", "rapdu": "FF21...", "sw": "9000"}]}}
 ```
 
 `owner` is `scp81` or `bip` (whichever control started the session), `null`
 when idle; it is returned by both this endpoint and `/api/bip/status`.
+
+Three additive fields drive the panel from one poll: `mode` (the listener's
+mode - `tls`/`dump`/`sink`/`redirect`/`passthru`, `null` when idle),
+`target` (the `host:port` the channels go to, `null` for `passthru`/idle) and
+`script` (the `GET /api/scp81/script` state, so the listener status and the
+script progress cannot disagree between two polls).  Note the **type of
+`script`**: a state **dict** here and on `/api/bip/status`, but the start
+responses keep the legacy **APDU list** (`POST /api/scp81/bip` in `tls` mode).
 
 Listener modes: `tls` (local PSK TLS server), `dump` (capture-only TCP
 listener), `redirect` (no local listener; the BIP channels go straight to the
@@ -2015,11 +2064,15 @@ newer entries; `seq` echoes the latest sequence number.
 
 Replace the SCP81 command script (used by the Remote APDU tab's RAM chain
 "Queue in SCP81" and the PWA's "Restart script"). Body
-`{"apdus": ["80E60C002E...", ...]}` (or a single `apdu`), optional `kind` and
-`force`. Entries that already are Command Scripting templates
-(`AA...`/`AE80...`, the expanded format) are sent verbatim instead of being
-wrapped again. Refused while a script is mid-run unless forced; queuing resets
-the execution progress.
+`{"apdus": ["80E60C002E...", ...]}` (or a single `apdu`; the documented
+`script` alias carries the same list, and an empty `apdus`/`script` falls back
+to the next form), optional `kind` and `force`.  Every entry must be a hex
+string of at least 4 bytes; a malformed list is a `400 {ok: false, error}`
+(an APDU the card would refuse never reaches the listener).  Entries that
+already are Command Scripting templates (`AA...`/`AE80...`, the expanded
+format) are sent verbatim instead of being wrapped again. Refused while a
+script is mid-run unless `force` (`400`, `reason: "script in progress"`), and
+when no listener is running (`400`); queuing resets the execution progress.
 
 ### `POST /api/scp81/gen-install`
 
@@ -2035,12 +2088,14 @@ the returned list. The `.cap` is parsed server-side (same parser as
  "make_selectable": true}
 ```
 
-`sd_aid` empty = the ISD.  `install_params`, `stk_params` and the
+`sd_aid` empty = the ISD.  The archive travels as `cap_hex` (or the `cap`
+shorthand).  `install_params`, `stk_params` and the
 `nv_quota`/`volatile_quota` primitives follow the composition rule of
 `/api/ram-install` (the quotas and an EF-form STK part share one System
 Specific Parameters `EF`); an invalid combination answers
-`{"ok": false, "error": "..."}`.  Responds with `{"ok": true, "apdus": [...],
-"load_file_aid": ..., "module_aid": ...}`.
+`{"ok": false, "error": "..."}` (HTTP `200`, the legacy contract).
+Responds with `{"ok": true, "apdus": [...], "load_file_aid": ...,
+"module_aid": ...}`.
 
 ### `GET /api/scp81/script`
 
