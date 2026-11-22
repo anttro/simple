@@ -33,14 +33,14 @@ shared SCP80 counter state) - also in :mod:`simple_server.testrun`.
 Phase 3c-3e-1: the CAT/Simulator endpoints on the CAT session engine (the STK
 menu browser, the event downloads, the runtime TERMINAL PROFILE, the manual
 STATUS poll and the poll switch, the proactive log and the PLI dictionary),
-the server-side event builders of :mod:`pysim_simple_server.events` and the
+the server-side event builders (:mod:`simple_server.shared.events`) and the
 raw APDU endpoint.
 Phase 3c-3e-2a: the eSIM/LPA endpoints (the ES10 chip view, the profile list,
 the notifications and the profile switch with its REFRESH chain and the
 equip-like re-initialization) on :mod:`simple_server.esim`, and the network
 side - the net-sim scenarios (:mod:`simple_server.netsim`, the legacy runner
 on the ported card), the network-state monitor (:mod:`simple_server.netmon`
-around the reused ``netstate``) and the MCC/MNC operator list search.
+around the shared ``netstate``) and the MCC/MNC operator list search.
 Phase 3c-3e-2b: the SCP81/BIP control endpoints (:mod:`simple_server.scp81`) -
 the listener start/stop for the dump, TLS, redirect and passthru modes, the
 administration command-script engine, the PSK table, the ``.cap`` -> APDU
@@ -51,8 +51,16 @@ the CLI, the PC/SC access pre-flight, the INFO logging setup, the startup and
 the graceful shutdown - and the transmit-level GSMTAP-SIM tracer
 (:mod:`simple_server.gsmtap`, a ``send_tpdu`` wrapper streaming what
 ``SCardTransmit`` carries plus the ATR).
+Phase 3d-3b: the pysim-free modules the server reused from the legacy tree
+(:mod:`simple_server.shared`: the preset and test-script/suite stores, the
+test-script engine, the event builders, the CAP memory analyzer, the CAT
+release table, the network simulation and monitor state, the outfile parser,
+the BIP terminal and the SCP81 listener) moved into this package, together
+with the bundled MCC/MNC operator list (``simple_server/data``).
 
-Nothing here imports ``pySim``, ``osmocom`` or ``construct``.  ``pyscard`` is
+Nothing here imports ``pysim_simple_server``, ``pySim``, ``osmocom`` or
+``construct`` (``tests/test_simple_proactive.py``'s
+``PackageImportHygieneTests`` scans the AST for exactly that).  ``pyscard`` is
 imported by :mod:`simple_server.transport` and by the entry point's PC/SC
 pre-flight, and :mod:`simple_server.scp80` uses ``pycryptodomex`` for the
 ciphers.

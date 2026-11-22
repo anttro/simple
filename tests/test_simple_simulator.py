@@ -35,7 +35,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from pysim_simple_server import events
+from simple_server.shared import events
 
 from simple_server import cat_session
 from simple_server import proactive

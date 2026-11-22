@@ -4,8 +4,8 @@
 A suite holds **references** to scripts (``script_id`` in its ordered member
 list) while every script carries its ``suite_id`` - two stores, one invariant
 (every script belongs to exactly one suite and that suite lists it).  The two
-stores themselves (:mod:`pysim_simple_server.test_suites` and
-:mod:`pysim_simple_server.test_scripts`) only validate their own shape; the
+stores themselves (:mod:`simple_server.shared.test_suites` and
+:mod:`simple_server.shared.test_scripts`) only validate their own shape; the
 rules that need **both** live here:
 
 * :func:`suite_refs_error` - every member reference resolves (the endpoint's
@@ -38,8 +38,8 @@ on the ``server`` object.
 
 import logging
 
-from pysim_simple_server import test_suites as test_suites_store
-from pysim_simple_server import test_scripts as test_scripts_store
+from simple_server.shared import test_suites as test_suites_store
+from simple_server.shared import test_scripts as test_scripts_store
 
 log = logging.getLogger(__name__)
 

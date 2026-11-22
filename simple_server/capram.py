@@ -84,7 +84,7 @@ import re
 import struct
 import zipfile
 
-from pysim_simple_server import capmem
+from simple_server.shared import capmem
 
 from simple_server import ota
 from simple_server import tlv

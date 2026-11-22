@@ -2,7 +2,8 @@
 """The network-condition simulator's card adapter.
 
 The scenario builders, the byte layouts and the step log are
-:mod:`pysim_simple_server.netsim` - pysim-free and reused unchanged, so the
+:mod:`simple_server.shared.netsim` (pysim-free, moved from the legacy
+``pysim_simple_server.netsim`` unchanged), so the
 observed phone write patterns (``projects/UICC_NAA.md`` section 13) have one
 implementation.  Its runner drives the card through pySim's runtime-channel
 API (``_select_path``, the selected file's FCP metadata, UPDATE/READ, the
@@ -32,7 +33,7 @@ path - instead of raising, and never guesses a length.
 import logging
 from types import SimpleNamespace
 
-from pysim_simple_server import netsim as legacy_netsim
+from simple_server.shared import netsim as core_netsim
 
 from simple_server.commands import FileError, UnexpectedStatusWord
 
@@ -50,8 +51,8 @@ NO_FCP_SW = '6985'
 
 #: The reused tables, re-exported so the server reads one module: the Location
 #: status event type and the service state each scenario establishes.
-EVENT_LOCATION_STATUS = legacy_netsim.EVENT_LOCATION_STATUS
-SCENARIO_SERVICE = legacy_netsim.SCENARIO_SERVICE
+EVENT_LOCATION_STATUS = core_netsim.EVENT_LOCATION_STATUS
+SCENARIO_SERVICE = core_netsim.SCENARIO_SERVICE
 
 #: Legacy candidate path -> the model's path for the same file (see the
 #: module docstring).  Keyed by the exact legacy path so the runner's
@@ -231,5 +232,5 @@ def run_scenario(state, scenario, params=None):
     server = _ServerShim(state, cat, scc)
     app = SimpleNamespace(rs=SimpleNamespace(lchan=[lchan]))
     event_list = list(cat.event_list or []) if cat is not None else []
-    return legacy_netsim.run_scenario(server, app, scenario, params,
+    return core_netsim.run_scenario(server, app, scenario, params,
                                       event_list=event_list)

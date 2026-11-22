@@ -2384,33 +2384,41 @@ class Scp81DriftTests(unittest.TestCase):
         self.assertEqual(T.TEST_BLOCKED_PATHS, legacy._TEST_BLOCKED_PATHS)
 
     def test_the_tls_listener_block_agrees(self):
-        from pysim_simple_server import scp81 as listener_module
-        listeners = [
-            listener_module.PskTlsServer(
-                '127.0.0.1', 0, psk_map={'89012345678901234567':
-                                         bytes.fromhex('00' * 16)},
-                chunked=True, compact_headers=True, tls_version='1.2'),
+        # The control now owns the shared listener class, so each side gets a
+        # listener of its own implementation built from the same arguments
+        # (the bound ports differ, so 'port' is compared only for presence).
+        from pysim_simple_server import scp81 as legacy_listener
+        from simple_server.shared import scp81 as shared_listener
+        forms = (
+            dict(psk_map={'89012345678901234567': bytes.fromhex('00' * 16)},
+                 chunked=True, compact_headers=True, tls_version='1.2'),
             # the legacy single-key (wildcard) form
-            listener_module.PskTlsServer(
-                '127.0.0.1', 0, bytes.fromhex('11' * 16)),
-        ]
-        try:
-            for listener in listeners:
+            dict(psk=bytes.fromhex('11' * 16)),
+        )
+        for kwargs in forms:
+            ours = shared_listener.PskTlsServer('127.0.0.1', 0, **kwargs)
+            theirs_listener = legacy_listener.PskTlsServer(
+                '127.0.0.1', 0, **kwargs)
+            try:
                 session = B.BipSession()
                 control = self.SC.Scp81Control(session)
                 self.assertIsNone(session.start_listener(
-                    listener, owner='scp81', mode='tls'))
+                    ours, owner='scp81', mode='tls'))
                 old = legacy._BIP_LISTENER, legacy._BIP_MODE
-                legacy._BIP_LISTENER, legacy._BIP_MODE = listener, 'tls'
+                legacy._BIP_LISTENER, legacy._BIP_MODE = theirs_listener, 'tls'
                 try:
                     theirs = legacy._bip_listener_status()
                 finally:
                     legacy._BIP_LISTENER, legacy._BIP_MODE = old
-                self.assertEqual(control.status_body()['listener'], theirs)
+                mine = control.status_body()['listener']
+                self.assertIsNotNone(mine.get('port'))
+                self.assertIsNotNone(theirs.get('port'))
+                mine.pop('port'), theirs.pop('port')
+                self.assertEqual(mine, theirs)
                 session.stop()
-        finally:
-            for listener in listeners:
-                listener.stop()
+            finally:
+                ours.stop()
+                theirs_listener.stop()
 
     def _post(self, headers=None, body=b''):
         ours = self.engine.responder('POST', '/api/scp81', headers or {}, body)
@@ -2497,6 +2505,37 @@ class Scp81DriftTests(unittest.TestCase):
             state.close()
 
 
+class SharedCatReleaseDriftTests(unittest.TestCase):
+    """The copied CAT release table still matches the legacy module.
+
+    ``simple_server.shared.catrelease`` is one of the Phase 3d-3b verbatim
+    copies (and has no other importer yet); the PWA mirror guard
+    (``tests/test_catrelease.py``) checks the legacy table, so a divergence
+    between the copy and it would otherwise go unnoticed.
+    """
+
+    def test_the_table(self):
+        from simple_server.shared import catrelease as ours
+        from pysim_simple_server import catrelease as theirs
+        self.assertEqual(ours.CAT_RELEASE, theirs.CAT_RELEASE)
+        self.assertEqual(ours.DEFAULT_RELEASE, theirs.DEFAULT_RELEASE)
+
+    def test_the_lookup_rules(self):
+        from simple_server.shared import catrelease as ours
+        from pysim_simple_server import catrelease as theirs
+        for rel in (None, 0, 4, 5, 6, 9, 12, 18, 99):
+            self.assertEqual(ours.release_label(rel),
+                             theirs.release_label(rel), rel)
+        for kind, key in (('events', 0x03), ('events', 0x1D), ('events', 0x1A),
+                          ('commands', 'SET UP MENU'), ('nope', 'x')):
+            self.assertEqual(ours.item_release(kind, key),
+                             theirs.item_release(kind, key), (kind, key))
+        for preset in (None, {}, {'release': 9}, {'release': 'nope'},
+                       {'release': 18}):
+            self.assertEqual(ours.preset_release(preset),
+                             theirs.preset_release(preset), preset)
+
+
 class MccMncDriftTests(unittest.TestCase):
     """The operator-list helpers are a port: same rows, same MVNO rule."""
 
@@ -2539,13 +2578,22 @@ class MccMncDriftTests(unittest.TestCase):
         self.assertIsNotNone(picked)
         self.assertNotEqual(picked['mnc'], '99')
 
-    def test_the_netstate_and_netsim_modules_are_the_reused_ones(self):
+    def test_the_netstate_and_netsim_modules_are_the_shared_ones(self):
         from simple_server import netmon
         from simple_server import netsim as adapter
+        from simple_server.shared import netstate as shared_netstate
+        from simple_server.shared import netsim as shared_netsim
+        self.assertIs(netmon.netstate, shared_netstate)
+        self.assertIs(adapter.core_netsim, shared_netsim)
+        # the copies still agree with the legacy modules they were moved from
         from pysim_simple_server import netstate as legacy_netstate
-        from pysim_simple_server import netsim as legacy_netstate_module
-        self.assertIs(netmon.netstate, legacy_netstate)
-        self.assertIs(adapter.legacy_netsim, legacy_netstate_module)
+        from pysim_simple_server import netsim as legacy_netsim
+        self.assertEqual(shared_netstate.SERVICE_NORMAL,
+                         legacy_netstate.SERVICE_NORMAL)
+        self.assertEqual(shared_netsim.SCENARIO_SERVICE,
+                         legacy_netsim.SCENARIO_SERVICE)
+        self.assertEqual(shared_netsim.EVENT_LOCATION_STATUS,
+                         legacy_netsim.EVENT_LOCATION_STATUS)
 
 
 if __name__ == '__main__':

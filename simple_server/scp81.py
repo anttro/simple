@@ -21,9 +21,10 @@ Provenance: a behavioural port of the legacy
 ``_scp81_continuation``/``_scp81_response_headers``, ``_parse_psk_map``,
 ``_scp81_update_psk_map`` and ``_scp81_gen_install``.  The TLS listener and
 the GP HTTP dialog are the reusable, pysim-free
-:mod:`pysim_simple_server.scp81` (:class:`~pysim_simple_server.scp81.
-PskTlsServer`, ``parse_http_request``/``build_http_response``), the sink/dump
-listener is :class:`pysim_simple_server.httpota.TcpDumpServer` and the RAM
+:mod:`simple_server.shared.scp81` (moved from the legacy tree:
+:class:`~simple_server.shared.scp81.PskTlsServer`,
+``parse_http_request``/``build_http_response``), the sink/dump
+listener is :class:`simple_server.shared.httpota.TcpDumpServer` and the RAM
 APDU builders are :mod:`simple_server.capram` - the same code the RAM install
 uses, so the generated script cannot drift from the install chain.
 
@@ -50,8 +51,8 @@ import re
 import ssl
 import threading
 
-from pysim_simple_server import httpota
-from pysim_simple_server import scp81 as listener_module
+from simple_server.shared import httpota
+from simple_server.shared import scp81 as listener_module
 
 from simple_server import bip as bip_module
 from simple_server import capram
@@ -85,7 +86,7 @@ MAX_PAGES = 24
 
 #: The TLS versions a caller may pin (``auto`` accepts TLS 1.0-1.2 and lets
 #: OpenSSL pick the highest the card offers - the only setting normal use
-#: needs).  The names are :data:`pysim_simple_server.scp81.TLS_VERSIONS`'.
+#: needs).  The names are :data:`simple_server.shared.scp81.TLS_VERSIONS`'.
 TLS_VERSION_CHOICES = ('auto',) + tuple(listener_module.TLS_VERSIONS)
 
 #: The ``Connection`` header values the TLS listener accepts: ``none`` omits

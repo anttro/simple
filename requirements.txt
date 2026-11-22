@@ -1,0 +1,5 @@
+# SIMple's runtime dependencies (the pysim-free 4.x server).
+# The legacy pySim-based 3.x line lives in the simple-pysim fork.
+pyscard
+pycryptodomex
+gsm0338

@@ -1980,7 +1980,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '3.40.11';
+const SIMPLE_VERSION = '4.0.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -10063,7 +10063,7 @@ async function pysimConnect() {
 		const sv = (ver.version || '').split('.').map(Number);
 		const pv = SIMPLE_VERSION.split('.').map(Number);
 		if (sv[0] < pv[0]) {
-			msgEl.innerHTML = '<span class="text-red-500">Server version ' + esc(ver.version) + ' is outdated. Please update pysim-simple-server.</span>';
+			msgEl.innerHTML = '<span class="text-red-500">Server version ' + esc(ver.version) + ' is outdated. Please update simple-server.</span>';
 			btn.textContent = t('Connect');
 			btn.disabled = false;
 			return;

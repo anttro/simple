@@ -44,7 +44,8 @@ surface: ``POST /api/scp81/bip``, ``POST /api/bip/control``,
 ``GET /api/scp81/script``, ``POST /api/scp81/queue|psk-map|gen-install`` (the
 control and the script engine in :mod:`simple_server.scp81` on top of the
 per-server :class:`~simple_server.bip.BipSession` and the reusable
-:class:`pysim_simple_server.scp81.PskTlsServer`).  Every other API path is a
+:class:`~simple_server.shared.scp81.PskTlsServer`, moved here from the
+legacy tree).  Every other API path is a
 404 until 3d (the entry point and the cutover) lands.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
@@ -98,13 +99,13 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-from pysim_simple_server import events
-from pysim_simple_server import netstate
-from pysim_simple_server import outfile
-from pysim_simple_server import presets as presets_store
-from pysim_simple_server import test_scripts as test_scripts_store
-from pysim_simple_server import test_suites as test_suites_store
-from pysim_simple_server import testscript
+from simple_server.shared import events
+from simple_server.shared import netstate
+from simple_server.shared import outfile
+from simple_server.shared import presets as presets_store
+from simple_server.shared import test_scripts as test_scripts_store
+from simple_server.shared import test_suites as test_suites_store
+from simple_server.shared import testscript
 
 from simple_server import bip as bip_module
 from simple_server import capram
@@ -139,9 +140,10 @@ __all__ = [
     'resolve_menu_item', 'event_code',
 ]
 
-#: The server version served by ``GET /api/version``.  The entry point (Phase
-#: 3d) owns the release version; until the cutover this marks the new server.
-VERSION = '4.0.0-dev'
+#: The server version served by ``GET /api/version``.  It moves together with
+#: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
+#: three).
+VERSION = '4.0.0'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
@@ -391,7 +393,7 @@ def validate_terminal_profile(value):
 
 
 #: The menu-text match modes :func:`resolve_menu_item` accepts (the two
-#: :func:`pysim_simple_server.testscript.match_text` implements).
+#: :func:`simple_server.shared.testscript.match_text` implements).
 MENU_MATCH_MODES = ('exact', 'contains')
 
 
@@ -449,7 +451,7 @@ def resolve_menu_item(menu, text, mode='exact', case_sensitive=False):
     """The item id of a cached SET UP MENU whose text matches (the run's rule).
 
     The endpoint's variant of the test runner's ``_menu_item_by_text``; both
-    use :func:`pysim_simple_server.testscript.match_text`, so the matching
+    use :func:`simple_server.shared.testscript.match_text`, so the matching
     rule (``exact``/``contains``, case-insensitive unless ``case_sensitive``)
     cannot drift.  The item ids vary with the applet's install parameters, so
     a caller may name the text the card actually shows.
@@ -505,7 +507,7 @@ def event_code(value):
     decimal digits (read as **decimal** for tolerance - ``'12'`` is event
     ``0x0C``), the test scripts' hex form (``0x1D``) and the server's event
     name keywords (``network_rejection``, ...), the last two through
-    :func:`pysim_simple_server.events.resolve_event`.  The digits form is a
+    :func:`simple_server.shared.events.resolve_event`.  The digits form is a
     tolerance, not legacy parity: the legacy only accepted a number - a
     string raised a ``TypeError`` while it built the packet, so it never sent
     one.  Raises :class:`ValueError` for anything else.
@@ -654,7 +656,7 @@ class ServerState(object):
     **The injected hooks.**  ``transport_factory(reader_name)`` builds a
     transport (default :class:`simple_server.transport.PcscLink`);
     ``transport`` injects one directly (tests); ``presets`` injects the card
-    preset store (default ``pysim_simple_server.presets.PresetStore``), and
+    preset store (default ``simple_server.shared.presets.PresetStore``), and
     ``presets_path`` builds that store at the given file (the entry point's
     ``--card-presets`` - the store is pysim-free, so it is a direct
     dependency); ``presence_install`` registers the presence observer (tests
@@ -3259,7 +3261,7 @@ class ServerState(object):
         is the root object): the ``suite_id`` must name an existing suite
         (400 otherwise) and the suite's member list gains the new script.  The
         store validates with the runner's engine
-        (:class:`~pysim_simple_server.test_scripts.TestScriptError` -> the
+        (:class:`~simple_server.shared.test_scripts.TestScriptError` -> the
         dispatch's 400).
         """
         script = (body.get('script') if isinstance(body.get('script'), dict)
@@ -4014,7 +4016,7 @@ class ServerState(object):
 
         ``event_type`` is required (an int byte, a decimal/hex string or an
         event name - see :func:`event_code`).  The event objects come from
-        ``fields`` - the semantic builders of :mod:`pysim_simple_server.events`
+        ``fields`` - the semantic builders of :mod:`simple_server.shared.events`
         for the four events it models (0x03/0x0B/0x12/0x1D), validated by the
         builder - or from the raw ``event_data`` hex (every other event form);
         when both are present **``fields`` wins** (``event_data`` is ignored).
@@ -4520,7 +4522,7 @@ class ServerState(object):
     def net_sim(self, body):
         """``POST /api/net-sim``: run one scenario under the card lock.
 
-        The scenario builders/step log are :mod:`pysim_simple_server.netsim`
+        The scenario builders/step log are :mod:`simple_server.shared.netsim`
         (reused); :mod:`simple_server.netsim` supplies the card adapter.  The
         response is the legacy ``{scenario, success, error, steps, net_state}``
         - ``net_state`` is the monitor patched from the writes.

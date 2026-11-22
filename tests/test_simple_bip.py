@@ -21,7 +21,7 @@ import threading
 import time
 import unittest
 
-from pysim_simple_server import httpota
+from simple_server.shared import httpota
 
 from simple_server import bip
 

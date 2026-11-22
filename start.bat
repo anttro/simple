@@ -1,7 +1,8 @@
 @echo off
-REM pysim-simple-server start script for Windows
-REM Starts the server, preferring the venv if it exists.
-REM PC/SC is built into Windows, so defaults to reader 0.
+REM SIMple start script for Windows
+REM Starts the pysim-free simple-server, preferring the venv if it exists.
+REM PC/SC is built into Windows, so the server uses the first reader by default
+REM (name a reader with -r "Reader Name").
 REM Every run is mirrored to simple_lastrun.log (overwritten on each start) with
 REM PowerShell Tee-Object, so the latest server output can be read without
 REM copy-pasting the console.  The log contains card keys (test cards) and is
@@ -38,29 +39,29 @@ shift
 goto parse_http_args
 :http_args_done
 
-if exist "%VENV_DIR%\Scripts\pysim-simple-server.exe" (
-    echo Starting pysim-simple-server from venv on http://%HTTP_HOST%:%HTTP_PORT%
+if exist "%VENV_DIR%\Scripts\simple-server.exe" (
+    echo Starting simple-server from venv on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
-    "%VENV_DIR%\Scripts\pysim-simple-server.exe" --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
+    "%VENV_DIR%\Scripts\simple-server.exe" --http-port 8080 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
 )
 
-if exist "%~dp0pysim_simple_server\__main__.py" (
-    echo Starting pysim-simple-server from source on http://%HTTP_HOST%:%HTTP_PORT%
+if exist "%~dp0simple_server\__main__.py" (
+    echo Starting simple-server from source on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
-    python -m pysim_simple_server --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
+    python -m simple_server --http-port 8080 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
 )
 
-where pysim-simple-server >nul 2>&1
+where simple-server >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Starting pysim-simple-server on http://%HTTP_HOST%:%HTTP_PORT%
+    echo Starting simple-server on http://%HTTP_HOST%:%HTTP_PORT%
     echo Log: simple_lastrun.log (overwritten on each start^). Press Ctrl+C to stop.
-    pysim-simple-server --http-port 8080 -p 0 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
+    simple-server --http-port 8080 %* 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
 )
 
-echo Error: pysim-simple-server not installed.
+echo Error: simple-server is not installed.
 echo Run setup.bat first or install manually:
-echo   pip install pysim-simple-server
+echo   pip install -e .
 pause

@@ -29,7 +29,7 @@ from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from pysim_simple_server import presets as presets_store
+from simple_server.shared import presets as presets_store
 
 from simple_server import testrun
 from simple_server.server import BatchBusyError, ServerState, build_http_server
@@ -271,7 +271,7 @@ def make_state(testcase, card=None, **kwargs):
 
 
 def normalise(steps, name='test'):
-    from pysim_simple_server import testscript
+    from simple_server.shared import testscript
     return testscript.normalise_script({'name': name, 'steps': steps},
                                        testrun.command_type)
 

@@ -25,8 +25,8 @@ import time
 import unittest
 from unittest import mock
 
-from pysim_simple_server import test_scripts as test_scripts_store
-from pysim_simple_server import test_suites as test_suites_store
+from simple_server.shared import test_scripts as test_scripts_store
+from simple_server.shared import test_suites as test_suites_store
 
 from simple_server import suites as suites_module
 from simple_server import testrun

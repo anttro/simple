@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Update this packaged SIMple install in place (see tools/update.py --help).
-# The .venv is reused - pysim and its prerequisites are not re-installed.
+# The .venv is reused - the runtime dependencies are not re-installed.
 set -e
 
 # Windows guard: update.sh is the native Linux/macOS helper.  Under WSL the

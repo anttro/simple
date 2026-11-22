@@ -9,6 +9,42 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-11-23
+
+### Changed
+
+- **The server is pysim-free.**  The PWA now talks to `simple-server`
+  (`simple_server`, the new entry point) instead of the pySim-wrapping
+  `pysim-simple-server`: own PC/SC transport, file model and FCP parser,
+  SCP80/SCP81, RAM/CAP, CAT/STK, test scripts/suites, eSIM ES10 and the
+  network simulator, all written from the pinned specs.  `GET /api/command`,
+  `/api/commands`, `/api/cardinfo` and `/api/sp-verify` are gone; the PWA's
+  Status tab shows the server's own session model and equip/reset/status-poll
+  have dedicated endpoints.  The GSMTAP tracer now hooks the transport's
+  `send_tpdu`, so the init phase and the T=0 GET RESPONSE TPDUs are in the
+  capture (as far as PC/SC exposes them).
+- **The runtime dependency floor is `pyscard`, `pycryptodomex` and
+  `gsm0338`** (`requirements.txt`); pySim and `requirements-pysim.txt` are no
+  longer installed.  `setup`/`start` create the venv, install the floor and
+  launch `simple-server`; the serial `-d/--device` transport and the `-p`
+  reader-slot form are gone (PC/SC only; `-r NAME` names a reader).
+- **Updating in place refuses a major-version jump.**  `tools/update.py`
+  will not move a 3.x install to 4.0.0 (`--check` included): the backend, the
+  scripts and the dependencies changed, so a 3.x install stays on the last 3.x
+  release.
+- The distribution is named `simple` (the console script stays
+  `simple-server`).
+
+### Legacy
+
+- The pySim-based 3.x line is frozen at its final 3.x release in the
+  **`simple-pysim`** fork (GPL-2.0-or-later, maintenance mode).  The legacy
+  `pysim_simple_server/` and `requirements-pysim.txt` stay in the repository
+  for that fork but are not part of the 4.x release package.
+- The license stays **GPL-2.0-or-later** for now: the client-side EF decoders
+  are still derived from simtrace-analyser (GPL).  The MIT switch waits for
+  that project's relicensing.
+
 ## [3.40.11] — 2026-11-11
 
 ### Fixed

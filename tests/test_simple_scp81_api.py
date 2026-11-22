@@ -5,8 +5,9 @@ The SCP81 tab's listener/scripts and the Simulator's BIP pill ride one
 server-owned :class:`simple_server.bip.BipSession` plus
 :class:`simple_server.scp81.Scp81Control` (the script engine, the PSK table and
 the ``.cap`` -> APDU generator), on top of the reusable, pysim-free
-:class:`pysim_simple_server.scp81.PskTlsServer` (the TLS-PSK listener and the
-GP HTTP administration dialog) and ``httpota.TcpDumpServer`` (the capture
+:class:`simple_server.shared.scp81.PskTlsServer` (the TLS-PSK listener and the
+GP HTTP administration dialog; moved from ``pysim_simple_server.scp81``) and
+``httpota.TcpDumpServer`` (the capture
 listener).  The endpoints run through a real
 :class:`ThreadingHTTPServer` on an ephemeral loopback port; the TLS test drives
 a real PSK handshake with a loopback client, i.e. the same wire path a card's

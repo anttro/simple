@@ -46,7 +46,7 @@ Level); TS 101 220 V18.3.0 Annex D Table D.1 (the ISD/RFM TAR allocations).
 import logging
 import re
 
-from pysim_simple_server import presets
+from simple_server.shared import presets
 
 from simple_server import scp80
 from simple_server import tlv

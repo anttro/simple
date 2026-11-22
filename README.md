@@ -6,7 +6,7 @@ English | [Русский](README_RUS.md)
 
 📢 Project news and updates: [website](https://sim-tools.ru) · [Telegram channel](https://t.me/youeyeseesee)
 
-SIMple is an all-in-one toolkit for UICC/SIM card specialists: an offline HTML/JS frontend (PWA — a Progressive Web App) and a local card server ([`pysim-simple-server`](pysim_simple_server/), a pySim/PC-SC wrapper). It packs a wide set of card tools:
+SIMple is an all-in-one toolkit for UICC/SIM card specialists: an offline HTML/JS frontend (PWA — a Progressive Web App) and a local card server ([`simple-server`](simple_server/), a pysim-free PC/SC server). It packs a wide set of card tools:
 
 - **File manager** — browse and edit files, including in decoded form, with FCP/FCI and access-rule decoding;
 - **APDU builder and parser** — SIM/USIM RFM, RAM in the compact format, Expanded Format Scripts (TS 102 226), a C-APDU/R-APDU parser and a response decoder (ISO 7816 / TS 102 221 / GP);
@@ -16,14 +16,13 @@ SIMple is an all-in-one toolkit for UICC/SIM card specialists: an offline HTML/J
 
 **Demo:** [simsimple.ru](https://simsimple.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
-![Card access path: Browser (SIMple PWA) → HTTP :8080 → pysim-simple-server (wraps pySim) → PC/SC → card reader → UICC/SIM card](docs/architecture_en.svg)
+![Card access path: Browser (SIMple PWA) → HTTP :8080 → simple-server → PC/SC → card reader → UICC/SIM card](docs/architecture_en.svg)
 
 ## Prerequisites
 
-- **Python 3.9+** with `pip`, and **Git** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks).
-- **Python venv support** — `setup.sh` creates `.venv`; if that fails with `ensurepip is not available` (Debian/Ubuntu ship the venv module separately), install it (`sudo apt install python3-venv`) and run `./setup.sh` again.  An incomplete `.venv` left by the failed run is removed automatically.
-- **Smart card reader** (PC/SC or serial/FTDI) — PC/SC is preferable (`pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them).
-- **Windows** — use **Python 3.13 (strongly recommended)**: `pyscard` ships precompiled wheels for it, so nothing needs compiling; on **3.14** the `pyscard` and some pysim dependency wheels are missing and build from source (needs MSVC C++ Build Tools).
+- **Python 3.9+** with `pip` and **Python venv support** — the app runs on 3.9+, but the **SCP81 TLS-PSK listener needs Python 3.13+** (`ssl`'s PSK callbacks). `setup.sh` creates `.venv`; if that fails with `ensurepip is not available` (Debian/Ubuntu ship the venv module separately), install it (`sudo apt install python3-venv`) and run `./setup.sh` again.  An incomplete `.venv` left by the failed run is removed automatically.
+- **Smart card reader** — PC/SC (preferable; `pcsc-lite` + `ccid` on Linux). `pyscard` has no Linux wheels, so it builds from source: install the PC/SC header package too (`libpcsclite-dev` on Debian/Ubuntu, `pcsc-lite-devel` on Fedora; on Arch `pcsclite` includes them). The 4.x server is **PC/SC-only** — the serial/FTDI transport of the 3.x line remains in the `simple-pysim` fork.
+- **Windows** — use **Python 3.13 (strongly recommended)**: `pyscard` ships precompiled wheels for it, so nothing needs compiling; on **3.14** the `pyscard` wheel is missing and it builds from source (needs MSVC C++ Build Tools).
 
 ## Quick start
 
@@ -34,15 +33,23 @@ SIMple is an all-in-one toolkit for UICC/SIM card specialists: an offline HTML/J
 (`simple-<version>.zip`), unzip it anywhere and run the setup script once:
 
 ```sh
-./setup.sh     # or setup.bat on Windows — creates .venv, installs pysim + server
+./setup.sh     # or setup.bat on Windows — creates .venv, installs the server + dependencies
 ./start.sh     # or start.bat — starts the server (it serves the frontend too)
 ```
 
 The package is built from the tagged source — no git history, no development files.
-Git is still required: `setup` installs **pysim** from its upstream repository.
+`setup` installs only the runtime dependencies (`requirements.txt`: `pyscard`,
+`pycryptodomex`, `gsm0338`) — pysim is not required.
 
 **Updates:** `./update.sh` (or `update.bat`) updates a packaged install in place
-— pysim and its prerequisites are kept, so nothing is rebuilt.
+— the dependencies are kept, so nothing is rebuilt.  A **major-version jump is
+refused**: a 3.x install cannot be updated in place to 4.0.0 (the backend,
+scripts and dependencies changed) — it stays on the last 3.x release.
+
+> **The legacy pySim-based 3.x line is frozen in the
+> [`simple-pysim`](https://github.com/anttro/simple-pysim) fork.**  Its last
+> `simple` release (3.x) remains downloadable here; the fork is the maintained
+> legacy tool with the old pySim command line and dependencies.
 
 **2. Clone the repository (for development, or changes not released yet).**
 
@@ -594,9 +601,7 @@ The **SCP81** column shows whether the preset supplies a usable PSK pair: **✓*
 
 Two top-level tabs talk to the PWA's server, the pysim-free **`simple_server`** (the `simple-server` entry point): **Status** (server connection + card-session state, **Raw APDU**) and **File manager** (**File manager**, **Services**, **Custom files**).
 
-> **Development phase (Phase 3d-2):** the PWA already speaks the pysim-free `simple_server` API, but this snapshot is **not releasable on its own** — the bundled `start.sh`/`start.bat` and `setup.sh`/`setup.bat` still launch the legacy `pysim_simple_server`, which does not serve that API. The 4.0.0 cutover (Phase 3d-3) flips the scripts (`simple-server`), `docs/api.md` and the version together.
-
-> **Browser restriction:** when the frontend is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (pysim-simple-server ≥ 1.6.1 does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
+> **Browser restriction:** when the frontend is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (the server does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
 
 ### File Browser
 
@@ -697,7 +702,7 @@ Values persist on the server until restart. Apply → hex updates; Save → POST
 
 **Network state monitor** — a compact **Network state** panel next to the simulation buttons shows what the card currently holds and what was last simulated. Its header carries the **simulated service state** (*Undefined* until a scenario or a Location status event sets it, then *Normal service* / *Limited service* / *No service*) with a *PLMN not allowed* marker when the location files or EF.FPLMN show a rejection, plus the current location: PLMN, country and operator, the LAI/RAI/TAI, and the **roaming class** (*Home* when the PLMN equals the HPLMN, *Home equivalent* when it is in EF.EHPLMN, otherwise *Guest*). Below it, one compact line per monitored file (IMSI, EHPLMN, SPDI, HPLMNwAcT, LOCI, PSLOCI, EPSLOCI, EPSNSC, CBMI, CBMIR, SMSstatus, FPLMN) with its decoded summary and how it was last updated (`init`, `write`, `read`, `refresh`); hover for the full decoded fields — long PLMN lists are abbreviated (EF.HPLMNwAcT shows only the first network plus a `… +N` counter). The panel reads the files once at equip (only when the ICCID was readable), updates them in place from the bytes the simulator wrote, re-reads EF.IMSI after every scenario and Location-status event, and never polls the card — **Refresh** re-reads all files on demand.
 
-**eSIM LPA** — for an eUICC (SGP.22/SGP.32) the **eSIM LPA** pill reads the chip and manages the installed profiles through the local ES10 interface (via pySim, no SM-DP+ contact): **Chip** (EID, EUICCInfo1/2 with decoded capability bit lists, card resources, CI PKI identifiers, category, forbidden PPRs, certification data; configured default SM-DP+ / root DS addresses; the rules authorisation table from ES10b GetRat), **Profiles** (state, nickname, provider, ICCID, ISD-P AID, class, owner, and the icon image at its natural size with its type/byte size; **Enable**/**Disable** switches a profile — the card usually sends REFRESH first and the card session is then re-initialized like an equip, so the ICCID, network state and every cached card view are re-read, and the requested state is verified against the re-read profile list) and **Notifications** (read-only pending list). No profile downloads, no notification handling and no SM-DP+ interaction — only the local ES10a/b/c functions are used; a non-eUICC card is reported as such.
+**eSIM LPA** — for an eUICC (SGP.22/SGP.32) the **eSIM LPA** pill reads the chip and manages the installed profiles through the local ES10 interface (the server's own SGP.22 implementation, no SM-DP+ contact): **Chip** (EID, EUICCInfo1/2 with decoded capability bit lists, card resources, CI PKI identifiers, category, forbidden PPRs, certification data; configured default SM-DP+ / root DS addresses; the rules authorisation table from ES10b GetRat), **Profiles** (state, nickname, provider, ICCID, ISD-P AID, class, owner, and the icon image at its natural size with its type/byte size; **Enable**/**Disable** switches a profile — the card usually sends REFRESH first and the card session is then re-initialized like an equip, so the ICCID, network state and every cached card view are re-read, and the requested state is verified against the re-read profile list) and **Notifications** (read-only pending list). No profile downloads, no notification handling and no SM-DP+ interaction — only the local ES10a/b/c functions are used; a non-eUICC card is reported as such.
 
 ## SCP81
 
@@ -744,57 +749,59 @@ A dark theme is included. It follows the system preference and can be toggled ma
 
 The interface is in English with Russian support. The language is detected from `navigator.language`; the header toggle (EN/RU) stores the choice in `localStorage`. Switching the language also re-renders visible dynamic views (profile lists, check reports, snapshots, cards, proactive views).
 
-## Server (pysim-simple-server)
+## Server (simple-server)
 
-> **Development phase (Phase 3d-2):** the PWA has cut over to the pysim-free **`simple_server`** (`simple-server`), which does not serve `/api/command`, `/api/commands`, `/api/cardinfo` or `/api/sp-verify`. This section still documents the legacy `pysim_simple_server` that the `start`/`setup` scripts launch; the 4.0.0 cutover (Phase 3d-3) updates this section, `docs/api.md`, the scripts and the version together. **3d-2 is not a releasable state on its own.**
-
-The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki) and serves both the SIMple frontend (from `frontend/`) and a JSON API under `/api/*`.
+The bundled Python server (`simple_server`, the `simple-server` console script) is **pysim-free**: it talks to the card over PC/SC directly and serves both the SIMple frontend (from `frontend/`) and a JSON API under `/api/*`.  Its PC/SC transport, file model, SCP80/SCP81, RAM/CAP, CAT/STK, eSIM and network-simulation code were written from the pinned specs; pySim is not installed and not imported.
 
 ### Scripts
 
 | Script | What it does |
 |--------|-------------|
-| `setup.sh` / `setup.bat` | Creates `.venv/` (or repairs an incomplete one), installs pysim and the server. Run once after cloning or after unzipping the release package. |
+| `setup.sh` / `setup.bat` | Creates `.venv/` (or repairs an incomplete one), installs the runtime dependencies (`requirements.txt`) and the server. Run once after cloning or after unzipping the release package. |
 | `start.sh` / `start.bat` | Starts the server from the venv (serves the frontend + API on `:8080`). |
-| `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (pysim is kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`. |
+| `update.sh` / `update.bat` | Updates a packaged install in place: fetches the latest release package, replaces the app files and re-installs the app into the existing `.venv` (the dependencies are kept). `--check`, `--version X.Y.Z`, `--zip FILE`, `--no-pip`, `--force`; a major-version jump is refused. |
 
-`start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the group/polkit guidance and exits — the server **does not fall back to a serial reader silently**. With access, the server auto-detects the first PC/SC reader; `start.bat` always passes `-p 0` (PC/SC is built into Windows). An explicit serial/FTDI reader is still possible with `-d <device>` (the pre-flight check is skipped). Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`. If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
+`start.sh` checks PC/SC access before starting: if the user may not use `pcscd` (or the service is not running) it prints the cause with the polkit guidance and exits — the server is PC/SC-only and does not fall back to a serial reader.  With access, the server uses the first PC/SC reader (both scripts start it that way); name a reader with `-r "Reader Name"`.  Extra arguments are passed through to the server, e.g. `./start.sh --gsmtap` or `start.bat --gsmtap 10.0.0.5:4729`.  If no PC/SC reader is found the server reports it and exits — connect the reader and restart (a reader present but no card is still a normal cardless start).
 
 ### Manual installation (Linux/macOS)
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install git+https://github.com/osmocom/pysim.git
-pip install -e .                   # editable — serves frontend/ from the source tree
-pysim-simple-server --http-port 8080
+pip install -r requirements.txt
+pip install --no-build-isolation -e .   # editable — serves frontend/ from the source tree
+simple-server --http-port 8080
 ```
 
-On Windows use `setup.bat` instead: it installs pysim's dependencies from
-`requirements-pysim.txt` and pysim itself with `--no-deps`, so pysim's optional
-dependencies are not pulled in.
+On Windows use `setup.bat` instead: it installs the same `requirements.txt` and
+the app into the venv.
 
 ### CLI options
 
 | Option | Description |
 |--------|-------------|
-| `--http-host` | Bind address (default: `127.0.0.1`) |
-| `--http-port` | TCP port (default: `8080`) |
-| `--web-dir` | Directory with frontend static files (default: `<repo>/frontend`) |
-| `-p` / `--pcsc-device` | PC/SC reader slot number |
-| `-d` / `--device` | Serial device path |
-| `--no-card-init` | Skip card init to preserve the CAT session (no file manager) |
-| `--apdu-trace` | Log APDU-level traces to stderr |
-| `--gsmtap [HOST[:PORT]]` | Stream the card APDUs as GSMTAP-SIM UDP packets for Wireshark / SIMtrace Analyser (`--capture gsmtap`); default target `127.0.0.1:4729`. APDUs only (no ATR), emitted in wire shape (case-4 Le stripped, data as a GET RESPONSE TPDU, case-2/3 responses merged into the command packet). Combines with `--apdu-trace` |
-| `--log-requests` | Log request/response payloads to stderr |
+| `-r` / `--reader NAME` | PC/SC reader name (default: the first reader; the list is checked at startup) |
+| `--http-host` | Bind address (default: `127.0.0.1`; `0.0.0.0` for a container or a phone on the LAN) |
+| `--http-port` | TCP port 0-65535 (default: `8080`; `0` picks an ephemeral port) |
+| `--web-dir` | Directory with the frontend static files (default: `<repo>/frontend`) |
+| `--card-presets` | Card preset store (default: `~/.pysim-simple-server/card_presets.json`) |
+| `--test-scripts` | Test-script store (default: `~/.pysim-simple-server/test_scripts.json`) |
+| `--test-suites` | Test-suite store (default: `~/.pysim-simple-server/test_suites.json`) |
+| `--mcc-mnc-list` | Override the bundled worldwide MCC/MNC operator list |
 | `--sms-oa` / `--sms-sm-sc` | SMS-DELIVER originating address / SM-SC for PoR-in-submit |
 | `--terminal-profile` | TERMINAL PROFILE payload hex (default: 33-byte real-handset profile that advertises BIP events/commands; the live card ignores HTTP OTA without it) |
 | `--poll-interval` | Idle interval before automatic STATUS polling (default 30s; `0` disables polling) |
-| `--mcc-mnc-list` | Override the bundled worldwide MCC/MNC operator list (`pysim_simple_server/data/mcc-mnc-list.json`) |
-| `--full-pysim-init` | Use pysim's stock init/equip (redundant card resets). The default init/equip is reset-free — only explicit equip/reset reconnect the card |
-| `--no-auto-equip` | Do not initialize a card automatically right after it is inserted (default: auto-equip on) |
 | `--menu-timeout` | Auto-answer a paused STK command with a timeout TERMINAL RESPONSE (default 60s; `0` disables) |
-| `--timing` | Log phase durations, card resets and APDU counters with elapsed timestamps |
+| `--no-card-init` | Skip the startup card initialization phase (the link/ATR and the monitors still run; Equip initializes the card later) |
+| `--no-auto-equip` | Do not initialize a card automatically right after it is inserted (default: auto-equip on) |
+| `--apdu-trace` | Trace the card exchange on stderr (the logical APDU in APDU mode, the TPDU on a TPDU-mode reader — with the response data, the status word and the ATR) |
+| `--gsmtap [HOST[:PORT]]` | Stream the card exchange and the ATR as GSMTAP-SIM UDP packets for Wireshark / SIMtrace Analyser (`--capture gsmtap`); default target `127.0.0.1:4729`. Combines with `--apdu-trace` |
+| `--log-requests` | Log request/response payloads to stderr |
+| `--timing` | Log startup phase durations and the shutdown with elapsed timestamps |
+
+The 3.x server's serial `-d`/`--device`, the `-p` reader-slot form and the
+`--full-pysim-init` option are gone in 4.x (PC/SC only, one card init).  The
+3.x scripts and options live in the `simple-pysim` fork.
 
 ### Troubleshooting
 
@@ -811,7 +818,7 @@ dependencies are not pulled in.
   ```
 
   then `sudo systemctl restart polkit` (or log out/in).  Start the service if needed (`sudo systemctl enable --now pcscd`); `start.sh` and the server report this and exit instead of falling back to a serial reader, and `pcsc_scan` shows the same error until the rule is active.  If your `pcscd` was built without PolicyKit and the socket is group-owned, adding the user to that group works instead.
-- **"device file /dev/ttyUSB0 does not exist"** — only with an explicit `-d <device>`: the device is not connected (or the path is wrong). Without `-d` the server uses the PC/SC transport only.
+- **A serial/FTDI reader is not supported in 4.x** — the server is PC/SC-only; the serial transport (and its `-d/--device` option) lives in the frozen `simple-pysim` (3.x) fork.
 - **"no PC/SC reader found"** — connect a reader (`pcsc_scan` lists them) and restart; the server exits instead of starting without a reader.
 - **"Service not available" (0x8010001D) / reader gone after a `pcscd` restart** — the server recovers by itself: a watchdog revives pyscard's presence monitor and the next equip (automatic after re-insertion, or the **Equip** button) recreates the PC/SC transport (releasing the old link first). No server restart needed.
 - **"Card was removed" errors / auto-equip fails after a card swap** — a card insertion marks the PC/SC link for a rebuild (so the **first** attempt already uses a fresh link — on Windows the old one cannot connect after a swap), the auto-equip retries up to 3 times, and **every failed attempt rebuilds the transport** before the next one. A card removed while the server initializes at startup leaves it cardless with one line (no traceback), and the next insertion equips normally. A failed init is printed as `AUTO-EQUIP: init output:` (with its traceback), and a card that is present but produced no card is a failure, not a silent "card gone". The watchdog re-arms with a doubling delay (5 s up to 60 s) while a card is present; a removed card clears the card state completely, so handlers answer "no card" instead of transmitting over the dead card.
@@ -846,13 +853,14 @@ Each one is fully independent — install only the tools you need:
 
 ## License
 
-**GPL-2.0-or-later** — see [LICENSE](LICENSE). This is the same license as
-[pySim](https://github.com/osmocom/pysim), whose library the server imports, and
-as [simtrace-analyser](https://github.com/anttro/simtrace-analyser), from which
-some client-side decoders were ported.
+**GPL-2.0-or-later** — see [LICENSE](LICENSE).  Some client-side decoders were
+ported from [simtrace-analyser](https://github.com/anttro/simtrace-analyser),
+which is also GPL-2.0-or-later.
 
-pySim itself is not included in this repository or in the release artifacts:
-`setup.sh` / `setup.bat` install it from its upstream git repository.
+pySim is no longer a dependency of the 4.x server (it is not imported and not
+shipped); the pySim-based 3.x line stays in the `simple-pysim` fork, which
+keeps its own GPL license.  **The planned switch of this repository to MIT
+waits for simtrace-analyser's relicensing** — until then the GPL stays.
 
 Bundled third-party components (the MCC/MNC operator list and the AES/DES
 bundles in the frontend) keep their own MIT licenses — see

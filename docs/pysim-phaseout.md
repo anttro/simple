@@ -12,7 +12,7 @@
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green then) |
 | 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green then) |
 | 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green then, 1367 after the review fixes) |
-| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control), 3d-1 (the entry point + the GSMTAP tracer) is done, and 3d-2 (the PWA cutover) is done; the 3d-3 release remains |
+| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control), 3d-1 (the entry point + the GSMTAP tracer) is done, 3d-2 (the PWA cutover) is done and 3d-3b (the shared modules + the MCC/MNC data move into `simple_server`) is done; the 3d-3 release remains |
 
 ## Phase 0 outcome
 
@@ -1494,13 +1494,12 @@ packaged tree, and without it the installed `simple-server` died with
 `[project.scripts]` from the shipped `pyproject.toml` and asserts every
 declared module (and its package `__init__.py`) is in the built zip.
 
-**The MCC/MNC data coupling is a 3d-3 item.**
-`simple_server.netmon.default_mcc_mnc_path()` still resolves
-`pysim_simple_server/data/mcc-mnc-list.json`: the operator list (and its
-`.LICENSE`) must move into `simple_server/data`, with `[tool.setuptools.
-package-data]` and `tools/build_release.py` extended, before the legacy package
-leaves the release.  Until then the pysim-free server depends on that one data
-file of the legacy package.
+**The MCC/MNC data coupling is a 3d-3 item - completed in 3d-3b.**
+`simple_server.netmon.default_mcc_mnc_path()` used to resolve
+`pysim_simple_server/data/mcc-mnc-list.json`; the operator list and its
+`.LICENSE` now live in `simple_server/data` (shipped by
+`[tool.setuptools.package-data]` and by `tools/build_release.py`, pinned by
+`tests/test_release_package.py`).
 
 Tests: the full suite is **2524** (`tests/test_simple_main.py` 81,
 `GsmtapDriftTests` in `tests/test_simple_drift.py` 4, the new console-script
@@ -1597,6 +1596,72 @@ state.  Known transient doc state: the READMEs' live-tab sections name
 `simple_server` while their "Server" sections still document the legacy
 server, and the help's installation snippet still starts `pysim-simple-server`;
 both are resolved in 3d-3.
+
+## Phase 3d-3b outcome (the shared modules + the MCC/MNC data)
+
+`simple_server` no longer imports the legacy package at all.  The twelve
+pysim-free modules the HTTP core reused are now **copies inside the package**,
+under `simple_server/shared/` (a subpackage because `simple_server` already has
+its own `netsim.py` - the card adapter over the legacy scenario builders - and
+`scp81.py` - the listener control over the legacy `PskTlsServer`; a flat copy
+would have collided with both):
+
+| module | used by |
+|---|---|
+| `presets.py` | `ota`, `server` (preset endpoints), `testrun`, `suites` |
+| `testscript.py` | `server`, `testrun` |
+| `events.py` | `server`, `testrun` |
+| `capmem.py` | `capram` (CAP analysis, the compatibility test) |
+| `catrelease.py` | (the release guard table; no importer yet) |
+| `netsim.py` | `netsim` (the adapter re-exports `SCENARIO_SERVICE`), `netstate` |
+| `netstate.py` | `netmon`, `server` (the network-state cache) |
+| `outfile.py` | `server` (`/api/presets/import-outfile`) |
+| `scp81.py` | `scp81` (the control starts `PskTlsServer`) |
+| `httpota.py` | `bip`, `scp81` (the BIP terminal / dump listener) |
+| `test_scripts.py` | `server`, `suites` |
+| `test_suites.py` | `server`, `suites` |
+
+The copies are verbatim (headers, docstrings and spec citations intact); only
+their three intra-package imports changed (`testscript` -> `events`,
+`netstate` -> `netsim`, `outfile` -> `presets`), to `simple_server.shared.*`.
+The import relationships are unchanged, so there is no cycle.  The adapters
+in `simple_server/` import `from simple_server.shared import X` (the `netsim`
+adapter keeps the rename `as core_netsim`; its docstring's old `legacy_netsim`
+name is gone).
+
+`simple_server/netmon.py` resolves the bundled operator list from its **own**
+package now (`simple_server/data/mcc-mnc-list.json` and `.LICENSE`), so the
+last runtime data dependency on the legacy tree is gone.
+
+Packaging: `pyproject.toml` gained
+`[tool.setuptools.package-data] simple_server = ["data/*.json",
+"data/*.LICENSE"]` (the `simple_server*` discovery already covered the
+subpackage; a built wheel carries the 12 modules and both data files),
+`tools/build_release.py` ships the whole `simple_server/` directory and so
+picked the new files up unchanged, and `tests/test_release_package.py` now
+pins the shared modules, the data files and an AST scan that **no packaged
+`simple_server/**.py` imports `pysim_simple_server`/`pySim`/`osmocom`/
+`construct`.
+
+Guards: `tests/test_simple_proactive.py::PackageImportHygieneTests` now globs
+the package recursively (`shared/` included) and has a second AST test for
+`pysim_simple_server` imports, plus a coverage pin that the walk reaches
+`shared/presets.py`.  `tests/test_simple_drift.py` remains the one module that
+imports both implementations; its two module-identity assertions became
+copy-vs-legacy comparisons (the netstate/netsim tables and the TLS listener
+status block, the latter built once per implementation with the port
+normalised), and a new `SharedCatReleaseDriftTests` compares the copied CAT
+release table and its lookup rules - the one copy with no other importer.
+
+The legacy-reuse imports in the simple suites' fixtures moved to the shared
+copies (otherwise the stores/validators raised the legacy exception classes
+and the endpoints answered 500 instead of 400); `tests/test_simple_drift.py`
+alone keeps importing `pysim_simple_server`.
+
+Full suites: **2551 Python + 1180 Node**, green.  Self-containment checked by
+importing every `simple_server` module (and loading the operator list) with a
+meta-path finder that blocks `pysim_simple_server`/`pySim`/`osmocom`/
+`construct`.  `pysim_simple_server/` is untouched.
 
 ## Spec compliance (spec-checker)
 

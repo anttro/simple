@@ -16,9 +16,9 @@ Provenance: a behavioural port of the legacy server's BIP helpers
 ``_bip_session_stop``, ``_bip_status_body``, ``_bip_control`` and
 ``_bip_flush_channel_events``, plus the ``_BIP``/``_BIP_MODE``/``_BIP_TARGET``/
 ``_BIP_LISTENER``/``_BIP_OWNER``/``_BIP_LINK_EVENTS`` module globals).  The
-channel machinery itself is :class:`pysim_simple_server.httpota.BipTerminal`
-(pysim-free, the same class the legacy server uses; the module move happens at
-the fork) and the sink listener is ``httpota.TcpDumpServer``.  The module
+channel machinery itself is :class:`simple_server.shared.httpota.BipTerminal`
+(pysim-free, moved here from the legacy tree) and the sink listener is
+``shared.httpota.TcpDumpServer``.  The module
 globals became one :class:`BipSession` per card, the "card is connected" global
 became the :attr:`BipSession.card_connected` hook and the CAT exchanges go
 through the injected :class:`simple_server.cat_session.CatSession` instead of
@@ -62,7 +62,7 @@ a shortened answer:
 import logging
 import threading
 
-from pysim_simple_server import httpota
+from simple_server.shared import httpota
 
 from simple_server import proactive
 from simple_server import tlv

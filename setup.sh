@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-# pysim-simple-server setup script
-# Creates a venv and installs pysim and its dependencies.
+# SIMple setup script
+# Creates a venv and installs the server and its runtime dependencies.
+# The legacy pySim-based 3.x line lives in the simple-pysim fork.
 
 # Windows guard: setup.sh is the native Linux/macOS helper.  Under WSL the
 # Linux guest cannot reach the Windows PC/SC readers, and a Git Bash / MSYS2 /
@@ -21,8 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 
 # Check prerequisites
-command -v python3 >/dev/null 2>&1 || { echo "Error: Python 3 is required but not found. Install Python 3.9+ from https://python.org"; exit 1; }
-command -v git >/dev/null 2>&1 || { echo "Error: Git is required but not found. Install Git from https://git-scm.com"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "Error: Python 3 is required but not found. Install Python 3 from https://python.org (3.13+ recommended)"; exit 1; }
 
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 echo "Found Python $PY_VER"
@@ -49,18 +49,20 @@ fi
 source "$VENV_DIR/bin/activate"
 PIP="$VENV_DIR/bin/pip"
 
-# Upgrade pip
-$PIP install --upgrade pip -q
+# Upgrade pip and the build backend.  The editable install below runs with
+# --no-build-isolation (the package's build-system requirements), so
+# setuptools/wheel must be in the venv.
+$PIP install --upgrade pip setuptools wheel -q
 
-# Install pysim from the Osmocom repository
+# Install the runtime dependencies (pyscard, pycryptodomex, gsm0338).
 echo ""
-echo "=== Installing pysim ==="
-$PIP install git+https://github.com/osmocom/pysim.git
+echo "=== Installing dependencies ==="
+$PIP install -r "$SCRIPT_DIR/requirements.txt"
 
-# Install pysim-simple-server
+# Install SIMple.  Editable, so the bundled frontend/ is served by default.
 echo ""
-echo "=== Installing pysim-simple-server ==="
-$PIP install -e "$SCRIPT_DIR"
+echo "=== Installing SIMple ==="
+$PIP install --no-build-isolation -e "$SCRIPT_DIR"
 
 # Check for PC/SC
 echo ""
@@ -90,4 +92,4 @@ fi
 echo ""
 echo "=== Setup complete ==="
 echo "Run ./start.sh to start the server."
-echo "Updating later: ./update.sh (reuses .venv - pysim is not re-installed)."
+echo "Updating later: ./update.sh (reuses .venv - the dependencies are not re-installed)."

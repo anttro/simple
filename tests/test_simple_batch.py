@@ -41,7 +41,7 @@ from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from pysim_simple_server import presets as presets_store
+from simple_server.shared import presets as presets_store
 
 from simple_server import capram
 from simple_server import ota

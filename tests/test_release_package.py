@@ -8,6 +8,7 @@ files must cover what the service worker precaches - otherwise a newly added
 asset would silently be missing from a release.
 """
 
+import ast
 import importlib.util
 import re
 import subprocess
@@ -24,7 +25,7 @@ except ImportError:                     # pragma: no cover - older interpreters
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / 'tools' / 'build_release.py'
-SERVER = REPO / 'pysim_simple_server' / 'server.py'
+SERVER = REPO / 'simple_server' / 'server.py'
 
 
 def _load_builder():
@@ -69,29 +70,80 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn(self.root + 'pyproject.toml', self.names)
 
     def test_the_runtime_files_are_present(self):
-        for f in ('pysim_simple_server/server.py',
-                  'pysim_simple_server/__main__.py',
-                  'pysim_simple_server/data/mcc-mnc-list.json',
-                  'pysim_simple_server/data/mcc-mnc-list.LICENSE',
-                  'simple_server/__init__.py',
+        for f in ('simple_server/__init__.py',
                   'simple_server/__main__.py',
+                  'simple_server/server.py',
                   'simple_server/gsmtap.py',
                   'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
                   'update.sh', 'update.bat', 'tools/update.py',
                   'tools/changelog_section.py', 'CHANGELOG.md',
-                  'pyproject.toml', 'requirements-pysim.txt',
+                  'pyproject.toml', 'requirements.txt',
                   'README.md', 'README_RUS.md', 'LICENSE', 'THIRD-PARTY-NOTICES',
                   'docs/api.md'):
             self.assertIn(self.root + f, self.names)
 
+    def test_the_legacy_pysim_tree_is_not_packaged(self):
+        # The 4.0.0 package is the pysim-free tree; the legacy package and its
+        # requirements belong to the frozen simple-pysim fork.
+        for name in self.names:
+            rel = name[len(self.root):]
+            self.assertFalse(rel.startswith('pysim_simple_server/'), name)
+            self.assertNotEqual(rel, 'requirements-pysim.txt', name)
+        self.assertNotIn(self.root + 'requirements-pysim.txt', self.names)
+
+    def test_the_shared_pysim_free_modules_ship(self):
+        # Phase 3d-3b: the spec-only modules simple_server imports live in its
+        # own subpackage, so the package no longer needs the legacy tree.
+        self.assertIn(self.root + 'simple_server/shared/__init__.py', self.names)
+        for module in ('presets', 'testscript', 'events', 'capmem',
+                       'catrelease', 'netsim', 'netstate', 'outfile', 'scp81',
+                       'httpota', 'test_scripts', 'test_suites'):
+            self.assertIn(self.root + 'simple_server/shared/%s.py' % module,
+                          self.names, module)
+
+    def test_the_bundled_operator_list_ships(self):
+        # netmon.default_mcc_mnc_path() reads these from the package
+        # directory; pysim-free operation must not reach into the legacy tree.
+        for f in ('simple_server/data/mcc-mnc-list.json',
+                  'simple_server/data/mcc-mnc-list.LICENSE'):
+            self.assertIn(self.root + f, self.names, f)
+
+    def test_the_packaged_server_never_imports_the_legacy_tree(self):
+        # The hard constraint of the split: what ships must run with no
+        # pysim_simple_server (or pysim) importable.  Read with the AST, not a
+        # grep, so an aliased/conditional import is caught too.
+        forbidden = ('pysim_simple_server', 'pySim', 'osmocom', 'construct')
+        offenders = []
+        with zipfile.ZipFile(self.zip_path) as z:
+            for name in self.names:
+                rel = name[len(self.root):]
+                if not (rel.startswith('simple_server/') and rel.endswith('.py')):
+                    continue
+                tree = ast.parse(z.read(name).decode('utf-8'), filename=rel)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        names = [alias.name for alias in node.names]
+                    elif isinstance(node, ast.ImportFrom):
+                        names = [node.module or '']
+                    else:
+                        continue
+                    for imported in names:
+                        if imported.split('.')[0] in forbidden:
+                            offenders.append('%s:%d: %s'
+                                             % (rel, node.lineno, imported))
+        self.assertEqual(offenders, [])
+
     @unittest.skipUnless(tomllib is not None, 'tomllib needs Python 3.11+')
     def test_every_console_script_module_ships_in_the_package(self):
-        # setup.sh runs ``pip install -e .`` on the packaged tree: a declared
-        # console script whose module is missing installs an entry point that
-        # dies with ModuleNotFoundError (the pre-3d-1 ``simple-server``).
+        # setup.sh runs ``pip install --no-build-isolation -e .`` on the
+        # packaged tree: a declared console script whose module is missing
+        # installs an entry point that dies with ModuleNotFoundError (the
+        # pre-3d-1 ``simple-server``).
         data = tomllib.loads((REPO / 'pyproject.toml').read_text(encoding='utf-8'))
         scripts = data['project'].get('scripts', {})
         self.assertIn('simple-server', scripts)
+        # The legacy pySim entry point is not shipped (the fork keeps it).
+        self.assertNotIn('pysim-simple-server', scripts)
         for name, target in scripts.items():
             with self.subTest(script=name):
                 module = target.split(':', 1)[0]

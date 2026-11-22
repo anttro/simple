@@ -4,8 +4,9 @@
 Three things are exercised through a fake UICC and a real
 :class:`ThreadingHTTPServer` on an ephemeral loopback port:
 
-* ``POST /api/net-sim`` - the reused :mod:`pysim_simple_server.netsim`
-  scenario runner driven through :mod:`simple_server.netsim`'s card adapter
+* ``POST /api/net-sim`` - the :mod:`simple_server.shared.netsim` scenario
+  runner (moved from the legacy tree unchanged) driven through
+  :mod:`simple_server.netsim`'s card adapter
   (path selection via the file model, the FCP-driven UPDATE/READ, the
   AUTHENTICATE command and the event download);
 * ``GET /api/net-state`` / ``POST /api/net-state-refresh`` - the monitor of
@@ -14,8 +15,9 @@ Three things are exercised through a fake UICC and a real
 
 The ported source is ``pysim_simple_server/server.py``'s ``_netstate_read``/
 ``_netstate_*`` plumbing and its four ``_mcc_mnc_*`` helpers; the scenario
-bytes are the reused legacy builders (a drift guard asserts the adapter
-re-exports them, not a copy).  No card and no pysim are involved.
+bytes are the shared builders the adapter re-exports (the drift suite asserts
+the shared copy still matches the legacy module).  No card and no pysim are
+involved.
 """
 
 import json
@@ -27,8 +29,8 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from pysim_simple_server import netstate
-from pysim_simple_server import netsim
+from simple_server.shared import netstate
+from simple_server.shared import netsim
 
 from simple_server import esim
 from simple_server import netmon
@@ -358,9 +360,9 @@ class HarnessCase(unittest.TestCase):
 
 
 class ReuseTests(unittest.TestCase):
-    """The scenario bytes are the legacy module's, not a copy."""
+    """The adapter re-exports the shared module's tables (no second copy)."""
 
-    def test_the_shared_tables_are_the_legacy_objects(self):
+    def test_the_shared_tables_are_the_shared_objects(self):
         self.assertIs(netsim_adapter.EVENT_LOCATION_STATUS,
                       netsim.EVENT_LOCATION_STATUS)
         self.assertIs(netsim_adapter.SCENARIO_SERVICE,

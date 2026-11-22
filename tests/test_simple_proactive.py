@@ -779,7 +779,10 @@ class TrResultTableDriftTests(unittest.TestCase):
 
 class PackageImportHygieneTests(unittest.TestCase):
     """The hard phase-out constraint: no ``pySim``/``osmocom``/``construct``
-    import anywhere in ``simple_server/``.
+    import anywhere in ``simple_server/``, and no ``pysim_simple_server``
+    import at all (Phase 3d-3b moved the pysim-free modules into
+    ``simple_server.shared``, so the package must stand without the legacy
+    tree).
 
     Read with the AST, not a grep - a conditional or aliased import is still a
     dependency.  This lives in the pysim-free suite so the guard can never be
@@ -787,11 +790,16 @@ class PackageImportHygieneTests(unittest.TestCase):
     """
 
     FORBIDDEN = ('pySim', 'osmocom', 'construct')
+    LEGACY = ('pysim_simple_server',)
 
-    def test_no_forbidden_import(self):
-        package = pathlib.Path(P.__file__).resolve().parent
-        offenders = []
-        for path in sorted(package.glob('*.py')):
+    @staticmethod
+    def _package():
+        return pathlib.Path(P.__file__).resolve().parent
+
+    @classmethod
+    def _imports(cls):
+        """(module path, lineno, imported module) for every import in the package."""
+        for path in sorted(cls._package().rglob('*.py')):
             tree = ast.parse(path.read_text(encoding='utf-8'))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -801,10 +809,28 @@ class PackageImportHygieneTests(unittest.TestCase):
                 else:
                     continue
                 for name in names:
-                    if name.split('.')[0] in self.FORBIDDEN:
-                        offenders.append('%s:%d: %s'
-                                         % (path.name, node.lineno, name))
-        self.assertEqual(offenders, [])
+                    yield path, node.lineno, name
+
+    @classmethod
+    def _offenders(cls, forbidden):
+        package = cls._package()
+        return ['%s:%d: %s' % (path.relative_to(package), lineno, name)
+                for path, lineno, name in cls._imports()
+                if name.split('.')[0] in forbidden]
+
+    def test_no_forbidden_import(self):
+        self.assertEqual(self._offenders(self.FORBIDDEN), [])
+
+    def test_no_legacy_package_import(self):
+        self.assertEqual(self._offenders(self.LEGACY), [])
+
+    def test_the_shared_modules_are_covered(self):
+        # The guard above must reach the subpackage the moved modules live in -
+        # a future import added to ``shared/`` is exactly what it exists for.
+        package = self._package()
+        self.assertTrue(list((package / 'shared').glob('*.py')))
+        scanned = {path for path, _lineno, _name in self._imports()}
+        self.assertIn(package / 'shared' / 'presets.py', scanned)
 
 
 if __name__ == '__main__':

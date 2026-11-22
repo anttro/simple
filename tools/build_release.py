@@ -3,9 +3,13 @@
 
 The package is a snapshot of the tagged source with the development-only files
 removed - no git history, no tests, no frontend sources or build configuration.
-It is what the READMEs' "download the release package" path installs; pysim is
-NOT included (``setup.sh`` / ``setup.bat`` fetch it from its upstream
-repository).
+It is what the READMEs' "download the release package" path installs; the
+runtime dependencies (``requirements.txt``: pyscard, pycryptodomex, gsm0338)
+are installed by ``setup.sh`` / ``setup.bat``.
+
+The legacy pySim-based 3.x tree (``pysim_simple_server/`` and
+``requirements-pysim.txt``) stays in the repository for the frozen
+``simple-pysim`` fork but is **not** part of this package.
 
 Usage:
     python tools/build_release.py [--out DIR] [--expect-version X.Y.Z] [--list]
@@ -31,20 +35,15 @@ FRONTEND_FILES = (
 )
 
 # Everything a user needs (and the source of what the package ships - the GPL
-# "corresponding source" is also the public repo at the same tag).
+# "corresponding source" is also the public repo at the same tag).  The legacy
+# pysim tree is deliberately absent: it lives in the simple-pysim fork.
 PACKAGE_ENTRIES = (
-    'pysim_simple_server',
-    # The pysim-free package (Phase 3d-1): its console script is declared in the
-    # shipped pyproject.toml, so setup.sh's ``pip install -e .`` must find the
-    # module - a package install used to produce a ``simple-server`` that died
-    # with ModuleNotFoundError.  Its future ``simple_server/data`` joins it with
-    # the MCC/MNC move (3d-3).
     'simple_server',
     'docs',
     'tools',
     'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
     'update.sh', 'update.bat',
-    'pyproject.toml', 'requirements-pysim.txt',
+    'pyproject.toml', 'requirements.txt',
     'README.md', 'README_RUS.md', 'CHANGELOG.md',
     'LICENSE', 'THIRD-PARTY-NOTICES',
 )
@@ -52,10 +51,10 @@ PACKAGE_ENTRIES = (
 
 def version():
     """The server's VERSION - the single source of truth for the package name."""
-    text = (REPO / 'pysim_simple_server' / 'server.py').read_text(encoding='utf-8')
+    text = (REPO / 'simple_server' / 'server.py').read_text(encoding='utf-8')
     m = re.search(r"^VERSION = '([^']+)'$", text, re.M)
     if not m:
-        sys.exit('error: VERSION not found in pysim_simple_server/server.py')
+        sys.exit('error: VERSION not found in simple_server/server.py')
     return m.group(1)
 
 

@@ -20,10 +20,10 @@ Provenance: a behavioural port of the legacy server's test runner
 became one :class:`TestRunner` per :class:`~simple_server.server.ServerState`,
 so two servers in one process are independent and the tests need no global
 reset.  The pure engine (validation, matching, the scripted TERMINAL
-RESPONSE) stays in :mod:`pysim_simple_server.testscript`, the semantic event
-builders in :mod:`pysim_simple_server.events`, the script store in
-:mod:`pysim_simple_server.test_scripts` - all pysim-free and reused, never
-re-derived.  The card exchanges reuse the ported machinery:
+RESPONSE) stays in :mod:`simple_server.shared.testscript`, the semantic event
+builders in :mod:`simple_server.shared.events`, the script store in
+:mod:`simple_server.shared.test_scripts` - the pysim-free modules moved
+verbatim from the legacy tree, never re-derived.  The card exchanges reuse the ported machinery:
 :class:`~simple_server.cat_session.CatSession` (STATUS/FETCH/TERMINAL
 RESPONSE, ENVELOPE, the menu cache, the proactive log),
 :func:`simple_server.ota.decode_por` / ``spi1_for_tar`` / ``format_apdu``,
@@ -78,9 +78,9 @@ import re
 import threading
 import time
 
-from pysim_simple_server import events
-from pysim_simple_server import presets as presets_store
-from pysim_simple_server import testscript
+from simple_server.shared import events
+from simple_server.shared import presets as presets_store
+from simple_server.shared import testscript
 
 from simple_server import cat
 from simple_server import cat_session

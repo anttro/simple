@@ -4,12 +4,13 @@
 Two things the Simulator's "Network state" panel needs, both reused rather
 than re-derived:
 
-* :mod:`pysim_simple_server.netstate` (pure) - the cached per-card view of
-  the network-related EFs, the simulated service state and the derived
-  location/roaming view.  This module only supplies its card side
-  (:func:`read_files`, the port of the legacy ``_netstate_read``) and the
-  operator list (:func:`load_mcc_mnc`, :func:`compute`).
-* the bundled worldwide MCC/MNC list (``pysim_simple_server/data/
+* :mod:`simple_server.shared.netstate` (pure, moved from the legacy tree
+  unchanged) - the cached per-card view of the network-related EFs, the
+  simulated service state and the derived location/roaming view.  This
+  module only supplies its card side (:func:`read_files`, the port of the
+  legacy ``_netstate_read``) and the operator list (:func:`load_mcc_mnc`,
+  :func:`compute`).
+* the bundled worldwide MCC/MNC list (``simple_server/data/
   mcc-mnc-list.json``, MIT, from pbakondy/mcc-mnc-list) and the search /
   random-pick helpers behind ``GET /api/mcc-mnc`` (the legacy
   ``_mcc_mnc_load``/``_mcc_mnc_is_mvno``/``_mcc_mnc_search``/
@@ -32,8 +33,8 @@ import os
 import random
 import time
 
-import pysim_simple_server
-from pysim_simple_server import netstate
+import simple_server
+from simple_server.shared import netstate
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +49,13 @@ ENTRY_FIELDS = ('countryName', 'countryCode', 'mcc', 'mnc', 'brand',
 
 
 def default_mcc_mnc_path():
-    """The bundled operator list (the legacy ``_default_mcc_mnc_list``)."""
-    package = os.path.dirname(os.path.abspath(pysim_simple_server.__file__))
+    """The bundled operator list (the legacy ``_default_mcc_mnc_list``).
+
+    Resolved from this package, not the legacy tree, so an installed
+    ``simple_server`` carries its own copy (``pyproject.toml``'s package
+    data).
+    """
+    package = os.path.dirname(os.path.abspath(simple_server.__file__))
     return os.path.join(package, 'data', 'mcc-mnc-list.json')
 
 
@@ -188,7 +194,7 @@ def read_files(ops, model, keys=None):
 def compute(state, mcc_mnc_data=None):
     """Derive the monitor header (service, location, roaming) from the cache.
 
-    ``state`` is a :func:`pysim_simple_server.netstate.new_state` dict; the
+    ``state`` is a :func:`simple_server.shared.netstate.new_state` dict; the
     derived block lands in ``state['network']`` and is returned.
     """
     return netstate.compute_network(state, mcc_mnc_data)

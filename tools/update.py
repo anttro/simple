@@ -2,10 +2,15 @@
 """Update a packaged SIMple install in place.
 
 The release package is a snapshot of the application, and the slow part of a
-reinstall is pysim and its prerequisites (built into ``.venv`` by setup -
-pyscard compiles from source on Linux).  This script downloads the latest
-release package, replaces the application files in place and re-installs the
-app into the **existing** ``.venv``: pysim is kept, so an update takes seconds.
+reinstall is the runtime dependencies (pyscard compiles from source on Linux).
+This script downloads the latest release package, replaces the application
+files in place and re-installs the app into the **existing** ``.venv``: the
+dependencies are kept, so an update takes seconds.
+
+A **major-version jump is refused**: the 4.0.0 release replaced the server
+backend, the package, the scripts and the dependencies, so a 3.x install stays
+on the last 3.x release (the frozen pySim-based legacy tool is the
+``simple-pysim`` fork) rather than being half-updated into the pysim-free tree.
 
 Usage:
     python tools/update.py [--check] [--version X.Y.Z] [--zip FILE] [--no-pip] [--force]
@@ -30,14 +35,52 @@ UA = {'User-Agent': 'simple-update'}
 # Never overwritten even if a package carried them (it never does).
 SKIP_TOP = {'.venv', 'dist', '__pycache__', '.git'}
 
+# The package that carries VERSION: 4.x ships ``simple_server``, a 3.x install
+# has ``pysim_simple_server`` (read so a legacy install can be told apart).
+VERSION_FILES = ('simple_server/server.py', 'pysim_simple_server/server.py')
+
+#: The frozen pySim-based legacy tool (the last 3.x line).
+LEGACY_FORK = 'simple-pysim'
+
+
+def read_version(root):
+    """VERSION from whichever server package the tree carries (or None)."""
+    for rel in VERSION_FILES:
+        src = Path(root) / rel
+        if not src.is_file():
+            continue
+        m = re.search(r"^VERSION = '([^']+)'$",
+                      src.read_text(encoding='utf-8'), re.M)
+        if m:
+            return m.group(1)
+    return None
+
 
 def current_version():
     """The installed app's VERSION - the same source the build reads."""
-    text = (APP / 'pysim_simple_server' / 'server.py').read_text(encoding='utf-8')
-    m = re.search(r"^VERSION = '([^']+)'$", text, re.M)
-    if not m:
-        sys.exit('error: cannot read VERSION from pysim_simple_server/server.py')
-    return m.group(1)
+    version = read_version(APP)
+    if not version:
+        sys.exit('error: cannot read VERSION from %s' % VERSION_FILES[0])
+    return version
+
+
+def major(version):
+    """The major part of a ``MAJOR.MINOR.PATCH`` version"""
+    return str(version).split('.', 1)[0]
+
+
+def major_jump_refused(cur, target):
+    """The refusal text for a cross-major update (the cutover decision).
+
+    The 4.0.0 release is a backend replacement: a 3.x install must never be
+    half-migrated to the pysim-free tree by an in-place file copy.
+    """
+    return ('refusing a major-version update %s -> %s: major releases are not '
+            'applied in place (the 4.0.0 cutover replaced the server backend, '
+            'the scripts and the dependencies), so a %s.x install stays on the '
+            'last %s.x release (the frozen pySim-based legacy tool is the %s '
+            'fork)'
+            % (cur, target, major(cur), major(cur), LEGACY_FORK))
 
 
 def latest_version():
@@ -76,13 +119,12 @@ def safe_extract(zf, dest):
 
 def verify(root, version):
     """The package must be the version it claims (the tag is the version)."""
-    src = root / 'pysim_simple_server' / 'server.py'
-    if not src.is_file():
-        sys.exit('error: the package lacks pysim_simple_server/server.py')
-    m = re.search(r"^VERSION = '([^']+)'$", src.read_text(encoding='utf-8'), re.M)
-    if not m or m.group(1) != version:
+    found = read_version(root)
+    if found is None:
+        sys.exit('error: the package lacks %s' % VERSION_FILES[0])
+    if found != version:
         sys.exit('error: the package version (%s) does not match %s'
-                 % (m.group(1) if m else '?', version))
+                 % (found, version))
 
 
 def replace_tree(new_root):
@@ -149,12 +191,19 @@ def main():
     if args.check:
         print('current: %s' % cur)
         print('latest:  %s' % (version or '?'))
+        if version and major(version) != major(cur):
+            print(major_jump_refused(cur, version), file=sys.stderr)
+            return 2
         return 0
     if not version:
         m = re.search(r'simple-([0-9][^\\/]*)\.zip$', str(args.zip))
         if not m:
             sys.exit('error: cannot tell the package version; pass --version')
         version = m.group(1)
+    if major(version) != major(cur):
+        # Never half-migrate a 3.x (pySim) install into the pysim-free tree.
+        print('error: %s' % major_jump_refused(cur, version), file=sys.stderr)
+        return 2
     if version == cur and not args.force:
         print('already up to date (%s)' % cur)
         return 0
@@ -180,7 +229,9 @@ def main():
         root = tmp / ('simple-%s' % version)
         if not root.is_dir():
             found = [p for p in tmp.iterdir()
-                     if p.is_dir() and (p / 'pysim_simple_server').is_dir()]
+                     if p.is_dir() and (
+                         (p / 'simple_server').is_dir()
+                         or (p / 'pysim_simple_server').is_dir())]
             if len(found) != 1:
                 sys.exit('error: the package layout is unexpected')
             root = found[0]
@@ -191,7 +242,7 @@ def main():
     if args.no_pip:
         print('note: --no-pip - .venv was left untouched')
     elif reinstall():
-        print('app re-installed into .venv (pysim kept)')
+        print('app re-installed into .venv (the dependencies kept)')
     print('restart the server: ./start.sh (or start.bat)')
     return 0
 

@@ -3,24 +3,23 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pysim-simple-server"
-version = "3.40.11"
-description = "HTTP REST server wrapping pysim for the SIMple PWA"
+name = "simple"
+version = "4.0.0"
+description = "The pysim-free HTTP server for the SIMple PWA"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE", "THIRD-PARTY-NOTICES"]
 requires-python = ">=3.9"
-# pysim is a git-only dependency installed explicitly by setup.bat/setup.sh.
-# Declaring it here would make pip resolve its full tree (including the SMPP
-# bridge -> Twisted -> twisted-iocpsupport, which needs MSVC on Windows).
+# The runtime dependencies are pyscard, pycryptodomex and gsm0338
+# (requirements.txt); the SCP81 TLS-PSK listener needs Python 3.13+.
 
 [project.scripts]
-pysim-simple-server = "pysim_simple_server.__main__:main"
-# The pysim-free server (Phase 3d-1).  Its own package and console script; the
-# legacy entry point stays until the cutover (Phase 3d-3).
 simple-server = "simple_server.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["pysim_simple_server*", "simple_server*"]
+include = ["simple_server*"]
 
 [tool.setuptools.package-data]
-pysim_simple_server = ["data/*.json", "data/*.LICENSE"]
+# The bundled MCC/MNC operator list (netmon's :func:`default_mcc_mnc_path`
+# resolves it from the package directory) and its license - a wheel or an
+# sdist-installed tree must carry them, not just the release zip.
+simple_server = ["data/*.json", "data/*.LICENSE"]
