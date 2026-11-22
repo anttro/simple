@@ -645,7 +645,10 @@ Deliberate, documented decisions (deviations from the legacy):
   diagnostic.  **Decision:** the 3d entry point configures INFO for the
   `simple_server` logger (with its stderr handler / the start script's
   mirror), or those lines are raised to WARNING if INFO turns out too chatty;
-  the modules stay configuration-free.
+  the modules stay configuration-free.  The test runner's run-log lines
+  (`TEST-RUN …`, `TEST-LOAD …`, `TEST-WATCHDOG …`, the semantic per-step
+  trail the help/AGENTS call "read simple_lastrun.log for") are the same kind
+  of diagnostic and the same decision covers them (3c-3d-1 repeats it).
 - **The step record assembly, the remote-SW policy and the DELETE tolerance
   are the legacy's, unchanged**: `por_ok` + a remote SW outside
   `{9000, CAFE, 61xx, 62xx, 63xx}` fails the step, a `9000` transport SW with
@@ -787,6 +790,152 @@ the card reject exactly there?), the four TAR-probe verdicts on the live
 applications, and the batch across a real card swap (the ICCID match and the
 per-card counter).
 
+## Phase 3c-3d-1 outcome (the test-script store + the single-script run)
+
+`GET/POST /api/test/scripts`, `/api/test/scripts/update|delete|import`,
+`POST /api/test/run|stop|clear` and `GET /api/test/status` are served from
+`ServerState`; the run engine is the new `simple_server/testrun.py`
+(`TestRunner`).  The pysim-free reuse is unchanged: the pure engine
+(`normalise_script`/`normalise_step`/`build_tr`/`match_*`/`combine_levels`),
+the script store (`TestScriptStore`) and the semantic event builders
+(`events.py`).  The card exchanges reuse `CatSession` (STATUS/FETCH/TERMINAL
+RESPONSE, ENVELOPE, the menu cache, the proactive log), `ota.decode_por`/
+`spi1_for_tar`/`format_apdu`, `scp80.build_secured_packet`/
+`counter_tracked`/`increment_counter_hex`, `commands.FileOps` and
+`ServerState._send_secured_packet`.
+
+Ported, function for function (the names are the legacy ones where a reviewer
+would diff them): `_test_run_start`/`_test_run_spawn`/`_test_run_worker`/
+`_test_run_execute`, `_test_run_script` (the step loop with the `on_fail`
+rule, the pending-command guard, the cleanup drain), the executors
+`_test_run_action`/`_test_run_expect`/`_test_run_scp80`/`_test_run_file`/
+`_test_run_status`/`_test_run_drain`, `_test_step_tr`/`_test_terminal_response`,
+`_test_drain_pending`, `_test_expect_por`, `_test_entry`/`_test_entry_update`/
+`_test_finish_entry`/`_test_check_result`/`_test_action_checks`/
+`_por_check_results`, `_test_log`/`_test_heartbeat`, `_ensure_adm`,
+`_test_preset_error`, `_test_load_state`/`_test_load_iterations`/
+`_test_load_finalise`/`_test_load_script_worker`, the watchdog
+(`_test_watchdog_check`/`_test_watchdog_start`/`_abort_card_transport`) and
+`_TEST_KIND_LABELS`/`_TEST_BLOCKED_PATHS`.
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **The run state is per state, not a module global.**  `TestRunner` owns the
+  run dict (the legacy `_TEST_RUN`), its lock, the worker thread, the
+  watchdog and the watchdog's "already aborted" heartbeat, so two servers in
+  one process are independent and the tests need no global reset.  The run
+  dict keeps the legacy shape (including `scp80_counters` int keys, which
+  JSON renders as strings) plus a `kind` discriminator (`script` here,
+  `suite` for 3c-3d-2) - the field the suite runner will branch on.
+- **`ServerState` keeps the boolean `test_running`** (the existing seam the
+  tests and `CatSession`'s `test_running` hook use) and the runner sets it for
+  a run's whole life; `/api/test/run` refuses when either the runner or the
+  flag says a run is active, so a hand-set flag and a real run cannot
+  coexist.  The background poll needs no cancel/re-arm (`_sim_resume_poll`):
+  `poll_once` skips while the flag is set, and the resumer only clears the
+  flag and re-adopts the CAT session's polling wishes a script may have
+  changed.
+- **`/api/test/stop` and `/api/test/clear` are card-free POSTs** (the legacy
+  only had the batch stop): the runner holds the card lock inside a step, so
+  Stop must not queue behind a blocked exchange (the watchdog is the second
+  half of that story).  `/api/test/status` and `/api/test/scripts` join
+  `CARD_FREE_GET`; `_TEST_BLOCKED_PATHS` is the legacy set verbatim (the
+  paths this build does not serve yet are listed too, so the guard is right
+  when they land).
+- **The script CRUD has no suite membership rules yet.**  The legacy
+  requires an existing `suite_id` on create, detaches on delete and treats a
+  changed `suite_id` as a move; without the suite store (3c-3d-2) a
+  `suite_id` is stored as the entry's opaque field, an update ignores a
+  changed one and the import has no target suite / no `replace` guard.  A
+  stored entry that no longer validates is served (the store's behaviour) and
+  fails at run start with the validator's message - pinned by
+  `KeptEntryTests`.
+- **A `suite_id` on `/api/test/run` is refused with an explicit message**
+  rather than silently running one script; 3c-3d-2 replaces that branch.
+- **`_send_secured_packet` gained `handle_proactive`** (default `True`, so
+  every existing caller is unchanged).  The scp80 step passes `False`, which
+  is the legacy's semantics: a `91XX` answer stays pending for the next
+  expectation and the late-PoR STATUS poll is skipped (the script asserts the
+  applet's own command, a PoR in SEND SHORT MESSAGE included).
+- **The scp80 step reads its keys from the resolved keyset only.**  The
+  legacy also looked at `params['kic']`/`['kid']`/`['kicKey']`/`['kidKey']`,
+  but its normaliser refuses those parameters (the keys stay preset-owned), so
+  the lookups were dead code; the port drops them and documents it.
+- **`file-read` of a transparent EF needs an FCP size.**  The legacy read the
+  whole file through pySim, which fell back to the selected file's size; this
+  port uses `FileOps.read_file` (FCP-driven) and a card whose FCP carries no
+  size fails the step.  The explicit-length read fallback is the 3d item
+  already recorded in this file ("the no-FCP read fallback").
+- **The watchdog lives on the state, not in the module.**  `ServerState.
+  abort_card_transport()` owns the stale-link flag and the daemon-thread
+  `disconnect` (the legacy `_abort_card_transport` global); `TestRunner.close()`
+  stops the watchdog thread and `ServerState.close()` calls it, so a shutdown
+  leaves no ticker behind.
+- **The SCP80 counter follows a three-way rule (the scp80 step and the
+  plain send's exception path).**  The legacy advanced (and persisted) on any
+  non-empty status word, so a `6200` ENVELOPE carrying a `cntr_low` PoR still
+  moved the preset counter although the card had refused the packet
+  (reproduced: the retry persisted `…11`, audit source `test-run`).  The port
+  moves the counter **unless there is positive evidence of rejection**
+  (`testrun.counter_consumed` / `POR_REJECTED`):
+  - **clear acceptance** advances: a `por_ok` / `actual_response_sms_submit`
+    PoR verdict, or a `9000`/`91XX` SW when no PoR came back;
+  - **clear rejection** does not: a decoded PoR naming a counter check
+    (`cntr_low`/`cntr_high`/`cntr_blocked`), a failed RC/CC/DS, a ciphering /
+    undefined security error, insufficient memory, or an unknown TAR /
+    insufficient security level (TS 102 225 §5.2 Table 3 status bytes
+    `01`-`07`, `09`, `0A`);
+  - **unclear advances too**: no PoR, an undecodable PoR, an ambiguous status
+    word (`6Axx`/`6Fxx`, a warning `62xx`/`63xx` without data) or a transport
+    error after the packet may have reached the card.  Rationale (owner): an
+    unnecessarily skipped counter value costs one value the card accepts,
+    while not advancing a counter the card *did* consume leaves every later
+    packet answering `cntr_low` and the operation stuck.  `more_time_needed`
+    (`08`) is not a refusal and therefore advances as well.
+  `/api/send-ota` follows the same rule on its **transport-exception** path
+  (it persisted nothing there before, although the packet may have reached
+  the card; the exception still propagates, so there is no response shape to
+  keep - pinned by `SendOtaCounterTests`).  Its *returned-failure* branch
+  keeps its stricter rule (a failure SW with no PoR does not advance) - that
+  path has a verdict to evaluate and a PWA-visible `final_cntr` signal, so
+  widening it would change the documented v3.6.58/v3.20.0 send behaviour and
+  the PWA's counter sync; the difference is deliberate and recorded here.
+  Pinned by `test_a_packet_and_its_por` (acceptance),
+  `test_a_rejected_packet_leaves_the_counter_untouched` (rejection),
+  `test_an_unclear_refusal_still_advances_the_counter` /
+  `test_a_transport_error_still_advances_the_counter` (unclear) and
+  `test_the_counter_rule_is_three_way` (the pure rule).
+- **The scp80 step has no submit capture.**  With `handle_proactive=False` the
+  ENVELOPE's SEND SHORT MESSAGE chain never runs, so the legacy's
+  `PorSubmitCapture` could never be filled; the port drops it and the PoR in
+  submit mode is decoded by the following *expect* step (`_expect_por`),
+  which is the only place it can arrive.
+- **The TERMINAL RESPONSE's POLL INTERVAL echo keeps the legacy's `84` tag.**
+  The terminal's own chain uses the base `04` form per TS 102 223 §6.8.0
+  (v3.25.2), but the runner's scripted TR has shipped `84 02 01 <interval>`
+  since v3.22.2 and the card accepts it.  §6.8.0 says the response objects
+  "should" use the CR=0 form (not "shall"); the anchors are the legacy test
+  pin (`840201<interval>`) and card acceptance - no recorded or golden TR
+  compares these bytes - so the deviation stays documented in the
+  `_terminal_response` docstring and pinned by
+  `TerminalAnswerTests` rather than changed.
+- **The run-log lines go through the module logger** (`log.info`) instead of
+  a raw `sys.stderr.write`; the buffered excerpt the status payload serves is
+  unchanged.  Like the RAM/OTA diagnostics (their decision is recorded in the
+  3c-3c-2 section), nothing in `simple_server` configures logging yet, so at
+  the default WARNING level these lines reach no handler until the 3d entry
+  point configures INFO for the `simple_server` logger.
+
+Tests: **114 runner tests (`tests/test_simple_runner.py`) + 12 drift
+(`TestRunDriftTests`); the full suite is 2152**.  **No live card has run the
+runner yet** - the fixture is a scripted fake transport (the UICC startup, the
+STATUS/FETCH/TR queues and the ENVELOPE answers), so the first bench run is
+the acceptance check: a real menu selection by text, an applet's `91XX`
+hand-off to the next expectation, the SCP80 counter continuity across a load
+test, and the watchdog against a card that really stops answering (the
+30 s step timeout and whether the PC/SC disconnect cancels the blocking
+`SCardTransmit`).
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -907,6 +1056,18 @@ Every spec-sensitive module is verified against the pinned PDFs
   documented decisions above (the request pre-flights, the per-card lock
   re-check, the bounded shutdown).  **No live card has run these endpoints**:
   every fixture is scripted.
+- **Phase 3c-3d-1 (spec-checked, no live-card run yet):** the scripted
+  TERMINAL RESPONSE is `testscript.build_tr` (TS 102 223 §6.8.0 object order,
+  §6.8.1 echoed command details), the terminal's own answer objects are the
+  PLI dictionary entry (§6.4.15) and the POLL INTERVAL echo (§6.8.4), the
+  expectation FETCH follows the `91XX` length (TS 102 221 §11.2.3), the
+  pending-command drain answers `ok` and bounds the chain (§6.3), the File
+  List check is §8.18, the SCP80 step's keyset/TAR/SPI1 resolution is
+  TS 102 225 A.1/A.2 + TS 102 226 §8.2.1.3.2.4 and the PoR decode is
+  `ota.decode_por` (TS 102 225 §5.2 Table 3 / TS 102 226 §5.1.2).  The one
+  kept deviation is the legacy `84` Duration tag in the scripted POLL
+  INTERVAL answer (documented above); the watchdog's 30 s bound is a
+  robustness choice, not a spec value.
 
 ## Phase 3c API surface (locked decisions)
 
@@ -1192,34 +1353,57 @@ today is split across pySim's `apdu_tracer`, our `StderrApduTracer` /
   the SCP80 plaintext C-APDU/R-APDU (decoded out of the secured packet) are all
   logged — one logging path, no per-path special cases.
 - **Stream the whole ISO 7816 exchange to GSMTAP** (when requested), including
-  the init phase.  Today `gsmtap.py` *reconstructs* wire TPDUs from the logical
-  APDU (pySim's tracer only exposes the logical level) and the init phase was
-  missed entirely (the v3.40.10/3.40.11 saga).  Our transport exposes
-  `send_tpdu` — the raw TPDU — so the true wire exchange (including the `61xx`
-  / GET RESPONSE TPDUs and the init phase) streams directly, no reconstruction.
+  the init phase.  The correction below matters for the release note: the gap
+  was **not** that pySim could not handle `61xx` — its transport *does* chain
+  the T=0 GET RESPONSE (`_send_apdu`: `61xx`/`9Fxx` → a GET RESPONSE TPDU,
+  `62xx`/`63xx` → a dummy one, `6Cxx` → a re-send).  The gap is the **tracer
+  level**: pySim's `ApduTracer` hooks `send_apdu` (the logical APDU + the
+  final data/SW), so the GET RESPONSE TPDUs and the init phase never reached
+  `gsmtap.py`, which therefore *reconstructed* wire TPDUs from the logical
+  data (and missed the init phase entirely — the v3.40.10/3.40.11 saga).
+  Our transport exposes `send_tpdu` as a distinct hook (the level of every
+  `con.transmit`), so a tracer there sees every exchange the application
+  makes, with no reconstruction.
+
+  **Scope (PC/SC reader mode):** whether those bytes are the *card's* TPDUs
+  or the reader's internal mapping depends on the reader.  In the common
+  **APDU mode** the reader/driver performs the T=0 `61xx`/GET RESPONSE mapping
+  itself, and `SCardTransmit` returns only the final data + SW — no PC/SC
+  application (pySim or ours) can see those TPDUs.  Some readers in
+  **TPDU/transparent mode** pass the `61xx` up; there our `_send_t0` chains
+  the GET RESPONSE via `send_tpdu`, and the trace shows the real TPDUs.  So the
+  claim is "the true exchange **as far as PC/SC exposes it**": the TPDUs
+  (incl. the GET RESPONSE we send) on TPDU-mode readers, the logical APDUs on
+  APDU-mode readers, plus the init phase (the ATR via the link, the init
+  APDUs).  The reader-internal mapping (and the T=1 block framing) is out of
+  reach for any application.
 
 **This is a headline release-note item.**  The log and GSMTAP data exist for
-card testing, and the true wire exchange (real TPDUs, `61xx`/GET RESPONSE and
-all, including the init phase) is what makes that trustworthy — pysim's
-reconstruction + missed init phase was a real gap.  It is one of the major
-reasons to phase out pysim.
+card testing, and streaming exactly what the application exchanges — with the
+init phase, no reconstruction, and the GET RESPONSE TPDUs where the reader
+passes them up — is what makes that trustworthy.  pysim's logical-level
+tracer + reconstruction + missed init phase was a real gap (and the init phase
+matters most for a workbench).  It remains one of the reasons to phase out
+pysim — but the honest wording is "pysim's tracer was at the logical level",
+not "pysim could not send the trace".
 
 Implications:
 
 - `simple_server/transport.py` already has both hook levels: `ApduTracer`
-  (`trace_command`/`trace_response` around `send_apdu`) and the raw `send_tpdu`.
-  A GSMTAP tracer attaches at `send_tpdu` for the true wire stream.
+  (`trace_command`/`trace_response` around `send_apdu`) and `send_tpdu` (one
+  per `con.transmit`, i.e. per TPDU on a TPDU-mode reader).  A GSMTAP tracer
+  attaches at `send_tpdu` for the closest-to-wire stream PC/SC offers.
 - `pysim_simple_server/gsmtap.py` imports pySim (`ApduTracer`,
   `parse_command_apdu`); it is reimplemented on `simple_server` (Phase 3) with
-  the same GSMTAP-SIM packet format but streaming the real TPDUs.
+  the same GSMTAP-SIM packet format but streaming the real transmits.
 - The `_keep_tracer_attached` wrapper and the `_onchange_apdu_trace` monkeypatch
   disappear: the tracer is always attached, because the transport owns its own
   lifecycle.
 - This is a Phase 3 concern (wired with the HTTP entry point), but it shapes the
-  transport API *now*: `send_tpdu` is the raw hook, `send_apdu` the logical one.
+  transport API *now*: `send_tpdu` is the hook, `send_apdu` the logical one.
 - **Major version bump:** the cutover to the pysim-free server ships as a major
-  release (4.0.0) — a new package/entry point, the GSMTAP true-wire-exchange
-  behaviour, and the dependency change are all breaking.
+  release (4.0.0) — a new package/entry point, the GSMTAP streaming behaviour,
+  and the dependency change are all breaking.
 
 ## Licensing & repo split plan
 
