@@ -28,11 +28,14 @@ from dataclasses import dataclass, field
 from simple_server.commands import FileError, FileOps
 
 __all__ = [
-    'AID_USIM', 'AID_ISD_R', 'CardError', 'CardType', 'detect_card',
-    'init_card', 'read_atr',
+    'AID_USIM', 'AID_USIM_NON_IMSI', 'AID_ISD_R', 'CardError', 'CardType',
+    'detect_card', 'init_card', 'read_atr',
 ]
 
 AID_USIM = 'A0000000871002'
+#: The "USIM (non-IMSI)" ADF pySim's model names ``ADF.USIM-NON-IMSI`` (a
+#: TS 31.102 §4.4.2.1 EF.PBR copy lives under it too).
+AID_USIM_NON_IMSI = 'A000000087100B'
 AID_ISD_R = 'A0000005591010FFFFFFFF8900000100'
 
 # CAT CLA per card class (TS 102 221 §11.2 / TS 151 011): a UICC session uses

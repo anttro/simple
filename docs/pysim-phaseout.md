@@ -337,6 +337,74 @@ Not done: the SCP81 HTTP administration listener on top of the session (3c-3)
 and any live-card run - the command/data flow is tested over a loopback TCP
 peer, which exercises the terminal's real sockets but no card.
 
+## Phase 3c-3a outcome (the server state + HTTP core)
+
+`simple_server/server.py` exists: `ServerState` owns one server's card link,
+detected card, `CatSession`, `BipSession`, session caches, the background
+STATUS poll thread and the presence observer; `make_handler` /
+`build_http_server` serve the static PWA and the first endpoints
+(`GET /api/version|status|readers`, `POST /api/reader|equip|reset`) over a
+`ThreadingHTTPServer`.  Every other API path is a JSON 404 until 3c-3b/3c-3c.
+The module is named `server.py` like the legacy (the design note's `http.py`
+alternative was not taken); its suite is `tests/test_simple_http.py`.
+
+Ported legacy behaviour: `_apply_equipped_card`'s post-equip refresh
+(the CAT-free EF.ICCID/EF.ARR/EF.PBR reads **before** the TERMINAL PROFILE,
+then MF, the profile and the drain), `_do_status_poll` (the card's POLL
+INTERVAL/POLLING OFF adoption, the bounded chain), the presence monitor
+(filtered by reader, removal clears the session, insertion marks the link
+stale and spawns the bounded auto-equip - never in the pyscard thread),
+`_is_transport_fatal`'s separation (now `_is_transport_error`), the
+`card_session`/`card_ready_session` markers and the `_CARD_LOCK` discipline
+(card-free GETs are `CARD_FREE_GET`; static files never take the lock).
+
+Deliberate, documented decisions:
+
+- **The cache labels are the legacy FID paths** (`MF/7F10/6F06`,
+  `MF/7F10/5F3A/4F30`, `ADF.USIM-NON-IMSI/5F3A/4F30`, ...): the PWA resolves
+  an FCP `8B` EF.ARR reference and injects the PBR children by comparing
+  `arr.path`/`pbr.path` against its FID-based file paths.  A symbolic DF name
+  (`MF/DF.TELECOM/...`) would never match.  `tests/test_simple_http.py` pins
+  the labels.
+- **A cardless start is real**: `open()` starts the poll and the presence
+  monitor even when the card initialization fails, then re-raises, so the 3d
+  entry point can report the failure and still get the first insertion
+  equipped.  `presence_install`/`presence_remove` are the test seams;
+  `stop_monitor()` never constructs pyscard's `CardMonitor` for a
+  seam-installed observer (that used to start a real polling thread).
+- **A poll failure keeps `card_present`**: only a transport error
+  (`ReaderError`/an `hresult` exception) tears the link down (and re-arms the
+  auto-equip); a decoder/protocol error (`CatSessionError`, a TLV-walk bug)
+  is logged and the session is kept.  `disconnect(stale=True,
+  keep_present=True)` is the transport path.
+- **A failed `equip()` marks the link stale** (the v3.32.2 Windows swap rule):
+  attempts 2/3 rebuild instead of reusing a half-connected handle.
+- **The ICCID gate is not ported**: the legacy read EF.ARR/EF.PBR only when
+  EF.ICCID was readable (they fed the network-state monitor); here they are
+  best-effort session caches for the file views and are read unconditionally.
+- **`/api/reset` is one power cycle**: `cards.init_card()` already resets, so
+  the endpoint is exactly `equip()` - the explicit `reset_card` would power
+  cycle twice.
+- **`CardBusyError` vs `ReaderError`**: the two "a test run / a BIP session
+  owns the card" refusals answer 409; every real switch failure (reader gone,
+  no card in the new reader) answers 503 with the merged `status()` body, so
+  the PWA sees the bumped `card_session`.
+- **The startup drain re-polls after a chain**: `CatSession.handle_chain`
+  returns `None` unless an `on_fetch` exits, so the legacy "break when the
+  chain's last SW was idle" cannot be reproduced from its return value; the
+  outer STATUS loop (3 rounds) is the check.
+- **`_teardown_session` stops the BIP session** (the legacy never did on
+  equip/reset/switch/removal).  **Open decision for 3c-3d**: a *server-owned*
+  SCP81 listener should survive a card change (it is the terminal side, not
+  per-card state), while the per-card `BipSession` carries the channels and
+  the queued link events.  The SCP81 listener/`BipSession` split and the
+  ownership rule need a decision before 3c-3d wires SCP81 control; until then
+  the teardown is the safe (listener-also-stopped) behaviour.
+- **Shutdown**: `close()` sets a `_closed` event the auto-equip worker
+  observes (and joins it, bounded).  A worker stuck inside a blocking
+  `SCardTransmit` cannot be cancelled - the same limit the legacy stuck-card
+  watchdog documents.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs

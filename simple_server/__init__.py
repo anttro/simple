@@ -11,6 +11,9 @@ the interactive menu, TIMER MANAGEMENT, the PLI dictionary and the proactive
 log).
 Phase 3c-2: the BIP terminal (the five BIP commands, the session control and
 the Data available / Channel status events).
+Phase 3c-3a: the server state (the card lifecycle, the presence monitor, the
+background STATUS poll) and the HTTP handler with the static PWA serving and
+the first endpoints (version/status/readers/reader/equip/reset).
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and
