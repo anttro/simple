@@ -637,7 +637,12 @@ class EventsTests(HarnessCase):
                                        'event_data': '9B0100',
                                        'event_src': '83'})
         self.assertEqual(status, 200)
-        self.assertEqual(body, {'sw': '9000'})
+        # 3c-3e-2a: the monitor is patched from the event and attached, so
+        # the response is no longer just the status word.
+        self.assertEqual(body['sw'], '9000')
+        self.assertEqual(body['net_state']['service']['state'], 'normal')
+        self.assertEqual(body['net_state']['service']['source'],
+                         'event:location-status')
         envelope = [apdu for apdu in card.sent_hex()
                     if apdu.startswith('80C2')][-1]
         # D6 (99 01 03 82 02 83 81) + 9B0100

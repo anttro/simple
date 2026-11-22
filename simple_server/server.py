@@ -31,9 +31,15 @@ in :mod:`simple_server.testrun` and the cross-store suite rules in
 ``GET /api/menu|stk-status|events|poll-status|proactive-log|terminal-profile|
 pli-qualifiers|pli-dict``, ``POST /api/menu-select|menu-respond|event-send|
 terminal-profile|rescue|status-poll|poll-toggle|pli-dict`` and the raw APDU
-``POST /api/apdu``.  Every other API path is a 404 until the remaining 3c-3e
-endpoints (eSIM/SCP81/netsim) land; 3d (the entry point and the cutover) is
-the last server work.
+``POST /api/apdu``.  Phase 3c-3e-2a adds the eSIM/network set:
+``GET /api/esim/chip|profiles|notifications``, ``POST /api/esim/profile``,
+``POST /api/net-sim``, ``GET /api/net-state``,
+``POST /api/net-state-refresh`` and ``GET /api/mcc-mnc`` (the card-level ES10
+flow in :mod:`simple_server.esim`, the net-sim adapter in
+:mod:`simple_server.netsim`, the monitor and operator list in
+:mod:`simple_server.netmon`).  Every other API path is a 404 until the
+remaining 3c-3e endpoints (the SCP81/BIP control surface) land; 3d (the entry
+point and the cutover) is the last server work.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -67,8 +73,13 @@ pcscd restart) is not ported yet.
 Spec references: TS 102 221 §11.2 (the CAT command APDUs), §14.6.2 (the
 terminal polls the UICC during idle); TS 102 223 §6.4.6/§6.4.14 (the card's
 POLL INTERVAL / POLLING OFF wishes, adopted by the poll); TS 102 221 §13.2
-(EF.ICCID, the E.118 digit string); ISO/IEC 7816-4 Table 25 / TS 102 221
-§11.1.1.4 (the FCP ``8B`` EF.ARR reference); TS 31.102 §4.4.2.1 (EF.PBR).
+(EF.ICCID, the E.118 digit string); SGP.22 v2.6 §5.7.8/§5.7.9/§5.7.15/§5.7.16/
+§5.7.17/§5.7.20 (the eSIM endpoints); TS 31.102 §4.4.3.1/§4.4.3.2 and
+TS 51 011 §10.3.3/§10.3.32 (the network simulator's EF.Kc paths); TS 23.122
+(EF.FPLMN);
+TS 102 223 §7.5/§8.27 (the Location status event); ISO/IEC 7816-4 Table 25 /
+TS 102 221 §11.1.1.4 (the FCP ``8B`` EF.ARR reference); TS 31.102 §4.4.2.1
+(EF.PBR).
 """
 
 import copy
@@ -79,8 +90,10 @@ import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 from pysim_simple_server import events
+from pysim_simple_server import netstate
 from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
 from pysim_simple_server import test_scripts as test_scripts_store
@@ -93,7 +106,10 @@ from simple_server import cards
 from simple_server import cat as cat_module
 from simple_server import cat_session
 from simple_server import commands
+from simple_server import esim as esim_module
 from simple_server import files as files_module
+from simple_server import netmon
+from simple_server import netsim as netsim_module
 from simple_server import ota
 from simple_server import pbr as pbr_module
 from simple_server import proactive
@@ -166,6 +182,10 @@ CARD_FREE_GET = frozenset([
     '/api/menu', '/api/stk-status', '/api/events', '/api/poll-status',
     '/api/proactive-log', '/api/terminal-profile', '/api/pli-qualifiers',
     '/api/pli-dict',
+    # the network-state monitor and the operator list (3c-3e-2a): both are
+    # cached/asset reads (the monitor's card I/O is the endpoints' own POST),
+    # so the Phone tab can render them during a long operation
+    '/api/net-state', '/api/mcc-mnc',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
@@ -385,6 +405,28 @@ def _menu_case_sensitive(value):
             'true', 'false', '1', '0'):
         return value.strip().lower() in ('true', '1')
     raise ValueError('case_sensitive must be a boolean: %r' % (value,))
+
+
+def _boolean_flag(value, name):
+    """A validated request flag with a default of **true**.
+
+    ``None``/``''`` means "not given" (the caller's default, ``True``); a JSON
+    boolean and the integer ``0``/``1`` are taken as they are; a string is
+    accepted only in its literal boolean spellings (``true``/``false``/``1``/
+    ``0``).  ``bool("false")`` is truthy, so a hand-written API call used to
+    turn an explicit "false" into TRUE - here it is read as FALSE, and
+    anything else is a 400.
+    """
+    if value in (None, ''):
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in (
+            'true', 'false', '1', '0'):
+        return value.strip().lower() in ('true', '1')
+    raise ValueError('%s must be a boolean: %r' % (name, value))
 
 
 def resolve_menu_item(menu, text, mode='exact', case_sensitive=False):
@@ -633,8 +675,9 @@ class ServerState(object):
       legacy, a card-free or disconnected session keeps the loop alive but
       sends nothing, and ``poll_enabled`` survives an equip (the operator's
       preference, not the card's).
-    * The network-state monitor is a field here; its read/compute port belongs
-      with the network endpoints (3c-3c), so ``netstate`` stays ``None``.
+    * The network-state monitor is read at equip (after a readable ICCID) and
+      patched by the simulator's own writes; the read/compute pair lives in
+      :mod:`simple_server.netmon` and the state on :attr:`netstate`.
     * ``selection`` is owned by this state and published by the file endpoints
       (3c-3b) - ``{path, name, fid, kind, size, record_len, num_records}``; the
       post-equip reads restore MF and never publish a selection.  It describes
@@ -650,7 +693,7 @@ class ServerState(object):
                  auto_equip=True, monitor=True, version=VERSION,
                  presence_install=None, presence_remove=None,
                  readers_fn=None, test_scripts=None, test_scripts_path=None,
-                 test_suites=None, test_suites_path=None):
+                 test_suites=None, test_suites_path=None, mcc_mnc_path=None):
         self.version = version
         self.web_dir = web_dir
         self.terminal_profile = (terminal_profile or '')
@@ -670,6 +713,10 @@ class ServerState(object):
         self.monitor_enabled = bool(monitor)
         self.presence_install = presence_install
         self.presence_remove = presence_remove
+        #: The bundled MCC/MNC operator list (``--mcc-mnc-list``): the network
+        #: simulation's operator picker and the monitor's country/operator line.
+        self.mcc_mnc_path = (str(mcc_mnc_path) if mcc_mnc_path
+                             else netmon.default_mcc_mnc_path())
 
         self.card_lock = threading.RLock()
         self.files = files_module.FileModel.from_asset()
@@ -712,6 +759,9 @@ class ServerState(object):
         self.bip = None
         self.atr = None
         self.iccid = None
+        #: The eUICC's EID (ES10c GetEuiccData, read best effort at equip on a
+        #: card the ISD-R probe flagged); ``/api/status`` reports it.
+        self.eid = None
         self.selection = None
         self.card_session = 0
         self.card_ready_session = 0
@@ -1010,6 +1060,7 @@ class ServerState(object):
         self.card_session += 1
         # The caches belong to the previous card session.
         self.iccid = None
+        self.eid = None
         self.arr = None
         self.pbr = None
         self.netstate = None
@@ -1019,8 +1070,20 @@ class ServerState(object):
             self.iccid = self._read_iccid()
         except Exception as exc:                # best effort, never fatal
             log.debug('ICCID read failed: %s', exc)
+        # The EID on an eUICC (pySim's equip read it too): one ES10 exchange in
+        # the CAT-free window, best effort - the chip view re-reads it.
+        if esim_module.card_is_euicc(self.card):
+            try:
+                with esim_module.isdr_selected(self._file_ops()):
+                    self.eid = esim_module.get_eid(self.transport)
+            except Exception as exc:
+                log.debug('EID read failed: %s', exc)
         self.arr = self._read_ef_cache(ARR_READ_PATHS, ARR_RECORD_LIMIT)
         self.pbr = self._read_ef_cache(PBR_READ_PATHS, PBR_RECORD_LIMIT)
+        # The network-state monitor: only for a card whose ICCID was readable
+        # (the legacy rule - the monitor describes one identifiable profile).
+        if self.iccid:
+            self._netstate_init()
         self._restore_mf()
         self._send_terminal_profile()
         self._drain_proactive()
@@ -1090,6 +1153,7 @@ class ServerState(object):
         self.connected = False
         self.atr = None
         self.iccid = None
+        self.eid = None
         self.selection = None
         self.arr = None
         self.pbr = None
@@ -3723,6 +3787,12 @@ class ServerState(object):
             raise NoCardSessionError('no card session: equip a card first')
         return cat
 
+    def _require_card(self):
+        """The equipped card's transport, or :class:`NoCardSessionError`."""
+        if not self.connected or self.card is None or self.transport is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        return self.transport
+
     def _bip_owns_card(self):
         """True while a BIP session runs (its terminal answers its commands)."""
         bip = self.bip
@@ -3890,11 +3960,12 @@ class ServerState(object):
         result becomes the poll interval (§6.4.6/§6.4.14: a new POLL INTERVAL
         clears the card's POLLING OFF).
 
-        Returns ``{'sw', ['data'], ['negotiation']}``.  Unlike the legacy the
-        event's effect on the network-state monitor is not re-read and
-        ``net_state`` is not attached: the monitor is Phase 3c-3e-2 work
-        (``simple_server.netsim``/``netstate`` land with the net-sim
-        endpoints), so a location-status write is not reflected here yet.
+        Returns ``{'sw', ['data'], ['net_state'], ['negotiation']}``.  A
+        **Location status** event patches the network-state monitor (it sets
+        the simulated service state and re-reads EF.IMSI - a multi-IMSI applet
+        may switch it after the event); the monitor is attached as
+        ``net_state`` when the session has one.  Every other event leaves it
+        alone - no extra SELECT/READ, no ``source`` flip (the legacy gate).
         """
         cat = self._require_cat()
         code = event_code(body.get('event_type'))
@@ -3918,9 +3989,19 @@ class ServerState(object):
         data_hex = bytes(data or b'').hex().upper()
         log.info('ENVELOPE(Event Download) type=0x%02X data=%s -> %s',
                  code, event_data_hex or '(none)', sw_hex)
+        # Only a Location status event changes the simulated service state; a
+        # multi-IMSI applet may switch EF.IMSI after it (the legacy patch).
+        # Every other event must issue no read at all: the monitor is not the
+        # event's business, and an unrelated download must not flip a file's
+        # ``source`` to ``read``.
+        if code == netsim_module.EVENT_LOCATION_STATUS:
+            self._netstate_after_event(
+                code, bytes.fromhex(event_data_hex) if event_data_hex else b'')
         resp = {'sw': sw_hex}
         if data_hex:
             resp['data'] = data_hex
+        if self.netstate is not None:
+            resp['net_state'] = self.netstate
         if code == 0x1C:
             negotiation = proactive.decode_poll_negotiation(data_hex)
             if negotiation:
@@ -4152,6 +4233,293 @@ class ServerState(object):
             cat.handle_chain(bytes(sw))
             sw_hex = '9000'
         return {'response': bytes(data or b'').hex().upper(), 'sw': sw_hex}
+
+    # ---- the eSIM / LPA endpoints (3c-3e-2a) ------------------------------
+    #
+    # The ES10 layer lives in :mod:`simple_server.esim` (the TLV objects, the
+    # transport functions and the card-level flow); this state owns the ISD-R
+    # selection, the launch of the REFRESH chain on the CAT session, the
+    # equip-like re-initialization after a switch and the resulting profile
+    # state check.  The endpoints are card-locked like the legacy's (each one
+    # selects the ISD-R and transceives), so they are not in
+    # ``CARD_FREE_GET``.
+    #
+    # Ported from the legacy handlers: `GET /api/esim/chip|profiles|
+    # notifications` and `POST /api/esim/profile` (`_esim_refresh_chain`,
+    # `_esim_reinit`, `_esim_verify_switch`, `_finish_pending_menu`).
+
+    def esim_chip(self):
+        """``GET /api/esim/chip``: EID, EUICCInfo1/2, addresses and the RAT."""
+        transport = self._require_card()
+        with esim_module.isdr_selected(self._file_ops()):
+            return esim_module.chip_info(transport)
+
+    def esim_profiles(self):
+        """``GET /api/esim/profiles``: GetProfilesInfo with the metadata."""
+        transport = self._require_card()
+        with esim_module.isdr_selected(self._file_ops()):
+            return esim_module.profiles_info(transport)
+
+    def esim_notifications(self):
+        """``GET /api/esim/notifications``: ListNotification (read-only)."""
+        transport = self._require_card()
+        with esim_module.isdr_selected(self._file_ops()):
+            return esim_module.notifications_info(transport)
+
+    def _esim_refresh_chain(self, sw):
+        """Answer the proactive command(s) that accompany a profile switch.
+
+        With the refresh flag set the card sends REFRESH (SGP.22 v2.6 §3.2.1
+        step 7 for Enable, §3.2.2 step 6 for Disable); it is answered and the
+        chain stops - the card reset that follows performs the switch (§3.2.1
+        step 8 / §3.2.2 step 7).  **No STATUS poll** is sent: the card is
+        mid-switch and refuses further commands (``6985``) until the reset.
+        Returns True when a REFRESH was answered.
+        """
+        cat = self._require_cat()
+        seen = {'refresh': False}
+
+        def on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst):
+            if cmd_type == 0x01:                # REFRESH
+                seen['refresh'] = True
+                return 'exit'
+            return None
+
+        cat.handle_chain(sw, on_fetch=on_fetch, status_poll=False,
+                         max_rounds=POLL_CHAIN_MAX)
+        return seen['refresh']
+
+    def esim_profile_switch(self, body):
+        """``POST /api/esim/profile``: Enable/DisableProfile + re-init + check.
+
+        The STORE DATA's ``91XX`` is the spec's "result OK before REFRESH"
+        (SGP.22 v2.6 §3.2.1 step 6 for Enable, §3.2.2 step 5 for Disable); the
+        chain answers the REFRESH (§3.2.1 step 7 / §3.2.2 step 6), and the card
+        is then reset and fully re-initialized (the switch completes on the
+        reset - §3.2.1 step 8 / §3.2.2 step 7).  The new profile list is
+        re-read and the requested state reported as ``verified``/
+        ``state_after``; a failed post-switch verification degrades to
+        ``None``/``None`` - the switch itself already happened and must never
+        be reported as a request error.  The request is validated before the
+        card is touched; a switch failure is a result (``ok: false``), never an
+        exception.
+
+        ``refresh`` defaults to **true**, the legacy's choice; one eUICC in the
+        bench sample refuses ``refreshFlag`` TRUE (an undefined
+        ``enableResult`` 7) and accepts FALSE, so a client that resets the card
+        itself may prefer ``refresh: false``.  This endpoint always
+        re-initializes the card after the switch, so the flag only decides
+        whether the card also sends its REFRESH.
+        """
+        action = str(body.get('action') or '').strip().lower()
+        iccid = body.get('iccid')
+        isdp_aid = body.get('isdp_aid')
+        refresh = _boolean_flag(body.get('refresh', True), 'refresh')
+        # Validate the request before the card is touched: an incomplete
+        # one must not finish a pending menu or start a STORE DATA.
+        request = esim_module.switch_request(
+            action, iccid, isdp_aid, refresh)
+        cat = self._require_cat()
+        transport = self._require_card()
+        cat.finish_pending_menu()
+        cursor = getattr(cat, '_entry_id', 0)
+        with esim_module.isdr_selected(self._file_ops()):
+            response = esim_module.switch_profile(
+                transport, action, iccid=iccid, isdp_aid=isdp_aid,
+                refresh=refresh, run_chain=self._esim_refresh_chain,
+                request=request)
+        # A REFRESH delivered outside the chain still means the card wants the
+        # terminal to re-initialize (the legacy safety net over the log).
+        response['refresh_seen'] = bool(response.get('refresh_seen')) or any(
+            entry.get('type_hex') == '01' and entry.get('id', 0) > cursor
+            for entry in cat.log)
+        response['reinitialized'] = False
+        response['verified'] = None
+        response['state_after'] = None
+        if response['ok'] or response['refresh_seen']:
+            try:
+                self.reset()
+            except Exception as exc:
+                log.warning('ESIM: re-initialization after the profile switch '
+                            'failed: %s', exc)
+            else:
+                response['reinitialized'] = True
+                try:
+                    with esim_module.isdr_selected(self._file_ops()):
+                        response.update(esim_module.verify_switch(
+                            self.transport, action, iccid=iccid,
+                            isdp_aid=isdp_aid))
+                except Exception as exc:
+                    # The switch already happened (and was destructive): a
+                    # failed verification - the ISD-R refused the selection
+                    # after the reset, a disabled active profile - must not
+                    # turn it into a 400.  The result stays "not verified".
+                    log.warning('ESIM: post-switch verification failed: %s', exc)
+                    response['verified'] = None
+                    response['state_after'] = None
+        response['iccid'] = self.iccid
+        response['card_session'] = self.card_session
+        return response
+
+    # ---- the network simulation and the state monitor (3c-3e-2a) ----------
+
+    def _netstate_read(self, keys=None):
+        """Read the monitored network-state EFs (best effort per file)."""
+        return netmon.read_files(self._file_ops(), self.files, keys)
+
+    def _netstate_compute(self):
+        """Derive the monitor header (service/location/roaming) in place."""
+        if self.netstate is None:
+            return None
+        return netmon.compute(self.netstate,
+                              netmon.load_mcc_mnc(self.mcc_mnc_path))
+
+    def _netstate_install(self, files, source='init'):
+        """Install a freshly read monitor state (``None``/``{}`` = nothing)."""
+        state = netstate.new_state()
+        netstate.merge_read(state, files or {}, source=source)
+        netstate.set_read_time(state)
+        self.netstate = state
+        self._netstate_compute()
+
+    def _netstate_init(self):
+        """Create the monitor state from a fresh read (best effort)."""
+        try:
+            self._netstate_install(self._netstate_read())
+        except Exception as exc:
+            self.netstate = None
+            log.warning('network state read failed: %s', exc)
+
+    def _netstate_ensure(self):
+        """The monitor state of this session, created on demand.
+
+        The equip path creates it after a readable ICCID; this covers a session
+        that got past that (a card whose ICCID read failed at equip) when a
+        network operation needs the state.
+        """
+        if self.netstate is None and self.iccid:
+            self._netstate_init()
+        return self.netstate
+
+    def _netstate_after_net_sim(self, scenario, result):
+        """Update the cached monitor after a scenario run.
+
+        The bytes we wrote are known without re-reading (``apply_steps``); the
+        card may also switch EF.IMSI itself, so that file is re-read.
+        """
+        state = self._netstate_ensure()
+        if state is None:
+            return
+        netstate.apply_steps(state, (result or {}).get('steps') or [])
+        service = netsim_module.SCENARIO_SERVICE.get(scenario)
+        if service and (result or {}).get('success'):
+            netstate.set_service(state, service, 'net-sim:' + scenario)
+        netstate.merge_read(state, self._netstate_read(['imsi']),
+                            source='read')
+        self._netstate_compute()
+
+    def _netstate_after_event(self, event_type, event_data):
+        """Patch the monitor after a **Location status** event download.
+
+        The endpoint gates the call on the event type (the legacy
+        ``is_location`` rule) - this method is the Location-status patch only.
+        That event changes the *simulated* service state (the card's own
+        Location Information object is not the monitor's source); a multi-IMSI
+        applet may also switch EF.IMSI after such an event, so that file is
+        re-read.
+        """
+        state = self._netstate_ensure()
+        if state is None:
+            return
+        try:
+            code = int(event_type)
+        except (TypeError, ValueError):
+            code = None
+        if code == netsim_module.EVENT_LOCATION_STATUS and event_data:
+            status = None
+            if (len(event_data) >= 3 and event_data[0] == 0x9B
+                    and event_data[1] == 0x01):
+                status = event_data[2]
+            service = {0x00: netstate.SERVICE_NORMAL,
+                       0x01: netstate.SERVICE_LIMITED,
+                       0x02: netstate.SERVICE_NONE}.get(status)
+            if service:
+                netstate.set_service(state, service,
+                                     'event:location-status')
+        netstate.merge_read(state, self._netstate_read(['imsi']),
+                            source='read')
+        self._netstate_compute()
+
+    def net_sim(self, body):
+        """``POST /api/net-sim``: run one scenario under the card lock.
+
+        The scenario builders/step log are :mod:`pysim_simple_server.netsim`
+        (reused); :mod:`simple_server.netsim` supplies the card adapter.  The
+        response is the legacy ``{scenario, success, error, steps, net_state}``
+        - ``net_state`` is the monitor patched from the writes.
+        """
+        self._require_card()
+        self._require_cat()
+        scenario = body.get('scenario')
+        if not scenario:
+            raise ValueError('scenario is required')
+        result = netsim_module.run_scenario(self, scenario, body)
+        self._netstate_after_net_sim(scenario, result)
+        result['net_state'] = self.netstate
+        return result
+
+    def net_state_info(self):
+        """``GET /api/net-state``: the cached monitor (no card I/O)."""
+        self._netstate_compute()
+        if self.netstate is None:
+            return {'available': False, 'state': None}
+        return {'available': True, 'state': self.netstate}
+
+    def net_state_refresh(self, body):
+        """``POST /api/net-state-refresh``: re-read the monitored files.
+
+        ``files`` optionally filters the definition keys (the PWA refreshes
+        EF.IMSI only after an event, everything on demand).  The state is
+        created when the session has none (an equip path that predates it).
+        """
+        self._require_card()
+        keys = body.get('files')
+        if keys is not None and (not isinstance(keys, list)
+                                 or not all(isinstance(key, str)
+                                            for key in keys)):
+            raise ValueError('files must be a list of file keys')
+        state = self.netstate
+        if state is None:
+            state = netstate.new_state()
+            self.netstate = state
+        files = self._netstate_read(keys)
+        netstate.merge_read(state, files, source='refresh')
+        netstate.set_read_time(state)
+        self._netstate_compute()
+        return {'available': True, 'state': state}
+
+    def mcc_mnc_info(self, query=''):
+        """``GET /api/mcc-mnc``: the bundled operator list search / pick.
+
+        ``query`` is the raw query string (``q=``, ``random=1``,
+        ``exclude=<mcc><mnc>``).  MVNO entries stay hidden from both the
+        search and the random pick (they do not operate their own network);
+        ``available: false`` when the list is not deployed.
+        """
+        params = parse_qs(query or '', keep_blank_values=True)
+
+        def value(name):
+            entries = params.get(name)
+            return entries[-1] if entries else ''
+
+        data = netmon.load_mcc_mnc(self.mcc_mnc_path)
+        if data is None:
+            return {'available': False}
+        if value('random') not in ('0', 'false', ''):
+            return {'available': True, 'count': len(data),
+                    'result': netmon.random_entry(data, value('exclude'))}
+        return {'available': True, 'count': len(data),
+                'results': netmon.search(data, value('q'))}
 
     # ---- the background STATUS poll ---------------------------------------
 
@@ -4464,9 +4832,10 @@ class ServerState(object):
         (3c-3b), the latter a placeholder now.
         ``adm_verified`` is the ADM latch of the current card session (the
         legacy's ``rs.adm_verified``): a successful VERIFY until the next
-        equip/disconnect.  ``ram_progress`` is the RAM operation in flight
-        (:attr:`ram_progress`): the install chain holds the card lock, so this
-        card-free poll is how its step/elapsed stay visible.
+        equip/disconnect.  ``euicc``/``eid`` describe the eUICC (the EID is
+        read best effort at equip); ``ram_progress`` is the RAM operation in
+        flight (:attr:`ram_progress`): the install chain holds the card lock,
+        so this card-free poll is how its step/elapsed stay visible.
         """
         cat = self.cat
         suspended = (bool(getattr(cat, 'poll_suspended', False))
@@ -4497,6 +4866,9 @@ class ServerState(object):
             'atr': self.atr,
             'card': self.card_info(),
             'iccid': self.iccid if self.connected else None,
+            'euicc': (self.connected and self.card is not None
+                      and esim_module.card_is_euicc(self.card)),
+            'eid': self.eid if self.connected else None,
             'selection': self.selection if self.connected else None,
             # The ADM latch: a VERIFY that succeeded in the current card
             # session (the legacy's `rs.adm_verified`); an equip/disconnect
@@ -4745,6 +5117,17 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.pli_qualifiers())
                 elif path == '/api/pli-dict':
                     self._send_json(self.state_ref.pli_dict())
+                elif path == '/api/net-state':
+                    self._send_json(self.state_ref.net_state_info())
+                elif path == '/api/mcc-mnc':
+                    self._send_json(self.state_ref.mcc_mnc_info(
+                        self.path.split('?', 1)[1] if '?' in self.path else ''))
+                elif path == '/api/esim/chip':
+                    self._get_esim(self.state_ref.esim_chip)
+                elif path == '/api/esim/profiles':
+                    self._get_esim(self.state_ref.esim_profiles)
+                elif path == '/api/esim/notifications':
+                    self._get_esim(self.state_ref.esim_notifications)
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -4886,6 +5269,17 @@ def make_handler(state, log_requests=False):
                 elif path == '/api/apdu':
                     self._post_card(lambda: self.state_ref.raw_apdu(body),
                                     {})
+                elif path == '/api/esim/profile':
+                    self._post_card(
+                        lambda: self.state_ref.esim_profile_switch(body),
+                        {'ok': False})
+                elif path == '/api/net-sim':
+                    self._post_card(lambda: self.state_ref.net_sim(body),
+                                    {'success': False})
+                elif path == '/api/net-state-refresh':
+                    self._post_card(
+                        lambda: self.state_ref.net_state_refresh(body),
+                        {'available': False})
                 else:
                     self._send_json({'error': 'Not found'}, 404)
             except presets_store.PresetError as exc:
@@ -5017,6 +5411,26 @@ def make_handler(state, log_requests=False):
                 self._card_failure(exc, extra)
             else:
                 self._send_json(resp)
+
+        def _get_esim(self, action):
+            """A card-touching eSIM GET: 400 for a non-eUICC, 503 without a card.
+
+            The eSIM endpoints select the ISD-R and transceive, so they are
+            card-locked (not in ``CARD_FREE_GET``).  A card without the ISD-R
+            is a request-level refusal (:class:`simple_server.esim.
+            NotAnEuiccError`, a ``ValueError``) and answers ``400`` like the
+            legacy's ``not_an_euicc``; a transport error follows the shared
+            classification.
+            """
+            try:
+                self._send_json(action())
+            except NoCardSessionError as exc:
+                self._send_json({'error': str(exc),
+                                 **self.state_ref.status()}, 503)
+            except ValueError as exc:
+                self._send_json({'error': str(exc)}, 400)
+            except Exception as exc:
+                self._card_failure(exc, {})
 
         def _post_adm(self, body):
             self._post_card(lambda: self.state_ref.verify_adm(body),

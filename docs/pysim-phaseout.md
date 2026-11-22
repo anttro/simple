@@ -1111,6 +1111,8 @@ Deliberate, documented decisions (deviations from the legacy):
   monitor is Phase 3c-3e-2 work (`simple_server.netsim`/`netstate` land with
   the net-sim endpoints), so the endpoint returns only
   `{sw, [data], [negotiation]}` for now - recorded as a 3c-3e-2 item.
+  *(Superseded by 3c-3e-2a: the monitor exists, the event patches it and the
+  response carries `net_state`.)*
 - **`/api/stk-status` keeps the legacy shape.**  `active`/`pending`/
   `pending_type` plus `pending_data`; an earlier draft added a `type` alias of
   `pending_type`, which nothing read - it is gone rather than documented.
@@ -1141,6 +1143,126 @@ the PLI ownership, the raw-APDU gates and the error classification) is pinned
 against the fake card and the legacy sources; the first bench run - a real
 menu selection, an event download and a poll against the lab card - is the
 cutover gate.
+
+## Phase 3c-3e-2a outcome (the eSIM and network endpoints)
+
+The Simulator tab's remaining HTTP surface is served from `ServerState`:
+`GET /api/esim/chip|profiles|notifications`, `POST /api/esim/profile`,
+`POST /api/net-sim`, `GET /api/net-state`, `POST /api/net-state-refresh` and
+`GET /api/mcc-mnc`; `/api/status` gained `euicc`/`eid` and `/api/event-send`
+gained the `net_state` block.  The SCP81/BIP control endpoints remain
+3c-3e-2b work.
+
+Ported, function for function: the legacy `/api/esim/*` handlers with
+`_esim_refresh_chain`, `_esim_reinit`, `_esim_verify_switch` and
+`_finish_pending_menu`; `_netstate_read`/`_netstate_compute`/
+`_netstate_install`/`_netstate_init`/`_netstate_ensure`/
+`_netstate_after_net_sim`/`_netstate_after_event`; and the four
+`_mcc_mnc_*` helpers (now `simple_server/netmon.py`).
+:mod:`pysim_simple_server.netsim` and :mod:`pysim_simple_server.netstate` are
+**reused unchanged** - the scenario builders/step log and the monitor model
+have one implementation; :mod:`simple_server.netsim` only supplies the card
+surface the legacy runner expects (select by path through the file model, the
+FCP metadata, UPDATE/READ, the AUTHENTICATE transport and the event download).
+
+Spec anchors: SGP.22 v2.6 §5.7.2 (the ES10 STORE DATA), §5.7.8
+(EUICCInfo1/2), §5.7.9 (ListNotification), §5.7.22 (GetRAT), §5.7.15
+(GetProfilesInfo), §3.2.1 steps 6-8 (EnableProfile: "result OK before REFRESH",
+the REFRESH, the reset that completes the switch) and §3.2.2 steps 5-7
+(DisableProfile) - the ES10c functions are §5.7.16/§5.7.17 -, §5.7.20 (EID);
+TS 102 221 §11.1.1.1 (the SELECT functional description) and §8.4.1/§8.5.1.1
+(the MF selectable by FID from any last selected file, SELECT by DF name -
+the observed MF-refusal is a deviation handled by a guarded fallback);
+TS 31.102 §4.4.3.1/§4.4.3.2 (EF.Kc/KcGPRS under DF.GSM-ACCESS) and
+TS 51 011 §10.3.3/§10.3.32 (the 2G 6F20/6F52 codings); TS 23.122 (EF.FPLMN and
+attachment); TS 102 223 §7.5 / §8.27 (the Location status event).
+
+Deliberate decisions (deviations from the legacy):
+
+- **The eSIM endpoints select the ISD-R by AID on `FileOps`** (the legacy used
+  pySim's shell application).  The MF restore is best effort with a guarded
+  fallback (select ADF.USIM first, then MF) because some cards refuse the MF
+  SELECT by FID from within an ADF; a card whose active profile is disabled
+  has no filesystem, so a failed restore is logged, never an error.  A card
+  without the ISD-R is `400` (`NotAnEuiccError`, a `ValueError` - the legacy's
+  localized `not_an_euicc` answer).
+- **The re-initialization is `ServerState.reset()`**: a physical reset plus the
+  full `_init_session` (the legacy `_card_reset_reinit`).  A failed re-init is
+  reported as `reinitialized: false` (the legacy returned False too), and no
+  verification follows it.
+- **`refresh_seen` keeps the legacy safety net** over the CAT log (a REFRESH
+  answered outside the switch's own chain still counts) besides the chain
+  callback.
+- **`refresh` defaults to `true`** (the legacy's `body.get('refresh', True)`) -
+  the same choice the legacy made - but it is read as a real boolean: the
+  literal `"true"`/`"false"`/`"1"`/`"0"` strings are accepted and anything else
+  is a `400` (`bool("false")` is truthy, so a hand-written API call used to
+  ask for TRUE while saying "false").  The caveat from the Phase 3a spec check
+  stands: one bench eUICC **refuses `refreshFlag` TRUE** (an undefined
+  `enableResult` 7) and accepts FALSE; this flow always resets and
+  re-initializes the card itself, so a caller may prefer `refresh: false` on
+  such a card.
+- **A failed post-switch verification is not a request error**: the ISD-R
+  selection for the verification runs *inside* a guard, and a failure (the
+  card refusing the select after the reset, a disabled active profile) leaves
+  `verified`/`state_after` at `null` instead of raising `NotAnEuiccError` -
+  which the dispatch would report as `400 "not an eUICC"` and throw away a
+  completed, destructive switch (the legacy's
+  `_esim_verify_switch` degraded with `{'verified': None, 'state_after':
+  None}` too).
+- **Only a Location status event patches the monitor** (`/api/event-send`
+  gates `_netstate_after_event` on `event == 0x03`, the legacy `is_location`
+  rule).  Any other event download issues no SELECT/READ of EF.IMSI and leaves
+  the monitor's `imsi` entry untouched - the earlier port patched on every
+  event (three extra APDUs and a `source: read` flip).
+- **The decoders keep Phase 3a's lower-case hex** (`decode_info1/2`,
+  `decode_addresses`, `decode_rat`) where the legacy uppercased.  The PWA
+  upper-cases display values; the profile rows' `isdp_aid`/`icon` are
+  upper-cased to match the legacy API.  `EsimDecodeDriftTests` compares both
+  implementations case-folded and pins the port's lower-case form.
+- **The net-sim adapter carries a path table** (`PATH_ALIASES`) for the two
+  keys whose legacy candidate paths predate the current tree: EF.Kc/EF.KcGPRS
+  sit under `ADF.USIM/DF.GSM-ACCESS` (`5F3B`), and the 2G SIM files are
+  `6F20`/`6F52` (the legacy list's `DF.GSM/6F08`/`6F09` are stale).  The
+  scenario log keeps the legacy `path` string; the exchange uses the model
+  path.
+- **The adapter's command class is the file-access CLA** (`00`/`a0`), which is
+  what pySim's `scc.cla_byte` meant to the runner - not the CAT CLA.
+- **The network-state read needs an FCP** for a file's length, so a 2G SIM
+  (whose SELECT carries no FCP, TS 51 011 §9.2.1) reports its files absent -
+  the same limitation `/api/read` has until a card-independent length source
+  lands.  No guessing read size.  The net-sim adapter's reads (`simple_server/
+  netsim.py`) hit the same wall; there the FCP-driven `read_file` raises, so
+  `_LchanShim` reports the read as **`NO_FCP_SW`** (`6985`) with empty data -
+  the runner's "read failed, skip" path (its optional writes fall back, e.g.
+  EF.FPLMN to `FF`×12) - instead of aborting the whole scenario with a
+  `ValueError`.  A card-refused READ returns the card's own status word the
+  same way.
+- **`/api/net-state` and `/api/mcc-mnc` are card-free GETs**
+  (`CARD_FREE_GET`); the eSIM GETs stay card-locked like the legacy's, and
+  `/api/esim/*`, `/api/net-sim` and `/api/net-state-refresh` are refused
+  `409` while a test run owns the card (the existing `TEST_BLOCKED_PATHS`).
+- **A pre-flight validation before touching the card**: an invalid
+  `/api/esim/profile` request (action, profile identifier) is a `400` before
+  the ISD-R selection or `finish_pending_menu` - a bad request must not
+  answer a pending proactive command.  Likewise `/api/net-sim`'s `scenario`
+  and `/api/net-state-refresh`'s `files` shape are validated up front.
+
+Tests: **26 eSIM (`tests/test_simple_esim_api.py`) + 34 net-sim/monitor/
+operator-list (`tests/test_simple_netsim_api.py`) + 6 drift
+(`EsimDecodeDriftTests`/`MccMncDriftTests` in `tests/test_simple_drift.py`);
+the full suite is 2366**.  The eUICC fake answers the whole ES10 dialogue
+(chip/profile/notification objects, the switch's `91XX` + REFRESH chain, the
+post-reset re-read) and the net-sim fake a filesystem + AUTHENTICATE +
+ENVELOPE; both run the HTTP endpoints through a real `ThreadingHTTPServer`.
+The review round added the regressions for the non-Location event gate, the
+REFRESH-log safety net, the no-STATUS-after-REFRESH rule, the failed
+post-switch verification, the model-unknown candidate path and the FCP-less
+(2G SIM) read.
+**No live eUICC or card has run these endpoints**: the profile switch's real
+REFRESH timing, the re-init on a real profile change, the simulator's writes
+on a real card and the monitor's operator resolution on real files remain the
+bench acceptance checks.
 
 ## Spec compliance (spec-checker)
 

@@ -148,7 +148,8 @@ card). A shortcut for `POST /api/command` with `{"cmd": "cardinfo"}`.
 ### `GET /api/mcc-mnc`
 
 Searches the optional worldwide operator list loaded from
-`--mcc-mnc-list` (default `<workspace>/samples/mcc-mnc-list.json`).
+`--mcc-mnc-list` (default: the bundled `pysim_simple_server/data/mcc-mnc-list.json`,
+MIT, from pbakondy/mcc-mnc-list).
 `?q=<text>` matches country, country code, MCC/MNC, brand and operator
 (compact results, max 50); `?random=1[&exclude=MCCMNC]` returns one random
 entry (for roaming tests). When the list is not configured or missing the
@@ -488,7 +489,7 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
   support is reported in `errors` instead of failing the whole request).
   The EUICCInfo TLVs are requested raw and decoded per SGP.22 v2.6 §5.7.8
   (pySim's classes are incomplete), `rat` comes from the ES10b GetRat command
-  (§5.7.13) and undecoded TLVs are preserved in a `raw_tlvs` map:
+  (§5.7.22) and undecoded TLVs are preserved in a `raw_tlvs` map:
 
   ```json
   {"eid": "89086030202200000026000024920451",
@@ -540,8 +541,9 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
 - `POST /api/esim/profile` — `{"action": "enable"|"disable", "iccid"?: …,
   "isdp_aid"?: …, "refresh"?: true}` (one identifier required).  With the
   refresh flag set the ISD-R returns OK *before* the REFRESH (SGP.22 v2.6
-  §5.7.16/§5.7.17 step 6) and the switch completes upon the TERMINAL RESPONSE
-  or the following RESET (step 8): a `91xx` answer is that OK, so the server
+  §3.2.1 step 6 for Enable, §3.2.2 step 5 for Disable) and the switch
+  completes upon the TERMINAL RESPONSE or the following RESET (§3.2.1 step 8,
+  §3.2.2 step 7): a `91xx` answer is that OK, so the server
   answers the REFRESH proactive command (logged in `/api/proactive-log`),
   **never retries the STORE DATA** (the mid-switch card answers `6985`) and
   re-initializes the card like an equip (physical reset, re-read
@@ -555,7 +557,16 @@ lock; `GET /api/status` reports `euicc` and `eid` for the PWA.
   ```
 
   `verified` is `false` when the target profile is not in the requested state
-  after the re-init (`null` when the state could not be read).  Failures carry
+  after the re-init (`null` when the state could not be read - a failed
+  post-switch verification, e.g. the ISD-R refusing the selection, is
+  `null`/`null` and never a `400`: the switch itself already happened).
+  **`refresh` defaults to `true`** (the legacy's choice) and is read as a
+  JSON boolean; the literal strings `"true"`/`"false"`/`"1"`/`"0"` are
+  accepted, anything else is a `400` (a bare `bool("false")` used to be
+  true).  One bench eUICC **refuses `refreshFlag` TRUE** (an undefined
+  `enableResult` 7) while FALSE works - this endpoint always resets the card
+  itself, so a client may pass `refresh: false` on such a card.
+  Failures carry
   the ES10c result code (`iccidOrAidNotFound`, `profileNotInDisabledState`,
   `profileNotInEnabledState`, `disallowedByPolicy`, `wrongProfileReenabling`,
   `catBusy`, `undefinedError`) and a short `message`; an unexpected status
@@ -1577,9 +1588,14 @@ terminal default / `83` network, TS 102 223 §8.7):
 {"event_type": 4, "event_data": "01A0", "event_src": "83"}
 ```
 
-Unlike the legacy server the response carries **no `net_state`**: the
-network-state monitor lands with the net-sim endpoints (Phase 3c-3e-2), so a
-Location-status event's effect on the monitor is not reflected here yet.
+The response carries **no `net_state`** unless the session has a
+network-state monitor (the card's EF.ICCID was readable at equip); when it
+does, **a Location-status event only** patches it: the event sets the
+simulated service state, EF.IMSI is re-read (a multi-IMSI applet may switch
+it) and the updated monitor rides the response as `net_state` — the same
+block `GET /api/net-state` serves.  Any other event leaves the monitor (and
+EF.IMSI) alone: the response still carries the cached `net_state`, no card
+read is issued.
 
 For **Poll Interval Negotiation** (event `0x1C`, TS 102 223 §7.5.22) the
 proposal rides in `event_data` as the Duration TLV `04 02 <unit> <interval>`

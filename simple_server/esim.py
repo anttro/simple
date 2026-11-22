@@ -23,6 +23,14 @@ The transport is duck-typed: anything with ``send_apdu(bytes) -> (bytes, sw)``
 (:class:`simple_server.transport.PcscLink` in production, a fake in the tests).
 The module is otherwise pure and card-free testable.
 
+The **card-level endpoint flow** sits at the end of the module:
+:func:`isdr_selected` (select the ISD-R on a
+:class:`simple_server.commands.FileOps` and restore MF afterwards),
+:func:`chip_info`, :func:`profiles_info`, :func:`notifications_info` and the
+two-phase :func:`switch_profile`/:func:`verify_switch` pair the
+``/api/esim/*`` endpoints drive.  It owns no card state and takes the same
+duck-typed transport, so the endpoints keep the state.
+
 Scope: the consumer/IoT ES10 profile-management subset - EID, EUICCInfo1/2,
 configured addresses, profiles (GetProfilesInfo, Enable/DisableProfile),
 notifications (ListNotification) and GetRat.  Profile download
@@ -45,10 +53,16 @@ the server re-initializes the card after a switch either way, so the caller
 should prefer FALSE when it performs its own reset.
 """
 
+import contextlib
+import logging
 import re
 
+from simple_server.cards import AID_USIM
+from simple_server.commands import FileError
 from simple_server.tlv import BerTlv, ber_tlv_list
 from simple_server.util import sw_matches
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     # errors and result codes
@@ -89,6 +103,10 @@ __all__ = [
     # ES10 functions
     'GetEuiccData', 'EidValue', 'store_data_apdu', 'store_data',
     'store_data_tlv', 'get_eid',
+    # the endpoint flow (the ISD-R selection and the ES10 operations)
+    'NotAnEuiccError', 'isdr_selected', 'restore_mf', 'card_is_euicc',
+    'chip_info', 'profiles_info', 'notifications_info', 'switch_request',
+    'parse_switch_response', 'switch_profile', 'verify_switch',
 ]
 
 # Application identifiers of the SGP.02 Annex H ES10 applications.
@@ -1186,7 +1204,7 @@ def decode_addresses(raw):
 
 
 def decode_rat(raw):
-    """ES10b GetRat (``BF43``): the Rules Authorisation Table (§5.7.13)."""
+    """ES10b GetRat (``BF43``): the Rules Authorisation Table (§5.7.22)."""
     out = []
     table = _tlv_value(_tlv_value(raw, 0xBF43), 0xA0)
     for _tag, rule in ber_tlv_list(table):
@@ -1299,3 +1317,301 @@ def get_eid(transport, exp_sw='9000'):
         raise EsimError('eid_missing',
                         'the GetEuiccData response carries no EID (5A)')
     return eid.decoded
+
+
+# ---- the endpoint flow (card-level ES10 operations) ---------------------
+#
+# The functions above are transport-level and card-free testable; the ones
+# below are the flow the legacy ``pysim_simple_server/esim.py`` owned through
+# pySim (``_select_isdr``/``_restore``/``chip_info``/``profiles``/
+# ``notifications``/``switch_profile``), re-expressed on
+# :class:`simple_server.commands.FileOps` and the duck-typed transport.  The
+# caller keeps the card lock and owns the selection (``isdr_selected``).
+
+def card_is_euicc(card):
+    """True when the detected card is an eUICC (SGP.02/22/32).
+
+    :func:`simple_server.cards.detect_card` flags it from the best-effort
+    ISD-R probe (the legacy ``esim.is_euicc(app)`` read pySim's profile
+    string).
+    """
+    return getattr(card, 'kind', None) == 'euicc'
+
+
+class NotAnEuiccError(EsimError, ValueError):
+    """The equipped card has no ISD-R: the eSIM endpoints answer ``400``.
+
+    A :class:`ValueError` too, because it is a request-level refusal (the
+    legacy's ``not_an_euicc`` answer), never a card/protocol failure - the
+    HTTP dispatch's validation branch answers ``400`` with the message.
+    """
+
+
+@contextlib.contextmanager
+def isdr_selected(ops):
+    """Select the ISD-R for one ES10 operation; restore MF afterwards.
+
+    ``ops`` is a :class:`simple_server.commands.FileOps` for the equipped
+    card.  A card without the ISD-R refuses the selection (``6A82``) and
+    raises :class:`NotAnEuiccError`.  The restore is best effort: a card whose
+    active profile is disabled has no filesystem to select, so a failed
+    restore must not turn a completed operation into an error.
+    """
+    try:
+        ops.select_adf(AID_ISD_R)
+    except FileError as exc:
+        raise NotAnEuiccError(
+            'not_an_euicc', 'The equipped card is not an eUICC') from exc
+    try:
+        yield ops
+    finally:
+        restore_mf(ops)
+
+
+def restore_mf(ops):
+    """Return the card to MF after an ADF selection (best effort).
+
+    The plain SELECT MF is the first form: TS 102 221 §8.4.1 lists the MF
+    among the files selectable by FID from any last selected file, so a
+    refusal is a card deviation, not the rule.  For such a card the guarded
+    fallback selects ADF.USIM first (§8.5.1.1, SELECT by DF name) and then MF.
+    Nothing here may raise: a failed restore (a disabled active profile, a
+    dying link) is logged and left to the next full selection, so it can
+    never mask a completed operation.  Returns True when MF was reached.
+    """
+    try:
+        ops.select_mf()
+        return True
+    except Exception as exc:
+        log.debug('MF restore after the ISD-R selection failed: %s', exc)
+    try:
+        ops.select_adf(AID_USIM)
+        ops.select_mf()
+        return True
+    except Exception as exc:
+        log.debug('MF restore through ADF.USIM failed: %s', exc)
+        return False
+
+
+def chip_info(transport):
+    """The ES10 chip view: EID, EUICCInfo1/2, addresses and the RAT.
+
+    Each part is independent: one object the card does not answer lands in
+    ``errors`` and the rest is still returned (the legacy shape).  The
+    decoders keep unknown objects in ``raw_tlvs``.
+    """
+    out = {'eid': None, 'info1': None, 'info2': None, 'addresses': None,
+           'rat': None, 'errors': {}}
+    parts = (
+        ('eid', lambda: get_eid(transport)),
+        ('info1', lambda: decode_info1(
+            store_data_tlv(transport, EuiccInfo1()))),
+        ('info2', lambda: decode_info2(
+            store_data_tlv(transport, EuiccInfo2()))),
+        ('addresses', lambda: decode_addresses(
+            store_data_tlv(transport, EuiccConfiguredAddresses()))),
+        ('rat', lambda: decode_rat(
+            store_data_tlv(transport, _GetRatRequest()))),
+    )
+    for key, read in parts:
+        try:
+            out[key] = read()
+        except Exception as exc:        # one unsupported part is not fatal
+            out['errors'][key] = str(exc)
+    return out
+
+
+def _child_decoded(info, cls):
+    """A child's decoded value by class (``None`` when the object is absent)."""
+    child = info.child_by_type(cls)
+    return None if child is None else child.decoded
+
+
+def _profile_dict(info):
+    """One :class:`ProfileInfo` -> the API's profile row (the legacy shape)."""
+    icon = info.child_by_type(Icon)
+    icon_hex = icon.to_bytes().hex().upper() if icon is not None else None
+    owner = info.child_by_type(ProfileOwner)
+    plmn = (owner.child_by_type(ProfileOwnerPLMN)
+            if owner is not None else None)
+    aid = _child_decoded(info, IsdpAid)
+    return {
+        'iccid': _child_decoded(info, Iccid),
+        'isdp_aid': aid.upper() if aid else aid,
+        'state': _child_decoded(info, ProfileState),
+        'nickname': _child_decoded(info, ProfileNickname),
+        'provider': _child_decoded(info, ServiceProviderName),
+        'name': _child_decoded(info, ProfileName),
+        'class': _child_decoded(info, ProfileClass),
+        'icon_type': _child_decoded(info, IconType),
+        'icon': icon_hex,
+        'icon_size': len(icon_hex) // 2 if icon_hex else None,
+        'owner': None if plmn is None else plmn.decoded,
+    }
+
+
+def profiles_info(transport):
+    """ES10c GetProfilesInfo -> ``{'profiles': [...], 'error': None}``.
+
+    A ``profileInfoListError`` answer is a result, not an HTTP failure: the
+    list stays empty and ``error`` carries its short text (the PWA shows it).
+    """
+    resp = store_data_tlv(transport,
+                          ProfileInfoListReq(
+                              children=[profile_info_tag_list()]),
+                          ProfileInfoListResp)
+    out = {'profiles': [], 'error': None}
+    if resp is None:
+        return out
+    err = resp.child_by_type(ProfileInfoListError)
+    if err is not None and err.decoded is not None:
+        out['error'] = result_text(err.decoded)
+        return out
+    seq = resp.child_by_type(ProfileInfoSeq)
+    if seq is not None:
+        out['profiles'] = [_profile_dict(info)
+                           for info in seq.children_by_type(ProfileInfo)]
+    return out
+
+
+def notifications_info(transport):
+    """ES10b ListNotification (read-only) -> ``{'notifications', 'error'}``."""
+    resp = store_data_tlv(transport, ListNotificationReq(),
+                          ListNotificationResp)
+    out = {'notifications': [], 'error': None}
+    if resp is None:
+        return out
+    err = resp.child_by_type(ListNotificationsResultError)
+    if err is not None and err.decoded is not None:
+        out['error'] = result_text(err.decoded)
+        return out
+    metadata = resp.child_by_type(NotificationMetadataList)
+    if metadata is not None:
+        out['notifications'] = [
+            {
+                'seq_number': _child_decoded(meta, SeqNumber),
+                'operations': profile_operations(
+                    _child_decoded(meta, ProfileMgmtOperation)),
+                'address': _child_decoded(meta, NotificationAddress),
+                'iccid': _child_decoded(meta, Iccid),
+            }
+            for meta in metadata.children_by_type(NotificationMetadata)
+        ]
+    return out
+
+
+def switch_request(action, iccid=None, isdp_aid=None, refresh=True):
+    """The Enable/DisableProfileRequest data object (SGP.22 §5.7.16/§5.7.17).
+
+    ``action`` is ``enable``/``disable``; the profile is named by its ISD-P
+    AID or its ICCID (the legacy order: the AID wins when both are given).
+    ``refresh`` is the DER BOOLEAN refresh flag (TRUE = ``FF``).  A bad
+    parameter is a :class:`ValueError` - the endpoints answer ``400``.
+    """
+    if action not in ('enable', 'disable'):
+        raise ValueError('action must be "enable" or "disable"')
+    ident = []
+    if isdp_aid:
+        aid = re.sub(r'[^0-9a-fA-F]', '', str(isdp_aid))
+        if not aid or len(aid) % 2:
+            raise ValueError('isdp_aid is not an even-length hex value: %r'
+                             % (isdp_aid,))
+        ident.append(IsdpAid(decoded=aid))
+    elif iccid:
+        digits = re.sub(r'[^0-9a-fA-F]', '', str(iccid)).upper()
+        if digits[-1:] == 'F':
+            digits = digits[:-1]
+        if not digits.isdigit():
+            raise ValueError('iccid is not a digit string: %r' % (iccid,))
+        ident.append(Iccid(decoded=digits))
+    else:
+        raise ValueError('the request names no profile (iccid or isdp_aid)')
+    req_cls = EnableProfileReq if action == 'enable' else DisableProfileReq
+    return req_cls(children=[ProfileIdentifier(children=ident),
+                             RefreshFlag(decoded=bool(refresh))])
+
+
+def parse_switch_response(action, data):
+    """An Enable/DisableProfileResponse -> ``{ok, result, message}``."""
+    resp_cls = EnableProfileResp if action == 'enable' else DisableProfileResp
+    result_cls = EnableResult if action == 'enable' else DisableResult
+    result = None
+    data = bytes(data or b'')
+    if data:
+        try:
+            resp = resp_cls.from_bytes(data)
+        except (ValueError, IndexError) as error:
+            raise EsimError('decode_error', '%s: %s'
+                            % (resp_cls.__name__, error))
+        child = resp.child_by_type(result_cls)
+        result = None if child is None else child.decoded
+    return {'ok': result == 'ok',
+            'result': result if isinstance(result, str) else 'undefinedError',
+            'message': result_text(result)}
+
+
+def switch_profile(transport, action, iccid=None, isdp_aid=None,
+                   refresh=True, run_chain=None, request=None):
+    """Run an ES10c Enable/DisableProfile switch.
+
+    The request is one STORE DATA.  ``9000`` carries the result object;
+    ``91XX`` is the spec's "result OK before the REFRESH" (SGP.22 v2.6
+    §3.2.1 step 6 for Enable / §3.2.2 step 5 for Disable; the ES10c functions
+    are §5.7.16/§5.7.17) and ``run_chain(sw)`` answers the proactive
+    command(s) the card sent alongside it (returns True when a REFRESH was
+    answered).  **The STORE DATA is never retried**: a mid-switch card
+    answers ``6985`` to the retry, and the caller re-initializes the card
+    afterwards (the switch completes on the TERMINAL RESPONSE or the reset,
+    §3.2.1 step 8 / §3.2.2 step 7).  Any other status word is a failure
+    result, not an exception.
+
+    ``request`` is the already-built :func:`switch_request` object (the
+    endpoint validates the parameters before it touches the card, so it can
+    pass the same object in).
+    """
+    cmd = request if request is not None else switch_request(
+        action, iccid, isdp_aid, refresh)
+    data, sw = store_data(transport, cmd.to_tlv(), exp_sw=False)
+    if sw == '9000':
+        out = parse_switch_response(action, data)
+        out['refresh_seen'] = False
+        return out
+    if sw.startswith('91'):
+        refresh_seen = False
+        try:
+            refresh_seen = bool(run_chain(sw)) if run_chain else False
+        except Exception as exc:
+            log.warning('ESIM: REFRESH chain failed: %s', exc)
+        return {'ok': True, 'result': 'ok', 'message': 'ok',
+                'refresh_seen': refresh_seen}
+    return {'ok': False, 'result': 'undefinedError', 'sw': sw.upper(),
+            'message': 'SW %s' % sw.upper()}
+
+
+def _norm_iccid(value):
+    """ICCID comparison form: hex digits without the trailing F pad."""
+    text = re.sub(r'[^0-9a-fA-F]', '', str(value or '')).upper()
+    return text[:-1] if text.endswith('F') else text
+
+
+def verify_switch(transport, action, iccid=None, isdp_aid=None):
+    """Re-read the profile list and check the requested state took effect."""
+    expected = 'enabled' if action == 'enable' else 'disabled'
+    try:
+        profiles = profiles_info(transport).get('profiles') or []
+    except Exception as exc:
+        log.warning('ESIM: state verification failed: %s', exc)
+        return {'verified': None, 'state_after': None}
+    want_iccid = _norm_iccid(iccid) if iccid else None
+    want_aid = re.sub(r'[^0-9a-fA-F]', '', str(isdp_aid or '')).upper() or None
+    state_after = None
+    for profile in profiles:
+        if (want_iccid
+                and _norm_iccid(profile.get('iccid')) == want_iccid) \
+                or (want_aid
+                    and re.sub(r'[^0-9a-fA-F]', '',
+                               str(profile.get('isdp_aid') or '')).upper()
+                    == want_aid):
+            state_after = profile.get('state')
+            break
+    return {'verified': state_after == expected, 'state_after': state_after}

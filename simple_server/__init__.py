@@ -35,6 +35,12 @@ menu browser, the event downloads, the runtime TERMINAL PROFILE, the manual
 STATUS poll and the poll switch, the proactive log and the PLI dictionary),
 the server-side event builders of :mod:`pysim_simple_server.events` and the
 raw APDU endpoint.
+Phase 3c-3e-2a: the eSIM/LPA endpoints (the ES10 chip view, the profile list,
+the notifications and the profile switch with its REFRESH chain and the
+equip-like re-initialization) on :mod:`simple_server.esim`, and the network
+side - the net-sim scenarios (:mod:`simple_server.netsim`, the legacy runner
+on the ported card), the network-state monitor (:mod:`simple_server.netmon`
+around the reused ``netstate``) and the MCC/MNC operator list search.
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

@@ -2142,5 +2142,152 @@ class SuiteDriftTests(unittest.TestCase):
         self.assertEqual(_store_view(ours[0], ours[1]), _store_view(theirs[0], theirs[1]))
 
 
+class EsimDecodeDriftTests(unittest.TestCase):
+    """The ES10 decoders must read a card answer exactly like the legacy copy.
+
+    :mod:`simple_server.esim` re-implements the EUICCInfo1/2, configured
+    addresses and GetRat decoders of ``pysim_simple_server/esim.py`` (the
+    legacy re-uses pySim's TLV classes; the port cannot).  The fixtures are
+    the legacy suite's own (``tests/test_esim.py``): the SyncInfo SKI lists,
+    the RAT rule's ``30``-wrapped container and an unmodelled object.
+
+    The **hex case** differs by the port's own decision (Phase 3a decodes
+    octet values lower-case - the PWA upper-cases display values; the legacy
+    upper-cases in the API), so the comparison normalises case and the test
+    pins the port's lower-case form separately.
+    """
+
+    def _legacy(self):
+        import pysim_simple_server.esim as legacy_esim
+        return legacy_esim
+
+    @staticmethod
+    def _fold(value):
+        """Recursively lower-case every string (hex values) for comparison."""
+        if isinstance(value, dict):
+            return {key: EsimDecodeDriftTests._fold(item)
+                    for key, item in value.items()}
+        if isinstance(value, list):
+            return [EsimDecodeDriftTests._fold(item) for item in value]
+        if isinstance(value, str):
+            return value.lower()
+        return value
+
+    @staticmethod
+    def _tlv(tag, value):
+        """One short-form BER-TLV (the legacy suite's fixture helper)."""
+        tag_hex = '%02X' % tag if tag <= 0xFF else '%04X' % tag
+        return '%s%02X%s' % (tag_hex, len(value) // 2, value)
+
+    def test_the_decoders_agree(self):
+        from simple_server import esim as ours
+        legacy_esim = self._legacy()
+        info1 = self._tlv(0xBF20, self._tlv(0x82, '010203')
+                          + self._tlv(0xA9, self._tlv(0x04, '010203')))
+        info1_unknown = self._tlv(
+            0xBF20, self._tlv(0x82, '010203') + self._tlv(0xA4, 'FF')
+            + self._tlv(0xA9, self._tlv(0x04, '010203')))
+        info2 = self._tlv(
+            0xBF22, self._tlv(0x81, '020200') + self._tlv(0x82, '030400')
+            + self._tlv(0x83, '010000') + self._tlv(0x85, '077F3E1F80')
+            + self._tlv(0x8B, '02'))
+        addresses = self._tlv(
+            0xBF3C, self._tlv(0x80, '736D64702E6578616D706C652E6F7267')
+            + self._tlv(0x81, ''))
+        rat = self._tlv(0xBF43, self._tlv(
+            0xA0, self._tlv(0xA1, self._tlv(0x30, self._tlv(0x80, '62F210')))
+            + self._tlv(0x30, self._tlv(0x80, '0460'))))
+        cases = [
+            (ours.decode_info1, legacy_esim._decode_info1, info1),
+            (ours.decode_info1, legacy_esim._decode_info1, info1_unknown),
+            (ours.decode_info2, legacy_esim._decode_info2, info2),
+            (ours.decode_addresses, legacy_esim._decode_addresses, addresses),
+            (ours.decode_rat, legacy_esim._decode_rat, rat),
+        ]
+        for ours_fn, legacy_fn, raw in cases:
+            self.assertEqual(self._fold(ours_fn(raw)),
+                             self._fold(legacy_fn(raw)), raw)
+
+    def test_the_port_keeps_its_lower_case_hex(self):
+        from simple_server import esim as ours
+        info1 = ours.decode_info1(
+            self._tlv(0xBF20, self._tlv(0x82, '010203')
+                      + self._tlv(0xA9, self._tlv(0x04, '0A0B'))))
+        self.assertEqual(info1['euicc_ci_pki_list_for_verification'],
+                         ['0a0b'])
+        unknown = ours.decode_info1(
+            self._tlv(0xBF20, self._tlv(0x82, '010203')
+                      + self._tlv(0xA4, 'FF')))
+        self.assertEqual(unknown['raw_tlvs'], {'A4': 'ff'})
+        rat = ours.decode_rat(self._tlv(0xBF43, self._tlv(
+            0xA0, self._tlv(0x30, self._tlv(0x80, '0460')
+                            + self._tlv(0xA1,
+                                        self._tlv(0x30,
+                                                  self._tlv(0x80,
+                                                            '62F210')))))))
+        self.assertEqual(rat[0]['ppr_ids'], ['ppr1', 'ppr2'])
+        self.assertEqual(rat[0]['allowed_operators'],
+                         [{'plmn': '62f210', 'gid1': None, 'gid2': None}])
+
+    def test_the_result_texts_agree(self):
+        from simple_server import esim as ours
+        legacy_esim = self._legacy()
+        self.assertEqual(ours.RESULT_MESSAGES, legacy_esim.RESULT_MESSAGES)
+        for code in legacy_esim.RESULT_MESSAGES:
+            self.assertEqual(ours.result_text(code),
+                             legacy_esim._error_text(code))
+
+
+class MccMncDriftTests(unittest.TestCase):
+    """The operator-list helpers are a port: same rows, same MVNO rule."""
+
+    DATA = [
+        {'countryName': 'Germany', 'countryCode': 'de', 'mcc': '262',
+         'mnc': '01', 'brand': 'Telekom', 'operator': 'Telekom GmbH',
+         'bands': 'GSM 900', 'status': 'Operational'},
+        {'countryName': 'Germany', 'countryCode': 'de', 'mcc': '262',
+         'mnc': '02', 'brand': 'Vodafone', 'operator': 'Vodafone GmbH',
+         'bands': 'LTE', 'status': 'Operational'},
+        {'countryName': 'Germany', 'countryCode': 'de', 'mcc': '262',
+         'mnc': '99', 'brand': 'Reseller', 'operator': 'MVNO Corp',
+         'bands': 'MVNO', 'status': 'Operational'},
+        {'countryName': 'France', 'countryCode': 'fr', 'mcc': '208',
+         'mnc': '01', 'brand': 'Orange', 'operator': 'Orange S.A.',
+         'bands': '5G', 'status': 'Operational'},
+    ]
+
+    def test_the_search_and_mvno_rule_agree(self):
+        from simple_server import netmon
+        for query in ('Telekom', 'Germany', '262', 'MVNO', ''):
+            ours = netmon.search(self.DATA, query)
+            theirs = legacy._mcc_mnc_search(self.DATA, query)
+            self.assertEqual(ours, theirs, query)
+            for entry in (self.DATA if query else []):
+                self.assertEqual(netmon.is_mvno(entry),
+                                 legacy._mcc_mnc_is_mvno(entry))
+
+    def test_the_random_rule_agrees(self):
+        from simple_server import netmon
+        # the MVNO is the only excluded candidate: both sides fall back to
+        # the same pool, so make the exclusion cover everything else
+        only_mvno = [self.DATA[2]]
+        self.assertEqual(netmon.random_entry(only_mvno, None),
+                         legacy._mcc_mnc_random(only_mvno, None))
+        self.assertIsNone(netmon.random_entry([], None))
+        self.assertIsNone(legacy._mcc_mnc_random([], None))
+        # with a mixed pool every side picks a non-MVNO entry
+        picked = netmon.random_entry(self.DATA, '26201')
+        self.assertIsNotNone(picked)
+        self.assertNotEqual(picked['mnc'], '99')
+
+    def test_the_netstate_and_netsim_modules_are_the_reused_ones(self):
+        from simple_server import netmon
+        from simple_server import netsim as adapter
+        from pysim_simple_server import netstate as legacy_netstate
+        from pysim_simple_server import netsim as legacy_netstate_module
+        self.assertIs(netmon.netstate, legacy_netstate)
+        self.assertIs(adapter.legacy_netsim, legacy_netstate_module)
+
+
 if __name__ == '__main__':
     unittest.main()
