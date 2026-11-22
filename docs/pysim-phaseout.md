@@ -470,10 +470,17 @@ Deliberate, documented decisions:
   (a 2G SIM on the TS 51 011 form, or a UICC omitting the FCP): the read is
   FCP-driven (`read_file` needs `fcp.file_size` for a transparent EF and
   `record_len` for a record EF), so every read answers `success: false` with
-  "the FCP carries no file size".  The legacy was equally broken.  **A
-  decision is needed before 3c-3c**: either accept an explicit `length` on the
-  request, or read with READ BINARY `Le = 256` and stop on a short read (the
-  TS 102 221 §11.1.3.2 behaviour a caller without a size implies).  Pinned by
+  "the FCP carries no file size".  The legacy was equally broken.  **Decision
+  (2026-11-22, after the cutover):** (a) wire the explicit `length` /
+  `record_len` parameters through `/api/read` (`FileOps.read_file` already
+  accepts them; the PWA gains a field later), and (b) add the size-agnostic
+  fallback - READ BINARY with `Le = 256` accumulating until a short read /
+  a refusal (`6282`/`6B00`) / zero progress (bounded), and READ RECORD with
+  `Le = 256` until refused (the count side already does this when
+  `num_of_rec` is `None`); mark the response `size_inferred: true` so the
+  PWA/snapshot knows the size came from the read.  **Rejected:** borrowing
+  the nominal size from `uicc_files.json` (a spec size may differ per card;
+  a silent over-/under-read is worse than "unknown").  Pinned by
   `tests/test_simple_http.py` (`test_a_card_without_an_fcp_cannot_be_read`) so
   a future fix is visible.
 - **`selection`** (`/api/status`) is published by select/read/write:
