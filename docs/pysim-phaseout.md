@@ -1394,6 +1394,15 @@ Implications:
   (`trace_command`/`trace_response` around `send_apdu`) and `send_tpdu` (one
   per `con.transmit`, i.e. per TPDU on a TPDU-mode reader).  A GSMTAP tracer
   attaches at `send_tpdu` for the closest-to-wire stream PC/SC offers.
+- **Default to APDU mode; do not promise TPDU.**  No `--raw-tpdu` knob and no
+  `PcscLink.control()` wrapper: a raw-PPDU escape would be per-reader
+  (vendor-specific, often undocumented, needs the CCID driver's
+  `ifdDriverOptions` 0x01, and can collide with PIN/firmware features), so its
+  practical value is near zero for this project; `SCARD_PROTOCOL_RAW` is the
+  memory-card protocol, not a SIM TPDU mode.  For a genuine wire capture use
+  **simtrace2 hardware** (the GSMTAP-SIM format is built for it) - that is the
+  dependable "true wire" path, independent of the reader.  Revisit the escape
+  only if a concrete reader + documented escape + a real need appear.
 - `pysim_simple_server/gsmtap.py` imports pySim (`ApduTracer`,
   `parse_command_apdu`); it is reimplemented on `simple_server` (Phase 3) with
   the same GSMTAP-SIM packet format but streaming the real transmits.
