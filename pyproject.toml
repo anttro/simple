@@ -15,9 +15,12 @@ requires-python = ">=3.9"
 
 [project.scripts]
 pysim-simple-server = "pysim_simple_server.__main__:main"
+# The pysim-free server (Phase 3d-1).  Its own package and console script; the
+# legacy entry point stays until the cutover (Phase 3d-3).
+simple-server = "simple_server.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["pysim_simple_server*"]
+include = ["pysim_simple_server*", "simple_server*"]
 
 [tool.setuptools.package-data]
 pysim_simple_server = ["data/*.json", "data/*.LICENSE"]

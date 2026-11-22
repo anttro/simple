@@ -853,7 +853,8 @@ class ServerState(object):
 
     # ---- card lifecycle ----------------------------------------------------
 
-    def open(self, reader=None, transport=None, start_threads=True):
+    def open(self, reader=None, transport=None, start_threads=True,
+             skip_card_init=False):
         """Build the link and run the startup initialization.
 
         ``transport`` injects a link (the tests' fake); otherwise
@@ -862,6 +863,13 @@ class ServerState(object):
         the card and select MF, then the CAT-free reads - EF.ICCID, EF.ARR,
         EF.PBR - and only then the TERMINAL PROFILE + drain, so no CAT session
         is active during the reads.
+
+        ``skip_card_init`` is the ``--no-card-init`` mode: the link is built
+        and the ATR read, but the detection, the MF select, the CAT-free reads
+        and the TERMINAL PROFILE/drain are skipped (a placeholder card,
+        :func:`~simple_server.cards.init_card` with ``skip_init``).  The poll
+        and the presence monitor still start - the phase is skipped, not the
+        process's card plumbing.
 
         **A cardless start is a normal state.**  The background poll and the
         presence monitor start even when the card initialization fails; the
@@ -885,7 +893,7 @@ class ServerState(object):
                     self.reader_name
                     or getattr(self.transport, 'reader_name', None))
                 self._transport_stale = False
-                self._init_session()
+                self._init_session(skip_card_init=skip_card_init)
             except Exception as exc:
                 self._teardown_session(bump=True)
                 error = exc
@@ -1071,7 +1079,7 @@ class ServerState(object):
 
     # ---- the post-equip sequence ------------------------------------------
 
-    def _init_session(self):
+    def _init_session(self, skip_card_init=False):
         """Connect/reset, detect the card and run the post-equip sequence.
 
         The order is the legacy startup init's: the card is detected and MF
@@ -1080,11 +1088,19 @@ class ServerState(object):
         starts a CAT session, and the profile's answers are drained.  The next
         ``card_session`` value is the caller's session marker; the ready marker
         is set only after the whole sequence succeeded.
+
+        ``skip_card_init`` (``--no-card-init``) stops after the link/ATR step:
+        :func:`~simple_server.cards.init_card` runs with ``skip_init`` (a
+        placeholder ``unknown`` card) and the detection, MF select, the reads,
+        the TERMINAL PROFILE and the drain are skipped.  The session is still
+        ``connected`` and carries a CAT session (the poll/monitor have a live
+        link to work with), but it is **not** marked ready - the marker means
+        "a full initialization finished".
         """
         transport = self.transport
         if transport is None:
             raise RuntimeError('no transport to initialize')
-        card = cards.init_card(transport)
+        card = cards.init_card(transport, skip_init=skip_card_init)
         self.card = card
         self.atr = (bytes(card.atr).hex() if card.atr else None)
         self.cat = cat_session.CatSession(
@@ -1111,6 +1127,9 @@ class ServerState(object):
         self.pbr = None
         self.netstate = None
         self.selection = None
+        if skip_card_init:
+            self.poll_suspended = False
+            return
         # ICCID/ARR/PBR in the CAT-free window (the legacy order), then MF.
         try:
             self.iccid = self._read_iccid()

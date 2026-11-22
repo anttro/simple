@@ -46,8 +46,14 @@ the listener start/stop for the dump, TLS, redirect and passthru modes, the
 administration command-script engine, the PSK table, the ``.cap`` -> APDU
 generator and the generic BIP pill control - on top of the server-owned
 :class:`simple_server.bip.BipSession`.
+Phase 3d-1: the ``simple-server`` entry point (:mod:`simple_server.__main__`) -
+the CLI, the PC/SC access pre-flight, the INFO logging setup, the startup and
+the graceful shutdown - and the transmit-level GSMTAP-SIM tracer
+(:mod:`simple_server.gsmtap`, a ``send_tpdu`` wrapper streaming what
+``SCardTransmit`` carries plus the ATR).
 
-Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
-:mod:`simple_server.transport` touches ``pyscard``, and
-:mod:`simple_server.scp80` uses ``pycryptodomex`` for the ciphers.
+Nothing here imports ``pySim``, ``osmocom`` or ``construct``.  ``pyscard`` is
+imported by :mod:`simple_server.transport` and by the entry point's PC/SC
+pre-flight, and :mod:`simple_server.scp80` uses ``pycryptodomex`` for the
+ciphers.
 """

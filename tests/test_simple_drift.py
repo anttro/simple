@@ -53,6 +53,56 @@ from simple_server import tr as R  # noqa: E402
 
 from pysim_simple_server import test_scripts as test_scripts_store  # noqa: E402
 from pysim_simple_server import test_suites as test_suites_store  # noqa: E402
+from pysim_simple_server import gsmtap as legacy_gsmtap  # noqa: E402
+
+from simple_server import gsmtap as G  # noqa: E402
+
+
+class GsmtapDriftTests(unittest.TestCase):
+    """The GSMTAP-SIM packet form must match the legacy builder byte for byte.
+
+    Moved here from ``tests/test_simple_main.py`` (which must stay pysim-free):
+    the legacy module is the reference the wire format was verified against, so
+    the comparison is a cross-package drift guard - this module is the one place
+    allowed to import both.
+    """
+
+    ATR = bytes.fromhex('3b9f95801fc78031e073fe211b67a3a0001505017204')
+
+    def test_the_constants(self):
+        for name in ('GSMTAP_VERSION', 'GSMTAP_HDR_LEN', 'GSMTAP_TYPE_SIM',
+                     'GSMTAP_SIM_APDU', 'GSMTAP_SIM_ATR', 'GSMTAP_UDP_PORT',
+                     'DEFAULT_TARGET'):
+            self.assertEqual(getattr(G, name), getattr(legacy_gsmtap, name),
+                             name)
+
+    def test_the_packet_bytes(self):
+        cases = [
+            (G.GSMTAP_SIM_APDU, bytes.fromhex('00a40004023f00'), 0, 0),
+            (G.GSMTAP_SIM_ATR, self.ATR, 0, 0),
+            (G.GSMTAP_SIM_APDU, b'', 0x10, 3),
+        ]
+        for sub_type, data, flags, slot in cases:
+            self.assertEqual(
+                G.build_packet(sub_type, data, flags, slot),
+                legacy_gsmtap.build_packet(sub_type, data, flags, slot),
+                '%02X/%d/%d' % (sub_type, flags, slot))
+
+    def test_parse_target_on_the_shared_forms(self):
+        for target in (None, '', '127.0.0.1:4729', '10.0.0.5',
+                       '10.0.0.5:5000', ':5000'):
+            self.assertEqual(G.parse_target(target),
+                             legacy_gsmtap.parse_target(target), repr(target))
+
+    def test_the_port_parser_is_stricter_on_out_of_range_values(self):
+        # Deliberate divergence: the port validates 0-65535 here, because
+        # sendto() raises OverflowError (not OSError) for the others, which
+        # the fire-and-forget sender must not let reach card I/O.
+        for target in ('host:99999', 'host:-1', 'host:'):
+            with self.subTest(target=target):
+                with self.assertRaises(ValueError):
+                    G.parse_target(target)
+
 
 
 class SpecTableDriftTests(unittest.TestCase):

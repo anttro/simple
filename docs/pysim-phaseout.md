@@ -12,7 +12,7 @@
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green then) |
 | 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green then) |
 | 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green then, 1367 after the review fixes) |
-| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control); 3d (the pysim-free PWA cutover + the entry point) remains |
+| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control), and 3d-1 (the entry point + the GSMTAP tracer) is done; the 3d-2/3d-3 cutover and release remain |
 
 ## Phase 0 outcome
 
@@ -1397,6 +1397,117 @@ the started listener, the SD fetching the scripted C-APDUs and reporting the
 R-APDUs (the reference session's framing knobs), and the `63 10`/`CA FE`
 listing continuation on hardware remain the bench acceptance checks
 (`docs/scp81-findings.md` tracks the live outcomes).
+
+## Phase 3d-1 outcome (the entry point + the GSMTAP tracer)
+
+`simple_server/__main__.py` is the pysim-free entry point: `python -m
+simple_server` or the `simple-server` console script (`pyproject.toml`
+`[project.scripts]`).  It imports pyscard only through
+`simple_server.transport` and its own PC/SC pre-flight; the module-import path
+stays pysim-free (`--help` needs no reader and no pySim).
+
+**The CLI.**  Ported: `-r/--reader NAME`, `--http-host`, `--http-port`,
+`--web-dir`, `--mcc-mnc-list`, `--card-presets`, `--test-scripts`,
+`--test-suites`, `--sms-oa`, `--sms-sm-sc`, `--terminal-profile`,
+`--poll-interval`, `--menu-timeout`, `--no-card-init`, `--no-auto-equip`,
+`--apdu-trace`, `--gsmtap [HOST[:PORT]]`, `--log-requests`, `--timing`.  The
+defaults equal the legacy ones (the TERMINAL PROFILE literal is pinned against
+`simple_server.server.DEFAULT_TERMINAL_PROFILE` by `tests/test_simple_main.py`).
+`--http-port` validates 0-65535 at parse time (an out-of-range value made
+`socket.bind` raise `OverflowError`, which the friendly bind-failure catch
+missed and which escaped as a traceback); the bind catch itself now takes
+`(OSError, OverflowError)`, and the same range rule applies to the GSMTAP
+target's port (`sendto` raises `OverflowError`, not `OSError`, so the
+fire-and-forget sender catches both).
+
+**Not ported (deliberate).**  `-d/--device` (the serial/FTDI transport; the
+port is PC/SC-only, and the pre-flight's access/service/reader classification
+replaces the legacy's silent serial fallback), `--fast-init` and
+`--full-pysim-init` (both are pySim init paths; `simple_server.cards` is the
+one init) and the legacy `-p/--pcsc-device` slot form (`-r` takes the reader
+*name*, and "the first reader" is the default).  **The cutover must rewrite
+`start.sh`/`start.bat` (`-p 0` -> the first reader / `-r <name>`) and the
+README option table together** - the packaged scripts still pass the legacy
+flags.
+
+**Startup.**  `_guard_console_streams()` is the first statement (the v3.30.3
+code-page rule) and `configure_logging()` the second: INFO for `simple_server`
+(the `RAM C-APDU`/`OTA SEND`/`TEST-RUN` bench diagnostics must reach
+`simple_lastrun.log`), WARNING for third parties.  Then the parser, the
+`--terminal-profile` validation (the endpoint's own rule), the tracers, the
+PC/SC pre-flight (the v3.38.1 classification: access/service/reader, guidance,
+exit 2), the `ServerState`, `_startup`, the HTTP factory and `_serve`.
+`main()` resets the module-level `--timing` state, so a repeated call in one
+process cannot inherit it.
+
+**`--no-card-init` skips a phase, not the plumbing.**  `ServerState.open(...,
+skip_card_init=True)` still builds the link and reads the ATR, and
+`start_poll()`/`start_monitor()` still run; `_init_session(skip_card_init=True)`
+runs `cards.init_card(transport, skip_init=True)` (the placeholder `unknown`
+card, the UICC CAT CLA) and returns before the detection/MF select, the CAT-free
+reads (EF.ICCID/EF.ARR/EF.PBR), the TERMINAL PROFILE and the drain.  The
+session is `connected` and carries a CAT session (so `/api/poll-toggle` and
+the operator's polling work and a later Equip initializes the card fully), but
+`card_ready_session` is **not** set - the marker means "a full initialization
+finished", so the batch worker does not act on the placeholder.  The
+`--no-card-init`/`--no-auto-equip` pairing is unchanged (auto-equip off).
+The tests run the real `ServerState` through this path: the poll thread and
+the presence observer exist, `poll_once()` sends a STATUS, a removal clears the
+session and `equip()` then initializes the card properly.
+
+**A card removed during the startup init** is classified as a transport error
+(`_is_transport_error`: a `ReaderError` or a pyscard `hresult`) and reported as
+the v3.32.5 one-liner (`INIT: card removed during initialization - server
+ready...`) without a traceback; only a decoding/protocol failure logs
+"card initialization failed" and the traceback.
+
+**GSMTAP at the transmit level.**  `simple_server/gsmtap.py` replaces the
+legacy tracer: `SendTpduTracer.attach(link, tracer)` wraps the link's
+`send_tpdu` (the one method every exchange goes through), its `connect` (for
+the ATR) and its `reset_card` (a reset marker **before** the power cycle, so
+the trace reads RESET then the post-reset ATR).  The packet form is unchanged
+and still pinned against the legacy builder
+(`tests/test_simple_drift.py::GsmtapDriftTests`, moved there so
+`tests/test_simple_main.py` stays pysim-free): the 16-byte libosmocore header
+(version 2, `hdr_len` 4, type 0x04), sub-type 0x00 for an APDU and 0x01 for the
+ATR, the payload raw.  `--apdu-trace` is the same tracer's stderr sink and
+combines with `--gsmtap` through a `Fanout`; one failing sink never breaks the
+other or the transmit, and the sender is non-blocking and swallows
+`(OSError, OverflowError)`.
+
+**Reader-mode caveat (the honest wording).**  The trace is what
+`SCardTransmit` carries, not necessarily the card's wire TPDUs: on a
+**TPDU-mode** reader the packets are the card's TPDUs (a case-4 command without
+`Le`, the `61XX`, then the `00C00000<Le>` GET RESPONSE - the wire capture); on
+an **APDU-mode reader running T=0** the reader does the T=0 mapping itself, so
+the packet is the command *without* its `Le` plus the response data and the
+final SW - neither a wire TPDU nor the logical C-APDU (the `61XX` and the GET
+RESPONSE never reach the application); on T=1 it is the APDU plus data and SW.
+The docstrings, the `--apdu-trace` help and `simple_server/__init__.py` say
+this; the earlier "the wire TPDUs the reader transmits" wording overstated it.
+A guaranteed wire capture is simtrace2 hardware.
+
+**Release package.**  `tools/build_release.py` now ships `simple_server/`
+(the console script's module; `setup.sh` runs `pip install -e .` on the
+packaged tree, and without it the installed `simple-server` died with
+`ModuleNotFoundError`).  `tests/test_release_package.py` parses
+`[project.scripts]` from the shipped `pyproject.toml` and asserts every
+declared module (and its package `__init__.py`) is in the built zip.
+
+**The MCC/MNC data coupling is a 3d-3 item.**
+`simple_server.netmon.default_mcc_mnc_path()` still resolves
+`pysim_simple_server/data/mcc-mnc-list.json`: the operator list (and its
+`.LICENSE`) must move into `simple_server/data`, with `[tool.setuptools.
+package-data]` and `tools/build_release.py` extended, before the legacy package
+leaves the release.  Until then the pysim-free server depends on that one data
+file of the legacy package.
+
+Tests: the full suite is **2524** (`tests/test_simple_main.py` 81,
+`GsmtapDriftTests` in `tests/test_simple_drift.py` 4, the new console-script
+guard in `tests/test_release_package.py`).  `tests/test_simple_main.py` is
+pysim-free: the legacy packet comparison lives in the drift module.  Nothing
+here has run against a live card beyond the earlier bench sessions; the
+--no-card-init path and the trace emission are covered with the fake link.
 
 ## Spec compliance (spec-checker)
 

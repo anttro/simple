@@ -17,6 +17,11 @@ import unittest
 import zipfile
 from pathlib import Path
 
+try:                                    # Python 3.11+
+    import tomllib
+except ImportError:                     # pragma: no cover - older interpreters
+    tomllib = None
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / 'tools' / 'build_release.py'
 SERVER = REPO / 'pysim_simple_server' / 'server.py'
@@ -68,6 +73,9 @@ class ReleasePackageTests(unittest.TestCase):
                   'pysim_simple_server/__main__.py',
                   'pysim_simple_server/data/mcc-mnc-list.json',
                   'pysim_simple_server/data/mcc-mnc-list.LICENSE',
+                  'simple_server/__init__.py',
+                  'simple_server/__main__.py',
+                  'simple_server/gsmtap.py',
                   'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
                   'update.sh', 'update.bat', 'tools/update.py',
                   'tools/changelog_section.py', 'CHANGELOG.md',
@@ -75,6 +83,24 @@ class ReleasePackageTests(unittest.TestCase):
                   'README.md', 'README_RUS.md', 'LICENSE', 'THIRD-PARTY-NOTICES',
                   'docs/api.md'):
             self.assertIn(self.root + f, self.names)
+
+    @unittest.skipUnless(tomllib is not None, 'tomllib needs Python 3.11+')
+    def test_every_console_script_module_ships_in_the_package(self):
+        # setup.sh runs ``pip install -e .`` on the packaged tree: a declared
+        # console script whose module is missing installs an entry point that
+        # dies with ModuleNotFoundError (the pre-3d-1 ``simple-server``).
+        data = tomllib.loads((REPO / 'pyproject.toml').read_text(encoding='utf-8'))
+        scripts = data['project'].get('scripts', {})
+        self.assertIn('simple-server', scripts)
+        for name, target in scripts.items():
+            with self.subTest(script=name):
+                module = target.split(':', 1)[0]
+                package = module.split('.', 1)[0]
+                self.assertIn(
+                    self.root + module.replace('.', '/') + '.py', self.names,
+                    '%s points at the missing module %s' % (name, module))
+                self.assertIn(self.root + package + '/__init__.py', self.names,
+                              '%s: package %s has no __init__.py' % (name, package))
 
     def test_every_frontend_runtime_file_is_present(self):
         for f in self.builder.FRONTEND_FILES:

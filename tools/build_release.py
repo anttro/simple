@@ -34,6 +34,12 @@ FRONTEND_FILES = (
 # "corresponding source" is also the public repo at the same tag).
 PACKAGE_ENTRIES = (
     'pysim_simple_server',
+    # The pysim-free package (Phase 3d-1): its console script is declared in the
+    # shipped pyproject.toml, so setup.sh's ``pip install -e .`` must find the
+    # module - a package install used to produce a ``simple-server`` that died
+    # with ModuleNotFoundError.  Its future ``simple_server/data`` joins it with
+    # the MCC/MNC move (3d-3).
+    'simple_server',
     'docs',
     'tools',
     'setup.sh', 'setup.bat', 'start.sh', 'start.bat',
