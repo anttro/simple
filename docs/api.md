@@ -1,5 +1,13 @@
 # pysim-simple-server — HTTP API reference
 
+> **Development phase (Phase 3d-2):** the PWA has cut over to the pysim-free
+> `simple_server` (`simple-server`). This document still describes the legacy
+> `pysim_simple_server` API, including the endpoints the PWA no longer calls
+> (`/api/command`, `/api/commands`, `/api/cardinfo`, `/api/help`,
+> `/api/sp-verify`) and excluding the pysim-free additions (`/api/equip`,
+> `/api/reset`, `/api/reader`, `/api/readers`). Phase 3d-3 (the 4.0.0 cutover)
+> updates this document together with the `start`/`setup` scripts.
+
 The server exposes a JSON HTTP API under `/api/*`. All responses carry
 `Access-Control-Allow-Origin: *` (plus `Access-Control-Allow-Private-Network: true`
 on the preflight), so the API is reachable from a separately-hosted PWA.

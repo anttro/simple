@@ -40,6 +40,10 @@ code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
 // the status poll also feeds the RAM operation modal (DOM-bound, covered in
 // ram.test.js) - stub it for these state tests
 code += 'var ramOpProgress = function() {};\n';
+code += 'var _pysimReaderKey = null;\nvar _pysimActiveReader = null;\n';
+code += extractFunc(html, 'pysimStatusHtml') + '\n';
+code += extractFunc(html, 'pysimStatusRender') + '\n';
+code += extractFunc(html, 'pysimReaderRender') + '\n';
 code += extractFunc(html, 'pysimRefresh', true) + '\n';
 code += extractFunc(html, 'pysimAvailabilityState') + '\n';
 code += extractFunc(html, 'pysimControlDisabled') + '\n';
@@ -86,6 +90,8 @@ function setup() {
 	const scp80El = fakeIndicator();
 	const scp81El = fakeIndicator();
 	const calls = { connected: [], resets: [], refreshStatus: [], proactive: 0, autoIccid: [] };
+	const readerRow = { classList: { toggle: () => {} } };
+	const readerSel = { innerHTML: '', value: '' };
 	_pysimCardStateKey = null;
 	_pysimCardSession = null;
 	_pysimProactiveSeq = null;
@@ -107,7 +113,9 @@ function setup() {
 		getElementById: id => id === 'state-indicator-adm' ? adm
 			: (id === 'state-indicator-iccid' ? iccidEl
 			: (id === 'state-indicator-scp80' ? scp80El
-			: (id === 'state-indicator-scp81' ? scp81El : el))),
+			: (id === 'state-indicator-scp81' ? scp81El
+			: (id === 'pysim-reader-row' ? readerRow
+			: (id === 'pysim-reader-sel' ? readerSel : el))))),
 		querySelectorAll: () => [],
 	};
 	globalThis.cards = [];
@@ -126,38 +134,42 @@ function setup() {
 }
 
 function status(extra) {
-	return Object.assign({ connected: false, card_present: false, equipping: false, auto_equip: false, card_session: 1 }, extra);
+	return Object.assign({ connected: false, card_present: false, equipping: false, card_session: 1 }, extra);
 }
 
-test('disconnect without card shows the no-card message', () => {
+test('disconnect without a card sets the static no-card icon', () => {
 	const { el, calls } = setup();
 	pysimCardStateUpdate(status({}));
 	assert.deepStrictEqual(calls.connected, [false]);
-	assert.ok(el.innerHTML.includes('No card detected'), el.innerHTML);
+	// the structured status block owns the text: no one-tick message overwrite
+	assert.strictEqual(el.innerHTML, '');
 });
 
-test('disconnect with card present shows the Equip hint when auto-equip is off', () => {
-	const { el } = setup();
+test('a present card without a session shows the animated indicator', () => {
+	const { calls } = setup();
 	pysimCardStateUpdate(status({ card_present: true }));
-	assert.ok(el.innerHTML.includes('Card inserted — press Equip'), el.innerHTML);
-});
-
-test('disconnect with auto-equip shows the initializing message', () => {
-	const { el } = setup();
-	pysimCardStateUpdate(status({ card_present: true, auto_equip: true }));
-	assert.ok(el.innerHTML.includes('initializing'), el.innerHTML);
+	assert.deepStrictEqual(calls.connected, ['spin']);
 });
 
 test('initializing states show the animated indicator', () => {
 	for (const extra of [{ card_present: true, equipping: true },
-	                     { card_present: true, auto_equip: true }]) {
+	                     { card_present: true }]) {
 		const { calls } = setup();
 		pysimCardStateUpdate(status(extra));
 		assert.deepStrictEqual(calls.connected, ['spin'], JSON.stringify(extra));
 	}
 });
 
-test('a cardless session without auto-equip shows the static no-card icon', () => {
+test('the card state update never overwrites the rendered status block', () => {
+	const { el } = setup();
+	el.innerHTML = 'structured block';
+	pysimCardStateUpdate(status({ card_present: true }));
+	assert.strictEqual(el.innerHTML, 'structured block');
+	pysimCardStateUpdate(status({ card_present: false, card_session: 2 }));
+	assert.strictEqual(el.innerHTML, 'structured block');
+});
+
+test('a cardless session shows the static no-card icon', () => {
 	const { calls } = setup();
 	pysimCardStateUpdate(status({}));
 	assert.deepStrictEqual(calls.connected, [false]);
@@ -167,7 +179,7 @@ test('Check status keeps the icon in step with the card state', async () => {
 	for (const entry of [
 		[{ connected: true }, true],
 		[{ connected: false, card_present: true, equipping: true }, 'spin'],
-		[{ connected: false, card_present: true, auto_equip: true }, 'spin'],
+		[{ connected: false, card_present: true }, 'spin'],
 		[{ connected: false }, false],
 	]) {
 		const { calls } = setup();
@@ -252,13 +264,6 @@ test('availability state and control gating follow server/card state', () => {
 	assert.strictEqual(pysimAvailabilityState(), 'card');
 	assert.strictEqual(pysimControlDisabled('card', 'card'), false);
 	assert.strictEqual(pysimControlDisabled('server', 'card'), false);
-});
-
-test('no card with auto-equip enabled still shows the no-card message', () => {
-	const { el } = setup();
-	pysimCardStateUpdate(status({ connected: false, card_present: false, auto_equip: true }));
-	assert.ok(el.innerHTML.includes('No card detected'), el.innerHTML);
-	assert.ok(!el.innerHTML.includes('initializing'), el.innerHTML);
 });
 
 test('proactive log refreshes when the status sequence changes', () => {

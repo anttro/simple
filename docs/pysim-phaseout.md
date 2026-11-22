@@ -12,7 +12,7 @@
 | 0 | `simple_server/` foundation: `util` / `tlv` / `text` / `transport` + tests | **done** (72 tests; full suite 1184 green then) |
 | 1 | card-type detection + file model + SELECT/READ/WRITE + card init | **done** (50 tests; full suite 1234 green then) |
 | 2 | SCP80/OTA + SMS/CAT/ENVELOPE | **done** (116 tests; full suite 1350 green then, 1367 after the review fixes) |
-| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control), and 3d-1 (the entry point + the GSMTAP tracer) is done; the 3d-2/3d-3 cutover and release remain |
+| 3 | eUICC ES10 + HTTP handler/CAT + `simple-server` entry point + cutover | **in progress** — 3a-3c and 3e are done (the whole HTTP API: files, SCP80/RAM, test scripts/suites, CAT/Simulator, eSIM/net-sim and the SCP81/BIP control), 3d-1 (the entry point + the GSMTAP tracer) is done, and 3d-2 (the PWA cutover) is done; the 3d-3 release remains |
 
 ## Phase 0 outcome
 
@@ -1508,6 +1508,95 @@ guard in `tests/test_release_package.py`).  `tests/test_simple_main.py` is
 pysim-free: the legacy packet comparison lives in the drift module.  Nothing
 here has run against a live card beyond the earlier bench sessions; the
 --no-card-init path and the trace emission are covered with the fake link.
+
+## Phase 3d-2 outcome (the PWA cutover)
+
+The PWA now speaks the pysim-free API; the legacy package is untouched.  The
+top-level tabs are Remote APDU, SCP80, SCP81, Cards, Profiler, **File
+manager**, **Status** and Simulator (the "Card reader" label is gone).  The
+**File manager** tab carries the file manager (`#pysim-sub-files`, unchanged
+IDs), the **Services** editor (`#pysim-sub-services`) and the **Custom files**
+panel (`#pysim-cf-panel`, moved from the Profiler's list tabs — `profilerListSwitch`
+now toggles only Profiles/Card snapshots, and a legacy `listtab: 'custom'`
+state falls back to Profiles).  Its state is `_filesSub` /
+`filesSwitchSubtab` and it is recorded in the view history.
+
+The **Status** tab (`data-tab="pysim"`) keeps the connection form, the status
+block and the **Raw APDU** pill (`_pysimSub = 'apdu'`; the pySim command line
+pill, input, suggestions, help and output and the `pysimExec`/`pysimCmdInput`/
+`pysimCmdKeydown`/`pysimLoadCommands` helpers are gone).  The status block
+renders the new `/api/status` shape only — reader, ATR, card kind/name, ICCID,
+connected/card-present/initializing, the `selection` object and the state
+machines (`proactive_mode`, `poll`, `test_run`, `bip`, `scp80`) — no pySim
+internals (`profile`/`cla_byte`/`sel_ctrl`/`channels`/`current_selection`).
+`pysimRefresh` fetches the status and renders it through `pysimStatusRender` /
+`pysimStatusHtml` / `pysimReaderRender`; the 2 s poll re-renders it on every
+tick, so the state machines stay live.  The new status carries no
+`proactive_seq` (the legacy gate), so the visible proactive log now refreshes
+with the poll; the sequence gate stays for a server that still provides it.  A **reader selector** appears in the
+status row when more than one PC/SC reader is present: `POST /api/reader
+{name}` after a confirm that names the reset/re-initialization, the failure
+path alerts and re-reads the status.
+
+Connection/commands: `pysimConnect` probes only `/api/version` + `/api/status`
+(no `/api/command status`, no `/api/commands`) and a cardless server is a
+normal state; **Equip** -> `POST /api/equip`, **Reset** -> `POST /api/reset`,
+**Check status** -> `POST /api/status-poll` (then a re-read); the lifecycle
+answers are run through `pysimCardStateUpdate` + `pysimRefresh`.  "Verify vs
+pySim" is removed (`#sp-verify-btn`, `pysimVerifySp`, the `/api/sp-verify`
+call, `#sp-verify-result` and their RU keys); the SCP80 preview stays.
+
+i18n: the new labels ("Status", "Reader", the reader-switch warning/confirm/
+failure) have RU entries and the removed keys ("Card reader", "pySim command
+line", "Verify vs pySim", the verify messages) are gone.  Help EN/RU: the tab
+list, the removed pySim command line section, the new Status/File manager
+structure (Services §6.4, Custom files §6.5), and the removed "Verify vs
+pySim" sentence.  `sw.js` CACHE is `simple-v498`; `style.css` needed no
+rebuild (no new utility classes).
+
+Tests: `tests/test_fetch_routes.py` now validates the PWA's `pysimFetch` calls
+against `simple_server/server.py`'s `_dispatch_get`/`_dispatch_post` (the
+cutover target) and adds a pin that `/api/command`, `/api/commands`,
+`/api/help` and `/api/sp-verify` are neither served nor called, while
+`/api/equip`, `/api/reset`, `/api/status-poll`, `/api/reader` (POST) and
+`/api/readers` (GET) are.  `frontend/tests/html.test.js` (8 top-level tabs,
+the File manager custom pill, no Profiler custom tab), `nav.test.js` (`_filesSub`,
+`filesSwitchSubtab`), `profiler.test.js` (the two profiler list tabs) and
+`card_state.test.js` (the status render helpers) are updated; the new
+`reader.test.js` pins the status block's fields (no pySim internals), the
+reader selector's one/many rule and the switch confirm/cancel/failure paths.
+
+Review fixes folded in: the File manager pills have **one** wiring (the
+delegated registration; the inline `onclick` is gone, so a click can no longer
+run `pysimServicesOpen`'s card reads twice), the status block reports a BIP
+session only while one exists (the session view is always present and defaults
+to an inactive redirect terminal) and its labels/values are translated
+(RU entries added), a stale `pysim` sub-tab replay (`files`/`services`/`cmd`)
+folds onto the Raw APDU pill instead of blanking the tab, the help anchors
+point at the Status block (§6.2) and the Services section (§6.4), and
+`pysimCardStateUpdate` no longer overwrites the structured block with a
+one-tick message (the legacy `auto_equip` gate is gone; a present card
+without a session drives the spinner).  `reader.test.js` adds the success path
+(a confirmed switch feeds `pysimCardStateUpdate` + `pysimRefresh`) and the BIP
+gating; `card_state.test.js` pins that the block is never overwritten.
+
+Full suites: **2525 Python + 1177 Node**, green.  The UI is unit-tested only —
+not run in a browser against a live card yet.
+
+**Phase 3d-2 is not releasable on its own.**  The cutover is PWA-side: the
+`start.sh`/`start.bat` scripts still launch the legacy `pysim_simple_server`,
+which does not serve `/api/equip|reset|reader|readers` or `/api/status-poll`
+(the PWA's connection/commands now call exactly those), and `setup`/
+`docs/api.md`/the README server section still describe the legacy API.  That
+is the one transient incompatibility of this phase: the shipped launch path
+cannot drive this PWA.  Phase 3d-3 flips the scripts to `simple-server`,
+updates `docs/api.md` for the pysim-free API and bumps the version to **4.0.0**
+(`VERSION`, `pyproject.toml`, the PWA header and `sw.js` together - this phase
+bumps only the SW cache to `simple-v498`).  Do not tag a release from this
+state.  Known transient doc state: the READMEs' live-tab sections name
+`simple_server` while their "Server" sections still document the legacy
+server, and the help's installation snippet still starts `pysim-simple-server`;
+both are resolved in 3d-3.
 
 ## Spec compliance (spec-checker)
 

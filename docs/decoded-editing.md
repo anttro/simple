@@ -265,7 +265,7 @@ OPLMNwAcT/OPL/PNN/EHPLMN/FPLMN/SPDI/IMG are USIM-only (no SIM counterpart).
 
 ## 6. Cross-file "Services" editor (proposal)
 
-A file-agnostic service editor for the Card reader tab, in addition to the
+A file-agnostic service editor for the File manager tab, in addition to the
 per-file decoded editors (which stay independent).  It presents the four
 service tables side by side and writes them back consistently.  EF.SST also
 has its own per-file tri-state editor (deleted / allocated-off / on); the

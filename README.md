@@ -67,7 +67,7 @@ npm run build
 
 ## Interface
 
-Seven top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profiler**, **Card reader**, and **Simulator**. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills; the Card reader tab has three sub-tabs: **File manager**, **pySim command line**, and **Raw APDU**; the Profiler tab lists **Profiles**, **Card snapshots**, and **Custom files**.
+Eight top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profiler**, **File manager**, **Status**, and **Simulator**. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills; the **File manager** tab has **File manager**, **Services**, and **Custom files** pills; the **Status** tab carries the connection form, the card-session state and the **Raw APDU** pill; the Profiler tab lists **Profiles** and **Card snapshots**.
 
 ---
 
@@ -590,9 +590,11 @@ The **SCP81** column shows whether the preset supplies a usable PSK pair: **✓*
 
 ---
 
-## Card Reader (pySim integration)
+## Status and File manager tabs
 
-Connects to the bundled [`pysim-simple-server`](pysim_simple_server/) for live card operations.
+Two top-level tabs talk to the PWA's server, the pysim-free **`simple_server`** (the `simple-server` entry point): **Status** (server connection + card-session state, **Raw APDU**) and **File manager** (**File manager**, **Services**, **Custom files**).
+
+> **Development phase (Phase 3d-2):** the PWA already speaks the pysim-free `simple_server` API, but this snapshot is **not releasable on its own** — the bundled `start.sh`/`start.bat` and `setup.sh`/`setup.bat` still launch the legacy `pysim_simple_server`, which does not serve that API. The 4.0.0 cutover (Phase 3d-3) flips the scripts (`simple-server`), `docs/api.md` and the version together.
 
 > **Browser restriction:** when the frontend is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (pysim-simple-server ≥ 1.6.1 does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
 
@@ -607,9 +609,19 @@ Browse the UICC filesystem in a tree view. Files are shown with names, FIDs, and
 - **Probe all files** — walks the whole tree (incl. custom files), marks every entry present/absent with *N / total* progress, stoppable, and ends with a summary; browsing itself stays lazy. Missing files are shown in red (✗); a present but empty DF shows `(empty)`
 - **ADM** — files that need the administrator PIN fail with `6982`/`9804`; when the matching card preset (same ICCID) carries an ADM key, a **Verify ADM** button appears next to the error and the header badge (`ADM ✓/✗ ⚿`) becomes clickable. Every wrong key consumes an attempt (the remaining attempts are shown and a retry asks for confirmation); a blocked ADM needs the card's unblock key
 
-### Command Hints
+#### Custom files
 
-Type a command name in the **pySim command line** input. Usage hints appear as a tooltip after 300ms. Command autocomplete suggestions appear above the input.
+Files not in pysim's model can be added manually from the **Custom files** pill in the **File manager** tab:
+
+1. Pick the **Root (MF / ADF)** and type the **Parent DF** path — the root itself, a standard DF known from the file-manager tree, or a custom DF (any depth; suggestions while you type). A parent that has not been seen in the tree yet stays valid and is marked `⚠`
+2. Enter the 4-hex **FID** and an alias (`EF.…`/`DF.…`; the prefix decides whether the entry is an EF or a DF)
+3. Click **Add** — the file appears in the File manager tree; use **Edit** on a row to reload it into the form (the button becomes **Save**, **Cancel** aborts) or **Delete** to remove it (deleting a DF also deletes its child entries after a confirmation)
+
+The path is always canonical (MF- or ADF-rooted) — the same file is never described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
+
+### Status block
+
+The Status tab shows the server's own session model (no pySim internals): the active **reader** — a selector appears when more than one PC/SC reader is present, and switching asks first because it resets and re-initializes the card — the card **ATR**, its **kind and name** (UICC / SIM / eUICC), the **ICCID**, the connected / card-present / initializing state, and the current **selection** (path, FID, kind, size, record layout). The same block carries the state machines: the CAT **proactive mode** (idle / polling / a FETCH-TERMINAL RESPONSE chain / paused on a command / test run / BIP session), the **poll** state and interval, the **test run**, the **BIP session** and the SCP80 counter state (a placeholder for now: the pysim-free server returns `scp80: null` until the counter store is wired in). **Equip card** re-initializes the card, **Check status** sends a manual STATUS (and answers a proactive command it finds), **Reset card** power-cycles and re-initializes it, and **Disconnect from server** stops the polling.
 
 ---
 
@@ -632,31 +644,16 @@ The check report marks each verified aspect (e.g. *filetype ✓, size ✗, conte
 
 #### “Profile from card” scan options
 
-The scan dialog asks for a profile name and offers the FCP/FCI mode described above, an **Ignore contents of files** checklist of frequently-overwritten files (all checked by default except `EF.ARR`; the header checkbox toggles the whole list) — `EF.LOCI`, `EF.PSLOCI`, `EF.EPSLOCI`, `EF.5GS3GPPLOCI`, `EF.Keys`, `EF.KeysPS`, `EF.SMS`, `EF.Kc`, `EF.KcGPRS`, `EF.LOCIGPRS`, `EF.CBMID`, `EF.SMSS`, `EF.ACC`, `EF.EPSNSC`, `EF.START-HFN`, `EF.ARR` — and two checked-by-default mask options that capture only the first 4 bytes of `EF.IMSI` and `EF.ICCID` (uncheck for exact matching). A progress line shows *N / total files* with the current path; the options are locked while scanning. Rules are created only for files that actually exist (a FCP template is returned); custom files from the **Custom files** sub-tab are included under the same existence check.
+The scan dialog asks for a profile name and offers the FCP/FCI mode described above, an **Ignore contents of files** checklist of frequently-overwritten files (all checked by default except `EF.ARR`; the header checkbox toggles the whole list) — `EF.LOCI`, `EF.PSLOCI`, `EF.EPSLOCI`, `EF.5GS3GPPLOCI`, `EF.Keys`, `EF.KeysPS`, `EF.SMS`, `EF.Kc`, `EF.KcGPRS`, `EF.LOCIGPRS`, `EF.CBMID`, `EF.SMSS`, `EF.ACC`, `EF.EPSNSC`, `EF.START-HFN`, `EF.ARR` — and two checked-by-default mask options that capture only the first 4 bytes of `EF.IMSI` and `EF.ICCID` (uncheck for exact matching). A progress line shows *N / total files* with the current path; the options are locked while scanning. Rules are created only for files that actually exist (a FCP template is returned); custom files from the File manager tab's **Custom files** pill are included under the same existence check.
 
 #### Card snapshots
 
-The list view has three tabs — **Profiles**, **Card snapshots** and **Custom files**. A snapshot is an immutable capture of the card filesystem: for every existing file it stores the path, symbolic name, file type, size (or record length/count), the raw FCI from the SELECT response, and the contents whenever the file is readable (no ignore list, no masking). The ICCID is decoded from EF.ICCID and shown next to the snapshot name. Captured contents are shown with their decoded form where a decoder exists — a field table for transparent files and a one-line summary per record for record files. The scan also measures every card command (SELECT / READ BINARY / READ RECORD) from command to response and stores min/avg/max per type plus the total scan time; the snapshot view shows these in the summary and the select/read time per file (read time per record). Timings are display-only and ignored by checks/comparisons.
+The list view has two pills — **Profiles** and **Card snapshots**. A snapshot is an immutable capture of the card filesystem: for every existing file it stores the path, symbolic name, file type, size (or record length/count), the raw FCI from the SELECT response, and the contents whenever the file is readable (no ignore list, no masking). The ICCID is decoded from EF.ICCID and shown next to the snapshot name. Captured contents are shown with their decoded form where a decoder exists — a field table for transparent files and a one-line summary per record for record files. The scan also measures every card command (SELECT / READ BINARY / READ RECORD) from command to response and stores min/avg/max per type plus the total scan time; the snapshot view shows these in the summary and the select/read time per file (read time per record). Timings are display-only and ignored by checks/comparisons.
 
 - **New snapshot** scans the card; **Import snapshot** loads JSON.
 - Each snapshot row has **Open** (all captured data read-only, raw FCI with decoded FCI and contents; only the name is editable), **Export**, and **Delete**.
 - **Check card snapshot** on a profile row runs the profile rules against a snapshot picked from the list, without a card reader. Files whose contents were not captured are reported as unverifiable errors.
 - **Compare snapshots** compares two snapshots offline like a profile check but byte-exact for the FCI and the EF.ARR contents (the semantic access-rules aspect belongs to profiles): pick the *master* snapshot and the *snapshot to check* and get the same report — snapshot comparison is always exact (no content masking). Files present only in the checked snapshot are reported as extra files. In the comparison report the mismatch fields and FCI comparison columns are labeled with the master/checked snapshot names instead of expected/actual.
-
----
-
----
-
-
-#### Custom files
-
-Files not in pysim's model can be added manually from the **Custom files** tab in the Profiler list:
-
-1. Pick the **Root (MF / ADF)** and type the **Parent DF** path — the root itself, a standard DF known from the file-manager tree, or a custom DF (any depth; suggestions while you type). A parent that has not been seen in the tree yet stays valid and is marked `⚠`
-2. Enter the 4-hex **FID** and an alias (`EF.…`/`DF.…`; the prefix decides whether the entry is an EF or a DF)
-3. Click **Add** — the file appears in the File manager tree; use **Edit** on a row to reload it into the form (the button becomes **Save**, **Cancel** aborts) or **Delete** to remove it (deleting a DF also deletes its child entries after a confirmation)
-
-The path is always canonical (MF- or ADF-rooted) — the same file is never described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
 
 ## Simulator
 
@@ -748,6 +745,8 @@ A dark theme is included. It follows the system preference and can be toggled ma
 The interface is in English with Russian support. The language is detected from `navigator.language`; the header toggle (EN/RU) stores the choice in `localStorage`. Switching the language also re-renders visible dynamic views (profile lists, check reports, snapshots, cards, proactive views).
 
 ## Server (pysim-simple-server)
+
+> **Development phase (Phase 3d-2):** the PWA has cut over to the pysim-free **`simple_server`** (`simple-server`), which does not serve `/api/command`, `/api/commands`, `/api/cardinfo` or `/api/sp-verify`. This section still documents the legacy `pysim_simple_server` that the `start`/`setup` scripts launch; the 4.0.0 cutover (Phase 3d-3) updates this section, `docs/api.md`, the scripts and the version together. **3d-2 is not a releasable state on its own.**
 
 The bundled Python server wraps [pySim](https://osmocom.org/projects/pysim/wiki) and serves both the SIMple frontend (from `frontend/`) and a JSON API under `/api/*`.
 

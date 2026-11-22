@@ -42,7 +42,8 @@
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="scp81" data-l10n="SCP81">SCP81</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="cards" data-l10n="Cards">Cards</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="profiler" data-l10n="Profiler">Profiler</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Card reader">Card reader</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="files" data-l10n="File manager">File manager</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Status">Status</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Simulator">Simulator</button>
 	</div>
 
@@ -675,14 +676,12 @@
 		</div>
 
 		<button onclick="genSp()" class="mb-3 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700" data-l10n="Generate Secure Packet">Generate Secure Packet</button>
-		<button data-needs="server" onclick="pysimVerifySp()" id="sp-verify-btn" class="hidden mb-3 px-5 py-2.5 bg-slate-600 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify vs pySim">Verify vs pySim</button>
 		<button data-needs="card" data-needs-keyset="sp" onclick="pysimSendOta()" id="sp-send-btn" class="hidden mb-3 px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send to Card">Send to Card</button>
 		<div id="sp-por-status" class="mt-2 text-base font-semibold font-mono hidden"></div>
 		<textarea id="sp-result" rows="3" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 bg-gray-100 dark:bg-slate-800"></textarea>
 		<div id="sp-size-info" class="text-xs mt-1 text-gray-500 dark:text-slate-400"></div>
 		<div id="sp-send-result" class="mt-2 text-xs font-mono hidden"></div>
 		<div id="sp-cntr-low" class="mt-2 hidden"></div>
-		<div id="sp-verify-result" class="mt-2 text-xs font-mono hidden"></div>
 
 		</div>
 		<div id="scp80-sub-ram" class="hidden">
@@ -985,7 +984,6 @@
 				<div class="flex flex-wrap justify-center gap-2 mb-3">
 					<button class="profiler-list-tab px-4 py-1.5 text-sm rounded-full bg-blue-600 dark:bg-blue-500 text-white dark:text-white" data-list-tab="profiles" onclick="profilerListSwitch('profiles')" data-l10n="Profiles">Profiles</button>
 					<button class="profiler-list-tab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-list-tab="snapshots" onclick="profilerListSwitch('snapshots')" data-l10n="Card snapshots">Card snapshots</button>
-					<button class="profiler-list-tab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-list-tab="custom" onclick="profilerListSwitch('custom')" data-l10n="Custom files">Custom files</button>
 				</div>
 				<div id="profiler-list-profiles">
 					<div class="flex flex-wrap gap-2 mb-3">
@@ -1006,39 +1004,6 @@
 					</div>
 					<div id="snapshot-list-body"></div>
 				</div>
-
-			<div id="profiler-list-custom" class="hidden">
-				<div class="mb-2 text-xs font-mono text-gray-600 dark:text-slate-400" data-l10n="Custom files are added in file manager tree and included in card scan.">Custom files are added in file manager tree and included in card scan.</div>
-				<div class="flex flex-wrap gap-2 items-end mb-2">
-					<div>
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Root (MF / ADF)">Root (MF / ADF)</label>
-						<select id="pysim-cf-root" onchange="pysimCustomRootChanged()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-2 dark:bg-slate-800"></select>
-					</div>
-					<div>
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Parent DF">Parent DF</label>
-						<input id="pysim-cf-parent" list="pysim-cf-parent-list" oninput="pysimCustomParentInput()" onkeydown="if(event.key==='Enter')pysimCustomSubmit()" class="font-mono w-72 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="MF/7F20 or ADF.USIM/5F3A">
-						<datalist id="pysim-cf-parent-list"></datalist>
-					</div>
-					<div>
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="FID (4 hex)">FID (4 hex)</label>
-						<input id="pysim-cf-fid" maxlength="4" class="font-mono w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="6F46" onkeydown="if(event.key==='Enter')pysimCustomSubmit()">
-					</div>
-					<div class="flex-1 min-w-[180px]">
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Alias (EF. / DF.)">Alias (EF. / DF.)</label>
-						<input id="pysim-cf-name" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="EF.SPN" onkeydown="if(event.key==='Enter')pysimCustomSubmit()">
-					</div>
-					<button id="pysim-cf-add-btn" onclick="pysimCustomSubmit()" class="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 whitespace-nowrap" data-l10n="Add">Add</button>
-					<button id="pysim-cf-cancel-btn" onclick="pysimCustomEditCancel()" class="hidden px-3 py-2 bg-gray-600 text-white text-sm font-medium rounded hover:bg-gray-700 whitespace-nowrap" data-l10n="Cancel">Cancel</button>
-				</div>
-				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="The parent may be any DF path — a standard DF from the tree or a custom DF, any depth; parents not yet seen in the tree are marked ⚠.">The parent may be any DF path — a standard DF from the tree or a custom DF, any depth; parents not yet seen in the tree are marked ⚠.</div>
-				<div id="pysim-cf-list" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
-			<input type="file" id="pysim-cf-file" accept=".json,application/json" class="hidden" onchange="pysimCustomImportFile(this)">
-				<div class="flex flex-wrap gap-2 mt-2">
-					<button onclick="pysimCustomExportFile()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export to file">Export to file</button>
-					<button onclick="document.getElementById('pysim-cf-file').click()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import from file">Import from file</button>
-				</div>
-				<div id="pysim-cf-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
-			</div>
 			</div>
 			<div id="profiler-editor" class="hidden">
 				<div class="flex flex-wrap gap-2 items-center mb-3">
@@ -1091,6 +1056,13 @@
 			<div class="flex gap-3 items-start">
 				<img id="pysim-status-img" src="nosim.svg" alt="pysim" class="w-16 h-16 shrink-0 dark:invert">
 				<div class="flex-1 min-w-0">
+					<div id="pysim-reader-row" class="mb-2 hidden">
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Reader">Reader</label>
+						<div class="flex flex-wrap gap-2 items-center">
+							<select id="pysim-reader-sel" onchange="pysimReaderChanged(this.value)" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></select>
+							<span class="text-xs text-amber-600 dark:text-amber-400" data-l10n="Switching the reader resets and re-initializes the card.">Switching the reader resets and re-initializes the card.</span>
+						</div>
+					</div>
 					<div class="flex items-center gap-2 mb-1 flex-wrap">
 						<button data-needs="server" onclick="pysimEquipCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Equip card">Equip card</button>
 						<button data-needs="card" onclick="pysimStatusCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Check status">Check status</button>
@@ -1103,12 +1075,24 @@
 		</div>
 		<div id="pysim-body" class="hidden">
 			<div class="flex flex-wrap justify-center gap-1 mb-2">
-				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-pysim-sub="files" data-l10n="File manager">File manager</button>
-			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-pysim-sub="services" data-needs="card" data-l10n="Services">Services</button>
-			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-pysim-sub="cmd" data-l10n="pySim command line">pySim command line</button>
-			<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-pysim-sub="apdu" data-l10n="Raw APDU">Raw APDU</button>
+				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-pysim-sub="apdu" data-l10n="Raw APDU">Raw APDU</button>
+			</div>
+		<div id="pysim-sub-apdu">
+			<div class="flex gap-2 items-center mb-2">
+				<input id="pysim-apdu" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 dark:bg-slate-800" placeholder="00A4040000" onkeydown="if(event.key==='Enter')pysimApdu()">
+				<button data-needs="card" onclick="pysimApdu()" class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
+			</div>
+			<textarea id="pysim-apdu-output" rows="5" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 bg-gray-100 dark:bg-slate-800"></textarea>
 		</div>
+		</div>
+	</div>
 
+	<div id="tab-files" class="tab-content hidden">
+		<div class="flex flex-wrap justify-center gap-1 mb-2">
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-files-sub="files" data-needs="card" data-l10n="File manager">File manager</button>
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-files-sub="services" data-needs="card" data-l10n="Services">Services</button>
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-files-sub="custom" data-l10n="Custom files">Custom files</button>
+		</div>
 		<div id="pysim-sub-files">
 			<div class="flex gap-2">
 				<div class="w-1/3 flex flex-col">
@@ -1155,29 +1139,6 @@
 				</div>
 			</div>
 		</div>
-
-
-
-		<div id="pysim-sub-cmd" class="hidden">
-			<div class="flex gap-2 items-center mb-2">
-				<div class="relative flex-1">
-					<input id="pysim-cmd" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 dark:bg-slate-800" placeholder="select MF" autocomplete="off" onkeydown="pysimCmdKeydown(event)" oninput="pysimCmdInput()">
-					<div id="pysim-cmd-suggest" class="hidden absolute bottom-full left-0 right-0 mb-1 max-h-32 overflow-y-auto border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-xs font-mono shadow-lg z-10"></div>
-				</div>
-				<button data-needs="server" onclick="pysimExec()" class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
-			</div>
-			<div id="pysim-cmd-hint" class="hidden mb-2 text-xs font-mono text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 rounded p-2 bg-gray-50 dark:bg-slate-800 whitespace-pre-wrap"></div>
-			<textarea id="pysim-cmd-output" rows="10" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 bg-gray-100 dark:bg-slate-800"></textarea>
-		</div>
-
-		<div id="pysim-sub-apdu" class="hidden">
-			<div class="flex gap-2 items-center mb-2">
-				<input id="pysim-apdu" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 dark:bg-slate-800" placeholder="00A4040000" onkeydown="if(event.key==='Enter')pysimApdu()">
-				<button data-needs="card" onclick="pysimApdu()" class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
-			</div>
-			<textarea id="pysim-apdu-output" rows="5" readonly class="w-full font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 bg-gray-100 dark:bg-slate-800"></textarea>
-		</div>
-
 		<div id="pysim-sub-services" class="hidden">
 			<div class="flex items-center gap-2 mb-2">
 				<span class="text-sm font-medium" data-l10n="Services">Services</span>
@@ -1196,11 +1157,40 @@
 				<div id="pysim-services-fs-report" class="mt-2"></div>
 			</div>
 		</div>
-
+		<div id="pysim-cf-panel" class="hidden">
+				<div class="mb-2 text-xs font-mono text-gray-600 dark:text-slate-400" data-l10n="Custom files are added in file manager tree and included in card scan.">Custom files are added in file manager tree and included in card scan.</div>
+				<div class="flex flex-wrap gap-2 items-end mb-2">
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Root (MF / ADF)">Root (MF / ADF)</label>
+						<select id="pysim-cf-root" onchange="pysimCustomRootChanged()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-2 dark:bg-slate-800"></select>
+					</div>
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Parent DF">Parent DF</label>
+						<input id="pysim-cf-parent" list="pysim-cf-parent-list" oninput="pysimCustomParentInput()" onkeydown="if(event.key==='Enter')pysimCustomSubmit()" class="font-mono w-72 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="MF/7F20 or ADF.USIM/5F3A">
+						<datalist id="pysim-cf-parent-list"></datalist>
+					</div>
+					<div>
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="FID (4 hex)">FID (4 hex)</label>
+						<input id="pysim-cf-fid" maxlength="4" class="font-mono w-24 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="6F46" onkeydown="if(event.key==='Enter')pysimCustomSubmit()">
+					</div>
+					<div class="flex-1 min-w-[180px]">
+						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Alias (EF. / DF.)">Alias (EF. / DF.)</label>
+						<input id="pysim-cf-name" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2 dark:bg-slate-800" placeholder="EF.SPN" onkeydown="if(event.key==='Enter')pysimCustomSubmit()">
+					</div>
+					<button id="pysim-cf-add-btn" onclick="pysimCustomSubmit()" class="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 whitespace-nowrap" data-l10n="Add">Add</button>
+					<button id="pysim-cf-cancel-btn" onclick="pysimCustomEditCancel()" class="hidden px-3 py-2 bg-gray-600 text-white text-sm font-medium rounded hover:bg-gray-700 whitespace-nowrap" data-l10n="Cancel">Cancel</button>
+				</div>
+				<div class="text-xs text-gray-500 dark:text-slate-400 mb-2" data-l10n="The parent may be any DF path — a standard DF from the tree or a custom DF, any depth; parents not yet seen in the tree are marked ⚠.">The parent may be any DF path — a standard DF from the tree or a custom DF, any depth; parents not yet seen in the tree are marked ⚠.</div>
+				<div id="pysim-cf-list" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
+			<input type="file" id="pysim-cf-file" accept=".json,application/json" class="hidden" onchange="pysimCustomImportFile(this)">
+				<div class="flex flex-wrap gap-2 mt-2">
+					<button onclick="pysimCustomExportFile()" class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Export to file">Export to file</button>
+					<button onclick="document.getElementById('pysim-cf-file').click()" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700" data-l10n="Import from file">Import from file</button>
+				</div>
+				<div id="pysim-cf-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
+			</div>
 	</div>
 
-
-</div>
 
 	<div id="tab-phone" class="tab-content hidden">
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
@@ -2004,7 +1994,8 @@ let _scp80Sub = 'sp';
 let _capduSub = 'sim';
 let _phoneSub = 'phone';
 let _scp81Sub = 'listener';
-let _pysimSub = 'files';
+let _pysimSub = 'apdu';        // the Status tab's Raw APDU pill
+let _filesSub = 'files';       // the File manager tab's view
 let _cardsView = 'list';
 let _cardsEditId = null;       // the preset being edited (id; null = a new one)
 let _navState = null;          // the state of the current history entry
@@ -2037,6 +2028,7 @@ function navCurrent() {
 			if (_testView === 'script' && _testScriptId) st.script = _testScriptId;
 		}
 	} else if (_activeTab === 'scp81') st.sub = _scp81Sub;
+	else if (_activeTab === 'files') st.sub = _filesSub;
 	else if (_activeTab === 'pysim') st.sub = _pysimSub;
 	else if (_activeTab === 'cards') {
 		st.view = _cardsView;
@@ -2096,8 +2088,10 @@ function navApply(st) {
 			if ((st.sub || 'phone') === 'test') navApplyTest(st);
 		} else if (st.tab === 'scp81') {
 			scp81SwitchSubtab(st.sub || 'listener');
+		} else if (st.tab === 'files') {
+			filesSwitchSubtab(st.sub || 'files');
 		} else if (st.tab === 'pysim') {
-			pysimSwitchSubtab(st.sub || 'files');
+			pysimSwitchSubtab(st.sub || 'apdu');
 		} else if (st.tab === 'cards') {
 			navApplyCards(st);
 		} else if (st.tab === 'profiler') {
@@ -2170,7 +2164,8 @@ function switchTab(name) {
 	if (name === 'c-apdu') cApduSwitchSubtab('sim');
 	else if (name === 'scp80') setHelpAnchor(scp80HelpAnchor);
 	else if (name === 'cards') { cardsRender(); cardsFetch(); setHelpAnchor('cards'); }
-	else if (name === 'pysim') { setHelpAnchor(pysimHelpAnchor); pysimFsFitTree(); }
+	else if (name === 'files') { setHelpAnchor(filesHelpAnchor); pysimFsFitTree(); }
+	else if (name === 'pysim') { setHelpAnchor(pysimHelpAnchor); }
 	else if (name === 'profiler') { profilerSetView('list'); setHelpAnchor('profiler'); }
 	else if (name === 'phone') phoneSwitchSubtab('phone');
 	else if (name === 'scp81') scp81Enter();
@@ -9918,8 +9913,118 @@ function pysimShowConnected(connected) {
 	document.getElementById('pysim-connect-info').classList.toggle('hidden', connected);
 	document.getElementById('pysim-connected-row').classList.toggle('hidden', !connected);
 	document.getElementById('pysim-body').classList.toggle('hidden', !connected);
-	document.getElementById('sp-verify-btn').classList.toggle('hidden', !connected);
 	document.getElementById('sp-send-btn').classList.toggle('hidden', !connected);
+}
+
+// The status block is the /api/status shape the pysim-free server defines:
+// our own card model (reader/card/ATR/ICCID/selection), never pySim internals
+// (no profile/CLA/SEL/channels).  The state machines ride the same payload.
+function pysimStatusHtml(data) {
+	data = data || {};
+	const card = data.card || null;
+	const cardName = card ? (card.name || card.kind || '?') : null;
+	let html = t('Reader:') + ' <b>' + esc(data.reader || t('none')) + '</b>' +
+		' | ' + t('Card:') + ' <b>' + esc(cardName || t('none')) + '</b>' +
+		(card && card.name && card.kind
+			&& card.name.toLowerCase() !== card.kind.toLowerCase()
+			? ' (' + esc(card.kind) + ')' : '') +
+		' | ' + t('Session:') + ' <b>' + (data.connected ? t('connected')
+			: (data.equipping ? t('initializing') : t('not connected'))) + '</b>' +
+		' | ' + t('Card present:') + ' <b>' + (data.card_present ? t('yes') : t('no')) + '</b><br>' +
+		'ATR: <b>' + esc(data.atr || t('n/a')) + '</b>' +
+		(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '') +
+		(data.eid ? ' | EID: <b>' + esc(data.eid) + '</b>' : '') +
+		' | ADM: <b>' + (data.adm_verified ? t('verified') : t('not verified')) + '</b>';
+	const sel = data.selection;
+	html += '<br>' + t('Selection:') + ' <b>' + (sel ? esc(sel.name || sel.fid || '?') : t('none')) + '</b>';
+	if (sel) {
+		html += ' [' + esc(sel.kind || '?') + ']';
+		if (sel.path) html += ' path=' + esc(sel.path);
+		if (sel.fid) html += ' FID=' + esc(sel.fid);
+		if (sel.size != null) html += ' size=' + sel.size;
+		if (sel.record_len != null) html += ' rec_len=' + sel.record_len;
+		if (sel.num_records != null) html += ' rec_cnt=' + sel.num_records;
+	}
+	const states = [];
+	if (data.proactive_mode) states.push(t('mode=') + esc(data.proactive_mode));
+	const poll = data.poll;
+	if (poll) {
+		states.push(t('poll=') + (!poll.enabled ? t('off')
+			: (poll.suspended ? t('suspended') : t('on'))) +
+			(poll.interval ? ' (' + poll.interval + 's)' : ''));
+	}
+	if (data.test_run) states.push(t('test run=') + (data.test_run.running ? t('running') : t('idle')));
+	const bip = data.bip;
+	// `bip` is always present (the session's own view): an inactive session
+	// reports `owner: null` with a disabled redirect terminal, so gate on the
+	// session itself instead of the block's existence.
+	if (bip && (bip.owner || (bip.bip && (bip.bip.enabled
+			|| (bip.bip.channels && bip.bip.channels.length))))) {
+		states.push(t('BIP=') + esc((bip.bip && bip.bip.mode) || t('on')) +
+			(bip.bip && bip.bip.channels && bip.bip.channels.length
+				? ' (' + bip.bip.channels.length + ' ch)' : ''));
+	}
+	if (data.scp80 && typeof data.scp80 === 'object') {
+		const parts = [];
+		if (data.scp80.keyset != null) parts.push(t('keyset') + ' ' + esc(String(data.scp80.keyset)));
+		if (data.scp80.cntr) parts.push(t('counter') + ' ' + esc(String(data.scp80.cntr)));
+		states.push('SCP80=' + (parts.join(' ') || t('ready')));
+	}
+	if (states.length) html += '<br>' + t('State:') + ' ' + states.join(' · ');
+	return html;
+}
+
+function pysimStatusRender(data) {
+	const statusEl = document.getElementById('pysim-status');
+	if (statusEl) statusEl.innerHTML = pysimStatusHtml(data);
+	pysimReaderRender(data);
+}
+
+// The reader selector: shown only when more than one PC/SC reader is present
+// (the server owns the active one).  The list is rebuilt only when it changes,
+// so an open dropdown keeps its state across the 2 s status poll.
+let _pysimReaderKey = null;
+let _pysimActiveReader = null;
+
+function pysimReaderRender(data) {
+	const row = document.getElementById('pysim-reader-row');
+	const sel = document.getElementById('pysim-reader-sel');
+	const readers = (data && Array.isArray(data.readers)) ? data.readers : [];
+	_pysimActiveReader = (data && data.reader) || null;
+	if (row && sel) {
+		const key = readers.join('\u0000') + '\u0001' + (_pysimActiveReader || '');
+		if (key !== _pysimReaderKey) {
+			_pysimReaderKey = key;
+			sel.innerHTML = readers.map(r =>
+				'<option value="' + esc(r) + '">' + esc(r) + '</option>').join('');
+		}
+		if (_pysimActiveReader) sel.value = _pysimActiveReader;
+		row.classList.toggle('hidden', readers.length <= 1);
+	}
+}
+
+async function pysimReaderChanged(name) {
+	const sel = document.getElementById('pysim-reader-sel');
+	const current = _pysimActiveReader;
+	if (!name || name === current) return;
+	// A switch rebuilds the transport for the chosen reader and resets the
+	// card: the previous selection, CAT session and caches are gone.
+	const ok = await pysimConfirm(t('Switch the active reader?') + ' ' +
+		t('The card is reset and re-initialized: the current selection, CAT session and card state are lost.'));
+	if (!ok) {
+		if (sel && current) sel.value = current;
+		return;
+	}
+	pysimSetConnected('spin');
+	try {
+		const data = await pysimFetch('/api/reader', { name: name });
+		if (data && data.error) throw new Error(data.error);
+		pysimCardStateUpdate(data);
+		await pysimRefresh();
+	} catch (e) {
+		pysimAlert(t('Reader switch failed:') + ' ' + e.message);
+		await pysimRefresh();
+	}
 }
 
 async function pysimRefresh() {
@@ -9928,33 +10033,13 @@ async function pysimRefresh() {
 		const data = await pysimFetch('/api/status');
 		// Server reachable is not the same as card equipped: keep the icon in
 		// step with the card state (animated while it is being initialized).
-		const refreshingInit = !!data.equipping || (!!data.card_present && !!data.auto_equip);
-		pysimSetConnected(data.connected ? true : (refreshingInit ? 'spin' : false));
-		let html = 'Reader: <b>' + esc(data.reader || 'none') + '</b>' +
-			' | Card: <b>' + esc(data.card || 'none') + '</b>' +
-			' | Profile: <b>' + esc(data.profile || 'none') + '</b><br>' +
-			'ATR: <b>' + esc(data.atr || 'n/a') + '</b>' +
-			(data.cla_byte ? ' | CLA: <b>' + esc(data.cla_byte) + '</b>' : '') +
-			(data.sel_ctrl ? ' | SEL: <b>' + esc(data.sel_ctrl) + '</b>' : '') +
-			' | Channels: <b>' + (data.channels && data.channels.length ? data.channels.join(', ') : 'none') + '</b><br>' +
-			'ADM: <b>' + (data.adm_verified ? 'verified' : 'not verified') + '</b>' +
-			(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '') +
-			' | Selection: <b>' + (data.current_selection
-				? (data.current_selection.name || data.current_selection.fid || '?')
-				: 'none') + '</b>' +
-			(data.current_selection
-				? ' [' + (data.current_selection.type || '?') + ']' +
-				  ' FID=' + (data.current_selection.fid || '?') +
-				  (data.current_selection.path ? ' path=' + data.current_selection.path : '') +
-				  (data.current_selection.file_size ? ' size=' + data.current_selection.file_size : '') +
-				  (data.current_selection.record_len ? ' rec_len=' + data.current_selection.record_len : '') +
-				  (data.current_selection.num_of_rec ? ' rec_cnt=' + data.current_selection.num_of_rec : '')
-				: '');
-		statusEl.innerHTML = html;
+		const initializing = !!data.equipping || (!!data.card_present && !data.connected);
+		pysimSetConnected(data.connected ? true : (initializing ? 'spin' : false));
+		pysimStatusRender(data);
 		return true;
 	} catch (e) {
 		pysimSetConnected(false);
-		statusEl.textContent = t('Connection failed:') + ' ' + e.message;
+		if (statusEl) statusEl.textContent = t('Connection failed:') + ' ' + e.message;
 		return false;
 	}
 }
@@ -9967,7 +10052,6 @@ async function pysimConnect() {
 	const btn = document.getElementById('pysim-connect-btn');
 	btn.disabled = true;
 	btn.textContent = t('Connecting...');
-	const statusEl = document.getElementById('pysim-status');
 	const msgEl = document.getElementById('pysim-connect-msg');
 	msgEl.innerHTML = '<span class="text-gray-500">' + t('Checking card...') + '</span>';
 	pysimSetConnected('spin');
@@ -9992,21 +10076,14 @@ async function pysimConnect() {
 			throw new Error('Server not ready');
 		}
 		_pysimCardEquipped = !!status.connected;
-		const cmd = await pysimFetch('/api/command', { cmd: 'status' });
-		if (cmd.output && (cmd.output.includes('Exception') || cmd.output.includes('ProtocolError'))) {
-			pysimSetConnected(false);
-			statusEl.innerHTML = '<span class="text-red-500">' + t('No card detected. Insert card and click Equip card button') + '</span>';
-			pysimShowConnected(true);
-			btn.textContent = t('Connected');
-			btn.disabled = false;
-			return;
-		}
-		pysimSetConnected(true);
+		// A cardless server is a normal state: connect and let the status
+		// block show it (the server auto-equips on insertion).
+		const initializing = !!status.equipping || (!!status.card_present && !status.connected);
+		pysimSetConnected(status.connected ? true : (initializing ? 'spin' : false));
 		pysimShowConnected(true);
 		pysimApplyAvailability();
-		await pysimRefresh();
-		pysimLoadCommands();
-		pysimFsRefresh();
+		pysimStatusRender(status);
+		if (status.connected) pysimFsRefresh();
 		pysimPollStatusInit();
 		pysimStartBackendPoll();
 		cardsFetch();   // the server store holds the card presets (v3.8.0)
@@ -10039,39 +10116,33 @@ function pysimDisconnect() {
 	pysimApplyAvailability();
 }
 
-async function pysimRunCmd(cmd) {
-	const statusEl = document.getElementById('pysim-status');
-	try {
-		const result = await pysimFetch('/api/command', { cmd });
-		if (result.output && (result.output.includes('Exception') || result.output.includes('ProtocolError') || result.output.includes('SwMatchError'))) {
-			pysimSetConnected(false);
-			statusEl.innerHTML = '<span class="text-red-500">' + t('No card detected. Insert card and click Equip card button') + '</span>';
-			return null;
-		}
-		return result;
-	} catch (e) {
-		pysimSetConnected(false);
-		statusEl.innerHTML = '<span class="text-red-500">' + t('No card detected. Insert card and click Equip card button') + '</span>';
-		return null;
-	}
-}
-
 async function pysimStatusCmd() {
 	const statusEl = document.getElementById('pysim-status');
 	statusEl.innerHTML = '<span class="text-gray-500">' + t('Checking...') + '</span>';
 	pysimSetConnected('spin');
-	const result = await pysimRunCmd('status');
-	if (result) await pysimRefresh();
+	try {
+		const data = await pysimFetch('/api/status-poll', {});
+		if (data && data.error) throw new Error(data.error);
+		await pysimRefresh();
+	} catch (e) {
+		pysimSetConnected(false);
+		statusEl.innerHTML = '<span class="text-red-500">' + esc(t('No card detected. Insert card and click Equip card button')) + '</span>';
+	}
 }
 
 async function pysimResetCmd() {
 	const statusEl = document.getElementById('pysim-status');
 	statusEl.innerHTML = '<span class="text-gray-500">' + t('Resetting...') + '</span>';
 	pysimSetConnected('spin');
-	const result = await pysimRunCmd('reset');
-	if (result) {
+	try {
+		const data = await pysimFetch('/api/reset', {});
+		if (data && data.error) throw new Error(data.error);
+		pysimCardStateUpdate(data);
 		await pysimRefresh();
 		pysimFsRefresh();
+	} catch (e) {
+		pysimSetConnected(false);
+		statusEl.innerHTML = '<span class="text-red-500">' + esc(e.message) + '</span>';
 	}
 }
 
@@ -10079,26 +10150,17 @@ async function pysimEquipCmd() {
 	const statusEl = document.getElementById('pysim-status');
 	statusEl.innerHTML = '<span class="text-gray-500">' + t('Equipping...') + '</span>';
 	pysimSetConnected('spin');
-	const result = await pysimRunCmd('equip');
-	if (result) {
+	try {
+		const data = await pysimFetch('/api/equip', {});
+		if (data && data.error) throw new Error(data.error);
+		pysimCardStateUpdate(data);
 		await pysimRefresh();
 		pysimFsRefresh();
 		stkCheckMenu();
-	}
-}
-
-async function pysimExec() {
-	const cmd = document.getElementById('pysim-cmd').value.trim();
-	if (!cmd) return;
-	const out = document.getElementById('pysim-cmd-output');
-	out.value = '> ' + cmd + '\n';
-	try {
-		const data = await pysimFetch('/api/command', { cmd });
-		out.value += data.output || '(no output)';
 	} catch (e) {
-		out.value += 'Error: ' + e.message;
+		pysimSetConnected(false);
+		statusEl.innerHTML = '<span class="text-red-500">' + esc(e.message) + '</span>';
 	}
-	pysimRefresh();
 }
 
 async function pysimApdu() {
@@ -10211,33 +10273,6 @@ function spParams() {
 	if (cntr) p.cntr = cntr;
 	if (_spRamFormat) p.ram_format = _spRamFormat;
 	return p;
-}
-
-async function pysimVerifySp() {
-	const sp = document.getElementById('sp-result').value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-	const resultEl = document.getElementById('sp-verify-result');
-	if (!sp) { pysimAlert(t('No secured packet to verify. Generate a secure packet first.')); return; }
-	resultEl.classList.remove('hidden');
-	resultEl.textContent = t('Verifying against pySim reference...');
-	try {
-		const data = await pysimFetch('/api/sp-verify', { sp, ...spParams() });
-		if (data.match) {
-			resultEl.textContent = 'MATCH: JS packet byte-identical to pySim reference (' + sp.length / 2 + ' bytes)';
-			resultEl.classList.remove('text-red-600');
-			resultEl.classList.add('text-green-600');
-		} else {
-			let msg = 'MISMATCH vs pySim.';
-			if (data.diffs) msg += ' First diff at byte ' + data.diffs[0].offset + ' (JS=' + data.diffs[0].js + ' pySim=' + data.diffs[0].ref + ')';
-			if (data.py_sp) msg += ' pySim reference: ' + data.py_sp;
-			resultEl.textContent = msg;
-			resultEl.classList.remove('text-green-600');
-			resultEl.classList.add('text-red-600');
-		}
-	} catch (e) {
-		resultEl.textContent = t('Error') + ': ' + e.message;
-		resultEl.classList.remove('text-green-600');
-		resultEl.classList.add('text-red-600');
-	}
 }
 
 async function pysimSendOta() {
@@ -15828,12 +15863,15 @@ async function cardsOutfileImport() {
 	}
 }
 
-// ===== pysim sub-tabs =====
-let pysimCmdHistory = [];
-let pysimCmdHistIdx = -1;
+// ===== Status / File manager sub-tabs =====
 let _pysimAutoConnectAttempted = false;
+let filesHelpAnchor = 'file-manager';
 
+// The Status tab carries the Raw APDU pill only.  A recorded state from an
+// older layout (files/services/cmd) would hide the panel with nothing to show,
+// so any other name folds onto the one pill (the profilerListSwitch pattern).
 function pysimSwitchSubtab(name) {
+	if (name !== 'apdu') name = 'apdu';
 	_pysimSub = name;
 	document.querySelectorAll('.pysim-subtab').forEach(btn => {
 		const isActive = btn.dataset.pysimSub === name;
@@ -15844,121 +15882,38 @@ function pysimSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !isActive);
 		btn.classList.toggle('dark:text-slate-300', !isActive);
 	});
-	['cmd', 'apdu', 'files', 'services'].forEach(s => {
-		document.getElementById('pysim-sub-' + s).classList.toggle('hidden', s !== name);
-	});
-	pysimHelpAnchor = {cmd:'pysim-cmdline', apdu:'raw-apdu', files:'file-manager'}[name] || 'card-reader';
+	const apdu = document.getElementById('pysim-sub-apdu');
+	if (apdu) apdu.classList.toggle('hidden', name !== 'apdu');
+	pysimHelpAnchor = 'raw-apdu';
 	setHelpAnchor(pysimHelpAnchor);
-	if (name === 'files') pysimFsFitTree();
-	if (name === 'services') pysimServicesOpen();
 	navRecord();
 }
 
-function pysimCmdKeydown(e) {
-	if (e.key === 'Enter') {
-		const cmd = e.target.value.trim();
-		if (cmd) {
-			pysimCmdHistory.push(cmd);
-			pysimCmdHistIdx = pysimCmdHistory.length;
-		}
-		pysimExec();
-		document.getElementById('pysim-cmd-hint').classList.add('hidden');
-	} else if (e.key === 'ArrowUp') {
-		e.preventDefault();
-		if (pysimCmdHistIdx > 0) {
-			pysimCmdHistIdx--;
-			e.target.value = pysimCmdHistory[pysimCmdHistIdx];
-		}
-	} else if (e.key === 'ArrowDown') {
-		e.preventDefault();
-		if (pysimCmdHistIdx < pysimCmdHistory.length - 1) {
-			pysimCmdHistIdx++;
-			e.target.value = pysimCmdHistory[pysimCmdHistIdx];
-		} else {
-			pysimCmdHistIdx = pysimCmdHistory.length;
-			e.target.value = '';
-		}
-	}
-}
-
-let pysimCmdHintTimeout = null;
-
-async function pysimCmdHint() {
-	clearTimeout(pysimCmdHintTimeout);
-	pysimCmdHintTimeout = setTimeout(async () => {
-		const input = document.getElementById('pysim-cmd');
-		const text = input.value.trim();
-		const cmd = text.split(/\s+/)[0];
-		if (!cmd || text.includes(' ')) {
-			document.getElementById('pysim-cmd-hint').classList.add('hidden');
-			return;
-		}
-		const hintEl = document.getElementById('pysim-cmd-hint');
-		try {
-			const data = await pysimFetch('/api/help', { cmd });
-			if (data.usage) {
-				hintEl.textContent = data.usage;
-				hintEl.classList.remove('hidden');
-			} else {
-				hintEl.classList.add('hidden');
-			}
-		} catch (e) {
-			hintEl.classList.add('hidden');
-		}
-	}, 300);
-}
-
-let pysimCmdList = [];
-
-async function pysimLoadCommands() {
-	try {
-		const data = await pysimFetch('/api/commands');
-		if (Array.isArray(data)) pysimCmdList = data;
-	} catch (e) {}
-}
-
-function pysimCmdInput() {
-	const input = document.getElementById('pysim-cmd');
-	const text = input.value;
-	const suggestEl = document.getElementById('pysim-cmd-suggest');
-	const hintEl = document.getElementById('pysim-cmd-hint');
-	if (text.includes(' ')) {
-		suggestEl.classList.add('hidden');
-		const cmd = text.split(/\s+/)[0];
-		if (cmd) {
-			clearTimeout(pysimCmdHintTimeout);
-			pysimCmdHintTimeout = setTimeout(async () => {
-				try {
-					const data = await pysimFetch('/api/help', { cmd });
-					if (data.usage) {
-						hintEl.textContent = data.usage;
-						hintEl.classList.remove('hidden');
-					} else {
-						hintEl.classList.add('hidden');
-					}
-				} catch (e) {
-					hintEl.classList.add('hidden');
-				}
-			}, 300);
-			return;
-		}
-		hintEl.classList.add('hidden');
-		return;
-	}
-	hintEl.classList.add('hidden');
-	if (!text) { suggestEl.classList.add('hidden'); return; }
-	const matches = pysimCmdList.filter(c => c.startsWith(text)).slice(0, 20);
-	if (matches.length === 0) { suggestEl.classList.add('hidden'); return; }
-	suggestEl.innerHTML = matches.map(c =>
-		'<div class="px-2 py-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onclick="pysimCmdSelect(\'' + esc(c) + '\')">' + esc(c) + '</div>'
-	).join('');
-	suggestEl.classList.remove('hidden');
-}
-
-function pysimCmdSelect(cmd) {
-	document.getElementById('pysim-cmd').value = cmd;
-	document.getElementById('pysim-cmd-suggest').classList.add('hidden');
-	document.getElementById('pysim-cmd').focus();
+// The File manager tab's three views (files / services / custom files).
+function filesSwitchSubtab(name) {
+	_filesSub = name;
+	document.querySelectorAll('.files-subtab').forEach(btn => {
+		const isActive = btn.dataset.filesSub === name;
+		btn.classList.toggle('bg-blue-600', isActive);
+		btn.classList.toggle('text-white', isActive);
+		btn.classList.toggle('bg-gray-200', !isActive);
+		btn.classList.toggle('dark:bg-slate-700', !isActive);
+		btn.classList.toggle('text-gray-700', !isActive);
+		btn.classList.toggle('dark:text-slate-300', !isActive);
+	});
+	const panels = { files: 'pysim-sub-files', services: 'pysim-sub-services',
+		custom: 'pysim-cf-panel' };
+	Object.keys(panels).forEach(k => {
+		const el = document.getElementById(panels[k]);
+		if (el) el.classList.toggle('hidden', k !== name);
+	});
+	filesHelpAnchor = {files: 'file-manager', services: 'services',
+		custom: 'custom-files'}[name] || 'file-manager';
+	setHelpAnchor(filesHelpAnchor);
+	if (name === 'files') pysimFsFitTree();
+	if (name === 'services') pysimServicesOpen();
+	if (name === 'custom') pysimCustomRender();
+	navRecord();
 }
 
 // ===== pysim file browser =====
@@ -18660,11 +18615,16 @@ function pysimCardStateUpdate(status) {
 	pysimUpdatePresetIndicators(_pysimCardIccid);
 	spPresetWarningRender();
 	pysimApplyAvailability();
-	if (pysimProactiveSeqChanged(status.proactive_seq)
-		&& isViewVisible('tab-phone') && isViewVisible('phone-sub-phone')) {
+	const logVisible = isViewVisible('tab-phone') && isViewVisible('phone-sub-phone');
+	if (status.proactive_seq === undefined) {
+		// The pysim-free server publishes no proactive sequence: keep the
+		// visible log in step with the 2 s status poll (the legacy gate stays
+		// for a server that carries the field).
+		if (logVisible) pysimProactiveLogRender();
+	} else if (pysimProactiveSeqChanged(status.proactive_seq) && logVisible) {
 		pysimProactiveLogRender();
 	}
-	const key = [status.connected, !!status.card_present, !!status.equipping, !!status.auto_equip, status.card_session].join('|');
+	const key = [status.connected, !!status.card_present, !!status.equipping, status.card_session].join('|');
 	if (key === _pysimCardStateKey) return;
 	_pysimCardStateKey = key;
 	const sessionChanged = _pysimCardSession !== null
@@ -18677,21 +18637,13 @@ function pysimCardStateUpdate(status) {
 		cardsAutoSelectByIccid(status.iccid);
 		return;
 	}
-	// A card being initialized (or waiting for auto-equip) shows the animated
-	// icon, matching the header indicator - not the static no-card one.
-	const initializing = status.equipping || (status.card_present && status.auto_equip);
+	// A present card that has no session yet (waiting for auto-equip) shows the
+	// animated icon, matching the header indicator - not the static no-card one.
+	// The structured status block already carries the session/card-present
+	// state, so it is not overwritten with a one-tick message here.
+	const initializing = !!status.equipping || (!!status.card_present && !status.connected);
 	pysimSetConnected(initializing ? 'spin' : false);
 	_cardsAutoIccid = null;
-	const statusEl = document.getElementById('pysim-status');
-	if (statusEl && statusEl.textContent.trim() !== '') {
-		if (initializing) {
-			statusEl.innerHTML = '<span class="text-gray-500">' + esc(t('Card inserted — initializing...')) + '</span>';
-		} else if (status.card_present) {
-			statusEl.innerHTML = '<span class="text-amber-600">' + esc(t('Card inserted — press Equip')) + '</span>';
-		} else {
-			statusEl.innerHTML = '<span class="text-red-500">' + esc(t('No card detected. Insert card and click Equip card button')) + '</span>';
-		}
-	}
 	if (sessionChanged) pysimResetCardData(false);
 }
 
@@ -18705,6 +18657,9 @@ function pysimStartBackendPoll() {
 			const status = await pysimFetch('/api/status');
 			// The batch panel's live headline rides this poll (v3.28.0).
 			ramBatchApplyStatus(status);
+			// The status block follows every poll (the state machines are live);
+			// the card state update below may overwrite it with a card message.
+			pysimStatusRender(status);
 			pysimCardStateUpdate(status);
 		} catch (e) {
 			pysimSetServerAvailable(false);
@@ -20863,6 +20818,9 @@ function profilerRenderList() {
 }
 
 function profilerListSwitch(name) {
+	// The Profiler is offline-only now: Custom files moved to the File manager
+	// tab (a legacy recorded 'custom' state falls back to Profiles).
+	if (name !== 'snapshots') name = 'profiles';
 	profilerListTab = name;
 	document.querySelectorAll('.profiler-list-tab').forEach(btn => {
 		const active = btn.dataset.listTab === name;
@@ -20877,9 +20835,7 @@ function profilerListSwitch(name) {
 	});
 	document.getElementById('profiler-list-profiles').classList.toggle('hidden', name !== 'profiles');
 	document.getElementById('profiler-list-snapshots').classList.toggle('hidden', name !== 'snapshots');
-	document.getElementById('profiler-list-custom').classList.toggle('hidden', name !== 'custom');
-	if (name === 'custom') pysimCustomRender();
-	setHelpAnchor({ profiles: 'profiler', snapshots: 'card-snapshots', custom: 'custom-files' }[name] || 'profiler');
+	setHelpAnchor({ profiles: 'profiler', snapshots: 'card-snapshots' }[name] || 'profiler');
 	navRecord();
 }
 
@@ -23521,6 +23477,9 @@ scp81OptionsLoad();
 // Init sub-tab pills
 document.querySelectorAll('.pysim-subtab').forEach(btn => {
 	btn.addEventListener('click', () => pysimSwitchSubtab(btn.dataset.pysimSub));
+});
+document.querySelectorAll('.files-subtab').forEach(btn => {
+	btn.addEventListener('click', () => filesSwitchSubtab(btn.dataset.filesSub));
 });
 window.addEventListener('resize', pysimFsFitTree);
 
@@ -27704,7 +27663,7 @@ const LANG_RU = {
 	'R-APDU parser': 'Разбор R-APDU',
 	'C-APDU Parser': 'Разбор C-APDU',
 	'Cards': 'Карты',
-	'Card reader': 'Картридер',
+	'Status': 'Статус',
 	'Card presets are stored locally in your browser. JSON export/import buttons are below the card list.': 'Данные карт хранятся локально в браузере. Кнопки экспорта/импорта JSON — под списком карт.',
 	'Add': 'Добавить',
 	'Export to file': 'Экспорт в файл',
@@ -27924,7 +27883,33 @@ const LANG_RU = {
 	'Disconnect from server': 'Отключиться от сервера',
 	'File manager': 'Файловый менеджер',
 	'Custom files': 'Пользовательские файлы',
-	'pySim command line': 'Командная строка pySim',
+	'Reader': 'Ридер',
+	'Switching the reader resets and re-initializes the card.': 'Переключение ридера сбрасывает и заново инициализирует карту.',
+	'Switch the active reader?': 'Переключить активный ридер?',
+	'The card is reset and re-initialized: the current selection, CAT session and card state are lost.': 'Карта будет сброшена и инициализирована заново: текущий выбор, CAT-сессия и состояние карты будут потеряны.',
+	'Reader switch failed:': 'Не удалось переключить ридер:',
+	'Reader:': 'Ридер:',
+	'Card:': 'Карта:',
+	'Session:': 'Сессия:',
+	'connected': 'подключена',
+	'initializing': 'инициализация',
+	'not connected': 'не подключена',
+	'Card present:': 'Карта вставлена:',
+	'yes': 'да',
+	'no': 'нет',
+	'none': 'нет',
+	'n/a': 'н/д',
+	'Selection:': 'Выбор:',
+	'mode=': 'режим=',
+	'poll=': 'опрос=',
+	'test run=': 'тест-скрипт=',
+	'idle': 'простой',
+	'off': 'выключен',
+	'suspended': 'приостановлен',
+	'BIP=': 'BIP=',
+	'State:': 'Состояние:',
+	'keyset': 'keyset',
+	'ready': 'готов',
 	'Raw APDU': 'Отправка APDU',
 	'Read raw': 'Читать сырые данные',
 	'Read decoded': 'Декодировать',
@@ -28089,8 +28074,6 @@ const LANG_RU = {
 	'Resetting...': 'Сброс...',
 	'Equipping...': 'Подключение...',
 	'Sending OTA...': 'Отправка OTA...',
-	'Verifying against pySim reference...': 'Сверка с эталоном pySim...',
-	'Verify vs pySim': 'Проверить в pySim',
 	'Send to Card': 'Отправить на карту',
 	'Simulator': 'Симулятор',
 	'HTTP OTA listener': 'HTTP OTA слушатель',
@@ -28872,7 +28855,6 @@ const LANG_RU = {
 	'Card resources (GET DATA FF21)': 'Ресурсы карты (GET DATA FF21)',
 	'Extended Card Resources (GP tag FF21, ETSI TS 102 226 8.2.1.7.2): installed applications, free non-volatile and free volatile memory': 'Расширенные ресурсы карты (тег GP FF21, ETSI TS 102 226 8.2.1.7.2): число установленных приложений, свободная энергонезависимая и свободная энергозависимая память',
 	'No secured packet to send. Generate a secure packet first.': 'Нет защищённого пакета для отправки. Сначала соберите пакет.',
-	'No secured packet to verify. Generate a secure packet first.': 'Нет защищённого пакета для проверки. Сначала соберите пакет.',
 	'Import error': 'Ошибка импорта',
 	'Snapshot save failed': 'Не удалось сохранить снимок',
 	'Select': 'Выборка',
@@ -29146,7 +29128,7 @@ function toggleLang() {
 }
 
 let currentHelpAnchor = 'sim-rfm';
-let pysimHelpAnchor = 'file-manager';
+let pysimHelpAnchor = 'status-block';
 
 function updateHelpLink() {
 	const link = document.getElementById('help-link');
@@ -29183,11 +29165,13 @@ function isViewVisible(id) {
 function refreshDynamicI18n() {
 	pysimFsFilterRender();
 	if (isViewVisible('tab-profiler')) {
-		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); if (profilerListTab === 'custom') pysimCustomRender(); }
+		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); }
 		else if (profilerView === 'editor') profilerRenderEditor();
 		else if (profilerView === 'results') profilerRenderResultsView();
 		else if (profilerView === 'snapshot') profilerRenderSnapshotData();
 	}
+	// the custom-files list is built with t() strings at render time
+	if (isViewVisible('pysim-cf-panel')) pysimCustomRender();
 	if (isViewVisible('profiler-scan-modal')) profilerScanRefreshOptions();
 	pysimUpdateCardActionLabels();
 	pysimUpdateStateIndicator();

@@ -1831,15 +1831,13 @@ test('profilerListSwitch toggles the profiles/snapshots tabs', () => {
 		dataset: { listTab: tab },
 		classList: { _c: new Set(), toggle(c, on) { if (on) this._c.add(c); else this._c.delete(c); } },
 	});
-	const btns = [mkBtn('profiles'), mkBtn('snapshots'), mkBtn('custom')];
+	const btns = [mkBtn('profiles'), mkBtn('snapshots')];
 	const profilesEl = { hidden: false, classList: { toggle(cls, on) { profilesEl.hidden = on; } } };
 	const snapsEl = { hidden: true, classList: { toggle(cls, on) { snapsEl.hidden = on; } } };
-	const customEl = { hidden: true, classList: { toggle(cls, on) { customEl.hidden = on; } } };
-	global.pysimCustomRender = () => {};
 	global.setHelpAnchor = () => {};
 	global.document = {
 		querySelectorAll: sel => (sel === '.profiler-list-tab' ? btns : []),
-		getElementById: id => (id === 'profiler-list-profiles' ? profilesEl : id === 'profiler-list-snapshots' ? snapsEl : id === 'profiler-list-custom' ? customEl : null),
+		getElementById: id => (id === 'profiler-list-profiles' ? profilesEl : id === 'profiler-list-snapshots' ? snapsEl : null),
 	};
 
 	profilerListSwitch('snapshots');
@@ -1854,13 +1852,13 @@ test('profilerListSwitch toggles the profiles/snapshots tabs', () => {
 	assert.ok(btns[0].classList._c.has('bg-blue-600'));
 	assert.ok(btns[1].classList._c.has('bg-gray-200'));
 
+	// Custom files moved to the File manager tab: a legacy recorded state
+	// falls back to Profiles instead of touching a panel that is gone.
 	profilerListSwitch('custom');
-	assert.strictEqual(customEl.hidden, false);
-	assert.strictEqual(profilesEl.hidden, true);
+	assert.strictEqual(profilesEl.hidden, false);
 	assert.strictEqual(snapsEl.hidden, true);
 
 	delete global.document;
-	delete global.pysimCustomRender;
 	delete global.setHelpAnchor;
 });
 

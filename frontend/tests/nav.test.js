@@ -47,10 +47,10 @@ test('navStateKey canonicalises the view state', () => {
 test('navCurrent builds the state from the view variables', () => {
 	// the module view variables + the one helper it calls, stubbed
 	eval(`var _activeTab = 'c-apdu', _scp80Sub = 'sp', _capduSub = 'sim', _parserSub = 'parse',
-		_phoneSub = 'phone', _scp81Sub = 'listener', _pysimSub = 'files', _cardsView = 'list',
-		_cardsEditId = null, _testView = 'suites', _testScriptId = null, _navSuite = null,
-		profilerView = 'list', profilerListTab = 'profiles', profilerEditId = null,
-		snapshotViewId = null;
+		_phoneSub = 'phone', _scp81Sub = 'listener', _pysimSub = 'apdu', _filesSub = 'files',
+		_cardsView = 'list', _cardsEditId = null, _testView = 'suites', _testScriptId = null,
+		_navSuite = null, profilerView = 'list', profilerListTab = 'profiles',
+		profilerEditId = null, snapshotViewId = null;
 		function testCurrentSuite() { return _navSuite; }`);
 	eval(extractFunc(html, 'navCurrent'));
 	_activeTab = 'scp80'; _scp80Sub = 'ram';
@@ -63,6 +63,8 @@ test('navCurrent builds the state from the view variables', () => {
 		{ tab: 'phone', sub: 'test', view: 'script', suite: 'S', script: 'C' });
 	_activeTab = 'pysim'; _pysimSub = 'apdu';
 	assert.deepStrictEqual(navCurrent(), { tab: 'pysim', sub: 'apdu' });
+	_activeTab = 'files'; _filesSub = 'custom';
+	assert.deepStrictEqual(navCurrent(), { tab: 'files', sub: 'custom' });
 	_activeTab = 'cards'; _cardsView = 'edit'; _cardsEditId = 'P';
 	assert.deepStrictEqual(navCurrent(), { tab: 'cards', view: 'edit', preset: 'P' });
 	// a new-preset editor carries no id
@@ -74,12 +76,49 @@ test('navCurrent builds the state from the view variables', () => {
 	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'list', listtab: 'custom' });
 });
 
+test('a stale Status sub-tab replay folds onto the Raw APDU pill', () => {
+	// A recorded state from an older layout names a sub-panel that no longer
+	// exists (files / services / cmd): it must show the one pill instead of
+	// leaving the tab blank.
+	for (const stale of ['files', 'services', 'cmd', 'apdu']) {
+		const toggled = [];
+		const panel = { classList: { toggle: (c, on) => toggled.push([c, on]) } };
+		globalThis.document = {
+			querySelectorAll: () => [],
+			getElementById: id => (id === 'pysim-sub-apdu' ? panel : null),
+		};
+		let help = null, recorded = 0;
+		const stub = 'var _pysimSub = null; var pysimHelpAnchor = null;\n'
+			+ 'function setHelpAnchor(a) { __setHelp(a); }\n'
+			+ 'function navRecord() { __recorded(); }\n'
+			+ extractFunc(html, 'pysimSwitchSubtab')
+			+ '\npysimSwitchSubtab(' + JSON.stringify(stale) + ');\n'
+			+ 'return { sub: _pysimSub, help: pysimHelpAnchor };';
+		const out = new Function('__setHelp', '__recorded', stub)(
+			a => { help = a; }, () => { recorded++; });
+		assert.strictEqual(out.sub, 'apdu', stale + ' folds onto the pill');
+		assert.strictEqual(out.help, 'raw-apdu');
+		assert.strictEqual(help, 'raw-apdu');
+		assert.strictEqual(recorded, 1);
+		assert.deepStrictEqual(toggled, [['hidden', false]], stale + ' shows the panel');
+	}
+	delete globalThis.document;
+});
+
+test('the Status and File manager help anchors point at their own section', () => {
+	// the Status tab opens the status block (§6.2), not Raw APDU (§6.3)
+	assert.match(html, /let pysimHelpAnchor = 'status-block'/);
+	const files = extractFunc(html, 'filesSwitchSubtab');
+	assert.match(files, /services: 'services'/);
+	assert.match(files, /custom: 'custom-files'/);
+});
+
 test('the view switches record history, the back buttons replace it', () => {
 	// every user-facing switch records its view
 	for (const fn of ['switchTab', 'scp80SwitchSubtab', 'cApduSwitchSubtab',
 		'parserSwitchSubtab', 'phoneSwitchSubtab', 'scp81SwitchSubtab',
-		'pysimSwitchSubtab', 'cardsShowList', 'cardsShowEditor', 'testViewShow',
-		'profilerSetView', 'profilerListSwitch']) {
+		'pysimSwitchSubtab', 'filesSwitchSubtab', 'cardsShowList', 'cardsShowEditor',
+		'testViewShow', 'profilerSetView', 'profilerListSwitch']) {
 		assert.match(extractFunc(html, fn), /navRecord\(\)/, fn + ' must record');
 	}
 	// the view variables the state is built from
@@ -89,6 +128,7 @@ test('the view switches record history, the back buttons replace it', () => {
 	assert.match(extractFunc(html, 'phoneSwitchSubtab'), /_phoneSub = name/);
 	assert.match(extractFunc(html, 'scp81SwitchSubtab'), /_scp81Sub = name/);
 	assert.match(extractFunc(html, 'pysimSwitchSubtab'), /_pysimSub = name/);
+	assert.match(extractFunc(html, 'filesSwitchSubtab'), /_filesSub = name/);
 	assert.match(extractFunc(html, 'cardsShowList'), /_cardsView = 'list'/);
 	assert.match(extractFunc(html, 'cardsShowEditor'), /_cardsView = 'edit'/);
 	assert.match(extractFunc(html, 'cardsEdit'), /_cardsEditId = c\.id/);
@@ -111,6 +151,7 @@ test('the view switches record history, the back buttons replace it', () => {
 	assert.match(apply, /_navApplying = true/);
 	assert.match(apply, /switchTab\(/);
 	assert.match(apply, /pysimSwitchSubtab\(/);
+	assert.match(apply, /filesSwitchSubtab\(/);
 	assert.match(apply, /navApplyTest\(/);
 	assert.match(apply, /navApplyCards\(/);
 	assert.match(apply, /navApplyProfiler\(/);

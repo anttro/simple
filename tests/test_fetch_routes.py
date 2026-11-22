@@ -1,7 +1,10 @@
 """PWA <-> server HTTP contract tests.
 
 `pysimFetch(path, body)` sends POST whenever a body is passed and GET
-otherwise; the server's routes live in `PysimHandler._do_GET` / `_do_POST`.
+otherwise; the routes are read from the pysim-free server's
+`_dispatch_get` / `_dispatch_post` (`simple_server/server.py`) - the PWA is
+cut over to it (Phase 3d-2).  The legacy `PysimHandler` keeps its own
+routes below for the endpoint smoke tests.
 The test-script endpoints were registered in `_do_GET` while the PWA POSTs
 to them, so every Start answered 404 "Not found" (live 2026-09-29; present
 since the phase-1 commit and never exercised over HTTP).  The matrix below
@@ -35,16 +38,22 @@ def _pwa_calls():
 
 
 def _server_routes():
-    """((GET exact, GET prefixes), (POST exact, POST prefixes)) of /api paths."""
-    src = (ROOT / 'pysim_simple_server' / 'server.py').read_text(encoding='utf-8')
-    get_seg = src[src.index('def _do_GET('):src.index('def do_POST(')]
-    post_seg = src[src.index('def _do_POST('):src.index('def log_message(')]
+    """((GET exact, GET prefixes), (POST exact, POST prefixes)) of /api paths.
+
+    The contract is checked against the pysim-free server (`simple_server`):
+    the PWA is cut over to it (Phase 3d-2).  The legacy server keeps its own
+    routes but no longer defines what the PWA calls.
+    """
+    src = (ROOT / 'simple_server' / 'server.py').read_text(encoding='utf-8')
+    get_seg = src[src.index('def _dispatch_get('):src.index('def _dispatch_post(')]
+    post_seg = src[src.index('def _dispatch_post('):]
 
     def routes(seg):
-        exact = set(re.findall(r"self\.path == '(/api/[^']+)'", seg))
-        for group in re.findall(r"self\.path in \(([^)]*)\)", seg):
+        exact = set(re.findall(r"(?:self\.path|path) == '(/api/[^']+)'", seg))
+        for group in re.findall(r"(?:self\.path|path) in \(([^)]*)\)", seg):
             exact |= set(re.findall(r"'(/api/[^']+)'", group))
-        prefixes = set(re.findall(r"self\.path\.startswith\('(/api/[^']+)'\)", seg))
+        prefixes = set(re.findall(
+            r"(?:self\.path|path)\.startswith\('(/api/[^']+)'\)", seg))
         return exact, prefixes - {'/api/'}
 
     return routes(get_seg), routes(post_seg)
@@ -67,6 +76,23 @@ class FetchRouteMatrixTests(unittest.TestCase):
                     self.assertTrue(
                         in_routes(path, get, get_pref) or in_routes(path, post, post_pref),
                         '%s is fetched without a body but has no GET/POST route' % path)
+
+    def test_the_pysim_passthrough_routes_are_gone(self):
+        """Phase 3d-2 removed the pySim command line: neither the PWA nor the
+        pysim-free server may expose the passthrough/help/verify routes."""
+        (get, _get_pref), (post, _post_pref) = _server_routes()
+        calls = [path for path, _body in _pwa_calls()]
+        for path in ('/api/command', '/api/commands', '/api/help',
+                     '/api/sp-verify'):
+            with self.subTest(path=path):
+                self.assertNotIn(path, get | post)
+                self.assertNotIn(path, calls)
+        # the replacements exist with the right method
+        self.assertIn('/api/equip', post)
+        self.assertIn('/api/reset', post)
+        self.assertIn('/api/status-poll', post)
+        self.assertIn('/api/reader', post)
+        self.assertIn('/api/readers', get)
 
 
 class TestScriptHttpTests(unittest.TestCase):

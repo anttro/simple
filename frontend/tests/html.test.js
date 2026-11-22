@@ -142,8 +142,13 @@ test('the Simulator panels are siblings of the tab container, never nested', () 
 
 test('top-level tabs match the rearranged views', () => {
     const tabs = [...html.matchAll(/class="tab-btn[^"]*" data-tab="([^"]+)"/g)].map(m => m[1]);
-    assert.deepStrictEqual(tabs, ['c-apdu', 'scp80', 'scp81', 'cards', 'profiler', 'pysim', 'phone']);
+    assert.deepStrictEqual(tabs, ['c-apdu', 'scp80', 'scp81', 'cards', 'profiler',
+        'files', 'pysim', 'phone']);
     assert.match(html, /data-tab="c-apdu">Remote APDU</);
+    // the filesystem tools have their own tab; "Card reader" is now Status
+    assert.match(html, /data-tab="files" data-l10n="File manager"/);
+    assert.match(html, /data-tab="pysim" data-l10n="Status"/);
+    assert.ok(!html.includes('data-l10n="Card reader"'), 'the Card reader label is gone');
 });
 
 test('cards list shows the SCP81 PSK column with blue/red row buttons', () => {
@@ -382,11 +387,22 @@ test('snapshot view has a timing summary block', () => {
     assert.ok(html.includes('id="snapshot-summary"'));
 });
 
-test('header state indicator and profiler custom-files tab', () => {
+test('header state indicator and the File manager custom-files pill', () => {
     assert.ok(html.includes('id="state-indicator"'));
-    assert.ok(html.includes('id="profiler-list-custom"'));
-    assert.ok(html.includes('data-list-tab="custom"'));
+    // Custom files moved out of the Profiler into the File manager tab
+    assert.ok(html.includes('id="pysim-cf-panel"'));
+    assert.ok(html.includes('data-files-sub="custom"'));
+    // the File manager pills are wired to their switcher exactly once: the
+    // delegated registration in the startup block, no inline onclick (a second
+    // wiring would run the switch - and pysimServicesOpen's card reads - twice)
+    assert.strictEqual((html.match(/addEventListener\('click', \(\) => filesSwitchSubtab\(/g) || []).length, 1);
+    assert.ok(html.includes('document.querySelectorAll(\'.files-subtab\')'));
+    assert.ok(html.includes('filesSwitchSubtab(btn.dataset.filesSub)'));
+    assert.ok(!html.includes('onclick="filesSwitchSubtab'), 'the pills must have one wiring');
+    assert.match(html, /data-files-sub="files" data-needs="card"/);
+    assert.ok(!html.includes('data-list-tab="custom"'), 'the Profiler custom tab is gone');
     assert.ok(!html.includes('data-pysim-sub="custom"'));
+    assert.ok(!html.includes('data-pysim-sub="files"'), 'the file manager is not a Status pill');
 });
 
 test('header status indicator has a compact ADM badge', () => {
@@ -588,7 +604,7 @@ test('every tab-content lives inside the max-w-7xl page container', () => {
         }
         depth++;
     }
-    assert.strictEqual(seen.size, 7, 'expected all seven tabs, saw ' + seen.size);
+    assert.strictEqual(seen.size, 8, 'expected all eight tabs, saw ' + seen.size);
 });
 
 test('the RAM form shows Card preset and Operation in one row', () => {
