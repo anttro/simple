@@ -179,6 +179,52 @@ themselves.
 Not done (the second half): wiring these into the FETCH/TERMINAL RESPONSE chain,
 the STATUS poll, the menu state machine and the PLI dictionary/clock answers.
 
+## Phase 3c-1 outcome (the CAT session engine)
+
+`simple_server/cat_session.py` exists: one `CatSession` per card owns the CAT
+conversation - `send_status`, `send_terminal_profile` (plus
+`resend_terminal_profile`, the v3.23.7 boundary-marker path), `handle_chain`
+(the FETCH/TERMINAL RESPONSE loop with `on_fetch` pause/exit, the poll-interval
+adoption, the injected BIP handler/flush, the test-run abort and the round
+bound), `send_envelope` (the SMS-PP download template, the `61xx`/`62xx`/`63xx`
+GET RESPONSE quirk, the `91xx` chain that keeps a delivered PoR, the inline and
+SEND-SHORT-MESSAGE PoR capture via `PorSubmitCapture`, the late-PoR STATUS
+poll), `send_event_download`, the PLI dictionary + host-clock answer, the
+interactive menu (`menu_fetch_handler`, `menu_send_response`,
+`finish_pending_menu`, the `menu_timeout` watchdog), TIMER MANAGEMENT
+(`handle_timer_command`, the expiry ENVELOPE with the `93 00` retry,
+`cancel_timers`) and the proactive log (`log_proactive`, `record_tr`,
+`entries`, `mark_session`, `reset`).
+
+Deliberate, documented deviations from the legacy server - each one is
+cross-checked against the legacy bytes by `tests/test_simple_drift.py`
+(byte parity for the STATUS/TP/FETCH/TR/ENVELOPE/timer APDUs, the PLI
+dictionary, the input coding and the timer expiry envelope):
+
+- **The status word is bytes** (`b'\x91\x12'`) on the wire API instead of the
+  legacy hex strings; the log entry's `tr_sw` and the menu response's `sw` stay
+  hex because they are API fields the PWA renders.
+- **No stderr writes**: the legacy's per-exchange trace lines are `log.debug`/
+  `log.info` records (the server's console/tracer layer owns presentation).
+- **The terminal-profile chain is bounded** by `chain_rounds` (the legacy loop
+  was unbounded; the same safety the v3.25.1/v3.37.0 chain bound gave) - it
+  keeps the legacy's `0xFF` FETCH length.
+- **The session owns sim_menu/event_list**: `send_terminal_profile` caches what
+  it saw (the legacy caller did that assignment), and a background-poll timer is
+  not created here - `poll_interval`/`poll_suspended` record the card's wishes
+  (§6.4.6/§6.4.14) for the server's poll.
+- **`busy`** replaces `_PROACTIVE_BUSY`, and the timer expiry waits on it as
+  well as on `stk_pending` (the session has no card lock).
+- **Refusals raise `CatSessionError`** where the legacy helpers returned an
+  HTTP-shaped `(payload, 400)` or an `UnboundLocalError`.
+- **Kept, and flagged for review**: `handle_timer_command` emits the timer
+  objects before the Result (the legacy form the live cards accepted) while
+  §6.8.0 puts the Result third - a behavioural change needs card evidence, so
+  the port pins the legacy bytes and documents the deviation.
+
+Not done (later sub-phases): the BIP command handlers (injected), the HTTP
+endpoints and the card-session wiring.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs
@@ -404,20 +450,22 @@ The phase is split so each piece is reviewable:
 
 ## Helper scripts at cutover
 
-When the pysim-free server becomes the default, split the helper scripts
-(both `.sh` and `.bat`):
+The repo split removes the need for two script sets in `simple`.  Each repo
+ships **one** set:
 
-- **Legacy pysim** — rename the current scripts to `setup-pysim` / `start-pysim`
-  / `update-pysim`.  Unchanged behaviour: create the venv and `pip install`
-  pysim + its deps (the current `setup.sh`/`setup.bat` + `requirements-pysim.txt`).
-- **Pysim-free** — the new `setup` / `start` / `update`.  `setup` creates the
-  venv and installs **only our dependencies** — `pyscard`, `pycryptodomex`,
+- **`simple` (pysim-free)** — `setup` / `start` / `update`.  `setup` creates
+  the venv and installs **only our dependencies** — `pyscard`, `pycryptodomex`,
   `gsm0338` — from a small `requirements.txt` (no pysim, no
   `requirements-pysim.txt`), then `pip install -e .`.  Reuse the venv-validation
   + recovery logic (v3.38.1) and the Windows Python-3.13 / Linux
   `libpcsclite-dev` notes: **pyscard still builds from source on Linux and needs
   the PC/SC headers**, so `setup` keeps that prerequisite.  `start` keeps the
-  PC/SC access pre-flight and tee-to-log, minus pysim.
+  PC/SC access pre-flight and tee-to-log, minus pysim.  The `setup-pysim` /
+  `start-pysim` names are **not** needed — the legacy lives in its own repo.
+- **`simple-pysim` (the fork)** — keeps the current `setup`/`start`/`update`
+  scripts and `requirements-pysim.txt` unchanged (venv + `pip install` pysim
+  and its dependencies).  Frozen at the final 3.x tree; see the repo split
+  below.
 
 ## Design principles & benefits
 
@@ -505,13 +553,23 @@ The two anchors unblock on different timelines:
    written from the specs.
 3. **Relicense simtrace-analyser** (our own action) — or re-author the ~30
    client-side EF decoders from the specs.  Either clears the second GPL anchor.
-4. **Split the repos at cutover:**
-   - `simple-pysim` (or keep `pysim-simple-server`) — the legacy server that
-     imports pysim; stays **GPL-2.0-or-later**.
-   - `simple` — the new pysim-free server + PWA; licensed **MIT** (or the chosen
-     permissive license).
-5. Update `LICENSE`, `THIRD-PARTY-NOTICES`, `pyproject.toml`, the READMEs and the
-   phase-out notes to match.
+4. **Fork `simple-pysim` at cutover** — a fresh repo from the **final
+   published 3.x tree** (no history; the v1.7.0 consolidation's "fresh move +
+   archive" recipe): `pysim_simple_server/`, the pysim-era `frontend/`, the
+   tests, the scripts, `requirements-pysim.txt`, the GPL `LICENSE`, the
+   READMEs.  It is a **frozen legacy tool** (maintenance mode: little or no
+   update), GPL-2.0-or-later, with a README pointing at `simple` as the
+   maintained tool.  Its PWA keeps the pysim-era UI (the pySim command line,
+   the old status block, "Verify vs pySim").
+5. **`simple` becomes fully pysim-free** — `pysim_simple_server/` is removed
+   (the 12 pysim-free modules move into `simple_server/`), the
+   `requirements-pysim.txt` / pysim install steps are gone, the PWA loses the
+   pySim-specific UI (see the Phase 3c API surface), and the license moves to
+   **MIT** once the simtrace-analyser relicensing lands.  One server, one
+   script set, one API, one PWA code path.  Version 4.0.0.
+6. Update `LICENSE`, `THIRD-PARTY-NOTICES`, `pyproject.toml`, the READMEs, the
+   workspace `AGENTS.md` (which still describes `pysim_simple_server` as the
+   server) and the phase-out notes to match.
 
 ### Notes & caveats
 
@@ -529,16 +587,19 @@ The two anchors unblock on different timelines:
 
 ## Open ideas & questions (running list)
 
-- Cutover strategy: when/how to switch the default entry point from
-  `pysim_simple_server` to `simple_server` (dual-run, then flag-flip, then
-  archive?).
-- Whether to later **move** the 12 pysim-free modules into `simple_server/`
-  (single source) instead of importing from `pysim_simple_server`.
+- **Settled (2026-11-22): fork `simple-pysim` at cutover.**  The legacy is a
+  fresh repo from the final 3.x tree (no history), frozen and little-updated;
+  `simple` drops `pysim_simple_server/` entirely.  This replaces the earlier
+  "both servers + two script sets in one repo" plan — one repo per tool, one
+  script set each, one PWA code path in `simple`.
+- **Settled (2026-11-22): move the 12 pysim-free modules into `simple_server/`
+  at the fork** (so `simple` does not import `pysim_simple_server`).  Until
+  then they stay in `pysim_simple_server/` and `simple_server` imports them.
+- **Settled (2026-11-22): `/api/command` is retired** — no pySim-shell
+  passthrough; dedicated `equip`/`reset` endpoints and the state from
+  `/api/status` (see the Phase 3c API surface).
 - Whether to inline `gsm0338` to reach exactly two dependencies.
-- `/api/command`: provide our own command set, or retire the pySim-shell
-  passthrough in favour of the typed endpoints?
-- Runtime selection: separate `simple-server` script (default) vs `--backend`
-  flag.
+- Runtime selection: the separate `simple-server` console script (default).
 
 ## How to use this file with subagents
 
