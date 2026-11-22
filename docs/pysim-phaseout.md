@@ -372,6 +372,55 @@ building it in the UI).
 These are Phase 3c (server) + cutover (PWA) work; the legacy server and the
 current PWA stay untouched until the cutover.
 
+## PWA information architecture (cutover, user decision 2026-11-22)
+
+The current **Card reader** tab mixes unrelated things: the server connection
+form, the card/reader status, the file manager and three pills.  The
+pysim-free PWA reorganises it:
+
+- **A new top-level "File manager" tab** gathers the filesystem tools as
+  pills: **File manager** (the live two-pane file browser, with its Read raw /
+  Read decoded / Edit raw / Edit decoded actions), **Services** (the
+  SST/UST/IST/EST editor) and **Custom files** (the offline custom-file
+  definitions the tree injects and the scans include).  This keeps the
+  **Profiler** offline-only (Profiles / Card snapshots) and gives the live
+  filesystem tools their own pill pattern instead of squeezing a two-pane
+  live view into the Profiler's list-switch tabs.  The file manager and
+  Services are card-needed views (`data-needs`); Custom files works offline.
+- **"Card reader" is renamed "Status"** and keeps only the server/card-session
+  material:
+  - the server connectivity form + connection status;
+  - the card/reader status block (our own `/api/status` shape);
+  - **Raw APDU** (the card tool that fits nowhere else, with the automatic
+    `91XX` handler);
+  - the state machines: the proactive session mode (idle / polling /
+    FETCH-TR chain / paused on a menu command / test run / BIP session), the
+    selected file/application (our `selection` object), the poll state
+    (enabled/suspended, interval), the card-session state and ATR, the
+    test-run and BIP session state, the SCP80 counter state, and the
+    logical-channel states *if* the transport gains logical channels (the new
+    transport is channel-0 only today);
+  - a **reader selector** when more than one PC/SC reader is present.
+    One reader is active at a time; a switch rebuilds the transport for the
+    chosen reader, **resets the card** and re-initialises it (each reader has
+    its own card, so the previous selection/CAT session/ICCID/caches are
+    meaningless), bumps `card_session`, clears the caches and restarts the
+    presence monitor.  Backed by `GET /api/readers` (`{readers, active}`) +
+    `POST /api/reader {name}`; the switch is refused (409) while a test run,
+    BIP session or RAM operation holds the card.
+- The **pySim command line** pill and **Verify vs pySim** are removed (see the
+  Phase 3c API surface).
+
+The resulting top-level tabs: Remote APDU, SCP80, SCP81, Cards, Profiler
+(Profiles / Card snapshots), **File manager** (File manager / Services /
+Custom files), **Status** (server + card state, Raw APDU, reader selector),
+Simulator.
+
+The status fields come from the extended `/api/status` shape (Phase 3c-3): add
+`proactive_mode`, `poll` (`{enabled, suspended, interval}`), `test_run`,
+`bip`, `scp80` and `selection` to the planned `reader`/`atr`/`card`/`iccid`/
+`connected`/`card_present`/`equipping`/`card_session` set.
+
 ## Goal & scope
 
 - A parallel, self-contained server in `simple_server/` (sibling of
