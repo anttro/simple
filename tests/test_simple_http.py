@@ -345,12 +345,25 @@ def open_file_state(handler=None, **kwargs):
     return state, fake
 
 
+#: A throw-away root for the test-script/-suite stores: a state must never
+#: read or write the user's real ``~/.pysim-simple-server`` files.
+_STORE_ROOT = pathlib.Path(tempfile.mkdtemp(prefix='simple-http-stores-'))
+_STORE_COUNTER = [0]
+
+
+def _store_path(name):
+    _STORE_COUNTER[0] += 1
+    return _STORE_ROOT / ('%s-%d.json' % (name, _STORE_COUNTER[0]))
+
+
 def make_state(**kwargs):
     """A cardless ServerState with the test seams set."""
     kwargs.setdefault('monitor', False)
     kwargs.setdefault('presets', FakePresetStore())
     kwargs.setdefault('readers_fn', lambda: ['Reader A', 'Reader B'])
     kwargs.setdefault('poll_interval', 30)
+    kwargs.setdefault('test_scripts_path', _store_path('test_scripts'))
+    kwargs.setdefault('test_suites_path', _store_path('test_suites'))
     return ServerState(**kwargs)
 
 

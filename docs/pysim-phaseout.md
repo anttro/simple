@@ -937,6 +937,106 @@ test, and the watchdog against a card that really stops answering (the
 30 s step timeout and whether the PC/SC disconnect cancels the blocking
 `SCardTransmit`).
 
+## Phase 3c-3d-2 outcome (the test suites)
+
+`GET/POST /api/test/suites`, `/api/test/suites/update|delete|import`,
+`/api/test/scripts/move|copy` and `/api/test/run {suite_id}` (the load test
+included) are served from `ServerState`; the suite execution is an extension
+of `simple_server/testrun.py` (the same `TestRunner` and the same step loop -
+`run_script` is called per member), and the cross-store rules live in the new
+`simple_server/suites.py`.  The stores stay the pysim-free
+`pysim_simple_server.test_suites` (schema v2) and `test_scripts` (schema v2).
+
+Ported, function for function: `_test_suite_state` (`suite_state`),
+`_test_suite_start` (`TestRunner.start_suite`), `_test_suite_execute_once`
+(`TestRunner.suite_execute_once`), `_test_suite_execute`/
+`_test_suite_worker` (`execute_suite`/`_suite_worker`/`_suite_error`),
+`_test_load_suite_worker` (`_load_suite_worker`), `_test_member_prefix`/
+`_test_member_status` (`member_prefix`/`member_status`),
+`_preset_counters_snapshot` (`preset_counters_snapshot`),
+`_test_suite_run_request` (`ServerState._test_run_suite`),
+`_test_suite_refs_error` (`suites.suite_refs_error`), `_test_script_detach`
+(`suites.script_detach`), `_test_script_move` (`suites.script_move`),
+`reconcile_scripts_to_suites`/`migrate_scripts_to_suites`, and the suite CRUD
+/ move / copy / import handlers (`test_suite_add|update|delete|import`,
+`test_script_move|copy`, and the suite rules of `test_script_add|update|
+delete|import`).
+
+The suite semantics are the v3.22.0 ones: the ordered setup/members/teardown
+by reference, the per-member `on_fail` (`stop` default / `continue`), one card
+session without resets, the teardown always on a stop/failure (skipped only
+when the card is gone), a card session change stopping the suite (flagged),
+the members sharing one SCP80 counter dict, and the report in the run status
+(`suite: {id, name, require_adm, start_reset, reset, started, session_start,
+session_end, session_changed, preset_id, preset, counters_before,
+counters_after, summary, members[...]}`) with per-member status/steps/log
+excerpt (120 lines) and the `counters_before`/`counters_after` per keyset -
+the shape the PWA's report renderer reads.
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **The suite CRUD now enforces the membership.**  A script create requires
+  an existing `suite_id` (400 otherwise) and joins the suite's member list; a
+  delete detaches first; an update with a changed `suite_id` is the move; the
+  scripts import refuses `replace` while a suite holds scripts, takes a
+  target `suite_id`, and the suites import remaps the script ids (a bundle
+  import also reconciles).  A suite create/import may only list scripts that
+  are free: a referenced live script whose `suite_id` names another existing
+  suite is a 400 (`suites.suite_owners_error`; a stale `suite_id` whose suite
+  is gone is the reconciliation's repair, and a bundle's own freshly imported
+  scripts are reconciled into their imported suite).  This supersedes the
+  3c-3d-1 simplification ("a `suite_id` is kept as an opaque field").
+- **The suite/script import modes are validated.**  An unknown `mode` is a
+  400 for both imports (the v3.27.0 rule - never a silent `merge`), and a
+  `mode: "replace"` suites import with nothing importable (every reference
+  unresolvable, or no suite entry at all) is refused instead of silently
+  wiping the store.
+- **The start-of-suite reset calls `ServerState.reset()`** (the physical
+  reset + the build's full re-initialization) instead of the legacy
+  `_card_reset_reinit`, whose extra step probes the pySim-shell command-set
+  registration - there is no shell here.  The order is kept: after the preset
+  and SCP80 checks, before the ADM gate, with the post-reset ICCID compared
+  against the run preset.  The ICCID-mismatch 400 therefore carries only the
+  error text - the legacy attached the `reset` dict to that refusal, this
+  build does not (the reset did run; the request is refused).
+- **The reconciliation is exposed, not auto-run.**  `ServerState.
+  migrate_scripts_to_suites()` (and `reconcile_scripts_to_suites()`) are the
+  startup pass; this build has no entry point yet, so 3d calls the migration
+  before serving (the legacy `__main__` call).  The suites import runs the
+  reconciliation itself, exactly like the legacy.
+- **The test-script/-suite store POSTs are card-free.**  The legacy queued
+  them behind the card lock; the stores touch no card, so a run holding the
+  lock must not freeze the suite editor (the same rationale as the already
+  card-free `/api/test/stop|clear`).
+- **The load-suite worker keeps the legacy's session-change detection.**
+  `suite_execute_once` returns the local `session_changed` flag (set when the
+  member loop observes the change) while the *report* also flags a change
+  observed at the end (`session_end != session_start`); a load iteration whose
+  last member bumped the session is therefore discarded as successful and the
+  next iteration refuses to start on the changed session - the legacy
+  behaviour, pinned by `test_a_session_change_is_an_error`.
+- **`test_script_update` returns `(entry, moved)`** from the state method so
+  the handler can answer `moved: true`; the endpoint adds that field, which
+  the PWA ignores.  A move request that also carries `name`/`steps` applies
+  only the ownership change - the move branch returns the moved entry (the
+  legacy did the same; a caller renames after the move).
+- **One store-failure message for both stores.**  `_test_store_failure`
+  answers `test store write failed: ...` (the legacy said `test script store
+  write failed`); the suites and scripts share the helper.
+- **The shared run log may be full when a suite member starts.**  The member
+  excerpt is now collected in a private per-member buffer (`_member_log`)
+  instead of slicing `_run['log']` from its pre-member length: with the
+  shared buffer already at `TEST_LOG_MAX`, that slice used to be empty and
+  the member's report showed no log (`log_truncated: False`).
+
+Tests: **62 suite tests (`tests/test_simple_suites.py`) + 9 drift
+(`SuiteDriftTests`), 117 runner tests (`tests/test_simple_runner.py`); the
+full suite is 2226**.  Still **no live card has run a suite**: the fake
+transport covers the order/`on_fail`/teardown/counter semantics, and the
+first bench run is the acceptance check - a real `start_reset` (the reset +
+re-init on an eUICC switching its active profile mid-suite), the ADM latch
+across the reset, and the teardown leaving a real card reusable.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs

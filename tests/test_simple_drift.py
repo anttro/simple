@@ -20,7 +20,9 @@ import pathlib
 import contextlib
 import io
 import json
+import shutil
 import sys
+import tempfile
 import threading
 import types
 import unittest
@@ -43,8 +45,12 @@ from simple_server import cat_session as C  # noqa: E402
 from simple_server import ota as O  # noqa: E402
 from simple_server import pbr as PB  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
+from simple_server import suites as S  # noqa: E402
 from simple_server import testrun as T  # noqa: E402
 from simple_server import tr as R  # noqa: E402
+
+from pysim_simple_server import test_scripts as test_scripts_store  # noqa: E402
+from pysim_simple_server import test_suites as test_suites_store  # noqa: E402
 
 
 class SpecTableDriftTests(unittest.TestCase):
@@ -1844,6 +1850,251 @@ class TestRunDriftTests(unittest.TestCase):
         for raw in raws:
             self.assertEqual(T.sms_tpdu_fields(raw),
                              legacy._sms_tpdu_fields(raw), raw.hex())
+
+
+# ---- the test suites (3c-3d-2) ----------------------------------------------
+
+def _store_pair(root):
+    """A (script store, suite store) pair in ``root`` (the legacy's classes -
+    both implementations use ``pysim_simple_server``'s stores)."""
+    script_store = test_scripts_store.TestScriptStore(
+        path=root / 'test_scripts.json')
+    suite_store = test_suites_store.TestSuiteStore(path=root / 'test_suites.json')
+    return script_store, suite_store
+
+
+def _store_view(script_store, suite_store):
+    """A comparable projection of both stores (ids -> names)."""
+    suites = suite_store.list()
+    names = {suite['id']: suite['name'] for suite in suites}
+    script_names = {script['id']: script['name']
+                    for script in script_store.list()}
+    return {
+        'scripts': sorted(
+            (script['name'], names.get(script.get('suite_id') or ''))
+            for script in script_store.list()),
+        'suites': sorted(
+            (suite['name'],
+             tuple((script_names.get(entry['script_id'], '?'), entry['role'],
+                    entry['on_fail']) for entry in suite['scripts']),
+             bool(suite['require_adm']))
+            for suite in suites),
+    }
+
+
+class SuiteDriftTests(unittest.TestCase):
+    """The suite helpers (the report, the reconciliation, move) must behave
+    like the legacy module functions."""
+
+    def setUp(self):
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix='simple-drift-suites-'))
+        self.addCleanup(shutil.rmtree, str(self.root), True)
+
+    def _pair(self, scripts=(), suites=()):
+        self._pair_count = getattr(self, '_pair_count', 0) + 1
+        root = self.root / ('pair-%d' % self._pair_count)
+        root.mkdir()
+        script_store, suite_store = _store_pair(root)
+        added = []
+        for index, steps in enumerate(scripts):
+            added.append(script_store.add({'name': 'script %d' % (index + 1),
+                                           'steps': steps}))
+        for suite in suites:
+            suite_store.add(suite)
+        return script_store, suite_store, added
+
+    def test_the_member_log_cap(self):
+        self.assertEqual(T.TEST_MEMBER_LOG_MAX, legacy._TEST_MEMBER_LOG_MAX)
+
+    def test_the_member_prefix(self):
+        member = {'script_id': 'a' * 32, 'name': 'prepare', 'role': 'setup'}
+        missing = object()
+        saved = legacy._TEST_RUN.get('suite', missing)
+        try:
+            for total in (1, 2, 4):
+                legacy._TEST_RUN['suite'] = {
+                    'members': [dict(member) for _ in range(total)]}
+                for index in range(total):
+                    self.assertEqual(
+                        T.member_prefix(index, total, member),
+                        legacy._test_member_prefix(index, dict(member)),
+                        (index, total))
+            # a nameless member falls back to the id (both sides)
+            anonymous = {'script_id': 'b' * 32, 'role': 'member'}
+            legacy._TEST_RUN['suite'] = {'members': [dict(anonymous)]}
+            self.assertEqual(T.member_prefix(0, 1, anonymous),
+                             legacy._test_member_prefix(0, dict(anonymous)))
+        finally:
+            # restore the module state exactly (the legacy key is normally
+            # present with None; `get` cannot tell that from a missing key)
+            if saved is missing:
+                legacy._TEST_RUN.pop('suite', None)
+            else:
+                legacy._TEST_RUN['suite'] = saved
+
+    def test_the_member_status(self):
+        cases = [
+            ([{'status': 'ok'}], False, False),
+            ([{'status': 'ok'}, {'status': 'warning'}], False, False),
+            ([{'status': 'ok'}, {'status': 'error'}], False, False),
+            ([{'status': 'ok'}], True, False),
+            ([{'status': 'ok'}], False, True),
+            ([], False, False),
+        ]
+        for steps, stopped, stuck in cases:
+            self.assertEqual(T.member_status(steps, stopped, stuck=stuck),
+                             legacy._test_member_status(steps, stopped,
+                                                        stuck=stuck),
+                             (steps, stopped, stuck))
+
+    def test_the_preset_counters_snapshot(self):
+        presets = [
+            {},
+            {'keysets': [{'kic': '15', 'kid': '15', 'cntr': '0000000010'}]},
+            {'keysets': [{'kic': '15', 'kid': '15', 'cntr': '0000000010'},
+                         {'kic': '25', 'kid': '25', 'cntr': '0000000001'}]},
+            # the v3.8.0 flat form
+            {'kic': '15', 'kid': '15', 'counter': '00000000AA'},
+        ]
+        for preset in presets:
+            self.assertEqual(T.preset_counters_snapshot(preset),
+                             legacy._preset_counters_snapshot(preset), preset)
+
+    def test_the_suite_state_shape(self):
+        members = [
+            ({'script_id': 'a' * 32, 'role': 'setup', 'on_fail': 'stop'},
+             {'name': 'prepare'}),
+            ({'script_id': 'b' * 32, 'role': 'member', 'on_fail': 'continue'},
+             {'name': 'one'}),
+        ]
+        suite = {'id': 'c' * 32, 'name': 'suite', 'require_adm': True,
+                 'start_reset': True}
+        preset = {'name': 'card', 'keysets': [{'kic': '15', 'kid': '15',
+                                               'cntr': '0000000010'}]}
+        ours = T.suite_state(suite, members, preset, 'p' * 32, 3,
+                             reset_info={'ok': True, 'ms': 5})
+        theirs = legacy._test_suite_state(suite, members, preset, 'p' * 32, 3,
+                                          reset_info={'ok': True, 'ms': 5})
+        self.assertEqual(set(ours), set(theirs))
+        for key in set(ours) - {'started'}:
+            self.assertEqual(ours[key], theirs[key], key)
+        self.assertIsNone(ours['summary'])
+        self.assertEqual([set(member) for member in ours['members']],
+                         [set(member) for member in theirs['members']])
+        for ours_member, theirs_member in zip(ours['members'],
+                                              theirs['members']):
+            for key in set(ours_member) - {'started', 'finished'}:
+                self.assertEqual(ours_member[key], theirs_member[key], key)
+
+    def test_suite_refs_error(self):
+        script_store, _suite_store, added = self._pair()
+        script_id = script_store.add({'name': 'one',
+                                      'steps': [{'type': 'action',
+                                                 'kind': 'status',
+                                                 'params': {}}]})['id']
+        cases = [
+            None,
+            {},
+            {'scripts': []},
+            {'scripts': [{'script_id': script_id}]},
+            {'scripts': [{'script_id': 'a' * 32}]},
+            {'scripts': [{'script_id': 'a' * 32}, {'script_id': 'b' * 32},
+                         {'script_id': script_id}]},
+            {'scripts': ['nope', {'script_id': ''}]},
+        ]
+        for suite in cases:
+            self.assertEqual(S.suite_refs_error(script_store, suite),
+                             legacy._test_suite_refs_error(script_store, suite),
+                             suite)
+
+    def test_the_reconciliation(self):
+        scenarios = [
+            # one orphan
+            ([1], []),
+            # two orphans and an existing owner suite
+            ([1, 1], [{'name': 'owner'}]),
+            # a duplicate listing, repointed at the explicit owner
+            ([1], [{'name': 'first'}, {'name': 'second'}]),
+        ]
+        for count, suites in scenarios:
+            scripts = [[{'type': 'action', 'kind': 'status', 'params': {}}]
+                       for _ in range(len(count))]
+            with self.subTest(scenario=(len(count), suites)):
+                ours = self._pair(scripts, suites)
+                theirs = self._pair(scripts, suites)
+                if suites and len(suites) == 2 and len(count) == 1:
+                    # list the shared script in both suites, explicit owner 2
+                    for pair in (ours, theirs):
+                        script_store, suite_store, added = pair
+                        names = sorted(suite_store.list(),
+                                       key=lambda suite: suite['name'])
+                        entry = {'script_id': added[0]['id'],
+                                 'role': 'member', 'on_fail': 'stop'}
+                        suite_store.update(names[0]['id'], {'scripts': [entry]})
+                        suite_store.update(names[1]['id'], {'scripts': [entry]})
+                        script_store.update(added[0]['id'],
+                                            {'suite_id': names[1]['id']})
+                got = S.reconcile_scripts_to_suites(ours[0], ours[1])
+                want = legacy.reconcile_scripts_to_suites(theirs[0], theirs[1])
+                self.assertEqual(got, want)
+                self.assertEqual(_store_view(ours[0], ours[1]), _store_view(theirs[0], theirs[1]))
+                # idempotent on both sides
+                self.assertEqual(S.reconcile_scripts_to_suites(ours[0], ours[1]),
+                                 legacy.reconcile_scripts_to_suites(theirs[0],
+                                                                    theirs[1]))
+
+    def test_the_move(self):
+        targets = ['second', 'first', 'missing']
+        for target in targets:
+            with self.subTest(target=target):
+                ours = self._pair([[{'type': 'action', 'kind': 'status',
+                                     'params': {}}]],
+                                  [{'name': 'first'}, {'name': 'second'}])
+                theirs = self._pair([[{'type': 'action', 'kind': 'status',
+                                       'params': {}}]],
+                                    [{'name': 'first'}, {'name': 'second'}])
+                for script_store, suite_store, added in (ours, theirs):
+                    first = suite_store.find_by_name('first')
+                    suite_store.update(first['id'], {'scripts': [
+                        {'script_id': added[0]['id'], 'role': 'member',
+                         'on_fail': 'continue'}]})
+                    script_store.update(added[0]['id'],
+                                        {'suite_id': first['id']})
+                ours_entry, ours_error, ours_status = S.script_move(
+                    ours[0], ours[1], ours[0].get(ours[2][0]['id']),
+                    (ours[1].find_by_name(target) or {}).get('id'))
+                theirs_entry, theirs_error, theirs_status = \
+                    legacy._test_script_move(
+                        theirs[0], theirs[1], theirs[0].get(theirs[2][0]['id']),
+                        (theirs[1].find_by_name(target) or {}).get('id'))
+                self.assertEqual(ours_status, theirs_status)
+                self.assertEqual(ours_error, theirs_error)
+                self.assertEqual(bool(ours_entry), bool(theirs_entry))
+                self.assertEqual(_store_view(ours[0], ours[1]), _store_view(theirs[0], theirs[1]))
+
+    def test_the_move_repairs_a_duplicate_listing(self):
+        scripts = [[{'type': 'action', 'kind': 'status', 'params': {}}]]
+        suites = [{'name': 'first'}, {'name': 'second'}]
+        ours = self._pair(scripts, suites)
+        theirs = self._pair(scripts, suites)
+        for script_store, suite_store, added in (ours, theirs):
+            entry = {'script_id': added[0]['id'], 'role': 'member'}
+            for name in ('first', 'second'):
+                suite = suite_store.find_by_name(name)
+                suite_store.update(suite['id'], {
+                    'scripts': list(suite['scripts']) + [dict(entry)]})
+            script_store.update(added[0]['id'],
+                                {'suite_id': suite_store.find_by_name('first')['id']})
+        target = ours[1].find_by_name('second')['id']
+        other_target = theirs[1].find_by_name('second')['id']
+        ours_entry, ours_error, ours_status = S.script_move(
+            ours[0], ours[1], ours[0].get(ours[2][0]['id']), target)
+        theirs_entry, theirs_error, theirs_status = legacy._test_script_move(
+            theirs[0], theirs[1], theirs[0].get(theirs[2][0]['id']),
+            other_target)
+        self.assertEqual(ours_status, theirs_status)
+        self.assertEqual(ours_error, theirs_error)
+        self.assertEqual(_store_view(ours[0], ours[1]), _store_view(theirs[0], theirs[1]))
 
 
 if __name__ == '__main__':

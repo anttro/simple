@@ -262,6 +262,7 @@ def make_state(testcase, card=None, **kwargs):
     kwargs.setdefault('presets', presets_store.PresetStore(
         path=root / 'card_presets.json'))
     kwargs.setdefault('test_scripts_path', root / 'test_scripts.json')
+    kwargs.setdefault('test_suites_path', root / 'test_suites.json')
     state = ServerState(**kwargs)
     testcase.addCleanup(state.close)
     if card is not None:
@@ -354,6 +355,14 @@ class Harness(object):
 SCRIPT = {'name': 'status poll', 'steps': [dict(STATUS_9K)]}
 
 
+def create_suite(harness, name='a suite', **fields):
+    """Create a suite over the harness (a script needs one to belong to)."""
+    status, body = harness.json('POST', '/api/test/suites',
+                                dict({'name': name}, **fields))
+    assert status == 200, body
+    return body['suite']
+
+
 class ScriptStoreTests(unittest.TestCase):
     def setUp(self):
         self.state = make_state(self)
@@ -369,22 +378,30 @@ class ScriptStoreTests(unittest.TestCase):
         self.assertTrue(body['path'].endswith('test_scripts.json'))
 
     def test_create_update_delete(self):
-        status, body = self.harness.json('POST', '/api/test/scripts', SCRIPT)
+        suite = create_suite(self.harness)
+        status, body = self.harness.json(
+            'POST', '/api/test/scripts', dict(SCRIPT, suite_id=suite['id']))
         self.assertEqual(status, 200)
         self.assertTrue(body['ok'])
         script = body['script']
         self.assertEqual(script['name'], 'status poll')
-        self.assertIsNone(script['suite_id'])
+        self.assertEqual(script['suite_id'], suite['id'])
         sid = script['id']
         status, body = self.harness.json('GET', '/api/test/scripts')
         self.assertEqual([entry['id'] for entry in body['scripts']], [sid])
+        # the create joined the suite's member list
+        status, body = self.harness.json('GET', '/api/test/suites')
+        self.assertEqual([entry['script_id']
+                          for entry in body['suites'][0]['scripts']], [sid])
 
         status, body = self.harness.json(
             'POST', '/api/test/scripts/update',
             {'id': sid, 'script': {'name': 'renamed',
-                                   'steps': SCRIPT['steps']}})
+                                   'steps': SCRIPT['steps'],
+                                   'suite_id': suite['id']}})
         self.assertEqual(status, 200)
         self.assertEqual(body['script']['name'], 'renamed')
+        self.assertNotIn('moved', body)
 
         status, body = self.harness.json(
             'POST', '/api/test/scripts/update',
@@ -396,49 +413,61 @@ class ScriptStoreTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body['removed'])
         self.assertEqual(self.state.test_scripts.list(), [])
+        # ... and the delete detached it from the suite first
+        self.assertEqual(self.state.test_suites.get(suite['id'])['scripts'], [])
 
     def test_an_invalid_script_is_a_400(self):
+        suite = create_suite(self.harness)
         status, body = self.harness.json(
-            'POST', '/api/test/scripts', {'name': 'empty', 'steps': []})
+            'POST', '/api/test/scripts',
+            {'name': 'empty', 'steps': [], 'suite_id': suite['id']})
         self.assertEqual(status, 400)
         self.assertIn('at least one step', body['error'])
         # a step-level validation error comes from the runner's own engine
         status, body = self.harness.json(
             'POST', '/api/test/scripts',
-            {'name': 'bad', 'steps': [{'type': 'action', 'kind': 'nope'}]})
+            {'name': 'bad', 'steps': [{'type': 'action', 'kind': 'nope'}],
+             'suite_id': suite['id']})
         self.assertEqual(status, 400)
         self.assertIn('unknown action kind', body['error'])
         self.assertEqual(self.state.test_scripts.list(), [])
+        self.assertEqual(self.state.test_suites.get(suite['id'])['scripts'], [])
 
     def test_the_create_takes_the_wrapped_form(self):
+        suite = create_suite(self.harness)
         status, body = self.harness.json(
-            'POST', '/api/test/scripts', {'script': SCRIPT})
+            'POST', '/api/test/scripts',
+            {'script': dict(SCRIPT, suite_id=suite['id'])})
         self.assertEqual(status, 200)
         self.assertEqual(body['script']['name'], 'status poll')
 
-    def test_a_suite_id_is_kept_as_an_opaque_field(self):
-        # the membership rules belong to the suite store (3c-3d-2)
-        suite_id = 'a' * 32
-        status, body = self.harness.json(
-            'POST', '/api/test/scripts', dict(SCRIPT, suite_id=suite_id))
-        self.assertEqual(status, 200)
-        self.assertEqual(body['script']['suite_id'], suite_id)
+    def test_a_create_needs_an_existing_suite(self):
+        # a script belongs to exactly one suite (the suite is the root object)
+        for payload in (SCRIPT, dict(SCRIPT, suite_id='a' * 32)):
+            status, body = self.harness.json('POST', '/api/test/scripts',
+                                             payload)
+            self.assertEqual(status, 400, payload)
+            self.assertIn('suite', body['error'])
+        self.assertEqual(self.state.test_scripts.list(), [])
 
-    def test_an_update_does_not_move_the_script(self):
-        _status, body = self.harness.json('POST', '/api/test/scripts',
-                                          dict(SCRIPT, suite_id='b' * 32))
+    def test_an_update_keeps_the_ownership(self):
+        suite = create_suite(self.harness)
+        _status, body = self.harness.json(
+            'POST', '/api/test/scripts', dict(SCRIPT, suite_id=suite['id']))
         sid = body['script']['id']
         status, body = self.harness.json(
             'POST', '/api/test/scripts/update',
-            {'id': sid, 'script': dict(SCRIPT, suite_id='c' * 32)})
+            {'id': sid, 'script': dict(SCRIPT, suite_id=suite['id'])})
         self.assertEqual(status, 200)
-        self.assertEqual(body['script']['suite_id'], 'b' * 32)
+        self.assertEqual(body['script']['suite_id'], suite['id'])
+        self.assertNotIn('moved', body)
 
     def test_the_import_merges_and_reports_bad_entries(self):
+        suite = create_suite(self.harness)
         status, body = self.harness.json(
             'POST', '/api/test/scripts/import',
             {'scripts': [SCRIPT, {'name': 'empty', 'steps': []}],
-             'mode': 'merge'})
+             'mode': 'merge', 'suite_id': suite['id']})
         self.assertEqual(status, 200)
         self.assertTrue(body['ok'])
         self.assertEqual(body['added'], 1)
@@ -446,12 +475,25 @@ class ScriptStoreTests(unittest.TestCase):
         self.assertTrue(body['errors'])
         self.assertNotIn('added_ids', body)
         self.assertEqual(len(self.state.test_scripts.list()), 1)
+        # the imported scripts joined the target suite's member list
+        self.assertEqual(len(self.state.test_suites.get(suite['id'])['scripts']),
+                         1)
 
     def test_the_import_validates_the_list(self):
         status, body = self.harness.json(
             'POST', '/api/test/scripts/import', {'scripts': 'nope'})
         self.assertEqual(status, 400)
         self.assertIn('list', body['error'])
+
+    def test_a_misspelled_import_mode_is_a_400(self):
+        # the repo rule (v3.27.0): an unknown mode is refused, never silently
+        # treated as merge (a "replace" typo must not turn into a merge)
+        status, body = self.harness.json(
+            'POST', '/api/test/scripts/import',
+            {'scripts': [dict(SCRIPT)], 'mode': 'Merge'})
+        self.assertEqual(status, 400)
+        self.assertIn('mode', body['error'])
+        self.assertEqual(self.state.test_scripts.list(), [])
 
 
 class KeptEntryTests(unittest.TestCase):
@@ -529,8 +571,10 @@ class RunEndpointTests(unittest.TestCase):
         state.transport.handler.status('9000')
         harness = Harness(state)
         self.addCleanup(harness.close)
+        suite = create_suite(harness)
         _status, body = harness.json('POST', '/api/test/scripts',
-                                     RUN_STATUS_SCRIPT)
+                                     dict(RUN_STATUS_SCRIPT,
+                                          suite_id=suite['id']))
         sid = body['script']['id']
         status, body = harness.json('POST', '/api/test/run',
                                     {'script_id': sid})
@@ -550,14 +594,14 @@ class RunEndpointTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn('script', body['error'])
 
-    def test_a_suite_request_is_refused_with_a_reason(self):
+    def test_an_unknown_suite_is_a_404(self):
         state = make_state(self, Card())
         harness = Harness(state)
         self.addCleanup(harness.close)
         status, body = harness.json('POST', '/api/test/run',
                                     {'suite_id': 'a' * 32})
-        self.assertEqual(status, 400)
-        self.assertIn('3c-3d-2', body['error'])
+        self.assertEqual(status, 404)
+        self.assertIn('suite', body['error'])
 
     def test_the_iterations_are_validated(self):
         state = make_state(self, Card())
@@ -631,6 +675,31 @@ class BlockedPathTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertLess(elapsed, 2.0)
         self.assertTrue(state.test_runner.snapshot()['stop'])
+
+    def test_the_store_posts_answer_while_the_card_lock_is_held(self):
+        # the stores touch no card, so the suite editor must stay usable while
+        # a run holds the lock inside a step (CARD_FREE_POST)
+        state = make_state(self, Card())
+        suite = state.test_suites.add({'name': 'alfa'})
+        harness = Harness(state)
+        self.addCleanup(harness.close)
+        state.card_lock.acquire()
+        try:
+            started = time.time()
+            status, body = harness.json(
+                'POST', '/api/test/scripts',
+                {'name': 'one', 'suite_id': suite['id'],
+                 'steps': [dict(STATUS_9K)]})
+            script_status = status
+            status, suite_body = harness.json('POST', '/api/test/suites',
+                                              {'name': 'beta'})
+            suite_status = status
+            elapsed = time.time() - started
+        finally:
+            state.card_lock.release()
+        self.assertEqual(script_status, 200, body)
+        self.assertEqual(suite_status, 200, suite_body)
+        self.assertLess(elapsed, 2.0)
 
     def test_the_guard_is_off_without_a_run(self):
         state = make_state(self, Card())
@@ -1532,9 +1601,10 @@ class AdmGateTests(unittest.TestCase):
         preset = state.presets.add(preset_fields())      # no ADM key
         harness = Harness(state)
         self.addCleanup(harness.close)
+        suite = create_suite(harness)
         status, body = harness.json(
             'POST', '/api/test/scripts',
-            dict(RUN_STATUS_SCRIPT, require_adm=True))
+            dict(RUN_STATUS_SCRIPT, require_adm=True, suite_id=suite['id']))
         self.assertEqual(status, 200, body)
         sid = body['script']['id']
         status, body = harness.json('POST', '/api/test/run',

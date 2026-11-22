@@ -22,12 +22,13 @@ analysis and the single-card RAM installs ``POST /api/cap-info``,
 ``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a), the
 ``POST /api/cap-compat``, ``POST /api/tar-probe`` and the batch install
 ``POST /api/ram-batch/start|stop|clear`` + ``GET /api/ram-batch/status``
-(3c-3c-2b) and the test-script store + the single-script run
-``GET/POST /api/test/scripts`` + ``/api/test/scripts/update|delete|import``,
-``POST /api/test/run|stop|clear`` and ``GET /api/test/status`` (3c-3d-1, with
-the run engine in :mod:`simple_server.testrun`).  Every other API path is a
-404 until the remaining 3c-3c endpoints (eSIM/SCP81/netsim), the test suites
-(3c-3d-2) and 3d land.
+(3c-3c-2b) and the test-script/suite stores and the runs
+``GET/POST /api/test/scripts|suites`` + ``/api/test/scripts|suites/update|
+delete|import`` + ``/api/test/scripts/move|copy``, ``POST /api/test/run|stop|
+clear`` and ``GET /api/test/status`` (3c-3d-1 and 3c-3d-2, with the run engine
+in :mod:`simple_server.testrun` and the cross-store suite rules in
+:mod:`simple_server.suites`).  Every other API path is a 404 until the
+remaining 3c-3c endpoints (eSIM/SCP81/netsim) and 3d land.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -65,6 +66,7 @@ POLL INTERVAL / POLLING OFF wishes, adopted by the poll); TS 102 221 §13.2
 §11.1.1.4 (the FCP ``8B`` EF.ARR reference); TS 31.102 §4.4.2.1 (EF.PBR).
 """
 
+import copy
 import json
 import logging
 import os
@@ -76,6 +78,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
 from pysim_simple_server import test_scripts as test_scripts_store
+from pysim_simple_server import test_suites as test_suites_store
 from pysim_simple_server import testscript
 
 from simple_server import bip as bip_module
@@ -88,6 +91,7 @@ from simple_server import ota
 from simple_server import pbr as pbr_module
 from simple_server import scp80
 from simple_server import sms
+from simple_server import suites as suites_module
 from simple_server import testrun
 from simple_server import util
 from simple_server.transport import PcscLink, ReaderError
@@ -142,10 +146,10 @@ CLOSE_LOCK_TIMEOUT = 2.0
 CARD_FREE_GET = frozenset([
     '/api/status', '/api/version', '/api/readers', '/api/arr', '/api/pbr',
     '/api/presets', '/api/ram-batch/status',
-    # the test runner's state and the script store: the PWA polls the status
-    # every 2 s while a run owns the card (the run holds the lock inside a
-    # step), and the store/index are card-free
-    '/api/test/status', '/api/test/scripts',
+    # the test runner's state and the script/suite stores: the PWA polls the
+    # status every 2 s while a run owns the card (the run holds the lock
+    # inside a step), and the stores/indexes are card-free
+    '/api/test/status', '/api/test/scripts', '/api/test/suites',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
@@ -154,9 +158,18 @@ CARD_FREE_GET = frozenset([
 #: analysis with its progress poll.  ``/api/ram-batch/stop`` only sets a flag
 #: and must work while the batch worker holds the card lock inside an install.
 #: ``/api/test/stop``/``/api/test/clear`` are the same for a run (the runner
-#: holds the card lock inside a step, so Stop must not queue behind it).
-CARD_FREE_POST = frozenset(['/api/cap-info', '/api/ram-batch/stop',
-                            '/api/test/stop', '/api/test/clear'])
+#: holds the card lock inside a step, so Stop must not queue behind it).  The
+#: test-script/-suite store mutations touch no card: the editor must stay
+#: usable while a run owns the card (the legacy queued them behind the lock,
+#: an unnecessary wait).
+CARD_FREE_POST = frozenset([
+    '/api/cap-info', '/api/ram-batch/stop', '/api/test/stop', '/api/test/clear',
+    '/api/test/scripts', '/api/test/scripts/update',
+    '/api/test/scripts/delete', '/api/test/scripts/import',
+    '/api/test/scripts/move', '/api/test/scripts/copy',
+    '/api/test/suites', '/api/test/suites/update', '/api/test/suites/delete',
+    '/api/test/suites/import',
+])
 
 #: The EF.ARR copies an FCP ``8B`` security attribute can reference (the legacy
 #: ``ARR_READ_PATHS``, label for label): the MF copy, the DF.TELECOM/DF.GSM
@@ -485,7 +498,8 @@ class ServerState(object):
                  sms_oa='12345', sms_sc='12345678912',
                  auto_equip=True, monitor=True, version=VERSION,
                  presence_install=None, presence_remove=None,
-                 readers_fn=None, test_scripts=None, test_scripts_path=None):
+                 readers_fn=None, test_scripts=None, test_scripts_path=None,
+                 test_suites=None, test_suites_path=None):
         self.version = version
         self.web_dir = web_dir
         self.terminal_profile = (terminal_profile or '')
@@ -521,8 +535,17 @@ class ServerState(object):
         else:
             self.test_scripts = test_scripts_store.TestScriptStore(
                 path=test_scripts_path, validator=testrun.validate_script)
-        # The single-script run: the per-state run state, the worker and the
-        # stuck-card watchdog (the legacy ``_TEST_RUN``/``_TEST_THREAD``).
+        # The test-suite store (the ordered member lists).  The suite holds
+        # references, so it needs the script store - the cross-store rules live
+        # in :mod:`simple_server.suites`.
+        if test_suites is not None:
+            self.test_suites = test_suites
+        else:
+            self.test_suites = test_suites_store.TestSuiteStore(
+                path=test_suites_path)
+        # The single-script run and the suite runs: the per-state run state,
+        # the workers and the stuck-card watchdog (the legacy
+        # ``_TEST_RUN``/``_TEST_THREAD``).
         self.test_runner = testrun.TestRunner(self)
         # The SMS-PP download addresses (the legacy ``server.sms_oa``/
         # ``sms_sc`` CLI options).
@@ -2892,7 +2915,7 @@ class ServerState(object):
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
 
-    # ---- the test scripts and the single-script run (3c-3d-1) --------------
+    # ---- the test scripts, the suites and the runs (3c-3d-1/2) ------------
 
     def abort_card_transport(self):
         """Try to cancel a blocking ``send_apdu``; the link is marked stale.
@@ -2936,21 +2959,34 @@ class ServerState(object):
         return info
 
     def test_script_add(self, body):
-        """``POST /api/test/scripts``: create one script.
+        """``POST /api/test/scripts``: create one script in its suite.
 
-        The body is ``{name, steps, suite_id?, require_adm?}`` or
-        ``{script: {...}}``.  The store validates with the runner's engine
+        The body is ``{name, steps, suite_id, require_adm?}`` or
+        ``{script: {...}}``.  A script belongs to exactly one suite (the suite
+        is the root object): the ``suite_id`` must name an existing suite
+        (400 otherwise) and the suite's member list gains the new script.  The
+        store validates with the runner's engine
         (:class:`~pysim_simple_server.test_scripts.TestScriptError` -> the
-        dispatch's 400).  The suite membership rules (a suite must exist, a
-        create joins its member list) belong to the suite store (3c-3d-2): a
-        ``suite_id`` is stored as the entry's opaque field and a store that
-        never validates it (no suites yet) never refuses it.
+        dispatch's 400).
         """
         script = (body.get('script') if isinstance(body.get('script'), dict)
                   else body)
+        suite_id = str((script or {}).get('suite_id') or '').strip().lower()
+        suite = self.test_suites.get(suite_id) if suite_id else None
+        if suite is None:
+            raise ValueError('a test script belongs to a suite: pass the '
+                             'suite_id of an existing suite')
         try:
             stored = self.test_scripts.add(script)
         except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        # The suite owns the member list (order, role, on_fail): attach.
+        try:
+            entries = list(suite['scripts']) + [
+                {'script_id': stored['id'], 'role': 'member',
+                 'on_fail': 'stop'}]
+            self.test_suites.update(suite['id'], {'scripts': entries})
+        except (test_suites_store.TestSuiteError, OSError) as exc:
             raise self._test_store_failure(exc) from exc
         return {'ok': True, 'script': stored}
 
@@ -2958,20 +2994,39 @@ class ServerState(object):
         """``POST /api/test/scripts/update``: replace name/steps/require_adm.
 
         Returns ``None`` for an unknown id (the endpoint's 404).  A changed
-        ``suite_id`` is the move operation and is ignored until the suites
-        land (3c-3d-2); an unchanged one keeps its value.
+        ``suite_id`` is the **move** operation: both stores are updated in
+        the one request (:func:`simple_server.suites.script_move`), so a
+        duplicate listing or a stale owner is repaired; an unchanged
+        ``suite_id`` keeps its value.  Returns ``(entry, moved)``.
         """
         fields = (body.get('script') if isinstance(body.get('script'), dict)
                   else body)
+        sid = body.get('id')
+        current = self.test_scripts.get(sid)
+        new_suite = fields.get('suite_id') if isinstance(fields, dict) else None
+        if current is not None and new_suite not in (None, '',
+                                                     current.get('suite_id')):
+            entry, error, status = suites_module.script_move(
+                self.test_scripts, self.test_suites, current, new_suite)
+            if entry is None:
+                raise suites_module.MoveError(error, status)
+            return entry, True
         fields = {key: value for key, value in (fields or {}).items()
                   if key not in ('id', 'suite_id')}
         try:
-            return self.test_scripts.update(body.get('id'), fields)
+            return self.test_scripts.update(sid, fields), False
         except OSError as exc:
             raise self._test_store_failure(exc) from exc
 
     def test_script_delete(self, body):
-        """``POST /api/test/scripts/delete``: the legacy ``{ok, removed}``."""
+        """``POST /api/test/scripts/delete``: the legacy ``{ok, removed}``.
+
+        The owning suite's member list is the only reference, so the script is
+        detached from it first - a delete never leaves a dangling id.
+        """
+        current = self.test_scripts.get(body.get('id'))
+        if current is not None:
+            suites_module.script_detach(self.test_suites, current)
         try:
             removed = self.test_scripts.remove(body.get('id'))
         except OSError as exc:
@@ -2983,40 +3038,306 @@ class ServerState(object):
 
         The legacy shape (an old localStorage export included) is accepted;
         invalid entries are reported in ``errors`` instead of failing the
-        whole import.  The suite guards of the legacy (a ``replace`` is
-        refused while a suite lists scripts, a target ``suite_id`` attaches
-        the imported scripts) need the suite store and land with it
-        (3c-3d-2).
+        whole import.  A ``replace`` is refused while any suite lists scripts
+        (the wipes would leave every member list dangling), a target
+        ``suite_id`` attaches the imported scripts to that suite's member
+        list, and a misspelled ``mode`` is a 400 - never a silent merge (the
+        v3.27.0 rule).
         """
         items = body.get('scripts')
         if not isinstance(items, list) or len(items) > 1000:
             raise ValueError('scripts must be a list of at most 1000 entries')
-        mode = (body.get('mode') if body.get('mode') in ('merge', 'replace')
-                else 'merge')
+        raw_mode = body.get('mode')
+        if raw_mode is not None and raw_mode not in ('merge', 'replace'):
+            raise ValueError("mode must be 'merge' or 'replace'")
+        mode = raw_mode or 'merge'
+        if mode == 'replace':
+            holders = [suite for suite in self.test_suites.list()
+                       if suite['scripts']]
+            if holders:
+                raise ValueError(
+                    'replace would leave %d suite(s) with dangling script '
+                    'references - delete their scripts first, or import with '
+                    'merge' % len(holders))
+        target = (self.test_suites.get(body.get('suite_id'))
+                  if body.get('suite_id') else None)
+        if body.get('suite_id') and target is None:
+            raise ValueError('unknown target suite')
         try:
-            result = self.test_scripts.import_scripts(items, mode)
+            result = self.test_scripts.import_scripts(
+                items, mode, suite_id=target['id'] if target else None)
         except OSError as exc:
             raise self._test_store_failure(exc) from exc
+        if target is not None and result.get('added_ids'):
+            try:
+                entries = list(target['scripts']) + [
+                    {'script_id': sid, 'role': 'member', 'on_fail': 'stop'}
+                    for sid in result['added_ids']]
+                self.test_suites.update(target['id'], {'scripts': entries})
+            except (test_suites_store.TestSuiteError, OSError) as exc:
+                raise self._test_store_failure(exc) from exc
         result.pop('added_ids', None)
         result['ok'] = True
         return result
 
+    def test_script_move(self, body):
+        """``POST /api/test/scripts/move``: hand a script to another suite.
+
+        The cross-store operation (:func:`simple_server.suites.script_move`):
+        detach from every listing suite, attach to the target, keep the
+        ``on_fail``.  Returns the moved entry.
+        """
+        current = self.test_scripts.get(body.get('id'))
+        if current is None:
+            raise suites_module.MoveError('unknown test script id', 404)
+        entry, error, status = suites_module.script_move(
+            self.test_scripts, self.test_suites, current, body.get('suite_id'))
+        if entry is None:
+            raise suites_module.MoveError(error, status)
+        return entry
+
+    def test_script_copy(self, body):
+        """``POST /api/test/scripts/copy``: duplicate a script into a suite.
+
+        The copy carries the source's ``require_adm`` and steps under a new
+        name (``<name> (copy)`` unless given) and joins the target's member
+        list as a ``member``.  Returns the created entry.
+        """
+        current = self.test_scripts.get(body.get('id'))
+        if current is None:
+            raise suites_module.MoveError('unknown test script id', 404)
+        target = self.test_suites.get(body.get('suite_id'))
+        if target is None:
+            raise ValueError('unknown target suite')
+        name = (str(body.get('name') or '').strip()
+                or (current['name'] + ' (copy)'))
+        try:
+            entry = self.test_scripts.add(
+                {'name': name, 'suite_id': target['id'],
+                 'require_adm': current.get('require_adm', False),
+                 'steps': copy.deepcopy(current['steps'])})
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        try:
+            entries = list(target['scripts']) + [
+                {'script_id': entry['id'], 'role': 'member',
+                 'on_fail': 'stop'}]
+            self.test_suites.update(target['id'], {'scripts': entries})
+        except (test_suites_store.TestSuiteError, OSError) as exc:
+            raise self._test_store_failure(exc) from exc
+        return entry
+
     @staticmethod
     def _test_store_failure(exc):
-        """A test-script store I/O failure (the handler answers a JSON 500)."""
-        return RuntimeError('test script store write failed: %s' % exc)
+        """A test-script/test-suite store I/O failure (a JSON 500).
+
+        One message serves both stores (the legacy named the script store;
+        the suites use the same helper).
+        """
+        return RuntimeError('test store write failed: %s' % exc)
+
+    def migrate_scripts_to_suites(self):
+        """Run the suite ownership migration/reconciliation (the startup pass).
+
+        The entry point (Phase 3d) calls this once before serving: it attaches
+        the pre-suite scripts (:mod:`simple_server.suites`).  Idempotent.
+        """
+        return suites_module.migrate_scripts_to_suites(self.test_scripts,
+                                                       self.test_suites)
+
+    def reconcile_scripts_to_suites(self):
+        """Repair the script/suite ownership invariant; returns the count."""
+        return suites_module.reconcile_scripts_to_suites(self.test_scripts,
+                                                         self.test_suites)
+
+    # ---- the test suites -------------------------------------------------
+
+    def test_suites_info(self):
+        """``GET /api/test/suites``: the store info plus every suite."""
+        info = dict(self.test_suites.info())
+        info['suites'] = self.test_suites.list()
+        return info
+
+    def test_suite_add(self, body):
+        """``POST /api/test/suites``: create one suite.
+
+        The body is ``{name, scripts?, require_adm?, start_reset?}`` or
+        ``{suite: {...}}``.  Every member reference must name a stored script
+        before the suite is written (a suite holds references) and must not
+        already belong to another existing suite (the one-owner invariant:
+        ownership changes through the move/copy endpoints - a reconciled
+        dangling ``suite_id`` is not a conflict).
+        """
+        suite = (body.get('suite') if isinstance(body.get('suite'), dict)
+                 else body)
+        error = suites_module.suite_refs_error(self.test_scripts, suite)
+        if error:
+            raise ValueError(error)
+        error = suites_module.suite_owners_error(
+            self.test_scripts, self.test_suites, suite)
+        if error:
+            raise ValueError(error)
+        try:
+            stored = self.test_suites.add(suite)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        return {'ok': True, 'suite': stored}
+
+    def test_suite_update(self, body):
+        """``POST /api/test/suites/update``: replace name/require_adm/... .
+
+        Returns ``None`` for an unknown id (the endpoint's 404).  The member
+        set changes through the script endpoints (add/move/delete); the one
+        repair exception is **pruning a dangling reference** - a member whose
+        script is already gone (no script endpoint can reach it any more, so
+        the editor's row Delete prunes it).  Adding a script, or dropping a
+        live one, stays refused.
+        """
+        fields = (body.get('suite') if isinstance(body.get('suite'), dict)
+                  else body)
+        current = self.test_suites.get(body.get('id'))
+        if current is None:
+            return None
+        if isinstance(fields, dict) and 'scripts' in fields:
+            old_ids = [entry['script_id'] for entry in current['scripts']]
+            new = fields['scripts'] if isinstance(fields['scripts'], list) else []
+            new_ids = [str((entry or {}).get('script_id') or '').strip().lower()
+                       for entry in new if isinstance(entry, dict)]
+            if set(new_ids) != set(old_ids):
+                removed = set(old_ids) - set(new_ids)
+                added = set(new_ids) - set(old_ids)
+                if added or any(self.test_scripts.get(sid) is not None
+                                for sid in removed):
+                    raise ValueError(
+                        'the member set changes through the script endpoints '
+                        '(add/move/delete), not by editing the suite')
+        error = suites_module.suite_refs_error(self.test_scripts, fields)
+        if error:
+            raise ValueError(error)
+        try:
+            return self.test_suites.update(body.get('id'), fields)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+
+    def test_suite_delete(self, body):
+        """``POST /api/test/suites/delete``: the legacy ``{ok, removed}``.
+
+        A suite that still holds scripts is refused (400): move or delete them
+        first, so no script is left owned by a nonexistent suite.
+        """
+        current = self.test_suites.get(body.get('id'))
+        if current is not None and current['scripts']:
+            raise ValueError('the suite still holds %d script(s): move or '
+                             'delete them first' % len(current['scripts']))
+        try:
+            removed = self.test_suites.remove(body.get('id'))
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        return {'ok': True, 'removed': bool(removed)}
+
+    def test_suite_import(self, body):
+        """``POST /api/test/suites/import``: the bundle (scripts + suites).
+
+        Scripts are imported first (always ``merge``: a replace would wipe
+        every other suite's scripts), the suite references are rewritten
+        through the store's id map, a suite whose references stay unresolvable
+        is skipped with a report line, and the ownership reconciliation runs
+        afterwards - so ``mode: "replace"`` adopts the wiped suites' scripts
+        into "Imported scripts".  A misspelled ``mode`` is a 400 (never a
+        silent merge), a reference the bundle does not bring must not already
+        belong to another suite (the one-owner invariant - the bundle's own
+        scripts are the reconciliation's job), and a ``replace`` with nothing
+        importable is refused instead of wiping the store.
+        """
+        suites_in = body.get('suites')
+        if not isinstance(suites_in, list) or len(suites_in) > 500:
+            raise ValueError('suites must be a list of at most 500 entries')
+        scripts_in = body.get('scripts')
+        if scripts_in is not None and (not isinstance(scripts_in, list)
+                                       or len(scripts_in) > 1000):
+            raise ValueError('scripts must be a list of at most 1000 entries')
+        raw_mode = body.get('mode')
+        if raw_mode is not None and raw_mode not in ('merge', 'replace'):
+            raise ValueError("mode must be 'merge' or 'replace'")
+        mode = raw_mode or 'merge'
+        # The one-owner rule for the references the bundle does **not** bring:
+        # a suite may not list a live script another suite owns.  The bundle's
+        # own scripts are new in this store (their suite_id still names the
+        # bundle's suites) - the member list is authoritative for them, so
+        # they are the reconciliation's job, not a refusal.
+        bundle_ids = {str(entry.get('id') or '').strip().lower()
+                      for entry in (scripts_in or [])
+                      if isinstance(entry, dict)}
+        for suite in suites_in:
+            if not isinstance(suite, dict):
+                continue
+            error = suites_module.suite_owners_error(
+                self.test_scripts, self.test_suites, suite,
+                ignore=bundle_ids)
+            if error:
+                raise ValueError(error)
+        script_result = {'added': 0, 'skipped': 0, 'errors': [], 'id_map': {}}
+        if scripts_in:
+            try:
+                script_result = self.test_scripts.import_scripts(scripts_in,
+                                                                'merge')
+            except OSError as exc:
+                raise self._test_store_failure(exc) from exc
+        id_map = script_result.get('id_map') or {}
+        mapped, ref_errors = [], []
+        for index, suite in enumerate(suites_in):
+            if not isinstance(suite, dict):
+                continue
+            entry = copy.deepcopy(suite)
+            for script_entry in entry.get('scripts') or []:
+                if isinstance(script_entry, dict):
+                    sid = str(script_entry.get('script_id') or '').strip().lower()
+                    script_entry['script_id'] = id_map.get(sid, sid)
+            missing = [script_entry['script_id']
+                       for script_entry in (entry.get('scripts') or [])
+                       if isinstance(script_entry, dict)
+                       and not self.test_scripts.get(script_entry['script_id'])]
+            if missing:
+                ref_errors.append('%s: unknown script(s) %s'
+                                  % (entry.get('name') or ('#' + str(index + 1)),
+                                     ', '.join(missing[:3])))
+                continue
+            mapped.append(entry)
+        if mode == 'replace' and not mapped:
+            # A replace with nothing importable would silently wipe the store
+            # (the suites were all skipped or every reference was missing).
+            raise ValueError(
+                'nothing to import: a replace would wipe the suite store'
+                + (': ' + '; '.join(ref_errors[:3]) if ref_errors else ''))
+        try:
+            result = self.test_suites.import_suites(mapped, mode)
+        except OSError as exc:
+            raise self._test_store_failure(exc) from exc
+        # The ownership invariant: the imported scripts carry the *old* suite
+        # id, and a `replace` wiped the suites that owned the rest - the
+        # reconciliation re-points the listed scripts and adopts the newly
+        # unreferenced ones into "Imported scripts".
+        suites_module.reconcile_scripts_to_suites(self.test_scripts,
+                                                  self.test_suites)
+        result['scripts'] = {'added': script_result.get('added', 0),
+                             'skipped': script_result.get('skipped', 0)}
+        result['skipped'] = result.get('skipped', 0) + len(ref_errors)
+        result['errors'] = (result.get('errors', []) + ref_errors)[:10]
+        result['ok'] = True
+        return result
 
     def test_run(self, body):
-        """``POST /api/test/run``: validate and start a single-script run.
+        """``POST /api/test/run``: validate and start a run.
 
-        The body carries the script inline (``script``, the PWA's edited copy)
-        or a stored ``script_id``, the optional ``preset_id`` (or an inline
-        ``preset`` for API callers) and ``iterations`` for a load test.  Every
-        precondition is checked before the card is touched: the busy guard
-        (a run or a batch), the iteration count, the script validation, the
-        preset resolution, the SCP80 keyset precondition and the ADM gate.
-        The ADM flag rides **inside** the script object (``require_adm``) -
-        the PWA sends it there and a stored script carries it.
+        The body carries either a **suite** (``suite_id`` - every member in
+        order) or one script inline (``script``, the PWA's edited copy) or by
+        ``script_id``, the optional ``preset_id`` (or an inline ``preset`` for
+        API callers) and ``iterations`` for a load test.  Every precondition is
+        checked before the card is touched: the busy guard (a run or a batch),
+        the iteration count, the script validation, the preset resolution, the
+        SCP80 keyset precondition and the ADM gate.  The ADM flag rides
+        **inside** the script object (``require_adm``); a suite's ADM need is
+        its own flag or any member's.
 
         Raises :class:`~simple_server.testrun.TestRunBusy` (409),
         :class:`~simple_server.testrun.TestRunNotFound` (404),
@@ -3032,10 +3353,9 @@ class ServerState(object):
             raise testrun.TestRunBusy('a batch install is running - stop it '
                                       'first')
         iterations = testrun.load_iterations(body)
-        if str(body.get('suite_id') or '').strip():
-            raise testrun.TestRunError(
-                'test suites are not available in this server build yet '
-                '(Phase 3c-3d-2): run one script (script or script_id)')
+        suite_id = str(body.get('suite_id') or '').strip().lower()
+        if suite_id:
+            return self._test_run_suite(suite_id, body, iterations)
         script_raw, script_id, error = self._run_script_from_body(body)
         if error:
             raise testrun.TestRunNotFound(error)
@@ -3067,6 +3387,100 @@ class ServerState(object):
             raise RuntimeError(
                 'could not start the test run: %s' % exc) from exc
         return runner.snapshot()
+
+    def _test_run_suite(self, suite_id, body, iterations=1):
+        """Start a **suite** run: the members, the preset, the ADM gate, then
+        hand over to the suite runner (one card session, no resume).
+
+        The suite's ordered member list is resolved and every script
+        re-validated here (a hand edit is reported before anything is sent),
+        the SCP80 precondition covers **all** members' steps, the optional
+        ``start_reset`` runs the physical reset + full re-initialization
+        *after* those checks (a run that cannot start must not reset the card)
+        and *before* the ADM gate (the session changes, so the ADM is
+        re-verified for the new one), and the post-reset ICCID must still
+        match the run's preset.
+        """
+        suite = self.test_suites.get(suite_id)
+        if suite is None:
+            raise testrun.TestRunNotFound('unknown test suite id')
+        if not suite['scripts']:
+            raise testrun.TestRunError('the suite has no scripts')
+        members = []
+        missing = []
+        for entry in suite['scripts']:
+            stored = self.test_scripts.get(entry['script_id'])
+            if stored is None:
+                missing.append(entry['script_id'])
+                continue
+            try:
+                # the store validated at save; a hand edit (or a tightened
+                # rule) is reported here, before anything is sent
+                script = testscript.normalise_script(stored,
+                                                     testrun.command_type)
+            except testscript.ScriptError as exc:
+                raise testrun.TestRunError(
+                    'script %r does not validate: %s'
+                    % (stored.get('name') or stored['id'], exc))
+            script['require_adm'] = bool(stored.get('require_adm'))
+            members.append((entry, script))
+        if missing:
+            raise testrun.TestRunError(
+                'the suite references unknown test script(s): %s'
+                % ', '.join(missing[:3]))
+        preset, preset_error = self._run_preset_from_body(body)
+        if preset_error:
+            raise testrun.TestRunError(preset_error)
+        steps = [step for _entry, script in members for step in script['steps']]
+        if any(step['type'] == 'action' and step['kind'] == 'scp80'
+               for step in steps):
+            error = testrun.preset_error({'steps': steps}, preset)
+            if error:
+                raise testrun.TestRunError(error)
+        reset_info = None
+        if suite.get('start_reset'):
+            # A suite may start with a card reset: the physical reset + the
+            # full re-initialization, so its scripts run against a freshly
+            # initialized card.  This runs after the preset checks - a run
+            # that cannot start must not reset the card - and before the ADM
+            # gate: the card session changes, so the ADM latch is re-verified
+            # against the post-reset card, and the ICCID must still match the
+            # run's preset (a reset can switch the active profile on an
+            # eUICC).
+            if not self.connected or self.cat is None:
+                raise testrun.TestRunError('start_reset: no card is equipped')
+            started = time.time()
+            try:
+                self.reset()
+            except Exception as exc:
+                raise RuntimeError(
+                    'start_reset: the card re-initialization failed: %s'
+                    % exc) from exc
+            elapsed_ms = int((time.time() - started) * 1000)
+            reset_info = {'ok': True, 'iccid': self.iccid, 'ms': elapsed_ms}
+            log.info('SUITE-RESET: re-initialized in %dms, ICCID %s',
+                     elapsed_ms, self.iccid or '(unreadable)')
+            want = presets_store.normalize_iccid((preset or {}).get('iccid'))
+            got = presets_store.normalize_iccid(self.iccid)
+            if want and got and want != got:
+                raise testrun.TestRunError(
+                    'start_reset: the card reports ICCID %s after the reset, '
+                    'but the run preset is for %s - re-select the preset and '
+                    'retry' % (self.iccid, (preset or {}).get('iccid')))
+        needed_adm = bool(suite.get('require_adm')) or any(
+            bool(script.get('require_adm')) for _entry, script in members)
+        ok, adm_info, adm_error = self.test_runner.ensure_adm(preset,
+                                                              needed_adm)
+        if not ok:
+            raise testrun.TestAdmError(adm_error, adm_info)
+        preset_id = str(body.get('preset_id') or '') or None
+        try:
+            self.test_runner.start_suite(suite, members, preset, preset_id,
+                                         adm_info, reset_info, iterations)
+        except Exception as exc:
+            raise RuntimeError(
+                'could not start the suite run: %s' % exc) from exc
+        return self.test_runner.snapshot()
 
     def _run_script_from_body(self, body):
         """The run's script: the inline ``script`` or the stored ``script_id``.
@@ -3699,6 +4113,8 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.test_status())
                 elif path == '/api/test/scripts':
                     self._send_json(self.state_ref.test_scripts_info())
+                elif path == '/api/test/suites':
+                    self._send_json(self.state_ref.test_suites_info())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -3775,15 +4191,36 @@ def make_handler(state, log_requests=False):
                 elif path == '/api/test/scripts':
                     self._send_json(self.state_ref.test_script_add(body))
                 elif path == '/api/test/scripts/update':
-                    stored = self.state_ref.test_script_update(body)
+                    stored, moved = self.state_ref.test_script_update(body)
                     if stored is None:
                         self._send_json({'error': 'unknown test script id'}, 404)
+                    elif moved:
+                        self._send_json({'ok': True, 'script': stored,
+                                         'moved': True})
                     else:
                         self._send_json({'ok': True, 'script': stored})
                 elif path == '/api/test/scripts/delete':
                     self._send_json(self.state_ref.test_script_delete(body))
                 elif path == '/api/test/scripts/import':
                     self._send_json(self.state_ref.test_script_import(body))
+                elif path == '/api/test/scripts/move':
+                    self._send_json({'ok': True,
+                                     'script': self.state_ref.test_script_move(body)})
+                elif path == '/api/test/scripts/copy':
+                    self._send_json({'ok': True,
+                                     'script': self.state_ref.test_script_copy(body)})
+                elif path == '/api/test/suites':
+                    self._send_json(self.state_ref.test_suite_add(body))
+                elif path == '/api/test/suites/update':
+                    stored = self.state_ref.test_suite_update(body)
+                    if stored is None:
+                        self._send_json({'error': 'unknown test suite id'}, 404)
+                    else:
+                        self._send_json({'ok': True, 'suite': stored})
+                elif path == '/api/test/suites/delete':
+                    self._send_json(self.state_ref.test_suite_delete(body))
+                elif path == '/api/test/suites/import':
+                    self._send_json(self.state_ref.test_suite_import(body))
                 elif path == '/api/test/run':
                     self._post_test_run(body)
                 elif path == '/api/test/stop':
@@ -3803,6 +4240,12 @@ def make_handler(state, log_requests=False):
                 # a refused test-script mutation (validation): the store's own
                 # message is the endpoint's 400
                 self._send_json({'error': str(exc)}, 400)
+            except test_suites_store.TestSuiteError as exc:
+                # the same for a suite mutation (its own shape validation)
+                self._send_json({'error': str(exc)}, 400)
+            except suites_module.MoveError as exc:
+                # a refused cross-store move/copy carries the legacy status
+                self._send_json({'error': str(exc)}, exc.status)
             except ValueError as exc:
                 # An endpoint's own validation error: its 400, not a JSON one.
                 self._send_json({'error': str(exc)}, 400)
@@ -4021,7 +4464,7 @@ def make_handler(state, log_requests=False):
         def _post_presets_import_outfile(self, body):
             self._send_json(self.state_ref.preset_import_outfile(body))
 
-        # ---- the test scripts and the single-script run (3c-3d-1) ------
+        # ---- the test scripts/suites and the runs (3c-3d-1/2) ------
 
         def _post_test_run(self, body):
             """Start a run: 409 while busy, 404 for an unknown script id.

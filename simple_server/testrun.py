@@ -32,21 +32,24 @@ RESPONSE, ENVELOPE, the menu cache, the proactive log),
 :class:`simple_server.commands.FileOps` and
 :meth:`ServerState._send_secured_packet`.
 
-Scope (Phase 3c-3d-1): the **single-script** path.  The suites (the suite
-store, the ordered members, the suite execution, move/copy) are 3c-3d-2; a
-request naming a ``suite_id`` is refused with a clear message instead of
-silently running one script.  Documented simplifications vs the legacy, each
-also named where it applies:
+Scope: the **single-script** path (3c-3d-1) and the **suites** (3c-3d-2) -
+the ordered ``setup``/``members``/``teardown`` references executed in one
+card session, with the per-member ``on_fail``, the suite ``require_adm``, the
+optional ``start_reset`` and the shared SCP80 counter state.  The cross-store
+rules (references, move/copy, the reconciliation) live in
+:mod:`simple_server.suites`; the stores themselves are
+:mod:`pysim_simple_server.test_suites` and ``test_scripts``.  Documented
+simplifications vs the legacy, each also named where it applies:
 
-* The store CRUD does not enforce the suite membership (``suite_id`` must
-  name an existing suite, a delete detaches, a move updates both stores) -
-  there is no suite store yet, so a ``suite_id`` is kept as the entry's
-  opaque field.  A changed ``suite_id`` on an update is the move operation
-  and is ignored until 3c-3d-2.
 * ``file-read`` of a transparent EF whose FCP carries no file size fails the
   step (the legacy read the whole file through pySim, which fell back to the
   selected file's size); the explicit-length read fallback is the 3d item
   recorded in ``docs/pysim-phaseout.md``.
+* The start-of-suite card reset (``start_reset``) calls the state's own
+  :meth:`~simple_server.server.ServerState.reset` - the physical reset plus
+  the full re-initialization of this build (the legacy's
+  ``_card_reset_reinit`` also probed the pySim-shell command-set
+  registration, which this build has no shell for).
 * The run-log lines go through :mod:`logging` (the module logger) rather than
   a raw ``sys.stderr.write``; the buffered excerpt in the status payload is
   byte-identical.  Nothing here configures logging (no ``basicConfig`` in the
@@ -94,16 +97,23 @@ log = logging.getLogger(__name__)
 __all__ = [
     'TestRunner', 'TestRunBusy', 'TestRunError', 'TestRunNotFound',
     'TestAdmError', 'TEST_LOG_MAX', 'TEST_STEP_TIMEOUT', 'WATCHDOG_TICK',
-    'TEST_LOAD_MAX', 'TEST_KIND_LABELS', 'TEST_BLOCKED_PATHS',
+    'TEST_LOAD_MAX', 'TEST_MEMBER_LOG_MAX', 'TEST_KIND_LABELS',
+    'TEST_BLOCKED_PATHS',
     'empty_state', 'load_state', 'load_iterations', 'check_result', 'entry',
     'step_label', 'action_checks', 'por_check_results', 'packet_rejected',
     'counter_consumed', 'POR_REJECTED', 'sms_tpdu_fields', 'parse_file_list',
     'command_type', 'validate_script', 'preset_error', 'request_blocked',
+    'member_prefix', 'member_status', 'preset_counters_snapshot', 'suite_state',
 ]
 
 #: Buffered run-log lines kept for the report's excerpt (the stderr stream -
 #: here the logger - stays complete).
 TEST_LOG_MAX = 600
+
+#: Run-log lines kept per suite member in the report (the legacy
+#: ``_TEST_MEMBER_LOG_MAX``): the shared buffer is trimmed, so a member's
+#: excerpt is bounded on its own too.
+TEST_MEMBER_LOG_MAX = 120
 
 #: Seconds without runner progress that mark the card stuck (the legacy
 #: ``_TEST_STEP_TIMEOUT``).  pyscard's ``SCardTransmit`` has no timeout, so a
@@ -206,8 +216,7 @@ def load_state(iterations, suite=False):
     """The ``load`` block of a run: disabled for a normal single run.
 
     ``suite`` lets the PWA label a suite load test even after its state is
-    cleared (the suites land in 3c-3d-2; the field already rides the payload
-    so the PWA's renderer needs no change then).
+    cleared (a successful load run keeps no suite report, v3.37.0).
     """
     enabled = iterations > 1
     return {'enabled': enabled, 'suite': bool(suite),
@@ -240,8 +249,9 @@ def load_iterations(body):
 def empty_state():
     """A run state with no run (the status payload the PWA renders).
 
-    ``kind`` discriminates the run: ``script`` here, ``suite`` for the suite
-    runner (3c-3d-2); ``suite`` itself stays the member-report block.
+    ``kind`` discriminates the run: ``script`` for a single-script run,
+    ``suite`` for the suite runner; ``suite`` itself is the member-report
+    block (``None`` for a single script).
     """
     return {
         'running': False, 'stop': False, 'kind': None, 'name': None,
@@ -253,9 +263,77 @@ def empty_state():
         # mark; `stuck` makes the final status an error even when the stop
         # flag ended the loop
         'stuck': False, 'heartbeat': None,
-        # the suite runs (3c-3d-2): None for a single script
+        # the suite runs: None for a single script
         'suite': None, 'log': [], 'log_prefix': '', 'adm': None,
         'load': load_state(1),
+    }
+
+
+# ---- the suite report helpers (the legacy suite functions) ------------------
+
+def member_prefix(index, total, member):
+    """The run-log prefix of a suite member: its position, role and name, so
+    the shared log stream (and the report's excerpt) stays readable."""
+    total = total or 1
+    tag = member.get('name') or member.get('script_id') or 'script'
+    role = member.get('role') or 'member'
+    return '[%d/%d %s %s] ' % (index + 1, total, role, tag)
+
+
+def member_status(steps, stopped, stuck=False):
+    """A suite member's verdict from its step levels.
+
+    An ``error`` stops that script; a stop request marks the member
+    ``stopped``.  A stuck card is an ``error`` even though the watchdog's
+    stop flag ended the script (a stuck card is not a user stop).
+    """
+    if stuck:
+        return 'error'
+    if stopped:
+        return 'stopped'
+    levels = [step.get('status') for step in steps]
+    if 'error' in levels:
+        return 'error'
+    if 'warning' in levels:
+        return 'warning'
+    return 'ok'
+
+
+def preset_counters_snapshot(preset):
+    """``{kvn: counter}`` of a preset's keysets - the suite report's SCP80
+    counter before/after columns (the store persists what the card consumed)."""
+    out = {}
+    for keyset in ota.preset_keysets(preset or {}):
+        kvn = presets_store.keyset_kvn(keyset)
+        if kvn:
+            out[str(kvn)] = str(keyset.get('cntr') or '').upper()
+    return out
+
+
+def suite_state(suite, members, preset, preset_id, session, reset_info=None):
+    """The run's ``suite`` report skeleton: one pending member record per
+    resolved ``(entry, script)`` plus the run-level metadata (preset, session,
+    the SCP80 counters before, the start reset).  Shared by the starter and
+    the tests."""
+    return {
+        'id': suite.get('id'),
+        'name': suite.get('name') or 'test suite',
+        'require_adm': bool(suite.get('require_adm')),
+        'start_reset': bool(suite.get('start_reset')),
+        'reset': reset_info or None,
+        'started': time.time(),
+        'session_start': session, 'session_end': None,
+        'session_changed': False, 'preset_id': preset_id,
+        'preset': (preset or {}).get('name') or (preset or {}).get('iccid'),
+        'counters_before': preset_counters_snapshot(preset),
+        'counters_after': None, 'summary': None,
+        'members': [
+            {'script_id': entry['script_id'], 'name': (script or {}).get('name'),
+             'role': entry['role'], 'on_fail': entry['on_fail'],
+             'status': 'pending', 'steps': [], 'log': [],
+             'log_truncated': False, 'note': None,
+             'started': None, 'finished': None, 'counters_after': {}}
+            for entry, script in members],
     }
 
 
@@ -604,6 +682,12 @@ class TestRunner(object):
         self._watchdog = None
         self._watchdog_stop = threading.Event()
         self._watchdog_aborted = None
+        #: The current suite member's log lines (a private buffer beside the
+        #: shared, trimmed ``_run['log']`` - the shared buffer may be full
+        #: when a member starts, which used to slice the member's excerpt
+        #: empty).  ``_member_truncated`` records a drop from the front.
+        self._member_log = None
+        self._member_truncated = False
 
     # ---- plumbing -----------------------------------------------------
 
@@ -676,6 +760,13 @@ class TestRunner(object):
                 buffer.append(line)
                 if len(buffer) > TEST_LOG_MAX:
                     del buffer[:len(buffer) - TEST_LOG_MAX]
+                if self._member_log is not None:
+                    self._member_log.append(line)
+                    if len(self._member_log) > TEST_MEMBER_LOG_MAX:
+                        del self._member_log[:
+                                            len(self._member_log)
+                                            - TEST_MEMBER_LOG_MAX]
+                        self._member_truncated = True
         except Exception:               # never let a log line fail a run
             pass
 
@@ -911,6 +1002,300 @@ class TestRunner(object):
                     self._run['status'] = 'error'
             self._resume_poll()
 
+    # ---- the suites ----------------------------------------------------
+
+    def _reset_suite(self, suite, members, preset, preset_id=None,
+                     adm_info=None, reset_info=None, iterations=1):
+        """Seed the run state for a suite run (the ``kind`` discriminator)."""
+        with self._lock:
+            session = getattr(self.state, 'card_session', 0)
+            self._run = empty_state()
+            self._run.update({
+                'running': True, 'kind': 'suite',
+                'name': suite.get('name') or 'test suite', 'status': None,
+                'session': session, 'index': 0, 'total': 0, 'steps': [],
+                'started': time.time(), 'heartbeat': time.time(),
+                'script_id': None,
+                'preset': ((preset or {}).get('name')
+                           or (preset or {}).get('iccid')),
+                'suite': suite_state(suite, members, preset, preset_id,
+                                     session, reset_info=reset_info),
+                'adm': dict(adm_info) if adm_info else {'required': False},
+                'load': load_state(iterations, suite=True),
+            })
+
+    def start_suite(self, suite, members, preset, preset_id=None,
+                    adm_info=None, reset_info=None, iterations=1,
+                    spawn=True):
+        """Seed a suite run and start the worker (``spawn=False``: tests).
+
+        ``members`` is the resolved, normalised ``[(entry, script)]`` list in
+        run order (setup first, teardown last - the store's order);
+        ``reset_info`` records the start-of-suite card reset the caller
+        already performed.  With ``spawn=False`` the caller drives
+        :meth:`execute_suite` (the synchronous seam).
+        """
+        self.state.test_running = True
+        self._reset_suite(suite, members, preset, preset_id, adm_info,
+                          reset_info, iterations)
+        if iterations > 1:
+            log.info('TEST-LOAD: suite %r, %d iterations',
+                     suite.get('name') or 'suite', iterations)
+            target, args, name = (self._load_suite_worker,
+                                  (suite, members, preset, preset_id,
+                                   iterations), 'test-load-suite')
+        else:
+            target, args, name = (self._suite_worker,
+                                  (suite, members, preset, preset_id),
+                                  'test-suite')
+        if not spawn:
+            return self.snapshot()
+        try:
+            self._watchdog_start()
+            self._spawn(target, args, name)
+        except Exception:
+            # A run that never started must not leave the card owned.
+            self._resume_poll()
+            with self._lock:
+                self._run['running'] = False
+            raise
+        return self.snapshot()
+
+    def suite_execute_once(self, suite, members, preset, preset_id, state,
+                           shared=None):
+        """One suite iteration; ``(status, stopped, session_changed)``.
+
+        setup -> members in order (per-member ``on_fail``) -> teardown, in
+        **one card session, without resets and without resume**.  A stop
+        request or a failed member ends the member loop (the rest is marked
+        skipped with the reason); a card session change stops the suite and
+        skips the rest (flagged); the teardown runs on every stop/failure -
+        its purpose is to leave the card ready for the next test - and is
+        skipped only when the card is gone.  ``state`` is the
+        :func:`suite_state` dict; a load test calls this per iteration.
+        """
+        session_start = getattr(self.state, 'card_session', 0)
+        stopped = False
+        session_changed = False
+        setup_i = next((i for i, (entry, _script) in enumerate(members)
+                        if entry['role'] == 'setup'), None)
+        teardown_i = next((i for i, (entry, _script) in enumerate(members)
+                           if entry['role'] == 'teardown'), None)
+        member_idx = [i for i, (entry, _script) in enumerate(members)
+                      if entry['role'] == 'member']
+        # The counter state is per card session: one shared dict for the whole
+        # suite, so a second SCP80 script starts from what the first consumed
+        # (the store persists each packet's counter; the preset dict here is
+        # the suite-start snapshot).
+        shared = shared if shared is not None else {}
+
+        def run_member(i):
+            entry, script = members[i]
+            member = state['members'][i]
+            with self._lock:
+                member['status'] = 'running'
+                member['started'] = time.time()
+                self._run['steps'] = []
+                self._run['index'] = 0
+                self._run['heartbeat'] = time.time()
+                self._run['total'] = len(script['steps'])
+                self._run['log_prefix'] = member_prefix(i, len(members), member)
+                self._member_log = []
+                self._member_truncated = False
+            ctx, member_stopped = self.run_script(script, preset,
+                                                  shared=shared)
+            with self._lock:
+                steps = json.loads(json.dumps(self._run['steps']))
+                lines = list(self._member_log or [])
+                member.update({
+                    'status': member_status(
+                        steps, member_stopped,
+                        stuck=bool(self._run.get('stuck'))),
+                    'steps': steps,
+                    'log': lines[-TEST_MEMBER_LOG_MAX:],
+                    'log_truncated': bool(self._member_truncated),
+                    'finished': time.time(),
+                    'counters_after': dict(ctx.get('counters') or {}),
+                })
+                return member['status'], member_stopped
+
+        def skip_pending(reason):
+            with self._lock:
+                for member in state['members']:
+                    if member['status'] == 'pending':
+                        member['status'] = 'skipped'
+                        member['note'] = reason
+
+        abort = False
+        if setup_i is not None:
+            status, setup_stopped = run_member(setup_i)
+            if setup_stopped:
+                stopped = True
+                abort = True
+            elif status not in ('ok', 'warning'):
+                abort = True
+                skip_pending('the setup script failed')
+        for i in member_idx:
+            if abort:
+                break
+            with self._lock:
+                stop_req = bool(self._run['stop'])
+            if stop_req:
+                stopped = True
+                skip_pending('stopped')
+                break
+            if getattr(self.state, 'card_session', 0) != session_start:
+                session_changed = True
+                skip_pending('card session changed (card removed or '
+                             're-equipped)')
+                break
+            status, member_stopped = run_member(i)
+            if member_stopped:
+                stopped = True
+                abort = True
+                break
+            if (status not in ('ok', 'warning')
+                    and members[i][0]['on_fail'] == 'stop'):
+                abort = True
+        if stopped:
+            skip_pending('stopped')
+        elif abort:
+            skip_pending('a previous script failed (on_fail: stop)')
+        if teardown_i is not None:
+            if not getattr(self.state, 'card_present', False):
+                with self._lock:
+                    state['members'][teardown_i]['status'] = 'skipped'
+                    state['members'][teardown_i]['note'] = 'no card in the reader'
+            else:
+                # The teardown runs on every stop - its purpose is to leave
+                # the card ready for a new test - so a pending stop request
+                # does not cut it short (the run is finishing anyway).
+                with self._lock:
+                    stop_saved = self._run['stop']
+                    self._run['stop'] = False
+                try:
+                    run_member(teardown_i)
+                finally:
+                    with self._lock:
+                        # A Stop pressed *during* the teardown is a real
+                        # request: it must not be discarded with the cleared
+                        # flag (a load suite would start another iteration).
+                        self._run['stop'] = bool(stop_saved
+                                                 or self._run['stop'])
+        with self._lock:
+            session_end = getattr(self.state, 'card_session', 0)
+            state['session_end'] = session_end
+            state['session_changed'] = bool(session_changed
+                                            or session_end != session_start)
+            after = None
+            store = getattr(self.state, 'presets', None)
+            if preset_id and store is not None:
+                after = preset_counters_snapshot(store.get(preset_id))
+            state['counters_after'] = after
+            statuses = [member['status'] for member in state['members']]
+            state['summary'] = {
+                'ok': statuses.count('ok'),
+                'warning': statuses.count('warning'),
+                'error': statuses.count('error'),
+                'skipped': statuses.count('skipped'),
+                'stopped': bool(stopped or statuses.count('stopped')),
+                'session_changed': state['session_changed'],
+                'wall_ms': int((time.time()
+                                - (state.get('started')
+                                   or self._run.get('started')
+                                   or time.time())) * 1000),
+                'counters_before': state.get('counters_before'),
+                'counters_after': after,
+                'setup': (state['members'][setup_i]['status']
+                          if setup_i is not None else None),
+                'teardown': (state['members'][teardown_i]['status']
+                             if teardown_i is not None else None),
+            }
+            if 'error' in statuses:
+                status = 'error'
+            elif 'warning' in statuses:
+                status = 'warning'
+            elif stopped or 'stopped' in statuses:
+                status = 'stopped'
+            else:
+                status = 'ok'
+        return status, stopped, session_changed
+
+    def execute_suite(self, suite, members, preset, preset_id=None,
+                      shared=None):
+        """One suite run: one iteration, then the run state is finalised.
+
+        The status is the worst member verdict (a stop request makes it
+        ``stopped`` when nothing failed).  A load test calls
+        :meth:`suite_execute_once` itself.
+        """
+        state = self._run.get('suite')
+        if state is None:
+            state = suite_state(suite, members, preset, preset_id,
+                                getattr(self.state, 'card_session', 0))
+            with self._lock:
+                self._run['suite'] = state
+        status, _stopped, _session_changed = self.suite_execute_once(
+            suite, members, preset, preset_id, state, shared)
+        with self._lock:
+            self._run['status'] = status
+            self._run['running'] = False
+            self._run['finished'] = time.time()
+            self._run['log_prefix'] = ''
+        self._resume_poll()
+
+    def _suite_error(self, exc):
+        """Close a suite run that raised, keeping the report renderable.
+
+        The open member records are closed (a ``running`` one becomes an
+        ``error`` with the reason, the ``pending`` ones ``skipped``) and a
+        summary is filled, so the PWA can render the report instead of a run
+        that never finishes.
+        """
+        with self._lock:
+            self._run['error'] = str(exc)
+            self._run['running'] = False
+            self._run['finished'] = time.time()
+            if not self._run['status']:
+                self._run['status'] = 'error'
+            self._run['log_prefix'] = ''
+            state = self._run.get('suite')
+            if state is not None and state.get('summary') is None:
+                statuses = []
+                for member in state['members']:
+                    if member['status'] == 'running':
+                        member['status'] = 'error'
+                        member['note'] = (member.get('note')
+                                          or ('the run failed: %s' % exc))
+                    elif member['status'] == 'pending':
+                        member['status'] = 'skipped'
+                    statuses.append(member['status'])
+                state['session_end'] = getattr(self.state, 'card_session', 0)
+                state['summary'] = {
+                    'ok': statuses.count('ok'),
+                    'warning': statuses.count('warning'),
+                    'error': statuses.count('error'),
+                    'skipped': statuses.count('skipped'),
+                    'stopped': False,
+                    'session_changed': bool(state.get('session_changed')),
+                    'wall_ms': int((time.time()
+                                    - (self._run.get('started')
+                                       or time.time())) * 1000),
+                    'counters_before': state.get('counters_before'),
+                    'counters_after': None,
+                    'setup': None, 'teardown': None,
+                }
+
+    def _suite_worker(self, suite, members, preset, preset_id):
+        """The suite worker thread body."""
+        try:
+            self.execute_suite(suite, members, preset, preset_id)
+        except Exception as exc:
+            log.exception('TEST-RUN: the suite failed')
+            self._suite_error(exc)
+        finally:
+            self._resume_poll()
+
     # ---- the load test -------------------------------------------------
 
     def _load_finalise(self, status, done, iterations, failed, attempted=None):
@@ -1017,6 +1402,99 @@ class TestRunner(object):
             # a raised runner error must not leave the run "running" forever
             # (the PWA would poll a dead run and Clear would stay refused)
             log.exception('TEST-LOAD: the worker failed')
+            with self._lock:
+                self._run['error'] = str(exc)
+            if failed is None:
+                failed = self._run['load'].get('iteration') or (done + 1)
+            self._load_finalise('error', done, iterations, failed, attempted)
+        finally:
+            self._resume_poll()
+
+    def _load_suite_worker(self, suite, members, preset, preset_id, iterations):
+        """Repeat a whole suite ``iterations`` times (the load test, v3.37.0).
+
+        setup/members/teardown per iteration with one shared counter state;
+        the same success/failure policy as the script load test: successful
+        iterations are discarded (only ``load.done``/timing grow, the suite
+        report stays ``None``), the first error keeps that iteration's report
+        and stops the loop (an error wins over the stop flag - a stuck card
+        sets both), a manual stop ends it after the current iteration, and a
+        card session change is an error.
+        """
+        shared = {}
+        session = getattr(self.state, 'card_session', 0)
+        done = 0
+        attempted = 0
+        failed = None
+        final = 'ok'
+        worst = 'ok'
+        try:
+            for index in range(1, iterations + 1):
+                with self._lock:
+                    if self._run['stop']:
+                        final = 'stopped'
+                        break
+                    # the report's counters_before is this iteration's start;
+                    # the protocol state (keys/TARs) stays the run-start
+                    # snapshot
+                    fresh = preset
+                    store = getattr(self.state, 'presets', None)
+                    if preset_id and store is not None:
+                        fresh = store.get(preset_id) or preset
+                    state = suite_state(suite, members, fresh, preset_id,
+                                        session)
+                    self._run.update({'suite': state, 'steps': [], 'index': 0,
+                                      'total': 0, 'status': None, 'error': None,
+                                      'stuck': False, 'heartbeat': time.time(),
+                                      'log': [], 'log_prefix': ''})
+                    self._run['load'].update({'iteration': index, 'done': done})
+                attempted = index
+                if getattr(self.state, 'card_session', 0) != session:
+                    with self._lock:
+                        self._run['error'] = (
+                            'the card session changed during the load test '
+                            '(card removed or re-equipped)')
+                    failed = index
+                    final = 'error'
+                    break
+                status, stopped, session_changed = self.suite_execute_once(
+                    suite, members, preset, preset_id, state, shared)
+                if session_changed:
+                    with self._lock:
+                        self._run['error'] = (
+                            'the card session changed during the load test '
+                            '(card removed or re-equipped)')
+                    failed = index
+                    final = 'error'
+                    break
+                # an error wins over the stop flag: a stuck card sets both,
+                # and the report must say it failed, not that the operator
+                # stopped it
+                if status == 'error':
+                    failed = index
+                    final = 'error'
+                    with self._lock:
+                        if not self._run.get('error'):
+                            self._run['error'] = 'iteration %d failed' % index
+                    break
+                if stopped or status == 'stopped':
+                    final = 'stopped'
+                    break
+                if status == 'warning':
+                    worst = 'warning'
+                with self._lock:
+                    done = index
+                    self._run['load']['done'] = done
+                    self._run['steps'] = []
+                    self._run['log'] = []
+                    # successful iterations are not tracked (a failure keeps
+                    # its own state for the report)
+                    self._run['suite'] = None
+            if final == 'ok':
+                final = worst if done == iterations else 'stopped'
+            self._load_finalise(final, done, iterations, failed, attempted)
+        except Exception as exc:
+            log.exception('TEST-LOAD: the suite worker failed')
             with self._lock:
                 self._run['error'] = str(exc)
             if failed is None:
@@ -1932,11 +2410,11 @@ class TestRunner(object):
 
         The live steps land in the run state (the snapshot the PWA renders),
         the semantic lines in its ``log``.  ``shared`` carries the counter
-        state across a load test's iterations (or a suite's members in
-        3c-3d-2): the dict is created once by the caller and reused, so a
-        second SCP80 script starts where the first ended instead of resending
-        the run-start snapshot (the store persists each packet, but the
-        in-memory preset copy does not move).
+        state across a load test's iterations or a suite's members: the dict
+        is created once by the caller and reused, so a second SCP80 script
+        starts where the first ended instead of resending the run-start
+        snapshot (the store persists each packet, but the in-memory preset
+        copy does not move).
 
         A step that raises is a step failure like any other: it honours the
         step's ``on_fail`` (v3.22.7) - an absent optional file, a refused
