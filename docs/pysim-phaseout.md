@@ -750,6 +750,35 @@ The two anchors unblock on different timelines:
    workspace `AGENTS.md` (which still describes `pysim_simple_server` as the
    server) and the phase-out notes to match.
 
+### GitHub releases at the fork (2026-11-22)
+
+The already-published `simple` releases are historical pysim artifacts.  The
+recommended handling:
+
+- **Keep the last pysim release on `simple`** (the final 3.x tag) and publish
+  the pysim-free line (4.0.0+) after it.  That gives a clear predecessor and a
+  working "last pysim version" download on the same release page.
+- **Edit that release's notes** (notes only, never the artifact) to say it is
+  the **last pysim-based release** (GPL-2.0-or-later, frozen) and point at
+  `simple-pysim` for the maintained legacy.
+- **`simple-pysim` publishes its own release** from the frozen tree (e.g.
+  `v3.40.2` in the new repo); its `update` script then points at
+  `simple-pysim`, so the legacy keeps a working update path independent of
+  `simple`.
+- **Older pysim releases** (`simple` 3.31.1 … the one before the last): optional
+  cleanup.  If they are removed, **remove the releases only, not the tags** -
+  a tag is the source of truth and can still serve the source archive; deleting
+  a tag also deletes its release and is hard to undo.  `CHANGELOG.md` keeps the
+  history either way.
+- **Updater major-version guard:** `tools/update.py --check` on a 3.x install
+  will see 4.0.0 as "latest"; it must **refuse a major-version jump** (a
+  cross-backend change: different package, scripts and dependencies) with a
+  message pointing at the last 3.x release / `simple-pysim`, so a pysim install
+  is never half-updated to the pysim-free tree.  Add this with the cutover
+  (3d).
+- The `CHANGELOG.md` 4.0.0 entry names the fork, the last 3.x release and
+  `simple-pysim`.
+
 ### Notes & caveats
 
 - **Derivative-work boundary is subtle:** formats/protocols are facts, but *code*
