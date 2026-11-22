@@ -243,8 +243,99 @@ timer expiry envelope):
   `tr.build_tr`'s Text object follow the same rule (the legacy pySim TLV
   library always did; only this port's own builders had one-octet lengths).
 
-Not done (later sub-phases): the BIP command handlers (injected), the HTTP
-endpoints and the card-session wiring.
+Not done (later sub-phases): the HTTP endpoints and the card-session wiring.
+
+## Phase 3c-2 outcome (the BIP terminal)
+
+`simple_server/bip.py` exists: one `BipSession` per card owns the BIP state -
+`handle_command` (the chain's `bip_handler`: OPEN/CLOSE CHANNEL, SEND/RECEIVE
+DATA, GET CHANNEL STATUS, TS 102 223 §6.4.27-§6.4.31), `start`/`stop`/`status`
+(the session control: `sink`/`redirect`/`passthru`, one session at a time with
+the replaced session reported, `link_events`), `data_available` (the terminal's
+`on_data` callback, the §7.5.10 Data available event) and
+`flush_channel_events` (the chain's `bip_flush` target, the §7.5.11 Channel
+status events), both under an injected `card_lock`.  The channel machinery and
+the sink listener stay `httpota.BipTerminal` / `httpota.TcpDumpServer`
+(pysim-free, imported as allowed until the 12-module move at the fork).
+
+The ported legacy functions: `_bip_channel_id`, `_bip_tr`,
+`_handle_bip_command`, `_bip_listener_status`, `_bip_data_available`,
+`_bip_session_stop`, `_bip_status_body`, `_bip_control` and
+`_bip_flush_channel_events` (plus the `_BIP*` module globals, now instance
+state).  The TR bytes, the queued link-status events and the local terminal
+state are compared case by case with the legacy implementation by
+`tests/test_simple_drift.py::BipParityTests`; `tests/test_simple_bip.py` pins
+them against the reference traces and the spec-derived expectations (a real
+loopback channel for the data flow, a scripted terminal for the protocol).
+
+Deliberate, documented deviations from the legacy server:
+
+- **The session is an object, not globals**: `owner`/`mode`/`target`/
+  `listener`/`link_events` are `BipSession` attributes (the legacy globals were
+  shared by the SCP81 listener and the BIP pill); `start(body, owner='bip')`
+  lets the SCP81 control name its own owner instead of two handlers writing the
+  same global.
+- **"The card is connected" is a hook**: the legacy read the server module's
+  `_CARD_CONNECTED`; the port takes `card_connected()` (a present
+  `cat_session` when unset) so the module stays card-free.
+- **The CAT exchange is the injected session**: the events go through
+  `cat_session.send_event_download` (bytes) instead of the legacy
+  `_send_event_download(scc, ...)` (hex APDUs through pySim's transport).
+- **The event logs are the terminal's log**: the legacy `_BIP.log(...)` entries
+  are kept (`data-available`, `data-available-skip`, `open-relaxed`,
+  `open-unavailable`, `sink-rx`, ...), while a failed ENVELOPE additionally
+  emits a `logging` warning instead of the legacy `sys.stderr.write`.
+- **A listener bind failure answers `{'ok': False, 'error': ...}`**: the legacy
+  handler let the `OSError` escape (a 500); the session stops either way.
+- **The legacy SCP81 TLS listener branch of `_bip_listener_status` is absent**:
+  that listener belongs to the SCP81 module (3c-3), which will reuse this
+  session; `status()` reports the sink/redirect/passthru shapes only, and the
+  listener block reports the mode it was started with (`sink`; the legacy's
+  `or 'dump'` fallback is unreachable there).
+- **The flush takes the card lock** (the legacy relied on its caller holding
+  `_CARD_LOCK`); it is the same reentrant lock the chain runs under, so a
+  cutover caller that already holds it is unaffected.  **`card_lock` must be
+  reentrant** (`threading.RLock`): `data_available` holds it while its
+  ENVELOPE runs the chain, whose end calls `flush_channel_events` - the same
+  lock on the same thread.  It defaults to the injected `cat_session`'s own
+  `card_lock` when that attribute exists (one lock per card, so a BIP ENVELOPE
+  cannot interleave a FETCH/TERMINAL RESPONSE pair; the legacy kept the two on
+  the server's global `_CARD_LOCK`), else to a fresh `RLock`.  `start`/`stop`
+  take it too: they disable the terminal (closing the channels), which must
+  not race a BIP command being answered - the legacy got that from the HTTP
+  handler's blanket lock.
+- **A TERMINAL RESPONSE is capped to one APDU** (the legacy could build one
+  that never went out).  TS 102 221 §11.2.4 makes the TR a case-3 APDU with a
+  one-octet Lc, and `cat_session._terminal_response_apdu()` refuses more than
+  255 payload octets *after* the FETCH - the command would stay unanswered,
+  which the project's critical invariant forbids.  Two guards:
+  - RECEIVE DATA asks the terminal for at most `CHANNEL_DATA_MAX` (237) octets
+    and truncates a terminal that returns more, so the payload (`N + 18`) can
+    never exceed 255.  TS 102 223 §6.4.29 makes that the specified behaviour:
+    "if the requested number of bytes is available in the buffer but the whole
+    requested data cannot be included in the TERMINAL RESPONSE because of APDU
+    size limits, the terminal shall return the maximum number of bytes
+    possible according to the length of other TLVs … the command has been
+    successfully executed".
+  - OPEN CHANNEL echoes at most `BEARER_ECHO_MAX` (232) octets of the Bearer
+    Description (§6.8.20 requires that echo in a successful *and* an
+    unsuccessful TR, so it is cut, never dropped), and the echo's length uses
+    the BER long form from 128 octets (`tlv.encode_ber_len`, identical bytes
+    below it).
+- **The RECEIVE DATA result stays `00` for an empty/partial answer**: §6.4.29
+  says "Command performed with missing information" (`02`) when fewer than the
+  requested bytes are buffered.  The port keeps the live-tested legacy `00`
+  (the card asks again when it still needs bytes); a cutover decision, pinned
+  by `tests/test_simple_bip.py`.
+- **`data_available` checks `busy`/`stk_pending` before taking the lock**: the
+  legacy checked them only under `_CARD_LOCK`, so its monitor thread queued
+  behind a long card operation only to find the card busy.  The same checks
+  run again under the lock, so the ENVELOPE still never interleaves a
+  FETCH/TR pair.
+
+Not done: the SCP81 HTTP administration listener on top of the session (3c-3)
+and any live-card run - the command/data flow is tested over a loopback TCP
+peer, which exercises the terminal's real sockets but no card.
 
 ## Spec compliance (spec-checker)
 
@@ -513,16 +604,17 @@ The phase is split so each piece is reviewable:
 - **3a — ES10 (done):** `simple_server/esim.py`, spec-checked + live-tested.
 - **3b — pure proactive/TR layer (done):** `simple_server/proactive.py` and
   `simple_server/tr.py`, no card state.
-- **3c-1 — the CAT session engine:** `simple_server/cat_session.py` — the
+- **3c-1 — the CAT session engine (done):** `simple_server/cat_session.py` — the
   `CatSession` state (proactive log, menu, pending command, timers, PLI
   dictionary), the FETCH/TERMINAL RESPONSE chain, STATUS / TERMINAL PROFILE /
   ENVELOPE exchanges (incl. the 61xx/62xx/63xx GET RESPONSE quirk), event
   downloads, menu responses/timeout and the timer-expiry ENVELOPE.  BIP is
   injectable (a `bip_handler` callable) so the next piece slots in.
-- **3c-2 — BIP:** `simple_server/bip.py` — the BIP command handling
+- **3c-2 — BIP (done):** `simple_server/bip.py` — the BIP command handling
   (OPEN/CLOSE CHANNEL, SEND/RECEIVE DATA, GET CHANNEL STATUS) on
-  `pysim_simple_server.httpota.BipTerminal`, the Data-available event and the
-  Channel-status event.
+  `pysim_simple_server.httpota.BipTerminal`, the session control
+  (sink/redirect/passthru), the Data-available event and the Channel-status
+  event.
 - **3c-3 — HTTP handler + state:** `simple_server/server.py` (or `http.py`) —
   the REST endpoints on the locked API surface (no pySim command line, keep
   the raw APDU with its automatic 91xx handler, an own `/api/status` shape,

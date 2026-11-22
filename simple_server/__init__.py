@@ -9,6 +9,8 @@ Phase 3b: proactive command decoding and TERMINAL RESPONSE building.
 Phase 3c-1: the CAT session engine (FETCH/TERMINAL RESPONSE chain, ENVELOPE,
 the interactive menu, TIMER MANAGEMENT, the PLI dictionary and the proactive
 log).
+Phase 3c-2: the BIP terminal (the five BIP commands, the session control and
+the Data available / Channel status events).
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

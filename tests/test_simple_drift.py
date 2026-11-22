@@ -20,6 +20,7 @@ import pathlib
 import contextlib
 import io
 import sys
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -32,6 +33,7 @@ if str(PY_SIM) not in sys.path:
 import pysim_simple_server.server as legacy  # noqa: E402
 import pysim_simple_server.testscript as legacy_ts  # noqa: E402
 
+from simple_server import bip as B  # noqa: E402
 from simple_server import cat_session as C  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
 from simple_server import tr as R  # noqa: E402
@@ -489,6 +491,358 @@ class CatSessionParityTests(unittest.TestCase):
             self.assertEqual(C.validate_input_response(pending, text),
                              legacy._validate_input_response(pending, text),
                              '%r %r' % (pending, text))
+
+
+class _FakeBipTerminal(object):
+    """The BipTerminal slice both BIP handlers use, scripted per case."""
+
+    def __init__(self, enabled=True, open_result=(1, None), send_ok=True,
+                 receive=b'', available=0, capacity=0xFF, close_ok=True,
+                 channels=None):
+        self.enabled = enabled
+        self.mode = 'redirect'
+        self.target = None
+        self.channels = dict(channels or {})
+        self.entries = []
+        self.pending = []
+        self.open_result = open_result
+        self.send_ok = send_ok
+        self.receive_data = receive
+        self.available_bytes = available
+        self.capacity = capacity
+        self.close_ok = close_ok
+
+    def log(self, kind, **fields):
+        entry = dict(fields, kind=kind)
+        self.entries.append(entry)
+        return entry
+
+    def _queue_link_status(self, channel_id, status=None, info=0x05):
+        self.pending.append({
+            'channel': channel_id,
+            'status': channel_id & 0x07 if status is None else status,
+            'info': info})
+
+    def take_pending_events(self):
+        events, self.pending = self.pending, []
+        return events
+
+    def open(self, requested_host, requested_port, buffer_size, proto=None):
+        self.opened = (requested_host, requested_port, buffer_size, proto)
+        return self.open_result
+
+    def send(self, channel_id, data):
+        self.sent_data = (channel_id, bytes(data))
+        return self.send_ok
+
+    def send_capacity(self, channel_id):
+        return self.capacity
+
+    def receive(self, channel_id, maxlen):
+        self.receive_args = (channel_id, maxlen)
+        return self.receive_data
+
+    def available(self, channel_id):
+        return self.available_bytes
+
+    def close(self, channel_id):
+        self.closed = channel_id
+        return self.close_ok
+
+
+def _bip_command(cmd_type, qualifier, data_tlvs=b'', dev_dst=0x21, tag=0x81,
+                 cmd_num=1):
+    """A D0-wrapped BIP command (the ``channel_cmd`` of the bip suite)."""
+    tlvs = (bytes([tag, 0x03, cmd_num, cmd_type, qualifier])
+            + bytes([0x82, 0x02, 0x81, dev_dst]) + data_tlvs)
+    return bytes([0xD0, len(tlvs)]) + tlvs
+
+
+def _bip_open(host, port, buffer_size=512, qualifier=0x01, tag=0x81):
+    """An OPEN CHANNEL with an IPv4 destination and a TCP port."""
+    ip = bytes(int(x) for x in host.split('.'))
+    tlvs = (bytes([tag, 0x03, 0x01, 0x40, qualifier])
+            + b'\x82\x02\x81\x82'
+            + b'\x35\x01\x03'
+            + b'\x39\x02' + buffer_size.to_bytes(2, 'big')
+            + b'\x3c\x03\x02' + port.to_bytes(2, 'big')
+            + b'\x3e\x05\x21' + ip)
+    return bytes([0xD0, len(tlvs)]) + tlvs
+
+
+class BipParityTests(unittest.TestCase):
+    """The BIP handler must match the legacy one byte for byte.
+
+    ``simple_server.bip`` is the port of the legacy BIP helpers; the TR bytes
+    are what a live card receives and the local terminal state (the queued
+    Channel status event, the open arguments) is what the following exchanges
+    see, so both are compared.  The scripted terminal satisfies the slice both
+    implementations call, and the legacy module global is patched for each
+    case (the simple side takes the terminal by injection).
+    """
+
+    def test_the_terminal_response_builder(self):
+        cases = [
+            (1, 0x40, 0x01, 0x81, 0x82, 0x00, None, b'', 0x81),
+            (1, 0x40, 0x01, 0x81, 0x82, 0x3A, 0x00, b'\x35\x01\x03', 0x81),
+            (2, 0x43, None, 0x81, 0x21, 0x00, None, b'\x37\x01\xff', None),
+            (3, 0x42, 0x00, 0x83, 0x21, 0x00, None, b'', 0x01),
+            (1, 0x41, 0x00, 0x81, 0x21, 0x3A, 0x00, b'', 0x81),
+            (1, 0x44, 0x00, 0x81, 0x82, 0x00, None, b'\x38\x02\x81\x00', 0x01),
+        ]
+        for (num, ctype, qual, src, dst, result, info, extra,
+             tag) in cases:
+            label = '%02X/%s/%s/%s' % (ctype, qual, result, tag)
+            self.assertEqual(
+                B.bip_terminal_response(num, ctype, qual, src, dst, result,
+                                        info, extra, cd_tag=tag),
+                legacy._bip_tr(num, ctype, qual, src, dst, result, info,
+                               extra, cd_tag=tag), label)
+
+    def test_the_command_handler(self):
+        truncated = bytes.fromhex('d01c810301400c82028182850035010339'
+                                  '020200' '4701003c030227be3e05')
+        plain = bytes.fromhex('d00d01030140010202818239020200')
+        cr_set = bytes.fromhex('d0248103014003820281828500b50103b90205'
+                               '8ec70403475042bc03020582be05215bd50502')
+        cases = [
+            # (label, fake kwargs, cmd_type, qualifier, raw, dev_dst)
+            ('open', dict(open_result=(1, None)),
+             0x40, 0x01, _bip_open('127.0.0.1', 8080), 0x82),
+            ('open disabled', dict(enabled=False),
+             0x40, 0x01, _bip_open('127.0.0.1', 8080), 0x82),
+            ('open refused', dict(open_result=(None, 'refused')),
+             0x40, 0x01, _bip_open('127.0.0.1', 8080), 0x82),
+            ('open background', dict(open_result=(3, None)),
+             0x40, 0x0C, _bip_open('127.0.0.1', 8080, qualifier=0x0C), 0x82),
+            ('open truncated', dict(open_result=(1, None)),
+             0x40, 0x0C, truncated, 0x82),
+            ('open no transport', dict(open_result=(1, None)),
+             0x40, 0x01, plain, 0x82),
+            ('open small buffer', dict(open_result=(1, None)), 0x40, 0x01,
+             _bip_open('127.0.0.1', 8080, buffer_size=1), 0x82),
+            ('open no buffer object',
+             dict(open_result=(1, None)), 0x40, 0x01,
+             bytes.fromhex('d00c810301400182028182350103'), 0x82),
+            ('open cr-set', dict(open_result=(1, None)), 0x40, 0x03, cr_set,
+             0x82),
+            ('send', dict(capacity=0xFF), 0x43, 0x01,
+             _bip_command(0x43, 0x01, b'\x36\x03abc'), 0x21),
+            ('send low', dict(capacity=0x10), 0x43, 0x01,
+             _bip_command(0x43, 0x01, b'\x36\x03abc'), 0x21),
+            ('send failed', dict(send_ok=False), 0x43, 0x01,
+             _bip_command(0x43, 0x01, b'\x36\x01x'), 0x21),
+            ('send no channel', dict(), 0x43, 0x01,
+             _bip_command(0x43, 0x01, b'\x36\x01x'), 0x27),
+            ('receive', dict(receive=b'abc', available=5), 0x42, 0x00,
+             _bip_command(0x42, 0x00, b'\x37\x01\x64'), 0x21),
+            ('receive long', dict(receive=b'x' * 200, available=300), 0x42,
+             0x00, _bip_command(0x42, 0x00, b'\x37\x01\xff'), 0x21),
+            ('receive empty', dict(receive=b'', available=0), 0x42, 0x00,
+             _bip_command(0x42, 0x00, b'\x37\x01\x10'), 0x21),
+            ('receive nowhere', dict(receive=None), 0x42, 0x00,
+             _bip_command(0x42, 0x00, b'\x37\x01\x10'), 0x21),
+            ('receive no channel', dict(receive=b'abc'), 0x42, 0x00,
+             _bip_command(0x42, 0x00, b'\x37\x01\x10'), 0x27),
+            ('close', dict(), 0x41, 0x00, _bip_command(0x41, 0x00), 0x21),
+            ('close failed', dict(close_ok=False), 0x41, 0x00,
+             _bip_command(0x41, 0x00), 0x21),
+            ('close no channel', dict(), 0x41, 0x00,
+             _bip_command(0x41, 0x00), 0x27),
+            ('status', dict(channels={3: None, 1: None}), 0x44, 0x00,
+             _bip_command(0x44, 0x00), 0x21),
+            ('status empty', dict(), 0x44, 0x00, _bip_command(0x44, 0x00),
+             0x21),
+        ]
+        for label, kwargs, cmd_type, qualifier, raw, dev_dst in cases:
+            with self.subTest(case=label):
+                ours = _FakeBipTerminal(**kwargs)
+                theirs = _FakeBipTerminal(**kwargs)
+                session = B.BipSession(terminal=ours)
+                with mock.patch.object(legacy, '_BIP', theirs):
+                    self.assertEqual(
+                        session.handle_command(1, cmd_type, qualifier, raw,
+                                               0x81, dev_dst),
+                        legacy._handle_bip_command(None, 1, cmd_type,
+                                                   qualifier, raw, 0x81,
+                                                   dev_dst), label)
+                self.assertEqual(ours.pending, theirs.pending, label)
+                self.assertEqual([e['kind'] for e in ours.entries],
+                                 [e['kind'] for e in theirs.entries], label)
+                # the local terminal state the following exchanges see
+                for attr in ('opened', 'sent_data', 'closed', 'receive_args'):
+                    ours_value = getattr(ours, attr, None)
+                    theirs_value = getattr(theirs, attr, None)
+                    if attr == 'receive_args' and theirs_value:
+                        # the documented 3c-2 fix: the port caps the requested
+                        # length so the answer fits one TERMINAL RESPONSE (the
+                        # legacy asked for the full 255 and could not answer)
+                        channel_id, maxlen = theirs_value
+                        theirs_value = (channel_id,
+                                        min(maxlen, B.CHANNEL_DATA_MAX))
+                    self.assertEqual(ours_value, theirs_value,
+                                     '%s: %s' % (label, attr))
+
+    def test_an_unknown_command_falls_through_on_both_sides(self):
+        raw = bytes.fromhex('d008810301260082028183')
+        session = B.BipSession(terminal=_FakeBipTerminal())
+        with mock.patch.object(legacy, '_BIP', _FakeBipTerminal()):
+            self.assertIsNone(session.handle_command(1, 0x26, 0x00, raw,
+                                                     0x81, 0x82))
+            self.assertIsNone(legacy._handle_bip_command(None, 1, 0x26, 0x00,
+                                                         raw, 0x81, 0x82))
+
+    def test_the_channel_identifier_rule(self):
+        for value in range(0x100):
+            self.assertEqual(B.bip_channel_id(value),
+                             legacy._bip_channel_id(value), '%02X' % value)
+
+
+class _EventCatSession(object):
+    """The CAT slice the BIP events use (the legacy server object's mirror)."""
+
+    def __init__(self, event_list=None, busy=False, stk_pending=None):
+        self.event_list = event_list
+        self.busy = busy
+        self.stk_pending = stk_pending
+        self.sent = []
+
+    def send_event_download(self, event_type, event_data=None, drain=True,
+                            src=None):
+        self.sent.append((event_type, bytes(event_data)))
+        return (b'', b'\x90\x00')
+
+
+class _FakeChannel(object):
+    """What the ``on_data`` callback reads off a ``BipChannel``."""
+
+    def __init__(self, channel_id=1, data=b'', peer_closed=False):
+        self.id = channel_id
+        self.rx = bytearray(data)
+        self.peer_closed = peer_closed
+
+
+class BipSessionParityTests(unittest.TestCase):
+    """``_bip_listener_status`` and the two events against the legacy copies.
+
+    ``_FakeBipTerminal``/``_FakeChannel``/``_EventCatSession`` give both sides
+    the same inputs; the legacy module globals are patched per case (the port
+    takes the terminal/session by injection).
+    """
+
+    def test_the_listener_status(self):
+        listener = mock.Mock(host='127.0.0.1', port=4123, accepted=2)
+        cases = [
+            # (session state, legacy globals)
+            ({'listener': listener, 'mode': 'sink',
+              'target': ('127.0.0.1', 4123)},
+             {'_BIP_LISTENER': listener, '_BIP_MODE': 'sink',
+              '_BIP_TARGET': ('127.0.0.1', 4123)}),
+            ({'listener': None, 'mode': 'redirect', 'target': ('10.0.0.5', 9000)},
+             {'_BIP_LISTENER': None, '_BIP_MODE': 'redirect',
+              '_BIP_TARGET': ('10.0.0.5', 9000)}),
+            ({'listener': None, 'mode': 'passthru', 'target': None},
+             {'_BIP_LISTENER': None, '_BIP_MODE': 'passthru',
+              '_BIP_TARGET': None}),
+            ({'listener': None, 'mode': None, 'target': None},
+             {'_BIP_LISTENER': None, '_BIP_MODE': None, '_BIP_TARGET': None}),
+        ]
+        for state, globals_ in cases:
+            label = repr(state['mode'])
+            session = B.BipSession(terminal=_FakeBipTerminal())
+            session.listener = state['listener']
+            session.mode = state['mode']
+            session.target = state['target']
+            patches = [mock.patch.object(legacy, name, value)
+                       for name, value in globals_.items()]
+            for patch in patches:
+                patch.start()
+            try:
+                theirs = legacy._bip_listener_status()
+            finally:
+                for patch in reversed(patches):
+                    patch.stop()
+            self.assertEqual(session._listener_status(), theirs, label)
+
+    def test_the_data_available_event(self):
+        cases = [
+            # (label, event list, channel, busy)
+            ('data', [0x09, 0x0A], _FakeChannel(3, b'12345'), False),
+            ('long', [0x09], _FakeChannel(1, b'x' * 400), False),
+            ('empty', [0x09], _FakeChannel(1, b''), False),
+            ('closed peer', [0x09], _FakeChannel(1, b'x', peer_closed=True),
+             False),
+            ('unsubscribed', [0x0A], _FakeChannel(1, b'x'), False),
+            ('busy card', [0x09], _FakeChannel(1, b'x'), True),
+        ]
+        for label, events, channel, busy in cases:
+            with self.subTest(case=label):
+                cat = _EventCatSession(events, busy=busy)
+                ours_terminal = _FakeBipTerminal()
+                session = B.BipSession(cat, terminal=ours_terminal)
+                theirs_terminal = _FakeBipTerminal()
+                server = mock.Mock(event_list=events, scc=object(),
+                                   stk_pending=None)
+                send = mock.Mock(return_value=('', '9000'))
+                with mock.patch.object(legacy, '_BIP', theirs_terminal), \
+                        mock.patch.object(legacy, '_server_ref', server), \
+                        mock.patch.object(legacy, '_CARD_CONNECTED', True), \
+                        mock.patch.object(legacy, '_PROACTIVE_BUSY', busy), \
+                        mock.patch.object(legacy, '_CARD_LOCK',
+                                          threading.RLock()), \
+                        mock.patch.object(legacy, '_send_event_download',
+                                          send):
+                    theirs = legacy._bip_data_available(channel)
+                    ours = session.data_available(channel)
+                self.assertEqual(ours, theirs, label)
+                self.assertEqual(
+                    [(c.args[1], c.args[2]) for c in send.call_args_list],
+                    cat.sent, label)
+                self.assertEqual([e['kind'] for e in ours_terminal.entries],
+                                 [e['kind'] for e in theirs_terminal.entries],
+                                 label)
+
+    def test_the_channel_status_events(self):
+        cases = [
+            # (label, link_events, event list, queued statuses)
+            ('two events', True, [0x09, 0x0A], [(0x81, 0x00), (None, 0x05)]),
+            ('link events off', False, [0x0A], [(0x81, 0x00)]),
+            ('unsubscribed', True, [0x09], [(0x81, 0x00)]),
+            ('nothing queued', True, [0x0A], []),
+        ]
+        for label, link_events, events, queued in cases:
+            with self.subTest(case=label):
+                cat = _EventCatSession(events)
+                ours_terminal = _FakeBipTerminal()
+                session = B.BipSession(cat, link_events=link_events,
+                                       terminal=ours_terminal)
+                theirs_terminal = _FakeBipTerminal()
+                for channel_id, (status, info) in enumerate(queued, start=1):
+                    session.terminal._queue_link_status(channel_id,
+                                                        status=status,
+                                                        info=info)
+                    theirs_terminal._queue_link_status(channel_id,
+                                                       status=status,
+                                                       info=info)
+                server = mock.Mock(event_list=events, scc=object())
+                send = mock.Mock(return_value=('', '9000'))
+                with mock.patch.object(legacy, '_BIP', theirs_terminal), \
+                        mock.patch.object(legacy, '_server_ref', server), \
+                        mock.patch.object(legacy, '_CARD_LOCK',
+                                          threading.RLock()), \
+                        mock.patch.object(legacy, '_BIP_LINK_EVENTS',
+                                          link_events), \
+                        mock.patch.object(legacy, '_FLUSHING_CHANNEL_EVENTS',
+                                          False), \
+                        mock.patch.object(legacy, '_send_event_download',
+                                          send):
+                    legacy._bip_flush_channel_events(server.scc)
+                    session.flush_channel_events()
+                self.assertEqual(
+                    [(c.args[1], c.args[2]) for c in send.call_args_list],
+                    cat.sent, label)
+                self.assertEqual(ours_terminal.pending, theirs_terminal.pending,
+                                 label)
 
 
 if __name__ == '__main__':
