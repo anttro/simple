@@ -688,6 +688,56 @@ The two anchors unblock on different timelines:
 - Whether to inline `gsm0338` to reach exactly two dependencies.
 - Runtime selection: the separate `simple-server` console script (default).
 
+## Follow-up tasks (recorded, not scheduled)
+
+### PIN/PUK operations (lost with the pySim command line)
+
+The card presets already store `pin1`/`puk1`/`pin2`/`puk2` (and `adm`), but
+nothing consumes the PIN/PUK codes — the retired pySim command line was the
+only way to run `verify_chv`/`change_chv`/`unblock_chv`.  Add them as typed
+endpoints/UI (spec-checker gate before implementation; the INS bytes are
+ISO 7816-4 VERIFY `20`, CHANGE CHV `24`, DISABLE CHV `26`, ENABLE CHV `28`,
+UNBLOCK CHV `2C`; CHV numbers PIN1 `01`, PIN2 `81`, ADM `0A` as the legacy
+`/api/verify-adm` already uses):
+
+- **Verify PIN1/PIN2** (the ADM path exists: `/api/verify-adm`).  Report the
+  `63Cx` attempts left; a wrong key consumes one, so the UI confirms before a
+  retry (the ADM badge pattern).  A blocked PIN (`6983`/`9804`) needs the PUK.
+- **Change PIN** (old + new).
+- **Unblock PIN** (PUK + new PIN; RESET RETRY COUNTER / UNBLOCK CHV).
+- **Enable/disable CHV** (if useful; less common).
+- Where: the Cards editor's PIN/ADM block (the codes live there) and/or the
+  Status tab's card tools.  The preset supplies the key; the endpoint never
+  stores it.
+
+### pySim command audit (what else was lost)
+
+The full pySim-shell command set was enumerated; the useful ones not already
+covered:
+
+- `verify_chv` / `change_chv` / `unblock_chv` / `enable_chv` / `disable_chv`
+  — see above.
+- `suspend_uicc` / `resume_uicc` — SUSPEND UICC / RESUME UICC testing.
+- `open_channel` / `close_channel` / `switch_channel` — logical-channel
+  management (ties into the Status tab's "logical channel states"; the new
+  transport is channel-0 only today).
+- `activate_file` / `deactivate_file` — file lifecycle (ACTIVATE/DEACTIVATE
+  FILE).
+- One-click `create_df` / `create_ef` / `resize_ef` / `delete_file` /
+  `terminate_df` / `terminate_ef` on a file-manager tree node (the Remote
+  APDU tab has the builders; a node action would be handier).
+- `update_imsi_plmn` — the network simulation covers IMSI writes; a shortcut
+  may be worth it.
+- `export` / `fsdump` — snapshots cover the capture; a JSON filesystem export
+  might still be useful.
+
+Already covered without the command line: `apdu` (Raw APDU), `cardinfo`/
+`status` (the Status tab), `dir`/`tree`/`select`/`read_*`/`update_*`/`edit_*`
+(the file manager), `envelope` (Simulator), `terminal_profile` (Simulator),
+the service tables (the Services editor), the eSIM ES10 calls (the eSIM
+view), `authenticate` (network simulation).  Deliberately out of scope:
+`aram_*` (obsolete), the eSIM download/notification-management extras.
+
 ## How to use this file with subagents
 
 When spawning a subagent for a phase-out task, include:
