@@ -41,10 +41,12 @@ from pysim_simple_server import presets as presets_store  # noqa: E402
 
 from simple_server import bip as B  # noqa: E402
 from simple_server import capram as CR  # noqa: E402
+from simple_server import cat as CAT  # noqa: E402
 from simple_server import cat_session as C  # noqa: E402
 from simple_server import ota as O  # noqa: E402
 from simple_server import pbr as PB  # noqa: E402
 from simple_server import proactive as P  # noqa: E402
+from simple_server import server as SRV  # noqa: E402
 from simple_server import suites as S  # noqa: E402
 from simple_server import testrun as T  # noqa: E402
 from simple_server import tr as R  # noqa: E402
@@ -505,6 +507,49 @@ class CatSessionParityTests(unittest.TestCase):
             self.assertEqual(C.validate_input_response(pending, text),
                              legacy._validate_input_response(pending, text),
                              '%r %r' % (pending, text))
+
+
+class CatEndpointHelperDriftTests(unittest.TestCase):
+    """The CAT/Simulator endpoints' ported helpers match the legacy ones.
+
+    ``simple_server.validate_terminal_profile`` is the legacy
+    ``_validate_tp_hex``; the menu-selection ENVELOPE is the legacy
+    ``/api/menu-select`` composition; the PLI dictionary's override/clear rule
+    is the legacy ``_PLI_DATA`` + ``PLI_DEFAULTS`` layering (the endpoint's
+    effective dictionary walks the same two layers).
+    """
+
+    def test_the_terminal_profile_validator(self):
+        cases = [None, '', ' ', 'deadbeef', 'aa bb', 'AABB',
+                 'zz', 'abc', '00' * 255, '00' * 256, '00' * 300]
+        for value in cases:
+            with self.subTest(value=(value or '')[:8]):
+                self.assertEqual(SRV.validate_terminal_profile(value),
+                                 legacy._validate_tp_hex(value))
+
+    def test_the_menu_select_envelope(self):
+        tlv = bytes.fromhex('D30702020181900180')
+        for cla in ('80', 'a0'):
+            legacy_hex = '%sc20000%02x%s' % (cla, len(tlv), tlv.hex())
+            self.assertEqual(
+                CAT.envelope_apdu(tlv, int(cla, 16)).hex(), legacy_hex, cla)
+
+    def test_the_pli_override_and_clear(self):
+        link = _Link()
+        session = C.CatSession(link)
+        for value in ('130500F1100000', ''):
+            session.set_pli_data(0x00, value)
+            with mock.patch.dict(legacy._PLI_DATA,
+                                 {0x00: value} if value else {}):
+                self.assertEqual(session.pli_data_hex(0x00),
+                                 legacy._pli_data_hex(0x00), repr(value))
+        self.assertEqual(session.pli_data, {})
+        with mock.patch.dict(legacy._PLI_DATA, {0x0A: '630102'}):
+            session.set_pli_data(0x0A, '630102')
+            self.assertEqual(session.pli_data_hex(0x0A),
+                             legacy._pli_data_hex(0x0A))
+            session.set_pli_data(0x0A, '')
+            self.assertNotIn(0x0A, session.pli_data)
 
 
 class _FakeBipTerminal(object):

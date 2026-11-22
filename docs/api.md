@@ -182,6 +182,14 @@ Returns:
 {"response": "...", "sw": "9000"}
 ```
 
+The APDU is sent exactly as given; **any** status word is returned with `200`
+(the legacy `send_apdu_checksw` path raised on a non-`9000` answer and
+answered `500`).  A `91XX` answer is handled by the terminal first (the card
+announced a proactive command: the server FETCHes and answers it, then reports
+`9000`) unless a test run owns the card (`409`) or a BIP session does (the
+`91XX` is returned as-is).  A transport failure answers `503` with the status
+body (`connected: false`), and no card session is a `503` too.
+
 ### `POST /api/verify-adm`
 
 Verify the card's ADM PIN (TS 102 221 VERIFY, CHV number from the card
@@ -1349,6 +1357,20 @@ the card's proactive response (DISPLAY TEXT or SELECT ITEM).
 {"item_id": 128}
 ```
 
+The item may also be named by its text instead of its id — the item ids vary
+with the applet's install parameters:
+
+```json
+{"item_name": "coffe", "mode": "contains", "case_sensitive": false}
+```
+
+`item_name` (or `text`) is matched against the cached SET UP MENU's items.
+`mode` is `exact` (default) or `contains` and is **validated** (anything else
+is a `400`); the match is case-insensitive unless `case_sensitive` is true,
+and the flag must be a boolean (the literal `true`/`false`/`0`/`1` strings are
+accepted).  A miss or an ambiguous match is a `400` naming the menu's items.
+An `item_id` outside one octet is a `400` too.
+
 **Response:**
 ```json
 {"type": "display_text", "text": "Hello", "sw": "9122"}
@@ -1368,6 +1390,11 @@ server watchdog sends the `timeout` result itself.
 ```json
 {"result": "ok", "item_id": 1}
 ```
+
+`item_id` is one octet (`0`–`255`, like `/api/menu-select`); a larger or
+negative value is a `400` rather than a silently truncated item number.  For a
+GET INKEY / GET INPUT command `text` carries the answer (validated against the
+command's Response Length and charset).
 
 | `result` | TERMINAL RESPONSE code | Meaning |
 |---|---|---|
@@ -1523,11 +1550,36 @@ Sends an `ENVELOPE(Event Download)` for a subscribed event.
 ```
 
 `event_type` is required (the SET UP EVENT LIST event byte); `event_data` is
-optional hex for events that carry data. Returns the SW and any response data:
+optional hex for events that carry data.  The accepted `event_type` forms are
+a JSON number (the documented form), a string of decimal digits (`"12"` is
+event `0x0C` — read as decimal for tolerance), the script hex form (`"0x1D"` /
+`"1D"`) and the server's event name keywords (`"location_status"`,
+`"access_tech"`, `"network_rejection"`, `"data_connection"`).  Returns the SW
+and any response data:
 
 ```json
 {"sw": "9000", "data": "..."}
 ```
+
+The four events the server models (`0x03` Location status, `0x0B` Access
+technology change, `0x12` Network rejection, `0x1D` Data connection status
+change) may instead carry their objects as `fields` (validated server-side):
+
+```json
+{"event_type": 3, "fields": {"status": 0}}
+```
+
+When both `fields` and `event_data` are present, **`fields` wins** (the raw
+hex is ignored).  `event_src` overrides the device-identities source (`82`
+terminal default / `83` network, TS 102 223 §8.7):
+
+```json
+{"event_type": 4, "event_data": "01A0", "event_src": "83"}
+```
+
+Unlike the legacy server the response carries **no `net_state`**: the
+network-state monitor lands with the net-sim endpoints (Phase 3c-3e-2), so a
+Location-status event's effect on the monitor is not reflected here yet.
 
 For **Poll Interval Negotiation** (event `0x1C`, TS 102 223 §7.5.22) the
 proposal rides in `event_data` as the Duration TLV `04 02 <unit> <interval>`

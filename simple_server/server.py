@@ -6,8 +6,8 @@ module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.
 
-Scope (Phase 3c-3a/3b/3c-1/3c-2/3d-1): the state and the card lifecycle
-(:meth:`ServerState.open`, :meth:`~ServerState.equip`,
+Scope (Phase 3c-3a/3b/3c-1/3c-2/3d-1/3d-2/3e-1): the state and the card
+lifecycle (:meth:`ServerState.open`, :meth:`~ServerState.equip`,
 :meth:`~ServerState.reset`, :meth:`~ServerState.disconnect`, the presence
 monitor and the background STATUS poll), the HTTP handler and the
 :class:`http.server.ThreadingHTTPServer` factory over it, the static PWA
@@ -27,8 +27,13 @@ analysis and the single-card RAM installs ``POST /api/cap-info``,
 delete|import`` + ``/api/test/scripts/move|copy``, ``POST /api/test/run|stop|
 clear`` and ``GET /api/test/status`` (3c-3d-1 and 3c-3d-2, with the run engine
 in :mod:`simple_server.testrun` and the cross-store suite rules in
-:mod:`simple_server.suites`).  Every other API path is a 404 until the
-remaining 3c-3c endpoints (eSIM/SCP81/netsim) and 3d land.
+:mod:`simple_server.suites`), and the CAT/Simulator set (3c-3e-1):
+``GET /api/menu|stk-status|events|poll-status|proactive-log|terminal-profile|
+pli-qualifiers|pli-dict``, ``POST /api/menu-select|menu-respond|event-send|
+terminal-profile|rescue|status-poll|poll-toggle|pli-dict`` and the raw APDU
+``POST /api/apdu``.  Every other API path is a 404 until the remaining 3c-3e
+endpoints (eSIM/SCP81/netsim) land; 3d (the entry point and the cutover) is
+the last server work.
 
 Deliberate API decisions (see ``docs/pysim-phaseout.md`` "Phase 3c API
 surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
@@ -36,7 +41,7 @@ surface"): there is no pySim command line, no ``/api/command``/``/api/help``/
 "Verify vs pySim" builds its reference with pySim itself, which this server
 does not have - the SCP80 packet builder is pinned to the same vectors by the
 unit tests instead); ``/api/status`` has our own shape (no
-pySim concepts); ``/api/apdu`` (3c-3b) keeps the automatic proactive handler on
+pySim concepts); ``/api/apdu`` (3c-3e-1) keeps the automatic proactive handler on
 an ``91XX`` answer.  ``/api/read`` has **no** ``mode: 'decoded'``: the legacy
 mode ran pySim's server-side EF decoders, the PWA decodes the same raw bytes
 client-side, so the mode is refused with a 400 instead of being silently
@@ -75,6 +80,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from pysim_simple_server import events
 from pysim_simple_server import outfile
 from pysim_simple_server import presets as presets_store
 from pysim_simple_server import test_scripts as test_scripts_store
@@ -84,11 +90,13 @@ from pysim_simple_server import testscript
 from simple_server import bip as bip_module
 from simple_server import capram
 from simple_server import cards
+from simple_server import cat as cat_module
 from simple_server import cat_session
 from simple_server import commands
 from simple_server import files as files_module
 from simple_server import ota
 from simple_server import pbr as pbr_module
+from simple_server import proactive
 from simple_server import scp80
 from simple_server import sms
 from simple_server import suites as suites_module
@@ -104,7 +112,8 @@ __all__ = [
     'CARD_FREE_POST', 'DEFAULT_TERMINAL_PROFILE', 'DEFAULT_POLL_INTERVAL',
     'POLL_CHAIN_MAX', 'RAM_BATCH_POLL', 'RAM_BATCH_ATTEMPTS_MAX',
     'CLOSE_LOCK_TIMEOUT', 'VERSION', 'ARR_READ_PATHS', 'PBR_READ_PATHS',
-    'check_reader', 'decode_iccid',
+    'check_reader', 'decode_iccid', 'validate_terminal_profile',
+    'resolve_menu_item', 'event_code',
 ]
 
 #: The server version served by ``GET /api/version``.  The entry point (Phase
@@ -150,6 +159,13 @@ CARD_FREE_GET = frozenset([
     # status every 2 s while a run owns the card (the run holds the lock
     # inside a step), and the stores/indexes are card-free
     '/api/test/status', '/api/test/scripts', '/api/test/suites',
+    # the CAT/Simulator state (3c-3e-1): the menu, the paused-command state,
+    # the subscribed events, the poll state and configuration, the proactive
+    # log and the runtime TERMINAL PROFILE - all pure cached state (the
+    # legacy list), so a 2 s poll cannot starve a long card operation
+    '/api/menu', '/api/stk-status', '/api/events', '/api/poll-status',
+    '/api/proactive-log', '/api/terminal-profile', '/api/pli-qualifiers',
+    '/api/pli-dict',
 ])
 
 #: POSTs that answer while another card operation holds the lock (the legacy
@@ -316,6 +332,141 @@ def decode_iccid(data):
 
 #: A 2-byte hex FID (the only selector shape a custom-file probe accepts).
 _FID_RE = re.compile(r'^[0-9A-F]{4}$')
+
+
+def validate_terminal_profile(value):
+    """Validate a TERMINAL PROFILE hex string: ``(hex_or_None, error_or_None)``.
+
+    Port of the legacy ``_validate_tp_hex``: whitespace is stripped, the
+    digits are upper-cased, and the profile must be non-empty, even-length hex
+    and at most 255 bytes (one APDU's ``Lc``, TS 102 221 §11.2.1.2 - a longer
+    profile has no short-APDU form).
+    """
+    text = re.sub(r'\s', '', str(value or '')).upper()
+    if not text:
+        return None, 'profile is empty'
+    if not re.fullmatch(r'[0-9A-F]+', text):
+        return None, 'profile is not valid hex'
+    if len(text) % 2:
+        return None, 'profile must have an even number of hex digits'
+    if len(text) // 2 > 255:
+        return None, 'profile exceeds 255 bytes'
+    return text, None
+
+
+#: The menu-text match modes :func:`resolve_menu_item` accepts (the two
+#: :func:`pysim_simple_server.testscript.match_text` implements).
+MENU_MATCH_MODES = ('exact', 'contains')
+
+
+def _menu_mode(value):
+    """A validated menu-text match mode (``exact``/``contains``)."""
+    if value is None or value == '':
+        return 'exact'
+    mode = str(value).strip().lower()
+    if mode not in MENU_MATCH_MODES:
+        raise ValueError('mode must be "exact" or "contains": %r' % (value,))
+    return mode
+
+
+def _menu_case_sensitive(value):
+    """A validated ``case_sensitive`` flag (a JSON boolean; 0/1 tolerated).
+
+    A string is accepted only in its literal boolean spellings (``true``/
+    ``false``/``1``/``0``) - ``"false"`` must not silently read as true.
+    """
+    if value in (None, ''):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in (
+            'true', 'false', '1', '0'):
+        return value.strip().lower() in ('true', '1')
+    raise ValueError('case_sensitive must be a boolean: %r' % (value,))
+
+
+def resolve_menu_item(menu, text, mode='exact', case_sensitive=False):
+    """The item id of a cached SET UP MENU whose text matches (the run's rule).
+
+    The endpoint's variant of the test runner's ``_menu_item_by_text``; both
+    use :func:`pysim_simple_server.testscript.match_text`, so the matching
+    rule (``exact``/``contains``, case-insensitive unless ``case_sensitive``)
+    cannot drift.  The item ids vary with the applet's install parameters, so
+    a caller may name the text the card actually shows.
+
+    It stays beside the endpoint rather than beside ``match_text`` because the
+    run's helper raises the engine's ``ScriptError`` (the run report's
+    wording) while this one raises the dispatch's ``ValueError`` (a 400); only
+    the matching rule is shared.  ``mode`` is validated (``exact``/
+    ``contains`` - an unknown mode used to degrade to ``contains``) and
+    ``case_sensitive`` is read as a boolean.
+
+    Raises :class:`ValueError` on a bad mode/flag, on a miss (naming the
+    menu's items, and the case-insensitive candidates for a strict-case miss)
+    and on ambiguity.
+    """
+    items = (menu or {}).get('items') or []
+    spec = {'mode': _menu_mode(mode), 'value': text,
+            'case_sensitive': _menu_case_sensitive(case_sensitive)}
+    matches = [item for item in items
+               if testscript.match_text(spec, item.get('text') or '')]
+    if not matches:
+        listing = ', '.join('%s=%r' % (item.get('id'), item.get('text'))
+                            for item in items)
+        hint = ''
+        if spec['case_sensitive'] and items:
+            loose = [item for item in items
+                     if testscript.match_text(dict(spec, case_sensitive=False),
+                                              item.get('text') or '')]
+            if loose:
+                hint = (' - a case-insensitive match exists (%s): set '
+                        '"case_sensitive": false or fix the case'
+                        % ', '.join('%s=%r' % (item.get('id'),
+                                               item.get('text'))
+                                    for item in loose))
+        raise ValueError(
+            'menu-select: no menu item matches %r (%s)%s'
+            % (text, 'menu: ' + listing if listing
+               else 'no menu cached - fetch the menu first (poll STATUS until '
+                    'the card announces SET UP MENU)', hint))
+    if len(matches) > 1:
+        raise ValueError(
+            'menu-select: %d items match %r (%s) - use the item id'
+            % (len(matches), text,
+               ', '.join('%s=%r' % (item.get('id'), item.get('text'))
+                         for item in matches)))
+    return matches[0]['id']
+
+
+def event_code(value):
+    """The event byte of an ``event-send`` request's ``event_type``.
+
+    The accepted forms: a JSON number (the documented API form), a string of
+    decimal digits (read as **decimal** for tolerance - ``'12'`` is event
+    ``0x0C``), the test scripts' hex form (``0x1D``) and the server's event
+    name keywords (``network_rejection``, ...), the last two through
+    :func:`pysim_simple_server.events.resolve_event`.  The digits form is a
+    tolerance, not legacy parity: the legacy only accepted a number - a
+    string raised a ``TypeError`` while it built the packet, so it never sent
+    one.  Raises :class:`ValueError` for anything else.
+    """
+    if isinstance(value, bool) or value is None:
+        raise ValueError('event_type is required')
+    if isinstance(value, int):
+        code = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        code = int(value.strip())
+    else:
+        code = events.resolve_event(value)
+        if code is None:
+            raise ValueError('event_type %r is not an event byte or name'
+                             % (value,))
+    if not 0 <= code <= 0xFF:
+        raise ValueError('event_type must be one octet: %r' % (value,))
+    return code
+
 
 #: The status words the file endpoints name for the PWA's status line (the
 #: legacy ``/api/read|write`` wording).  The status word itself stays in the
@@ -503,6 +654,10 @@ class ServerState(object):
         self.version = version
         self.web_dir = web_dir
         self.terminal_profile = (terminal_profile or '')
+        #: The startup profile ``GET /api/terminal-profile`` reports as
+        #: ``cli_default``: a runtime POST changes :attr:`terminal_profile`
+        #: only (in memory, the legacy contract).
+        self.default_terminal_profile = self.terminal_profile
         self.transport_factory = transport_factory
         self.transport = transport
         self.reader_name = (reader if reader is None
@@ -567,6 +722,12 @@ class ServerState(object):
         self.arr = None
         self.pbr = None
         self.netstate = None
+        #: The operator's PROVIDE LOCAL INFORMATION overrides (qualifier code ->
+        #: hex), the legacy module-level ``_PLI_DATA``.  It belongs to the
+        #: operator, not to the card session: every :class:`CatSession` gets
+        #: this dict, so an equip (a new session object) keeps the answers and
+        #: a cardless ``GET /api/pli-dict`` still serves them.
+        self.pli_data = {}
         #: The ADM latch the 3d test runner will read: the last card session an
         #: ADM verify succeeded in (and, for a failed gate, the one it failed
         #: in - set by the suite runner, not by ``/api/verify-adm``).
@@ -839,7 +1000,8 @@ class ServerState(object):
             bip_flush=self._bip_flush,
             menu_timeout=self.menu_timeout,
             poll_interval=self.poll_interval,
-            card_lock=self.card_lock)
+            card_lock=self.card_lock,
+            pli_data=self.pli_data)
         self.bip = bip_module.BipSession(
             self.cat, card_lock=self.card_lock,
             card_connected=lambda: self.connected)
@@ -3539,6 +3701,458 @@ class ServerState(object):
         """True when ``path`` must answer 409 because a run owns the card."""
         return testrun.request_blocked(path, self.test_running)
 
+    # ---- the CAT/Simulator endpoints (3c-3e-1) ----------------------------
+    #
+    # The Phone/Simulator tab's whole surface: the STK menu browser (the
+    # cached SET UP MENU, the ENVELOPE(Menu Selection), the paused command's
+    # TERMINAL RESPONSE and the watchdog), the event downloads, the runtime
+    # TERMINAL PROFILE (Send / Rescue), the manual STATUS poll and the poll
+    # switch, the proactive log, the PLI dictionary and the raw APDU.
+    #
+    # The cached state lives on :class:`~simple_server.cat_session.CatSession`
+    # (``sim_menu``, ``event_list``, ``stk_pending``, ``menu_active``, the
+    # log, the PLI dictionary); the operator-owned ones (the PLI overrides)
+    # sit on this state so they survive an equip.  The card-free GETs read the
+    # cached state without the card lock (the legacy allowlist - the PWA polls
+    # them every 2 s while a long operation holds the card).
+
+    def _require_cat(self):
+        """The equipped card's CAT session, or :class:`NoCardSessionError`."""
+        cat = self.cat
+        if cat is None or not self.connected:
+            raise NoCardSessionError('no card session: equip a card first')
+        return cat
+
+    def _bip_owns_card(self):
+        """True while a BIP session runs (its terminal answers its commands)."""
+        bip = self.bip
+        return bool(bip is not None and getattr(bip, 'owner', None))
+
+    def menu_info(self):
+        """``GET /api/menu``: the cached SET UP MENU plus ``active``.
+
+        The legacy shape: the menu dict as parsed (``command_number``,
+        ``title``, ``items`` - the NAI suffixes included) or ``{'items': []}``
+        when the card sent none.  TS 102 223 §6.6.7 marks the **Alpha
+        identifier mandatory**, but a card that omits it must still render
+        (guarded fallback): the menu then carries no ``title`` key and the PWA
+        supplies its translated label - the server never fabricates an English
+        ``'Menu'``.
+        """
+        cat = self.cat
+        menu = dict((cat.sim_menu if cat is not None else None) or {})
+        if not menu:
+            menu = {'items': []}
+        menu['active'] = bool(cat is not None and cat.menu_active)
+        return menu
+
+    def menu_select(self, body):
+        """``POST /api/menu-select``: ENVELOPE(Menu Selection) + the chain.
+
+        The item is named by ``item_id`` or by ``item_name``/``text``
+        (``mode`` ``exact``/``contains``, case-insensitive unless
+        ``case_sensitive`` is set; both are validated - an unknown ``mode`` is
+        a 400, it is never silently read as ``contains``) resolved against the
+        cached menu before anything touches the card.  A paused command is
+        answered first
+        (:meth:`CatSession.finish_pending_menu` - a new selection must never
+        shadow a FETCHed command), then ``D3 07 02 02 01 81 90 01 <id>`` goes
+        out as the ENVELOPE and the answers are consumed: a user-interactive
+        command pauses the chain into ``stk_pending`` (the response carries its
+        prompt/items and the watchdog is armed), an idle card is polled once
+        (a command may be queued after the envelope's ``9000``).
+
+        Returns the legacy response dict: ``{'type', 'sw', ...}`` where
+        ``type``/``items``/``text`` describe the paused command (``done``
+        when none).
+        """
+        cat = self._require_cat()
+        item_id = body.get('item_id')
+        if item_id in (None, ''):
+            text = body.get('item_name')
+            if text in (None, ''):
+                text = body.get('text')
+            if text in (None, ''):
+                raise ValueError('item_id or item_name is required')
+            item_id = resolve_menu_item(cat.sim_menu, str(text),
+                                        body.get('mode'),
+                                        body.get('case_sensitive'))
+        else:
+            try:
+                item_id = int(item_id)
+            except (TypeError, ValueError):
+                raise ValueError('item_id must be an integer: %r'
+                                 % (body.get('item_id'),))
+            if not 0 <= item_id <= 0xFF:
+                raise ValueError('item_id must be one octet: %r' % (item_id,))
+        cat.finish_pending_menu()
+        cat.menu_active = True
+        tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01,
+                     item_id])
+        apdu = cat_module.envelope_apdu(tlv, int(cat.cat_cla, 16))
+        _data, sw = cat.transport.send_apdu(apdu)
+        sw = bytes(sw or b'').hex().upper()
+        log.info('MENU-SELECT: ENVELOPE %s item=%d -> %s', apdu.hex().upper(),
+                 item_id, sw)
+        response = {'type': 'done', 'sw': sw}
+        on_fetch = cat.menu_fetch_handler(response)
+        if sw.startswith('91'):
+            cat.handle_chain(sw, on_fetch)
+        else:
+            cat.menu_active = False
+            cat.stk_pending = None
+            if sw == '9000':
+                _data, st_sw = cat.send_status()
+                log.debug('STATUS poll (menu-select 9000) -> %s',
+                          bytes(st_sw or b'').hex().upper())
+                if bytes(st_sw or b'').hex().upper().startswith('91'):
+                    cat.handle_chain(st_sw, on_fetch)
+        if cat.stk_pending:
+            cat.arm_menu_timeout()
+        else:
+            cat.cancel_menu_timeout()
+        return response
+
+    def menu_respond(self, body):
+        """``POST /api/menu-respond``: the paused command's TERMINAL RESPONSE.
+
+        ``result`` is ``ok``/``cancel``/``back``/``timeout``/``help``
+        (TS 102 223 §8.12.0), ``item_id`` the SELECT ITEM/SET UP MENU choice
+        (one octet, like ``/api/menu-select`` - a larger value is a 400, not a
+        silent truncation, so the report never names a different item) and
+        ``text`` the GET INKEY/GET INPUT answer (validated against the
+        command's Response Length/charset, then coded per §6.8.5).  The chain
+        continues on ``91XX``; the watchdog follows the new pending state.
+        """
+        cat = self._require_cat()
+        item_id = body.get('item_id')
+        if item_id not in (None, ''):
+            if isinstance(item_id, bool):
+                raise ValueError('item_id must be an integer: %r' % (item_id,))
+            try:
+                item_id = int(item_id)
+            except (TypeError, ValueError):
+                raise ValueError('item_id must be an integer: %r'
+                                 % (body.get('item_id'),))
+            if not 0 <= item_id <= 0xFF:
+                raise ValueError('item_id must be one octet: %r' % (item_id,))
+        else:
+            item_id = None
+        response = cat.menu_send_response(body.get('result') or 'ok', item_id,
+                                          body.get('text'))
+        # the API's status words are upper-case (cat_session's own response is
+        # the transport's hex)
+        response['sw'] = str(response.get('sw') or '').upper()
+        return response
+
+    def stk_status(self):
+        """``GET /api/stk-status``: active dialogue + the pending command.
+
+        The legacy shape: ``active``/``pending``/``pending_type``, plus
+        ``pending_data`` - the paused command's JSON-safe dict verbatim (the
+        PWA renders the prompt/items); the watchdog's ``shown_at`` monotonic
+        stamp is stripped.
+        """
+        cat = self.cat
+        pending = cat.stk_pending if cat is not None else None
+        resp = {'active': bool(cat is not None and cat.menu_active),
+                'pending': pending is not None,
+                'pending_type': pending['type'] if pending else None}
+        if pending:
+            resp['pending_data'] = {key: value for key, value in pending.items()
+                                    if key != 'shown_at'}
+        return resp
+
+    def events_info(self):
+        """``GET /api/events``: the subscribed event bytes, or ``[]``.
+
+        The SET UP EVENT LIST the card sent (TS 102 223 §6.4.16); the values
+        are ints (the legacy shape the PWA renders as hex).
+        """
+        cat = self.cat
+        return list(cat.event_list or []) if cat is not None else []
+
+    def event_send(self, body):
+        """``POST /api/event-send``: ENVELOPE(Event Download) and its answers.
+
+        ``event_type`` is required (an int byte, a decimal/hex string or an
+        event name - see :func:`event_code`).  The event objects come from
+        ``fields`` - the semantic builders of :mod:`pysim_simple_server.events`
+        for the four events it models (0x03/0x0B/0x12/0x1D), validated by the
+        builder - or from the raw ``event_data`` hex (every other event form);
+        when both are present **``fields`` wins** (``event_data`` is ignored).
+        ``event_src`` overrides the device-identities source (``82`` terminal
+        default, ``83`` network - TS 102 223 §8.7).
+
+        The ``91XX`` answer is drained (the generic chain answers whatever
+        the event raised).  The Poll Interval Negotiation event's answer
+        (§7.5.22/§8.97) is decoded into ``negotiation`` and a *modified*
+        result becomes the poll interval (§6.4.6/§6.4.14: a new POLL INTERVAL
+        clears the card's POLLING OFF).
+
+        Returns ``{'sw', ['data'], ['negotiation']}``.  Unlike the legacy the
+        event's effect on the network-state monitor is not re-read and
+        ``net_state`` is not attached: the monitor is Phase 3c-3e-2 work
+        (``simple_server.netsim``/``netstate`` land with the net-sim
+        endpoints), so a location-status write is not reflected here yet.
+        """
+        cat = self._require_cat()
+        code = event_code(body.get('event_type'))
+        fields = body.get('fields')
+        if fields is not None:
+            # the semantic builders validate the fields (an EventError is a
+            # ValueError, so the dispatch answers 400)
+            event_data_hex = events.build(code, fields)
+        else:
+            event_data_hex = str(body.get('event_data') or '').strip()
+            if event_data_hex:
+                try:
+                    bytes.fromhex(event_data_hex)
+                except ValueError:
+                    raise ValueError('event_data is not valid hex: %r'
+                                     % (event_data_hex,))
+        data, sw = cat.send_event_download(
+            code, bytes.fromhex(event_data_hex) if event_data_hex else None,
+            src=body.get('event_src'))
+        sw_hex = bytes(sw or b'').hex().upper()
+        data_hex = bytes(data or b'').hex().upper()
+        log.info('ENVELOPE(Event Download) type=0x%02X data=%s -> %s',
+                 code, event_data_hex or '(none)', sw_hex)
+        resp = {'sw': sw_hex}
+        if data_hex:
+            resp['data'] = data_hex
+        if code == 0x1C:
+            negotiation = proactive.decode_poll_negotiation(data_hex)
+            if negotiation:
+                resp['negotiation'] = negotiation
+                self._apply_poll_negotiation(negotiation)
+        return resp
+
+    def _apply_poll_negotiation(self, negotiation):
+        """Act on a poll-interval negotiation answer (TS 102 223 §7.5.22).
+
+        A *modified* result carries the duration the terminal shall use from
+        now on (§8.97); the card's POLLING OFF wish is then over (a new POLL
+        INTERVAL is exactly what §6.4.14 says resumes polling).
+        """
+        if not negotiation or negotiation.get('result') != 2:
+            return
+        seconds = negotiation.get('seconds')
+        if not seconds:
+            return
+        interval = max(1, min(255, int(seconds)))
+        cat = self.cat
+        with self.card_lock:
+            self.poll_interval = interval
+            self.poll_suspended = False
+            if cat is not None:
+                cat.poll_interval = interval
+                cat.poll_suspended = False
+        log.info('POLL NEGOTIATION: modified -> background poll %d s',
+                 interval)
+
+    def terminal_profile_info(self):
+        """``GET /api/terminal-profile``: the profile in effect + the startup one."""
+        profile = self.terminal_profile or ''
+        return {'profile': profile or None,
+                'bytes': len(profile) // 2,
+                'cli_default': self.default_terminal_profile or None}
+
+    def set_terminal_profile(self, body):
+        """``POST /api/terminal-profile``: set/send the profile at runtime.
+
+        A body with ``profile`` validates the hex and replaces the in-memory
+        value; an empty body (the PWA's Send) re-sends the current one.  The
+        re-send answers a paused command first
+        (:meth:`CatSession.resend_terminal_profile` - re-sending must never
+        shadow a FETCHed command), keeps the proactive log with a boundary
+        marker and clears the per-session menu/event state.
+        """
+        cat = self._require_cat()
+        if body.get('profile') is not None:
+            profile, error = validate_terminal_profile(body.get('profile'))
+            if error:
+                raise ValueError(error)
+            self.terminal_profile = profile
+        if not self.terminal_profile:
+            raise ValueError('no terminal profile configured')
+        result = cat.resend_terminal_profile(self.terminal_profile)
+        self.poll_suspended = bool(getattr(cat, 'poll_suspended', False))
+        self._adopt_poll_interval()
+        return dict({'ok': True, 'profile': self.terminal_profile}, **result)
+
+    def rescue(self):
+        """``POST /api/rescue``: re-send the current profile (a CAT recovery)."""
+        return self.set_terminal_profile({})
+
+    def status_poll(self):
+        """``POST /api/status-poll``: STATUS and, on ``91XX``, the chain.
+
+        The manual poll is bounded like the background one
+        (:data:`POLL_CHAIN_MAX`) - a card that re-queues a command must not
+        hold the card lock - and runs whatever the operator's poll switch
+        says: the button is an explicit action, and the card's POLLING OFF
+        wish suspends only the background poll (TS 102 223 §6.4.14).
+        """
+        cat = self._require_cat()
+        _data, sw = cat.send_status()
+        sw_hex = bytes(sw or b'').hex().upper()
+        log.info('STATUS poll (manual) -> %s', sw_hex)
+        resp = {'sw': sw_hex}
+        if sw_hex.startswith('91'):
+            cat.handle_chain(sw, max_rounds=POLL_CHAIN_MAX)
+            resp['proactive'] = True
+        self.poll_suspended = bool(getattr(cat, 'poll_suspended', False))
+        self._adopt_poll_interval()
+        return resp
+
+    def _poll_state(self):
+        """The effective poll state (the legacy ``/api/poll-status`` body)."""
+        cat = self.cat
+        suspended = (bool(getattr(cat, 'poll_suspended', False))
+                     if cat is not None else bool(self.poll_suspended))
+        return {'enabled': bool(self.poll_enabled),
+                'interval': int(self.poll_interval),
+                'card_disabled': suspended}
+
+    def poll_status(self):
+        """``GET /api/poll-status``: the operator's switch and the card's wish.
+
+        ``interval`` is the adopted POLL INTERVAL (TS 102 223 §6.4.6), not
+        the startup default; ``card_disabled`` is the card's POLLING OFF
+        (§6.4.14) - the PWA shows the effective state (OFF while suspended).
+        """
+        return self._poll_state()
+
+    def poll_toggle(self, body):
+        """``POST /api/poll-toggle``: turn the background STATUS poll on/off.
+
+        Enabling is refused (stays off) when no interval is configured -
+        ``--poll-interval 0`` is the operator's "no polling" setup and the
+        toggle must not override it (the legacy ``_poll_enable`` rule).  The
+        card's POLLING OFF is reported as a warning while polling is on: the
+        timer stays suspended until the card sends a POLL INTERVAL.
+        """
+        enabled = bool(body.get('enabled'))
+        if enabled and self.poll_interval <= 0:
+            enabled = False
+        self.poll_enabled = enabled
+        resp = self._poll_state()
+        if resp['enabled'] and resp['card_disabled']:
+            resp['warning'] = ('card disabled proactive polling with POLLING '
+                               'OFF (TS 102 223 6.4.14); it resumes after a '
+                               'POLL INTERVAL')
+        return resp
+
+    def proactive_log(self):
+        """``GET /api/proactive-log``: the last 50 fetched commands, newest first.
+
+        The entries are :meth:`CatSession.entries`' (the legacy shape the PWA
+        renders: ``id``, ``type_hex``/``type_name``, ``elapsed``, ``bytes``,
+        ``raw``, the decoded ``cmd_decoded`` and the sent TERMINAL RESPONSE's
+        fields); a TERMINAL PROFILE re-send's boundary marker is in there too.
+        """
+        cat = self.cat
+        return cat.entries(50) if cat is not None else []
+
+    def pli_qualifiers(self):
+        """``GET /api/pli-qualifiers``: the PLI qualifier codes with their names."""
+        return [{'code': '%02X' % code, 'name': proactive.PLI_QUALIFIER_NAMES[code]}
+                for code in proactive.PLI_QUALIFIER_NAMES]
+
+    def _pli_effective(self):
+        """The effective PLI dictionary: the override, else the built-in default.
+
+        The legacy GET shape: one entry per known qualifier, code-keyed hex; a
+        cleared override falls back to :data:`~simple_server.cat_session.
+        PLI_DEFAULTS`, and the date/time qualifier stays empty (the host clock
+        answers it at TERMINAL RESPONSE time, TS 102 223 §6.4.15).
+        """
+        overrides = self.pli_data
+        return {('%02X' % code): (overrides.get(code)
+                                  or cat_session.PLI_DEFAULTS.get(code, ''))
+                for code in proactive.PLI_QUALIFIER_NAMES}
+
+    def pli_dict(self):
+        """``GET /api/pli-dict``: the effective PLI data dictionary."""
+        return self._pli_effective()
+
+    def set_pli_dict(self, body):
+        """``POST /api/pli-dict``: update the PLI overrides.
+
+        A non-empty valid-hex value becomes an override; an empty value clears
+        it (the default applies again).  A field the server cannot use is
+        named in the response instead of being silently dropped (v3.25.6):
+        ``invalid`` (a non-string value, a malformed key, a non-hex or
+        odd-length value) and ``unknown`` (a well-formed code outside the
+        qualifier list).  The guard tests the known qualifiers, never "an
+        override exists", so a new override always sticks and a clear cannot
+        poison a later set (v3.25.5).
+        """
+        invalid, unknown = [], []
+        for key, value in body.items():
+            if not isinstance(value, str):
+                invalid.append(key)
+                continue
+            try:
+                code = int(key, 16)
+            except (TypeError, ValueError):
+                invalid.append(key)
+                continue
+            if code not in proactive.PLI_QUALIFIER_NAMES:
+                unknown.append(key)
+                continue
+            if value:
+                try:
+                    bytes.fromhex(value)
+                except ValueError:
+                    invalid.append(key)
+                    continue
+                self.pli_data[code] = value
+            else:
+                self.pli_data.pop(code, None)
+        resp = self._pli_effective()
+        if invalid:
+            resp['invalid'] = invalid
+        if unknown:
+            resp['unknown'] = unknown
+        return resp
+
+    def raw_apdu(self, body):
+        """``POST /api/apdu``: send one raw APDU; ``{response, sw}``.
+
+        The APDU is sent exactly as given through the transport (the T=0
+        ``61xx``/``6Cxx`` chaining is the transport's).  A ``91XX`` answer is
+        **not** passed through to the caller: the card announced a proactive
+        command, so the terminal FETCHes and answers it with the full chain
+        (the PLI dictionary/host clock, BIP, the timers, the display/menu
+        generic answers) and reports ``9000`` - the legacy
+        ``send_apdu_checksw`` rule, so a card that queues a command as a side
+        effect is never left with an unanswered FETCH.
+
+        The auto-handler is off only when something else owns the card: a
+        test run (the endpoint answers 409 before it gets here) or a running
+        BIP session (its terminal answers its own commands - the chain would
+        shortcut it), where the ``91XX`` status is returned as-is.
+        """
+        apdu_hex = re.sub(r'\s', '', str(body.get('apdu') or '')).upper()
+        if not apdu_hex:
+            raise ValueError('apdu is required')
+        if not re.fullmatch(r'[0-9A-F]+', apdu_hex) or len(apdu_hex) % 2:
+            raise ValueError('apdu is not valid hex: %r' % (body.get('apdu'),))
+        apdu = bytes.fromhex(apdu_hex)
+        if len(apdu) < 4:
+            raise ValueError('an APDU needs at least 4 bytes: %r'
+                             % (apdu_hex,))
+        cat = self._require_cat()
+        data, sw = cat.transport.send_apdu(apdu)
+        sw_hex = bytes(sw or b'').hex().upper()
+        log.info('APDU: %s -> SW: %s', apdu_hex, sw_hex)
+        if sw_hex.startswith('91') and not self._bip_owns_card():
+            cat.handle_chain(bytes(sw))
+            sw_hex = '9000'
+        return {'response': bytes(data or b'').hex().upper(), 'sw': sw_hex}
+
     # ---- the background STATUS poll ---------------------------------------
 
     def start_poll(self):
@@ -4115,6 +4729,22 @@ def make_handler(state, log_requests=False):
                     self._send_json(self.state_ref.test_scripts_info())
                 elif path == '/api/test/suites':
                     self._send_json(self.state_ref.test_suites_info())
+                elif path == '/api/menu':
+                    self._send_json(self.state_ref.menu_info())
+                elif path == '/api/stk-status':
+                    self._send_json(self.state_ref.stk_status())
+                elif path == '/api/events':
+                    self._send_json(self.state_ref.events_info())
+                elif path == '/api/poll-status':
+                    self._send_json(self.state_ref.poll_status())
+                elif path == '/api/proactive-log':
+                    self._send_json(self.state_ref.proactive_log())
+                elif path == '/api/terminal-profile':
+                    self._send_json(self.state_ref.terminal_profile_info())
+                elif path == '/api/pli-qualifiers':
+                    self._send_json(self.state_ref.pli_qualifiers())
+                elif path == '/api/pli-dict':
+                    self._send_json(self.state_ref.pli_dict())
                 elif path.startswith('/api/'):
                     self._send_json({'error': 'Not found'}, 404)
                 else:
@@ -4231,6 +4861,31 @@ def make_handler(state, log_requests=False):
                                         409)
                     else:
                         self._send_json(self.state_ref.test_status())
+                elif path == '/api/menu-select':
+                    self._post_card(lambda: self.state_ref.menu_select(body),
+                                    {})
+                elif path == '/api/menu-respond':
+                    self._post_card(lambda: self.state_ref.menu_respond(body),
+                                    {})
+                elif path == '/api/event-send':
+                    self._post_card(lambda: self.state_ref.event_send(body),
+                                    {'sw': None})
+                elif path == '/api/terminal-profile':
+                    self._post_card(
+                        lambda: self.state_ref.set_terminal_profile(body),
+                        {'ok': False})
+                elif path == '/api/rescue':
+                    self._post_card(self.state_ref.rescue, {'ok': False})
+                elif path == '/api/status-poll':
+                    self._post_card(self.state_ref.status_poll, {'sw': None})
+                elif path == '/api/poll-toggle':
+                    self._post_card(lambda: self.state_ref.poll_toggle(body),
+                                    {})
+                elif path == '/api/pli-dict':
+                    self._send_json(self.state_ref.set_pli_dict(body))
+                elif path == '/api/apdu':
+                    self._post_card(lambda: self.state_ref.raw_apdu(body),
+                                    {})
                 else:
                     self._send_json({'error': 'Not found'}, 404)
             except presets_store.PresetError as exc:

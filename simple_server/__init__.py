@@ -30,6 +30,11 @@ Phase 3c-3d-2: the test-suite store endpoints, the cross-store rules
 (:mod:`simple_server.suites`) and the suite execution (the ordered
 setup/members/teardown, the per-member ``on_fail``, the start reset, the
 shared SCP80 counter state) - also in :mod:`simple_server.testrun`.
+Phase 3c-3e-1: the CAT/Simulator endpoints on the CAT session engine (the STK
+menu browser, the event downloads, the runtime TERMINAL PROFILE, the manual
+STATUS poll and the poll switch, the proactive log and the PLI dictionary),
+the server-side event builders of :mod:`pysim_simple_server.events` and the
+raw APDU endpoint.
 
 Nothing here imports ``pySim``, ``osmocom`` or ``construct``; only
 :mod:`simple_server.transport` touches ``pyscard``, and

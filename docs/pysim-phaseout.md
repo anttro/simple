@@ -1037,6 +1037,111 @@ first bench run is the acceptance check - a real `start_reset` (the reset +
 re-init on an eUICC switching its active profile mid-suite), the ADM latch
 across the reset, and the teardown leaving a real card reusable.
 
+## Phase 3c-3e-1 outcome (the CAT/Simulator endpoints)
+
+The Phone/Simulator tab's whole HTTP surface is served from `ServerState` on
+the ported `simple_server.cat_session.CatSession`: `GET /api/menu|stk-status|
+events|poll-status|proactive-log|terminal-profile|pli-qualifiers|pli-dict`,
+`POST /api/menu-select|menu-respond|event-send|terminal-profile|rescue|
+status-poll|poll-toggle|pli-dict` and `POST /api/apdu`.  The CAT dialogue
+itself (the FETCH/TERMINAL RESPONSE chain, the ENVELOPE exchanges, the menu
+watchdog, TIMER MANAGEMENT and the PLI dictionary plumbing) was the 3c-1
+engine; this phase adds the endpoints, the server-side semantic event builders
+(`pysim_simple_server.events`, reused from the test runner) and the raw-APDU
+automatic proactive handler.
+
+Ported, function for function: the legacy `_do_GET`/`_do_POST` branches for
+the paths above, `_make_menu_fetch_handler` (`CatSession.menu_fetch_handler`),
+`_finish_pending_menu` (`CatSession.finish_pending_menu`), `_menu_send_response`
+(`CatSession.menu_send_response`), `_send_event_download`
+(`CatSession.send_event_download`), `_resend_terminal_profile`
+(`CatSession.resend_terminal_profile`), `_send_status`/`_handle_proactive_chain`
+(the session's `send_status`/`handle_chain`), `_validate_tp_hex`
+(`validate_terminal_profile`), `_poll_enable`/the effective poll state
+(`_poll_state`/`poll_toggle`), `_pli_data_hex`/the `_PLI_DATA` layering
+(`_pli_effective`/`set_pli_dict`), and the menu text match
+(`resolve_menu_item` over the shared `testscript.match_text`).
+
+Spec anchors: TS 102 221 §11.2.1.2 (TERMINAL PROFILE), §11.2.2 (ENVELOPE),
+§11.2.3/§11.2.4 (FETCH / TERMINAL RESPONSE), §14.6.2 (the idle poll);
+TS 102 223 §6.3 (the `91XX` status), §6.4.6/§6.4.14 (POLL INTERVAL / POLLING
+OFF), §6.4.16 (SET UP EVENT LIST), **§6.6.7 (SET UP MENU: the Alpha
+identifier is mandatory - a card that omits it is tolerated as a guarded
+fallback, never an error)**, §6.8.0/§6.8.1 (the TERMINAL RESPONSE structure
+and the echoed command details), §7.5 (event downloads), §7.5.22/§8.97 (Poll
+Interval Negotiation), §8.7 (device identities), §8.12.0 (the result codings)
+and §8.15/§6.8.5 (the Text string codings).
+
+Deliberate, documented decisions (deviations from the legacy):
+
+- **`/api/apdu` answers `200` with the card's status word.**  The legacy ran
+  the APDU through `scc.send_apdu_checksw`, which raises on a non-`9000`
+  answer, and its handler answered `500 {'error': …}`.  A raw-APDU workbench
+  must see the SW it asked for, so the port sends through the transport and
+  returns `{response, sw}` for any SW.  The automatic proactive handler on a
+  `91XX` answer stays (the legacy default); it is off only while a test run or
+  a BIP session owns the card (409 / the BIP terminal answers its own
+  commands).
+- **A transport error is `503` with the status body.**  The legacy
+  `/api/status-poll` answered `200 {'sw': None, 'error': 'card disconnected'}`
+  and `/api/menu-select` had no handler at all (the connection dropped).  The
+  3c-3a classification tears the stale link down, re-arms the auto-equip and
+  answers `503` with `status()` (the PWA resets its card views from
+  `connected`/`card_session`); a decoder/protocol error still does not lose a
+  healthy card (it stays a `500`).
+- **`/api/menu-select` names the item by text as well as by id.**  `item_id`
+  stays (one octet, validated like `/api/menu-respond` - an out-of-range value
+  is a 400, never a silent `& 0xFF` truncation); `item_name`/`text` resolve
+  against the cached menu with `mode` (`exact` default / `contains`, both
+  validated - an unknown mode used to degrade to `contains`) and
+  `case_sensitive` (a boolean; the literal `true`/`false`/`0`/`1` spellings are
+  accepted so `"false"` cannot read as true).  The legacy only took an id.
+- **`/api/event-send` takes the semantic `fields` and the `event_src`
+  override.**  `fields` build the event object through
+  `pysim_simple_server.events` for the four modelled events (0x03/0x0B/0x12/
+  0x1D; validated at request time) and **win over `event_data`** when both are
+  present; every other event form travels as the raw `event_data` hex.
+  `event_src` overrides the device-identities source (TS 102 223 §8.7).
+  `event_type` accepts a number, a decimal digit string (decimal for
+  tolerance - `'12'` is `0x0C`; the legacy only accepted a number and raised a
+  `TypeError` on a string, so there is no legacy behaviour to match), the
+  script hex form (`0x1D`/`1D`) and the name keywords.
+- **`/api/event-send` does not attach `net_state`** (the legacy re-read the
+  monitor for a Location-status event and returned it).  The network-state
+  monitor is Phase 3c-3e-2 work (`simple_server.netsim`/`netstate` land with
+  the net-sim endpoints), so the endpoint returns only
+  `{sw, [data], [negotiation]}` for now - recorded as a 3c-3e-2 item.
+- **`/api/stk-status` keeps the legacy shape.**  `active`/`pending`/
+  `pending_type` plus `pending_data`; an earlier draft added a `type` alias of
+  `pending_type`, which nothing read - it is gone rather than documented.
+- **The PLI dictionary endpoints are card-free** like the other cached GETs
+  (the `_CARD_FREE_GET` list), so a 2 s UI poll cannot queue behind a long
+  card operation.  The overrides survive an equip (they sit on `ServerState`,
+  the session's dict is the same object).
+
+**Cutover item (PWA, not touched in this phase).**  `frontend/index.html`
+(`stkMenuLabel`, around line 13981) repeats the wrong claim this phase fixed
+in the server: its comment says the SET UP MENU alpha identifier is
+"optional, TS 102 223 6.6.7", while §6.6.7 marks it **mandatory**.  The
+behaviour there (show a translated fallback for a title-less menu) is right
+and stays; only the comment (and, if a help/README repeats it, that text) is
+wrong.  It is a cutover doc fix: any `index.html` change needs the `sw.js`
+`CACHE` bump (two reloads), so it is deferred with the rest of the PWA
+changes.
+
+Tests: **71 CAT/Simulator tests (`tests/test_simple_simulator.py`) + 3 drift
+(`CatEndpointHelperDriftTests` in `tests/test_simple_drift.py`); the full suite
+is 2300**.  The fake
+transport answers the whole dialogue (a scripted TERMINAL PROFILE, FETCH,
+TERMINAL RESPONSE, STATUS and ENVELOPE queue) and the HTTP endpoints are
+driven through a real `ThreadingHTTPServer` on an ephemeral loopback port.
+**No live card has run this phase and there is no capture corpus for it**: the
+endpoint parity (the menu, the ENVELOPE bytes, the TERMINAL PROFILE, the poll,
+the PLI ownership, the raw-APDU gates and the error classification) is pinned
+against the fake card and the legacy sources; the first bench run - a real
+menu selection, an event download and a poll against the lab card - is the
+cutover gate.
+
 ## Spec compliance (spec-checker)
 
 Every spec-sensitive module is verified against the pinned PDFs

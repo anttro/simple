@@ -360,12 +360,16 @@ class CatSession(object):
       is refreshed first).  An exception in a hook never breaks the chain.
     * ``clock`` - ``callable() -> float``; the elapsed-time source of the
       proactive log (tests freeze it).
+    * ``pli_data`` - a dict the session uses as its PLI override store instead
+      of a fresh one.  The server passes its own, so the operator's answers
+      survive a card change (a new session object per equip, the legacy
+      module-global dictionary).
     """
 
     def __init__(self, transport, cat_cla='80', *, test_running=None,
                  bip_handler=None, bip_flush=None, chain_rounds=CHAIN_ROUNDS,
                  on_menu=None, menu_timeout=60, poll_interval=30, clock=None,
-                 card_lock=None):
+                 card_lock=None, pli_data=None):
         self.transport = transport
         self.test_running = test_running
         self.bip_handler = bip_handler
@@ -402,8 +406,10 @@ class CatSession(object):
         self.menu_active = False
         # The operator's PLI overrides only, keyed by qualifier code.  Kept
         # free of placeholders: the dictionary POST's guard tests the known
-        # qualifiers, never "an override exists" (v3.25.5).
-        self.pli_data = {}
+        # qualifiers, never "an override exists" (v3.25.5).  The server passes
+        # its own dict, so the overrides belong to the operator (not to the
+        # card session) and survive an equip.
+        self.pli_data = pli_data if pli_data is not None else {}
 
         self._timers = {}
         self._timer_lock = threading.RLock()
