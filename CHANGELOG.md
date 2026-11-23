@@ -9,10 +9,24 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
-## [4.0.1] — 2026-11-23
+## [4.1.0] — 2026-11-23
 
 ### Added
 
+- **PIN/PUK (CHV) operations.**  `POST /api/chv` runs VERIFY CHV (INS `20`),
+  CHANGE CHV (`24`) and UNBLOCK CHV (`2C`) on the equipped card: PIN1/PIN2
+  (4-8 decimal digits) and the PUK (exactly 8), coded as the 8-byte T.50 CHV
+  field (`FF`-padded).  The CHV reference follows the card class - a UICC's
+  application PIN `01`/`81`, a 2G SIM's CHV `01`/`02` with the exceptional
+  UNBLOCK CHV1 `00` - and the PIN's application is selected first (ADF.USIM /
+  DF.GSM).  The result carries the attempts left (`63Cx`; `63C0` = blocked),
+  the 2G SIM's `9804` (a failure with attempts left) / `9840` (blocked) and
+  the 6Axx/6982/6985 errors.  The Cards editor's PIN/ADM block gains
+  **Verify / Change / Unblock** per PIN (and **Verify** for the ADM): every
+  attempt is confirmed first, the attempts left and the blocked state are
+  tracked per card session, a successful change/unblock fills the form field
+  for saving, and the Status tab's PIN row verifies the matched preset's
+  PIN1/PIN2.
 - **The size-agnostic read fallback** for a card that returns no file
   information at all: `/api/read` accepts `length` (transparent) and
   `record_len`, and otherwise reads READ BINARY/RECORD with `Le = 256` until
@@ -37,6 +51,11 @@ every change carries a descriptive commit message.
   and the network-state monitor now work on a 2G SIM.  `fci_form: "gsm"`
   says what the raw SELECT response is; the PWA
   labels it instead of decoding it as a BER FCP.
+- **A 2G SIM's `9804` is no longer reported as a blocked ADM** on
+  `/api/verify-adm`: TS 51 011 §9.4.5 defines it as "unsuccessful
+  verification, at least one attempt left" (`failed: true`); `9840` (no
+  attempt left) and `6983` are the blocked answers, and `63C0` reports 0
+  attempts left + blocked.
 
 ## [4.0.0] — 2026-11-23
 

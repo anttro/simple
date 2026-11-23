@@ -576,8 +576,8 @@ Stores saved card configurations (presets) in a **server-side store** — `~/.py
 |---|---|
 | Name | Human-readable label (required) |
 | ICCID | Optional card identifier |
-| ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), stored for the file manager; not used by the SCP80/SCP81 views |
-| PIN1 / PUK1 / PIN2 / PUK2 | Optional card codes, stored for later use (4–8 decimal digits; nothing consumes them yet) |
+| ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), used by the file manager and the Cards editor's Verify action; not used by the SCP80/SCP81 views |
+| PIN1 / PUK1 / PIN2 / PUK2 | Optional card codes (PIN 4–8 decimal digits, PUK exactly 8) used by the Cards editor's **Verify / Change / Unblock** actions — VERIFY CHV, CHANGE CHV and UNBLOCK CHV via `/api/chv` (TS 102 221 / TS 51 011; every attempt is confirmed first). The Status tab's PIN row verifies the matched preset's PIN1/PIN2 |
 | CAT release | Optional card CAT (USAT) release (4–18; empty = unspecified, resolved as Rel-12) — the release guard hides CAT items introduced later (the Simulator's event parameters) |
 | SPI1 / SPI2 | Security level and PoR settings |
 | KIc / KID index | Keyset number (`01`–`0F`, from the KIc/KID byte; required together with the keys) |

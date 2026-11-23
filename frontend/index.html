@@ -1069,6 +1069,12 @@
 						<button data-needs="card" onclick="pysimResetCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Reset card">Reset card</button>
 						<button onclick="pysimDisconnect()" id="pysim-disconnect-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Disconnect from server">Disconnect from server</button>
 					</div>
+					<div class="flex items-center gap-2 mb-1 flex-wrap">
+						<span class="text-xs text-gray-500 dark:text-slate-400" data-l10n="PIN (matched preset)">PIN (matched preset)</span>
+						<button data-needs="card" onclick="pysimVerifyPin('pin1')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN1</button>
+						<button data-needs="card" onclick="pysimVerifyPin('pin2')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN2</button>
+						<span id="pysim-pin-msg" class="text-xs font-mono text-gray-600 dark:text-slate-400"></span>
+					</div>
 					<div id="pysim-status" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
 				</div>
 			</div>
@@ -1737,6 +1743,11 @@
 					<label for="cards-pin1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN1</label>
 					<input id="cards-pin1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
+				<div class="flex items-center gap-2 pl-12 -mt-1">
+					<button type="button" data-needs="card" onclick="cardsChv('pin1','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+					<button type="button" data-needs="card" onclick="cardsChv('pin1','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
+					<button type="button" data-needs="card" onclick="cardsChv('pin1','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
+				</div>
 				<div class="flex items-center gap-2">
 					<label for="cards-puk1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK1</label>
 					<input id="cards-puk1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
@@ -1744,6 +1755,11 @@
 				<div class="flex items-center gap-2">
 					<label for="cards-pin2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN2</label>
 					<input id="cards-pin2" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
+				</div>
+				<div class="flex items-center gap-2 pl-12 -mt-1">
+					<button type="button" data-needs="card" onclick="cardsChv('pin2','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+					<button type="button" data-needs="card" onclick="cardsChv('pin2','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
+					<button type="button" data-needs="card" onclick="cardsChv('pin2','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
 				</div>
 				<div class="flex items-center gap-2">
 					<label for="cards-puk2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK2</label>
@@ -1753,8 +1769,12 @@
 					<label for="cards-adm" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">ADM</label>
 					<input id="cards-adm" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM">
 				</div>
+				<div class="flex items-center gap-2 pl-12 -mt-1">
+					<button type="button" data-needs="card" onclick="cardsAdmVerify()" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+				</div>
 			</div>
-			<p class="text-xs text-gray-500 dark:text-slate-400 mt-2" data-l10n="All codes are optional">All codes are optional</p>
+			<p id="cards-chv-status" class="text-xs text-gray-600 dark:text-slate-400 mt-2"></p>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="All codes are optional">All codes are optional</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TAR">TAR</legend>
@@ -1980,7 +2000,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '4.0.1';
+const SIMPLE_VERSION = '4.1.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -9742,13 +9762,17 @@ function pysimAdmRetryPrompt(attemptsLeft) {
 }
 
 // Verify the ADM PIN from the matched card preset (top-bar indicator or the
-// file manager's security-error hint).  `statusEl` receives the result inline
-// when given; otherwise the card status line is used.  Never retries by
-// itself: every attempt after a failure is confirmed first.
-async function pysimVerifyAdm(statusEl) {
+// file manager's security-error hint) or from an explicit key (the Cards
+// editor's ADM field).  `statusEl` receives the result inline when given;
+// otherwise the card status line is used.  Never retries by itself: every
+// attempt after a failure is confirmed first.
+async function pysimVerifyAdm(statusEl, admOverride) {
 	if (_pysimAdmVerifying) return;
 	const preset = cardsMatchedPreset();
-	if (!cardsAdmPresent(preset)) return;
+	const adm = (admOverride === undefined || admOverride === null)
+		? (cardsAdmPresent(preset) ? preset.adm : '')
+		: String(admOverride).trim();
+	if (!adm) return;
 	const el = statusEl || document.getElementById('pysim-status');
 	if (_pysimAdmBlocked) {
 		if (el) el.textContent = t('ADM is blocked — unblock the card to try again');
@@ -9760,7 +9784,7 @@ async function pysimVerifyAdm(statusEl) {
 	if (el) el.textContent = t('Verifying ADM...');
 	let verifiedOverride;
 	try {
-		const data = await pysimFetch('/api/verify-adm', { adm: preset.adm });
+		const data = await pysimFetch('/api/verify-adm', { adm });
 		if (data.ok) {
 			_pysimAdmAttemptsLeft = null;
 			_pysimAdmBlocked = false;
@@ -9772,6 +9796,9 @@ async function pysimVerifyAdm(statusEl) {
 		} else if (typeof data.attempts_left === 'number') {
 			_pysimAdmAttemptsLeft = data.attempts_left;
 			if (el) el.textContent = t('ADM verification failed') + ' — ' + data.attempts_left + ' ' + t('attempt(s) left');
+		} else if (data.failed) {
+			// A 2G SIM's 9804: a failure with at least one attempt left (not blocked)
+			if (el) el.textContent = t('ADM verification failed') + ' — ' + t('at least one attempt left');
 		} else if (el) {
 			el.textContent = 'SW: ' + (data.sw || '?') + ' — ' + (data.error || 'Error');
 		}
@@ -9796,6 +9823,152 @@ function pysimAdmResetAttempts() {
 	_pysimAdmAttemptsLeft = null;
 	_pysimAdmBlocked = false;
 	_pysimAdmStateKey = null;
+}
+
+// ===== CHV (PIN/PUK) actions =====
+// The last failure state per code, per card session (like the ADM attempt
+// tracking; an equip/removal forgets it).  A wrong value consumes a card
+// attempt, so every action is confirmed first.  The Cards editor sends its
+// form values (the preset being edited); the Status tab sends the matched
+// preset's PIN.  The commands and status words are in the server's
+// /api/chv (TS 102 221 / TS 51 011).
+let _cardsChvState = {};
+
+function cardsChvReset() {
+	_cardsChvState = {};
+}
+
+function cardsChvState(code) {
+	return _cardsChvState[code] || (_cardsChvState[code] = {});
+}
+
+// A PIN is 4-8 decimal digits; a PUK is exactly 8 (TS 31.101 §9.6).
+function cardsChvDigits(value, kind) {
+	const text = String(value == null ? '' : value).trim();
+	const min = kind === 'puk' ? 8 : 4;
+	if (text && /^[0-9]+$/.test(text) && text.length >= min && text.length <= 8) return text;
+	return null;
+}
+
+function cardsChvRetryPrompt(code) {
+	const state = cardsChvState(code);
+	if (state.blocked) return null;
+	if (typeof state.attempts === 'number') {
+		if (state.attempts <= 1) return t('This is the last attempt before the PIN is blocked. Try again?');
+		return t('The PIN verification already failed') + ' — ' + state.attempts + ' ' + t('attempt(s) left')
+			+ '. ' + t('A wrong PIN can block it. Try again?');
+	}
+	if (state.failed) {
+		return t('The PIN verification already failed') + '. ' + t('A wrong PIN can block it. Try again?');
+	}
+	return null;
+}
+
+// One CHV request: the confirmation, the POST and the result line.  A
+// change/unblock's new PIN arrives as `values.new_pin` (typed by the
+// operator); the server never reads a stored secret.
+async function pysimChvRun(code, action, values, statusEl) {
+	const label = code.toUpperCase();
+	const set = text => { if (statusEl) statusEl.textContent = text; };
+	if (!(_pysimLastStatus && _pysimLastStatus.connected)) {
+		set(t('Card reader server is not connected'));
+		return null;
+	}
+	const state = cardsChvState(code);
+	if (state.blocked) {
+		set(label + ' ' + t('is blocked') + ' — ' + t('use Unblock with the PUK'));
+		return null;
+	}
+	const retry = cardsChvRetryPrompt(code);
+	if (retry && !(await pysimConfirm(retry))) return null;
+	const verb = { verify: 'Verify', change: 'Change', unblock: 'Unblock' }[action] || action;
+	const warning = action === 'unblock'
+		? t('A wrong PUK consumes one attempt.')
+		: t('A wrong PIN consumes one attempt.');
+	if (!(await pysimConfirm(t(verb) + ' ' + label + '? ' + warning))) return null;
+	set(t('Working...'));
+	let data;
+	try {
+		data = await pysimFetch('/api/chv', Object.assign({ action, code }, values));
+	} catch (e) {
+		set(t('Error') + ': ' + e.message);
+		return null;
+	}
+	if (data.ok) {
+		state.attempts = null;
+		state.blocked = false;
+		state.failed = false;
+		if (action === 'verify') set(label + ' ' + t('verified'));
+		else set(label + ' ' + t(action === 'change' ? 'changed' : 'unblocked'));
+		return data;
+	}
+	if (data.blocked) {
+		state.blocked = true;
+		state.attempts = 0;
+		set(label + ' ' + t('is blocked') + ' — ' + t('use Unblock with the PUK'));
+		return data;
+	}
+	if (typeof data.attempts_left === 'number') {
+		state.attempts = data.attempts_left;
+		set(label + ' ' + t('verification failed') + ' — ' + data.attempts_left + ' ' + t('attempt(s) left'));
+		return data;
+	}
+	if (data.failed) {
+		// A 2G SIM's 9804: a failure with at least one attempt left
+		state.failed = true;
+		set(label + ' ' + t('verification failed') + ' — ' + t('at least one attempt left'));
+		return data;
+	}
+	set('SW: ' + (data.sw || '?') + ' — ' + (data.error || t('Error')));
+	return data;
+}
+
+// The Cards editor's PIN actions: the form's values, a typed new PIN for
+// change/unblock (a successful one updates the form field for saving).
+async function cardsChv(code, action) {
+	const statusEl = document.getElementById('cards-chv-status');
+	const pinField = document.getElementById('cards-' + code);
+	const pukField = document.getElementById('cards-puk' + code.slice(3));
+	const values = {};
+	if (action !== 'unblock') {
+		const pin = cardsChvDigits(pinField && pinField.value, 'pin');
+		if (!pin) { if (statusEl) statusEl.textContent = t('PIN must be 4-8 decimal digits'); return; }
+		values.pin = pin;
+	} else {
+		const puk = cardsChvDigits(pukField && pukField.value, 'puk');
+		if (!puk) { if (statusEl) statusEl.textContent = t('PUK must be exactly 8 decimal digits'); return; }
+		values.puk = puk;
+	}
+	if (action !== 'verify') {
+		const answer = await pysimPrompt(t('New PIN (4-8 decimal digits)'));
+		if (answer === null || answer === undefined) return;
+		const newPin = cardsChvDigits(answer, 'new_pin');
+		if (!newPin) { if (statusEl) statusEl.textContent = t('PIN must be 4-8 decimal digits'); return; }
+		values.new_pin = newPin;
+	}
+	const data = await pysimChvRun(code, action, values, statusEl);
+	if (data && data.ok && action !== 'verify') {
+		if (pinField) pinField.value = values.new_pin;
+		if (statusEl) statusEl.textContent += ' — ' + t('save the preset to store the new PIN');
+	}
+}
+
+// The Cards editor's ADM verify (the field's key, not the stored preset's).
+function cardsAdmVerify() {
+	const statusEl = document.getElementById('cards-chv-status');
+	const admField = document.getElementById('cards-adm');
+	const adm = String((admField && admField.value) || '').replace(/\s/g, '').toUpperCase();
+	if (!adm) { if (statusEl) statusEl.textContent = t('ADM is required'); return; }
+	pysimVerifyAdm(statusEl, adm);
+}
+
+// The Status tab's per-card PIN verify (the matched preset's PIN).
+async function pysimVerifyPin(code) {
+	const el = document.getElementById('pysim-pin-msg') || document.getElementById('pysim-status');
+	const preset = cardsMatchedPreset();
+	const pin = preset ? String(preset[code] || '').trim() : '';
+	if (!pin) { if (el) el.textContent = t('No PIN in the matched preset'); return; }
+	await pysimChvRun(code, 'verify', { pin }, el);
 }
 
 // Render a failed file-manager operation; when the SW is a security error and
@@ -18643,7 +18816,7 @@ function pysimCardStateUpdate(status) {
 	const sessionChanged = _pysimCardSession !== null
 		&& status.card_session !== undefined && status.card_session !== _pysimCardSession;
 	if (status.card_session !== undefined) _pysimCardSession = status.card_session;
-	if (sessionChanged) pysimAdmResetAttempts();
+	if (sessionChanged) { pysimAdmResetAttempts(); cardsChvReset(); }
 	if (status.connected) {
 		pysimSetConnected(true);
 		pysimResetCardData(true);
@@ -29072,6 +29245,27 @@ const LANG_RU = {
 	'A wrong key can block the ADM permanently. Try again?': 'Неверный ключ может навсегда заблокировать ADM. Попробовать снова?',
 	'This is the last attempt before the ADM is blocked. Try again?': 'Это последняя попытка — неверный ключ заблокирует ADM. Попробовать снова?',
 	'ADM is blocked': 'ADM заблокирован',
+	'PIN (matched preset)': 'PIN (из подобранного пресета)',
+	'Verify': 'Проверить',
+	'Change': 'Изменить',
+	'Unblock': 'Разблокировать',
+	'A wrong PIN consumes one attempt.': 'Неверный PIN расходует попытку.',
+	'A wrong PUK consumes one attempt.': 'Неверный PUK расходует попытку.',
+	'New PIN (4-8 decimal digits)': 'Новый PIN (4–8 десятичных цифр)',
+	'PIN must be 4-8 decimal digits': 'PIN должен состоять из 4–8 десятичных цифр',
+	'PUK must be exactly 8 decimal digits': 'PUK должен состоять ровно из 8 десятичных цифр',
+	'No PIN in the matched preset': 'В подобранном пресете нет PIN',
+	'ADM is required': 'Требуется ADM',
+	'verification failed': 'проверка не удалась',
+	'at least one attempt left': 'осталась хотя бы одна попытка',
+	'changed': 'изменён',
+	'unblocked': 'разблокирован',
+	'is blocked': 'заблокирован',
+	'use Unblock with the PUK': 'используйте «Разблокировать» с PUK',
+	'save the preset to store the new PIN': 'сохраните пресет, чтобы запомнить новый PIN',
+	'The PIN verification already failed': 'Проверка PIN уже не удалась',
+	'A wrong PIN can block it. Try again?': 'Неверный PIN может заблокировать его. Повторить?',
+	'This is the last attempt before the PIN is blocked. Try again?': 'Последняя попытка перед блокировкой PIN. Повторить?',
 	'ADM is blocked — unblock the card to try again': 'ADM заблокирован — разблокируйте карту, чтобы повторить',
 	'Verified — no ADM key in the card preset': 'Подтверждён — ключа ADM в пресете нет',
 	'No ADM key in the card preset — not verified': 'Ключа ADM в пресете нет — не подтверждён',

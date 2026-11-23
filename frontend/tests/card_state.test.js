@@ -51,6 +51,7 @@ code += extractFunc(html, 'pysimProactiveSeqChanged') + '\n';
 code += extractFunc(html, 'pysimStkStatusChanged') + '\n';
 code += extractFunc(html, 'pysimUpdateAdmIndicator') + '\n';
 code += extractFunc(html, 'pysimAdmResetAttempts') + '\n';
+code += extractFunc(html, 'cardsChvReset') + '\n';
 code += extractFunc(html, 'pysimUpdateIccidIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicator') + '\n';
 code += extractFunc(html, 'pysimUpdatePresetIndicators') + '\n';

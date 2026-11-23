@@ -2749,6 +2749,31 @@ class VerifyAdmTests(HTTPTestBase):
         self.assertEqual(status, 200)
         self.assertEqual(body, {'ok': False, 'sw': '6983', 'blocked': True})
 
+    def test_63c0_is_blocked_with_zero_attempts_left(self):
+        # TS 102 221 §10.2.1.3: 63C0 = 0 retries remaining -> blocked.
+        state, _card = self.adm_state('63C0')
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'ok': False, 'sw': '63C0',
+                                'attempts_left': 0, 'blocked': True})
+
+    def test_a_sim_9804_is_a_failure_not_blocked(self):
+        # TS 51 011 §9.4.5: 9804 = unsuccessful, at least one attempt left;
+        # 9840 = no attempt left / blocked.  The old mapping treated 9804 as
+        # blocked, which would have shown a 2G SIM's wrong key as a blocked
+        # ADM.
+        state, _card = self.adm_state('9804')
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'ok': False, 'sw': '9804', 'failed': True})
+        state, _card = self.adm_state('9840')
+        status, body = self.served(state).json(
+            'POST', '/api/verify-adm', {'adm': 'AABBCC'})
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'ok': False, 'sw': '9840', 'blocked': True})
+
     def test_the_matched_preset_supplies_the_key(self):
         store, preset = preset_with_store(self, adm='AABBCC')
         card = self.AdmCard('9000')
@@ -2800,6 +2825,205 @@ class VerifyAdmTests(HTTPTestBase):
             'POST', '/api/verify-adm', {'adm': 'AABBCC'})
         self.assertEqual(status, 503)
         self.assertIn('no card session', body['error'])
+
+
+class ChvCard(CardScript):
+    """A card that answers the CHV commands and the app selections.
+
+    The detection/init APDUs go to :class:`CardScript`; the UICC ADF.USIM
+    select, the 2G SIM's A0 select form (DF.GSM/MF) and the ``20``/``24``/
+    ``2C`` commands are answered here.  Every APDU is recorded in ``flow``;
+    the CHV commands alone in ``chv``.
+    """
+
+    def __init__(self, sw='9000', sw_by_ins=None):
+        super().__init__()
+        self.sw = sw
+        self.sw_by_ins = dict(sw_by_ins or {})
+        self.chv = []
+        self.flow = []
+
+    def __call__(self, apdu):
+        apdu = bytes(apdu)
+        self.flow.append(apdu)
+        ins = apdu[1]
+        if ins in (0x20, 0x24, 0x2C) and apdu[0] in (0x00, 0xA0):
+            self.chv.append(apdu)
+            return b'', bytes.fromhex(self.sw_by_ins.get(ins, self.sw))
+        if apdu[:2] == b'\x00\xa4' and apdu[2] == 0x04:
+            aid = apdu[5:5 + apdu[4]].hex().upper()
+            if aid == cards.AID_USIM:
+                self.selected = 'USIM'
+                return b'', b'\x90\x00'
+        if apdu[:2] == b'\xa0\xa4':
+            self.selected = 'SIM'
+            return b'', b'\x90\x00'
+        return super().__call__(apdu)
+
+
+class ChvTests(HTTPTestBase):
+    """``POST /api/chv``: VERIFY / CHANGE / UNBLOCK a CHV (PIN).
+
+    The command forms: UICC ``00 20|24|2C 00 <P2> 08|10 <data>`` with PIN1
+    P2 01 / PIN2 P2 81 (TS 102 221 §9.5.1/§11.1.9-13); 2G SIM ``A0 ...`` with
+    CHV1 01 / CHV2 02 and the unblock CHV1 P2 00 (TS 51 011 §9.2.9/§9.2.13).
+    The data is T.50 digits, ``FF``-padded to 8 bytes.
+    """
+
+    def chv_state(self, sw='9000', sim=False, sw_by_ins=None):
+        card = ChvCard(sw=sw, sw_by_ins=sw_by_ins)
+        transport = FakeTransport(handler=card)
+        state = make_state(reader='Reader A')
+        state.open(transport=transport, start_threads=False)
+        self.track(state)
+        if sim:
+            state.card = cards.CardType(kind='sim', cla='a0', aids=[], atr=ATR)
+            state.transport = transport
+        return state, card, transport
+
+    def post(self, state, body):
+        return self.served(state).json('POST', '/api/chv', body)
+
+    def test_uicc_verify_pin1(self):
+        state, card, _transport = self.chv_state()
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body, {'ok': True, 'sw': '9000'})
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002000010831323334FFFFFFFF')
+        # the application PIN: ADF.USIM selected first, MF restored after
+        tail = [a.hex().upper() for a in card.flow[-3:]]
+        self.assertEqual(tail, ['00A4040407A000000087100200',
+                                '002000010831323334FFFFFFFF',
+                                '00A40004023F0000'])
+
+    def test_sim_verify_pin1(self):
+        state, card, _transport = self.chv_state(sim=True)
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        tail = [a.hex().upper() for a in card.flow[-3:]]
+        self.assertEqual(tail, ['A0A40000027F2000',
+                                'A02000010831323334FFFFFFFF',
+                                'A0A40000023F0000'])
+
+    def test_pin2_references(self):
+        # UICC: PIN2 is 0x81 (an application PIN); 2G SIM: CHV2 is 0x02.
+        state, card, _transport = self.chv_state()
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin2',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002000810831323334FFFFFFFF')
+        state, card, _transport = self.chv_state(sim=True)
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin2',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         'A02000020831323334FFFFFFFF')
+
+    def test_uicc_change_pin1(self):
+        state, card, _transport = self.chv_state()
+        status, body = self.post(state, {'action': 'change', 'code': 'pin1',
+                                         'pin': '1234', 'new_pin': '5678'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002400011031323334FFFFFFFF35363738FFFFFFFF')
+
+    def test_uicc_unblock_pin1(self):
+        state, card, _transport = self.chv_state()
+        status, body = self.post(state, {'action': 'unblock', 'code': 'pin1',
+                                         'puk': '12345678', 'new_pin': '4321'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002C000110313233343536373834333231FFFFFFFF')
+
+    def test_sim_unblock_references(self):
+        # TS 51 011 §9.2.13: the UNBLOCK CHV1 coding is P2 00 (not 01);
+        # CHV2 keeps 02.
+        state, card, _transport = self.chv_state(sim=True)
+        for code, p2 in (('pin1', '00'), ('pin2', '02')):
+            status, body = self.post(state, {'action': 'unblock',
+                                             'code': code,
+                                             'puk': '12345678',
+                                             'new_pin': '4321'})
+            self.assertEqual(status, 200, body)
+            self.assertTrue(body['ok'])
+            self.assertEqual(card.chv[-1].hex().upper()[:8],
+                             'A02C00' + p2)
+
+    def test_the_status_word_mapping(self):
+        cases = (
+            ({'sw': '63C2'}, {'ok': False, 'sw': '63C2',
+                              'attempts_left': 2}),
+            ({'sw': '63C0'}, {'ok': False, 'sw': '63C0',
+                              'attempts_left': 0, 'blocked': True}),
+            ({'sw': '6983'}, {'ok': False, 'sw': '6983', 'blocked': True}),
+            ({'sw': '9840'}, {'ok': False, 'sw': '9840', 'blocked': True}),
+            ({'sw': '9804'}, {'ok': False, 'sw': '9804', 'failed': True}),
+        )
+        for kwargs, expected in cases:
+            with self.subTest(sw=kwargs['sw']):
+                state, _card, _transport = self.chv_state(**kwargs)
+                status, body = self.post(state, {'action': 'verify',
+                                                 'code': 'pin1',
+                                                 'pin': '1234'})
+                self.assertEqual(status, 200, body)
+                self.assertEqual(body, expected)
+
+    def test_a_security_error_is_reported(self):
+        state, _card, _transport = self.chv_state(sw='6982')
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['ok'])
+        self.assertIn('Security status', body['error'])
+
+    def test_the_values_are_validated_before_the_card(self):
+        state, card, _transport = self.chv_state()
+        bad = (
+            {'action': 'nope', 'code': 'pin1', 'pin': '1234'},
+            {'action': 'verify', 'code': 'pin3', 'pin': '1234'},
+            {'action': 'verify', 'code': 'pin1'},
+            {'action': 'verify', 'code': 'pin1', 'pin': '123'},
+            {'action': 'verify', 'code': 'pin1', 'pin': '123456789'},
+            {'action': 'verify', 'code': 'pin1', 'pin': '12a4'},
+            {'action': 'unblock', 'code': 'pin1', 'puk': '1234',
+             'new_pin': '4321'},
+            {'action': 'unblock', 'code': 'pin1', 'puk': '12345678'},
+            {'action': 'change', 'code': 'pin1', 'pin': '1234',
+             'new_pin': '123'},
+        )
+        for body in bad:
+            with self.subTest(body=body):
+                status, answer = self.post(state, body)
+                self.assertEqual(status, 400, answer)
+        self.assertEqual(card.chv, [], 'a refused request must not touch the card')
+
+    def test_no_card_is_503(self):
+        state = self.track(make_state())
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 503)
+        self.assertIn('no card session', body['error'])
+
+    def test_the_request_log_redacts_the_values(self):
+        state, _card, _transport = self.chv_state()
+        harness = self.served(state, log_requests=True)
+        with self.assertLogs('simple_server.server', level='INFO') as logs:
+            status, _body = harness.json('POST', '/api/chv', {
+                'action': 'unblock', 'code': 'pin1', 'puk': '12345678',
+                'new_pin': '4321'})
+        self.assertEqual(status, 200)
+        text = '\n'.join(logs.output)
+        self.assertIn('/api/chv', text)
+        self.assertIn('<redacted>', text)
+        self.assertNotIn('12345678', text)
+        self.assertNotIn('4321', text)
 
 
 class SendOtaTests(HTTPTestBase):

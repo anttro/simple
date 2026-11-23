@@ -111,6 +111,7 @@ auto-equip, never a decoder/protocol error.
 | `/api/pbr` | GET | Cached EF.PBR phonebook reference records |
 | `/api/apdu` | POST | Raw APDU send (automatic `91XX` chain) |
 | `/api/verify-adm` | POST | Verify the card's ADM PIN |
+| `/api/chv` | POST | Verify / change / unblock a PIN (VERIFY, CHANGE CHV, UNBLOCK CHV) |
 | `/api/presets` | GET | Card preset store: all presets + the store path |
 | `/api/presets` | POST | Create a card preset |
 | `/api/presets/update` | POST | Update a preset (`{id, fields}`; the counter is written as given) |
@@ -585,10 +586,45 @@ On a wrong key (`63Cx`, x attempts left):
 {"ok": false, "sw": "63C2", "attempts_left": 2}
 ```
 
-A blocked ADM (`6983`/`9804`) reports `{"ok": false, "sw": "9804",
+A blocked ADM (`6983`/`9840`) reports `{"ok": false, "sw": "9804",
 "blocked": true}` and cannot be recovered here (the card's unblock key is
-needed).  Any other refusal is `{"ok": false, "sw": …, "error": …}`.  Every
-wrong key consumes an attempt, so the UI confirms before a retry.
+needed).  A 2G SIM's `9804` ("unsuccessful CHV verification, at least one
+attempt left", TS 51 011 §9.4.5) is a failure, not a blocked answer:
+`{"ok": false, "sw": "9804", "failed": true}`.  Any other refusal is
+`{"ok": false, "sw": …, "error": …}`.  Every wrong key consumes an attempt,
+so the UI confirms before a retry.
+
+### `POST /api/chv`
+
+Verify, change or unblock a PIN (CHV) - the operations the retired pySim
+command line provided.  The values travel in the request (the PWA sends the
+Cards editor's or the matched preset's codes after a confirmation; a new PIN
+is typed by the operator); nothing is stored, and `pin`/`puk`/`new_pin` are
+redacted from the request log.
+
+```json
+{"action": "verify", "code": "pin1", "pin": "1234"}
+{"action": "change", "code": "pin1", "pin": "1234", "new_pin": "5678"}
+{"action": "unblock", "code": "pin1", "puk": "12345678", "new_pin": "4321"}
+```
+
+`action` is `verify` / `change` / `unblock`; `code` is `pin1` or `pin2`.  The
+values are decimal digits coded as the 8-byte CHV field (T.50 digits,
+`FF`-padded; TS 31.101 §9.6 / TS 51 011): `pin` 4-8 digits, `puk` **exactly
+8**, `new_pin` 4-8.  The command forms are `20` / `24` / `2C` with P1 `00`
+and the CHV reference in P2: a UICC uses PIN1 `01` / PIN2 `81` (TS 102 221
+§9.5.1/§11.1.9-13); a 2G SIM uses CHV1 `01` / CHV2 `02` and the exceptional
+UNBLOCK CHV1 coding `00` (TS 51 011 §9.2.9/§9.2.13).  The PIN's application
+is selected first - ADF.USIM on a UICC (the PIN is an application PIN), DF.GSM
+on a 2G SIM (TS 51 011 §9.1) - and MF is restored afterwards.
+
+Success is `{"ok": true, "sw": "9000"}`.  A wrong value reports the retries
+left (`63Cx`; `63C0` = 0 left + `blocked`), the SIM's `9804` (at least one
+attempt left) as `{"ok": false, "sw": "9804", "failed": true}`, and `9840` /
+`6983` as `blocked`; `6982`/`6985`/the 6Axx errors carry an `error` line.  A
+successful UNBLOCK resets the card's counters and sets the new PIN
+(TS 102 221 §11.1.13.1.1); the preset store is not updated - the PWA offers
+the new value for saving.
 
 ### Card presets (server-side store)
 
@@ -648,10 +684,13 @@ Operations **derive a packet's SPI1 from the MSL of its TAR** and its keyset
 from that TAR's `keyset`; a request naming a TAR outside the preset must pass
 `spi1` itself, otherwise it is refused with `400` and a hint.
 
-**Card codes.**  The optional `pin1`/`puk1`/`pin2`/`puk2`/`adm` fields are
-stored for later use (nothing consumes the PIN/PUK codes yet).  PIN/PUK must be
+**Card codes.**  The optional `pin1`/`puk1`/`pin2`/`puk2` fields feed
+`/api/chv` (VERIFY / CHANGE CHV / UNBLOCK CHV); the PWA's Cards editor offers
+Verify / Change / Unblock per PIN (and the ADM Verify).  PIN/PUK must be
 **4-8 decimal digits** when set (empty is fine; anything else is refused with
-`400` naming the field).  The ADM key is stored as upper-case hex; verification
+`400` naming the field) - but the unblock command requires a PUK of **exactly
+8** digits (TS 31.101 §9.6), which the endpoint enforces.  The ADM key is
+stored as upper-case hex; verification
 requires 4-16 hex digits in **byte pairs** - the rule `/api/verify-adm` and the
 outfile import enforce - so an odd-length ADM can never verify.
 

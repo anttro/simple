@@ -143,7 +143,7 @@ __all__ = [
 #: The server version served by ``GET /api/version``.  It moves together with
 #: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
 #: three).
-VERSION = '4.0.1'
+VERSION = '4.1.0'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
@@ -560,12 +560,83 @@ def _sw_error(sw):
     return _SW_ERRORS.get(str(sw or '').strip().lower(), 'Error')
 
 
+#: The CHV references per card class.  A UICC's PIN1/PIN2 are **application
+#: PINs**: P2 `01`/`81` (ETSI TS 102 221 V18.4.0 §9.5.1 Table 9.3, printed
+#: pp. 76-77).  A 2G SIM's VERIFY CHV/CHANGE CHV use P2 `01`/`02`, and
+#: UNBLOCK CHV uses the exceptional CHV1 coding `00` (CHV2 `02`) - 3GPP
+#: TS 51 011 V4.15.0 §9.2.9/§9.2.13, printed pp. 27-28.  The tuple is
+#: ``(verify/change reference, unblock reference)``.
+CHV_REFERENCES = {
+    'uicc': {'pin1': (0x01, 0x01), 'pin2': (0x81, 0x81)},
+    'sim': {'pin1': (0x01, 0x00), 'pin2': (0x02, 0x02)},
+}
+CHV_CODES = ('pin1', 'pin2')
+
+
+def _chv_digits(value, name, minimum, maximum):
+    """A PIN/PUK value: decimal digits only, ``minimum``..``maximum`` of them."""
+    text = str(value if value is not None else '').strip()
+    if not text:
+        raise ValueError('%s is required' % name)
+    if not text.isdigit() or not minimum <= len(text) <= maximum:
+        if minimum == maximum:
+            raise ValueError('%s must be exactly %d decimal digits'
+                             % (name, minimum))
+        raise ValueError('%s must be %d-%d decimal digits'
+                         % (name, minimum, maximum))
+    return text
+
+
+def _chv_bytes(digits):
+    """The CHV data field: T.50 (ASCII) digits, ``'FF'``-padded to 8 bytes.
+
+    TS 31.101 V18.1.0 §9.6 (printed p. 17) / TS 51 011 V4.15.0 "Coding of
+    CHVs and UNBLOCK CHVs" (printed pp. 30-31): "Only (decimal) digits (0-9)
+    shall be used, coded in ITU-T T.50 with bit 8 set to zero.  The minimum
+    number of digits is 4.  If the number of digits presented by the user is
+    less than 8 then the ME shall pad the presented PIN with 'FF'".  The
+    UNBLOCK value is always 8 digits.
+    """
+    return digits.encode('ascii') + b'\xff' * (8 - len(digits))
+
+
+def _chv_sw_result(sw):
+    """The structured result of a CHV command's status word.
+
+    ``63Cx`` is "verification failed, X retries remaining" (TS 102 221
+    §10.2.1.3 Table 10.9, printed p. 82); ``63C0`` is therefore 0 left - the
+    PIN is now blocked (the next command answers ``6983``, §11.1.9.1.1).  A
+    2G SIM uses ``9804`` ("unsuccessful CHV verification, at least one
+    attempt left") and ``9840`` ("... no attempt left", blocked) instead
+    (TS 51 011 §9.4.5, printed p. 32) - **``9804`` is not a blocked answer**.
+    The UNBLOCK command's counter runs 10 -> `63C9`..`63C1`, `63C0`
+    (§11.1.13.1.1).  ``6983``/``9840`` are blocked; ``6982`` (security
+    status), ``6985`` (conditions) and the 6Axx errors are failures.
+    """
+    if sw == '9000':
+        return {'ok': True, 'sw': sw}
+    if re.fullmatch(r'63C[0-9A-F]', sw):
+        left = int(sw[3], 16)
+        result = {'ok': False, 'sw': sw, 'attempts_left': left}
+        if left == 0:
+            result['blocked'] = True
+        return result
+    if sw in ('6983', '9840'):
+        return {'ok': False, 'sw': sw, 'blocked': True}
+    if sw == '9804':
+        return {'ok': False, 'sw': sw, 'failed': True}
+    return {'ok': False, 'sw': sw,
+            'error': ('Security status not satisfied' if sw == '6982'
+                      else 'Conditions of use not satisfied' if sw == '6985'
+                      else _sw_error(sw))}
+
+
 #: The request-body fields whose values are SCP80 key material (masked in the
 #: optional request log).  The project policy says card keys in local logs are
 #: not a risk, but masking them is cheap and keeps a pasted log shareable;
 #: identities and preset names stay visible for diagnostics.
-_REDACT_FIELDS = ('adm', 'pin1', 'puk1', 'pin2', 'puk2', 'kicKey', 'kidKey',
-                  'pskKey', 'psk_hex')
+_REDACT_FIELDS = ('adm', 'pin', 'puk', 'new_pin', 'pin1', 'puk1', 'pin2',
+                  'puk2', 'kicKey', 'kidKey', 'pskKey', 'psk_hex')
 
 
 def redact_body(body):
@@ -1960,7 +2031,10 @@ class ServerState(object):
         e.g. ``'0A'``) or as an integer byte value (``10`` is 0x0A, not a
         hex-encoded ``10``); it defaults to ``0x0A``.  The structured result
         warns about the remaining attempts - every failed VERIFY consumes one
-        and a blocked ADM cannot be recovered here.
+        and a blocked ADM cannot be recovered here.  The status words are
+        mapped by :func:`_chv_sw_result`: ``63C0`` is 0 retries left (blocked
+        from then on), and a 2G SIM's ``9804`` is a failure **with** attempts
+        left, not a blocked answer (TS 51 011 §9.4.5).
         """
         if not self.connected or self.transport is None:
             raise NoCardSessionError('no card session: equip a card first')
@@ -1995,18 +2069,96 @@ class ServerState(object):
         _data, sw = self.transport.send_apdu(apdu)
         sw = bytes(sw or b'').hex().upper()
         log.info('VERIFY ADM -> SW: %s', sw)
-        if sw == '9000':
+        result = _chv_sw_result(sw)
+        if result['ok']:
             # the latch the 3d runner's ADM gate reads
             self.adm_session = self.card_session
             self.adm_failed_session = None
-            return {'ok': True, 'sw': sw}
-        if re.fullmatch(r'63C[0-9A-F]', sw):
-            return {'ok': False, 'sw': sw, 'attempts_left': int(sw[3], 16)}
-        if sw in ('6983', '9804'):
-            return {'ok': False, 'sw': sw, 'blocked': True}
-        return {'ok': False, 'sw': sw,
-                'error': ('Security status not satisfied' if sw == '6982'
-                          else 'Error')}
+        return result
+
+    def _chv_select_app(self, ops, kind):
+        """Select the PIN's application before a CHV command (best effort).
+
+        A 2G SIM's VERIFY CHV belongs in the application directory, not the
+        MF (TS 51 011 §9.1: "the VERIFY CHV command should not be executed in
+        the MF but in the relevant application directory (e.g. DFGSM)"); a
+        UICC's PIN is an **application PIN** of the 3GPP application
+        (ADF.USIM), not the Universal PIN (TS 102 221 §9.4.2/§9.5.1; TS 31.101
+        §9.6: "PIN2 is used only in the ADF").  Returns True when a selection
+        was made (the caller restores MF afterwards).
+        """
+        if kind == 'sim':
+            ops.select_file('7F20')
+            return True
+        try:
+            ops.select_adf(cards.AID_USIM)
+            return True
+        except commands.FileError:
+            return False
+
+    def chv_operation(self, body):
+        """``POST /api/chv``: VERIFY / CHANGE / UNBLOCK a PIN (CHV).
+
+        ``action`` is ``verify``, ``change`` or ``unblock``; ``code`` is
+        ``pin1`` or ``pin2``.  The values are decimal digits (T.50 coded,
+        ``'FF'``-padded to the 8 CHV bytes): ``pin`` (4-8) for verify/change,
+        ``puk`` (exactly 8) and ``new_pin`` (4-8) for unblock, ``new_pin``
+        for change.  The request carries them (the PWA sends the matched
+        preset's values after a confirmation), so the endpoint never reads a
+        stored secret itself; the values are masked in the request log.
+
+        The commands (ETSI TS 102 221 V18.4.0 §11.1.9/§11.1.10/§11.1.13,
+        printed pp. 106-112; 3GPP TS 31.101 V18.1.0 §9.6; 3GPP TS 51 011
+        V4.15.0 §9.2.9-§9.2.13 for a 2G SIM): ``20 P1=00 P2=<ref> Lc=08``,
+        ``24 P1=00 P2=<ref> Lc=10 <old><new>``, ``2C P1=00 P2=<ref> Lc=10
+        <PUK><new>``.  The card class decides the reference
+        (:data:`CHV_REFERENCES`), and the PIN's application is selected first
+        (:meth:`_chv_select_app`).  The result is :func:`_chv_sw_result`:
+        ``63Cx`` attempts left (``63C0``/``6983``/``9840`` blocked),
+        ``9804`` a 2G SIM failure with attempts left, ``6982``/``6985`` and
+        the 6Axx errors as errors.  A successful UNBLOCK resets the counters
+        and sets the new PIN on the card (TS 102 221 §11.1.13.1.1); the preset
+        store is not updated - the PWA offers the value for saving.
+        """
+        action = str(body.get('action') or '').strip().lower()
+        if action not in ('verify', 'change', 'unblock'):
+            raise ValueError("action must be 'verify', 'change' or 'unblock'")
+        code = str(body.get('code') or 'pin1').strip().lower()
+        if code not in CHV_CODES:
+            raise ValueError("code must be 'pin1' or 'pin2'")
+        pin = puk = new_pin = None
+        if action in ('verify', 'change'):
+            pin = _chv_digits(body.get('pin'), 'pin', 4, 8)
+        if action == 'unblock':
+            # TS 31.101 §9.6 / TS 51 011: the UNBLOCK value is always 8 digits
+            puk = _chv_digits(body.get('puk'), 'puk', 8, 8)
+        if action in ('change', 'unblock'):
+            new_pin = _chv_digits(body.get('new_pin'), 'new_pin', 4, 8)
+        if not self.connected or self.transport is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        kind = ('sim' if self.card is not None and self.card.kind == 'sim'
+                else 'uicc')
+        verify_ref, unblock_ref = CHV_REFERENCES[kind][code]
+        reference = unblock_ref if action == 'unblock' else verify_ref
+        if action == 'verify':
+            ins, data = '20', _chv_bytes(pin)
+        elif action == 'change':
+            ins, data = '24', _chv_bytes(pin) + _chv_bytes(new_pin)
+        else:
+            ins, data = '2C', _chv_bytes(puk) + _chv_bytes(new_pin)
+        ops = self._file_ops()
+        selected = False
+        try:
+            selected = self._chv_select_app(ops, kind)
+            apdu = (bytes.fromhex(ops.cla + ins + '00' + '%02X' % reference)
+                    + bytes((len(data),)) + data)
+            _data, sw = self.transport.send_apdu(apdu)
+            sw = bytes(sw or b'').hex().upper()
+            log.info('CHV %s %s -> SW: %s', action.upper(), code.upper(), sw)
+            return _chv_sw_result(sw)
+        finally:
+            if selected:
+                esim_module.restore_mf(ops)
 
     # ---- the plain SCP80 secured-packet send (3c-3c-1) --------------------
 
@@ -5415,6 +5567,8 @@ def make_handler(state, log_requests=False):
                     self._post_lifecycle(self.state_ref.reset)
                 elif path == '/api/verify-adm':
                     self._post_adm(body)
+                elif path == '/api/chv':
+                    self._post_chv(body)
                 elif path == '/api/send-ota':
                     self._post_ota(body)
                 elif path == '/api/counter-probe':
@@ -5693,6 +5847,10 @@ def make_handler(state, log_requests=False):
 
         def _post_adm(self, body):
             self._post_card(lambda: self.state_ref.verify_adm(body),
+                            {'ok': False})
+
+        def _post_chv(self, body):
+            self._post_card(lambda: self.state_ref.chv_operation(body),
                             {'ok': False})
 
         def _post_ota(self, body):
