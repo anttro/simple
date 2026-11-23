@@ -8,7 +8,7 @@ exchange (one secured packet per GP APDU, the format probe, the NV reads) lives
 on :class:`simple_server.server.ServerState`, exactly like the plain SCP80
 send's :meth:`~simple_server.server.ServerState._send_secured_packet`.
 
-Ported legacy helpers, name for name (``pysim_simple_server.server``)::
+Ported legacy helpers, name for name (the legacy 3.x ``server``)::
 
     _cap_parse               -> cap_parse
     _cap_info_body           -> cap_info_body

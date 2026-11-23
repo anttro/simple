@@ -10,8 +10,8 @@ Two object flavours share one implementation:
   here) and the BER length field of §7.1.2 (Table 7.6: ``81 nn`` from 128
   octets on - a COMPREHENSION-TLV uses the same length coding).
 
-The module functions reproduce the parsing semantics the existing server uses
-(``pysim_simple_server/server.py``), extended to walk multi-octet BER tags.
+The module functions reproduce the parsing semantics the legacy 3.x server
+uses (its ``server.py``), extended to walk multi-octet BER tags.
 They are pure and card-free testable.
 """
 
@@ -68,7 +68,7 @@ def parse_ber_len(raw, off):
     past the end yields ``(0, off)``, so a caller stops instead of walking
     into the value.
 
-    Port of ``pysim_simple_server.server._ber_len_at``.
+    Port of the legacy 3.x server's ``_ber_len_at``.
     """
     raw = bytes(raw)
     if off >= len(raw):
@@ -226,7 +226,7 @@ def ber_tlv_list(data, multi_byte_tags=True):
     ``multi_byte_tags=False`` for COMPREHENSION-TLV data, where bit 8 of a
     one-octet tag is just the CR flag.
 
-    Port of ``pysim_simple_server.server._ber_tlv_list`` plus the BER tag
+    Port of the legacy 3.x server's ``_ber_tlv_list`` plus the BER tag
     continuation.
     """
     data = bytes(data)

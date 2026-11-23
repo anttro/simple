@@ -12,7 +12,7 @@ answer ``409`` (``TEST_BLOCKED_PATHS``), the background STATUS poll skips
 versa).
 
 Provenance: a behavioural port of the legacy server's test runner
-(``pysim_simple_server/server.py``: ``_test_run_*``, ``_test_step_*``,
+(the legacy 3.x ``server.py``: ``_test_run_*``, ``_test_step_*``,
 ``_test_*_entry``, ``_test_log``/``_test_heartbeat``, ``_test_watchdog_*``,
 ``_test_load_*``, ``_ensure_adm``, ``_test_preset_error``,
 ``_TEST_BLOCKED_PATHS``).  The module-level state (``_TEST_RUN``,
@@ -38,7 +38,8 @@ card session, with the per-member ``on_fail``, the suite ``require_adm``, the
 optional ``start_reset`` and the shared SCP80 counter state.  The cross-store
 rules (references, move/copy, the reconciliation) live in
 :mod:`simple_server.suites`; the stores themselves are
-:mod:`pysim_simple_server.test_suites` and ``test_scripts``.  Documented
+:mod:`simple_server.shared.test_suites` and
+:mod:`simple_server.shared.test_scripts`.  Documented
 simplifications vs the legacy, each also named where it applies:
 
 * ``file-read`` of a transparent EF whose FCP carries no file size fails the

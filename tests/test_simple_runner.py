@@ -13,9 +13,8 @@ The card must be **equipped before the queues are armed**: the startup's
 TERMINAL PROFILE drain polls STATUS itself, so an armed answer would be
 consumed before the run (``run_steps`` takes a ``setup(card)`` callback that
 runs after the equip).  Keys are synthetic (the repo rule).  The step
-semantics are the legacy runner's; the drift tests in
-:mod:`tests.test_simple_drift` compare the ported pure helpers against
-``pysim_simple_server``.
+semantics are the legacy runner's; after the 4.0.0 cut-over this port is the
+only implementation in this repository.
 """
 
 import json

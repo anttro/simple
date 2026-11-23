@@ -58,7 +58,7 @@ release table, the network simulation and monitor state, the outfile parser,
 the BIP terminal and the SCP81 listener) moved into this package, together
 with the bundled MCC/MNC operator list (``simple_server/data``).
 
-Nothing here imports ``pysim_simple_server``, ``pySim``, ``osmocom`` or
+Nothing here imports ``pySim``, ``osmocom`` or
 ``construct`` (``tests/test_simple_proactive.py``'s
 ``PackageImportHygieneTests`` scans the AST for exactly that).  ``pyscard`` is
 imported by :mod:`simple_server.transport` and by the entry point's PC/SC

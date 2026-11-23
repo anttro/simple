@@ -24,7 +24,7 @@ rules that need **both** live here:
   (the v3.21.0 -> v3.22.0 migration is the same pass).
 
 Provenance: a behavioural port of the legacy module functions in
-``pysim_simple_server/server.py`` (``_test_suite_refs_error``,
+the legacy 3.x ``server.py`` (``_test_suite_refs_error``,
 ``_test_script_detach``, ``_test_script_move``,
 ``reconcile_scripts_to_suites``, ``migrate_scripts_to_suites``), pysim-free:
 the two stores are the arguments, so the helpers stay pure test doubles'

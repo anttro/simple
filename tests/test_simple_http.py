@@ -5,9 +5,9 @@ The suite needs no card and no pysim: every exchange is driven through a
 scripted fake transport (``send_apdu`` answers registered by APDU prefix), and
 the HTTP endpoints are exercised on a real :class:`ThreadingHTTPServer` bound to
 an ephemeral loopback port with ``urllib.request``.  The preset store and the
-outfile parser are the pysim-free copies in :mod:`simple_server.shared`
-(moved verbatim from ``pysim_simple_server``; ``tests/test_simple_drift.py``
-is the module that compares the two).
+outfile parser are the specification-only modules in :mod:`simple_server.shared`
+(the 3.x copies were moved there verbatim; after the cut-over they are the only
+implementation in this repository).
 
 Spec anchors: TS 102 221 §11.2 (the CAT APDUs), §13.2 (EF.ICCID), §14.6.2 (the
 idle poll); TS 102 223 §6.4.6/§6.4.14 (POLL INTERVAL / POLLING OFF); TS 31.102

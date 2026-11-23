@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the Windows console-encoding guard (v3.30.3).
+"""Tests for the Windows console-encoding guard (v3.30.3, kept in 4.x).
 
 Under start.bat the server's stdout/stderr are pipes into PowerShell's
 Tee-Object, so Python encodes with the ANSI code page instead of the wide
@@ -8,6 +8,9 @@ console API.  The banner's box-drawing rule (U+2500) and the APDU-trace arrows
 raised UnicodeEncodeError and killed the process before it could listen.  The
 guard sets errors="replace" on both streams and the banner picks the widest
 rule character its stream can encode.
+
+The pysim-free package keeps the same rule: every console literal in
+``simple_server/**.py`` is ASCII.
 """
 
 import ast
@@ -17,7 +20,7 @@ import pathlib
 import sys
 import unittest
 
-from pysim_simple_server import __main__ as srv_main
+from simple_server import __main__ as srv_main
 
 
 class ConsoleEncodingTests(unittest.TestCase):
@@ -78,9 +81,14 @@ class ConsoleEncodingTests(unittest.TestCase):
     def test_main_guards_the_streams_and_uses_the_rule(self):
         src = inspect.getsource(srv_main.main)
         self.assertIn('_guard_console_streams()', src)
-        self.assertEqual(src.count('print(_console_rule())'), 2)
-        # the raw pretty character must not come back to the banner
-        self.assertNotIn('\u2500', src)
+        # the listening banner is ``_print_banner``; it brackets the output
+        # with the encodable rule
+        banner = inspect.getsource(srv_main._print_banner)
+        self.assertIn('_console_rule()', banner)
+        self.assertEqual(banner.count('print(rule)'), 2)
+        # the raw pretty character must not come back as a source literal
+        module_src = pathlib.Path(srv_main.__file__).read_text(encoding='utf-8')
+        self.assertNotIn('\u2500', module_src)
 
     def test_no_console_write_carries_a_non_ascii_literal(self):
         """Every print()/stdout/stderr write in the package stays ASCII: a
@@ -88,7 +96,7 @@ class ConsoleEncodingTests(unittest.TestCase):
         (the guard degrades it to '?', but the traces should stay readable)."""
         pkg = pathlib.Path(srv_main.__file__).resolve().parent
         offenders = []
-        for path in sorted(pkg.glob('*.py')):
+        for path in sorted(pkg.rglob('*.py')):
             tree = ast.parse(path.read_text(encoding='utf-8'))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):

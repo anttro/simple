@@ -11,9 +11,10 @@ Only the observed vocabulary is used: UPDATE BINARY (D6), UPDATE RECORD (DC),
 ENVELOPE (Event Download) and AUTHENTICATE.  FPLMN and the 5GS location files
 are never written (no observed phone does - UICC_NAA.md section 12).
 
-The ``build_*`` functions are pure and unit-tested (tests/test_netsim.py).
+The ``build_*`` functions are pure and unit-tested
+(tests/test_simple_netsim_api.py exercises the scenarios end to end).
 ``NetSimRunner`` applies a scenario to a live card through the helpers of
-``pysim_simple_server.server``; the caller holds the card lock.
+the legacy 3.x ``server``; the caller holds the card lock.
 """
 
 import random

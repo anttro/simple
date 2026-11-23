@@ -1957,7 +1957,7 @@ def format_report(report, memory):
 # ═══════════════════════════════════════════════════════════════════
 
 def main():
-    """Dev CLI: python -m pysim_simple_server.capmem <path_to.cap>"""
+    """Dev CLI: python -m simple_server.shared.capmem <path_to.cap>"""
     if len(sys.argv) < 2:
         print(f'Usage: {sys.argv[0]} <path_to.cap>')
         sys.exit(1)

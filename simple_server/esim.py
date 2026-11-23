@@ -1322,7 +1322,7 @@ def get_eid(transport, exp_sw='9000'):
 # ---- the endpoint flow (card-level ES10 operations) ---------------------
 #
 # The functions above are transport-level and card-free testable; the ones
-# below are the flow the legacy ``pysim_simple_server/esim.py`` owned through
+# below are the flow the legacy 3.x ``esim.py`` owned through
 # pySim (``_select_isdr``/``_restore``/``chip_info``/``profiles``/
 # ``notifications``/``switch_profile``), re-expressed on
 # :class:`simple_server.commands.FileOps` and the duck-typed transport.  The

@@ -1,10 +1,10 @@
 # coding=utf-8
 """Tests for :mod:`simple_server.scp80` (SCP80 secured packets).
 
-The reference bytes are the vectors the existing server's tests pin
-(``tests/test_ota_helpers.py``), copied here as literals so this suite stays
-free of any pysim/pysim_simple_server import.  Keys are the public synthetic
-material those tests use (pySim's own test vectors); no card-specific keys.
+The reference bytes are the vectors the 3.x server's tests pinned, copied
+here as literals so this suite stays free of any pySim import.  Keys are the
+public synthetic material those tests use (pySim's own test vectors); no
+card-specific keys.
 """
 
 import unittest

@@ -1,9 +1,9 @@
 # coding=utf-8
 """Tests for :mod:`simple_server.sms` and :mod:`simple_server.cat`.
 
-The SMS TPDU fixtures and their expected bytes are the ones the existing
-server's tests pin (``tests/test_ota_helpers.py``), copied as literals so this
-suite stays free of any pysim/pysim_simple_server import.  The SMS-PP download
+The SMS TPDU fixtures and their expected bytes are the ones the 3.x server's
+tests pinned, copied as literals so this suite stays free of any pySim import.
+The SMS-PP download
 envelope is pinned against the bytes pySim's ``SMSPPDownload`` builds for the
 same objects, so both implementations produce identical envelopes.
 """

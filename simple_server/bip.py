@@ -11,7 +11,7 @@ RESPONSE (TS 102 223 §6.4.27-§6.4.31, the command objects in
 (§7.5.11) when a link changes outside a proactive command.
 
 Provenance: a behavioural port of the legacy server's BIP helpers
-(``pysim_simple_server/server.py``: ``_bip_channel_id``, ``_bip_tr``,
+(the legacy 3.x ``server.py``: ``_bip_channel_id``, ``_bip_tr``,
 ``_handle_bip_command``, ``_bip_listener_status``, ``_bip_data_available``,
 ``_bip_session_stop``, ``_bip_status_body``, ``_bip_control`` and
 ``_bip_flush_channel_events``, plus the ``_BIP``/``_BIP_MODE``/``_BIP_TARGET``/
@@ -141,8 +141,8 @@ def bip_terminal_response(cmd_num, cmd_type, cmd_qual, dev_src, dev_dst,
     the live-tested legacy builder emitted them; ``dev_src``/``dev_dst`` are
     accepted for signature parity with the chain's ``bip_handler`` call.
     Changing them changes what a live card receives, so that is a cutover
-    decision, not part of this port (``tests/test_simple_drift.py`` pins the
-    parity).
+    decision, not part of this port (the ``test_simple_drift`` module pinned
+    the parity while the legacy tree was present).
     """
     tr = bytes([(cd_tag or 0x01), 0x03, cmd_num & 0xFF, cmd_type & 0xFF,
                 (cmd_qual if cmd_qual is not None else 0) & 0xFF,

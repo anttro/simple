@@ -25,7 +25,7 @@ def pack_gsm7(septets):
     """Pack 7-bit septets into octets (TS 23.038 §6.1.2.1).
 
     The unused high bits of the last octet are zero, as the spec requires.
-    Behavioural port of ``pysim_simple_server.testscript.pack_gsm7``.
+    Behavioural port of the legacy 3.x ``testscript.pack_gsm7``.
     """
     out = bytearray()
     acc = 0
@@ -130,7 +130,7 @@ def decode_dcs_text(raw):
 
     ``(dcs & 0x0C) == 0x08`` is UCS2, ``== 0x04`` is 8-bit (latin-1), anything
     else is the GSM default alphabet as 8-bit characters.  A failure returns
-    ``raw.hex()``.  Port of ``pysim_simple_server.server._decode_dcs_text``.
+    ``raw.hex()``.  Port of the legacy 3.x server's ``_decode_dcs_text``.
     """
     raw = bytes(raw)
     if not raw or len(raw) < 2:
@@ -152,7 +152,7 @@ def encode_text(text, dcs):
 
     ``08`` (any ``(dcs & 0x0C) == 0x08``) is UCS2, ``00`` is packed GSM 7-bit
     and anything else (e.g. ``04``) is 8-bit GSM default alphabet.  Port of
-    ``pysim_simple_server.testscript._encode_text``.
+    the legacy 3.x ``testscript._encode_text``.
     """
     if (dcs & 0x0C) == 0x08:
         return text.encode('utf-16-be')

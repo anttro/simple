@@ -5,8 +5,8 @@ The command handling runs against the real :class:`httpota.BipTerminal` with a
 local TCP peer, so a channel really opens, carries bytes and closes; the
 lifecycle and event tests use a scripted terminal / sink / CAT session so they
 describe the *protocol* (which TR, which ENVELOPE, which lock) without a card.
-The byte parity with the legacy server lives in ``tests/test_simple_drift.py``
-(the one module allowed to import both implementations).
+The byte parity with the legacy server was checked by the ``test_simple_drift``
+module while both trees lived here.
 
 Spec anchors used below: TS 102 223 §6.4.27-§6.4.31 and §6.6.27-§6.6.31 (the
 BIP commands and their TR objects), §6.8.0/§6.8.1 (TR object order and the

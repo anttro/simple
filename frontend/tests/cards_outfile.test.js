@@ -119,7 +119,7 @@ test('the preview and the import both post the outfile endpoint', () => {
 
 test('the 16-byte algorithm values match the server map', () => {
 	const py = fs.readFileSync(
-		path.join(__dirname, '..', '..', 'pysim_simple_server', 'outfile.py'), 'utf8');
+		path.join(__dirname, '..', '..', 'simple_server', 'shared', 'outfile.py'), 'utf8');
 	const m = /_KEY_ALGO_16\s*=\s*\{([^}]*)\}/.exec(py);
 	assert.ok(m, '_KEY_ALGO_16 not found in outfile.py');
 	const server = [...m[1].matchAll(/'([a-z0-9]+)'\s*:/g)].map(x => x[1]).sort();

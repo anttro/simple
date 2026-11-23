@@ -289,16 +289,16 @@ test('spSizeInfoText reports size, SMS count and the card buffer limit', () => {
 
 test('the SCP80 UI constants match the server segmentation constants', () => {
 	const py = fs.readFileSync(
-		path.join(__dirname, '..', '..', 'pysim_simple_server', 'server.py'), 'utf8');
+		path.join(__dirname, '..', '..', 'simple_server', 'scp80.py'), 'utf8');
 	const read = (name) => {
 		const m = new RegExp('^' + name + '\\s*=\\s*(\\d+)', 'm').exec(py);
-		assert.ok(m, name + ' not found in server.py');
+		assert.ok(m, name + ' not found in scp80.py');
 		return parseInt(m[1], 10);
 	};
 	assert.strictEqual(SCP80_SINGLE_BYTES, read('SCP80_SINGLE_BYTES'));
 	assert.strictEqual(SCP80_FIRST_BYTES, read('SCP80_FIRST_BYTES'));
 	assert.strictEqual(SCP80_NEXT_BYTES, read('SCP80_NEXT_BYTES'));
-	assert.strictEqual(SCP80_MAX_SMS, read('MAX_ENVELOPE_SEGMENTS'));
+	assert.strictEqual(SCP80_MAX_SMS, read('SCP80_MAX_SEGMENTS'));
 });
 
 test('a generated single-SMS packet shows its size and SMS count', () => {

@@ -10,15 +10,14 @@ runner is driven directly (``start_suite(..., spawn=False)`` +
 endpoint's rules (the busy guard, the preset/ADM refusals, the start reset)
 matter.
 
-The reference is the legacy server's suite implementation
-(``pysim_simple_server/server.py``: ``_test_suite_execute_once``,
+The reference is the 3.x server's suite implementation
+(its ``server.py``: ``_test_suite_execute_once``,
 ``_test_suite_state``, ``_test_suite_start``, ``_test_script_move``,
 ``reconcile_scripts_to_suites``, ...): the semantics are the v3.22.0 ones - the
 ordered setup/members/teardown, the per-member ``on_fail``, one card session
 without resets, the teardown always on a stop/failure, the shared SCP80
 counter state and the report the PWA renders.  The drift assertions against
-the legacy live in ``tests/test_simple_drift.py`` (the module allowed to import
-both implementations).
+the legacy ran in the ``test_simple_drift`` module while both trees lived here.
 """
 
 import time

@@ -7,12 +7,12 @@ of TERMINAL PROFILE / FETCH / TERMINAL RESPONSE / STATUS / ENVELOPE answers)
 and the HTTP endpoints through a real :class:`ThreadingHTTPServer` on an
 ephemeral loopback port.  No card and no pysim are involved.
 
-The legacy reference is ``pysim_simple_server/server.py``'s handlers
+The reference is the 3.x ``server.py``'s handlers
 (``/api/menu``, ``/api/menu-select|respond``, ``/api/stk-status``,
 ``/api/events|event-send``, ``/api/terminal-profile``, ``/api/rescue``,
 ``/api/status-poll``, ``/api/poll-status|toggle``, ``/api/proactive-log``,
 ``/api/pli-qualifiers|dict`` and ``/api/apdu``); the byte parity of the ported
-helpers lives in ``tests/test_simple_drift.py``.
+helpers was checked by the drift module while both trees lived here.
 
 Spec anchors: TS 102 221 §11.2.1.2 (TERMINAL PROFILE), §11.2.2 (ENVELOPE),
 §11.2.3/§11.2.4 (FETCH / TERMINAL RESPONSE), §14.6.2 (the idle poll);

@@ -5,7 +5,7 @@ Purpose: record **every attempted configuration and its outcome**, so the same
 variations are not repeated. Add rows as tests are run; keep the confirmed
 rules section current.
 
-Setup: `pysim_simple_server` with a PC/SC reader, the PWA SCP81 tab (or
+Setup: the server (`simple_server`) with a PC/SC reader, the PWA SCP81 tab (or
 `POST /api/scp81/bip`), the card triggered by its SMS-PP push / the Location
 status event. Server log at `GET /api/scp81/log`, script state at
 `GET /api/scp81/script`, proactive history at `GET /api/proactive-log`.

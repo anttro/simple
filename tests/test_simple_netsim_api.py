@@ -13,11 +13,11 @@ Three things are exercised through a fake UICC and a real
   :mod:`simple_server.netmon` (the reused ``netstate`` computation);
 * ``GET /api/mcc-mnc`` - the bundled operator list search / random pick.
 
-The ported source is ``pysim_simple_server/server.py``'s ``_netstate_read``/
+The ported source is the 3.x server's ``_netstate_read``/
 ``_netstate_*`` plumbing and its four ``_mcc_mnc_*`` helpers; the scenario
-bytes are the shared builders the adapter re-exports (the drift suite asserts
-the shared copy still matches the legacy module).  No card and no pysim are
-involved.
+bytes are the shared builders the adapter re-exports (the drift suite checked
+the shared copy against the legacy module while both trees lived here).  No
+card and no pysim are involved.
 """
 
 import json

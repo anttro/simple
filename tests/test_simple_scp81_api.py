@@ -6,7 +6,7 @@ server-owned :class:`simple_server.bip.BipSession` plus
 :class:`simple_server.scp81.Scp81Control` (the script engine, the PSK table and
 the ``.cap`` -> APDU generator), on top of the reusable, pysim-free
 :class:`simple_server.shared.scp81.PskTlsServer` (the TLS-PSK listener and the
-GP HTTP administration dialog; moved from ``pysim_simple_server.scp81``) and
+GP HTTP administration dialog; moved from the 3.x server) and
 ``httpota.TcpDumpServer`` (the capture
 listener).  The endpoints run through a real
 :class:`ThreadingHTTPServer` on an ephemeral loopback port; the TLS test drives
@@ -14,12 +14,12 @@ a real PSK handshake with a loopback client, i.e. the same wire path a card's
 BIP channel uses (the terminal's socket redirection is Phase 3c-2's, tested in
 ``tests/test_simple_bip.py``).
 
-The legacy reference is ``pysim_simple_server/server.py``'s
+The reference is the 3.x ``server.py``'s
 ``/api/scp81/bip``, ``/api/bip/control``, ``/api/scp81/status|script|log|
 log-clear|queue|psk-map|gen-install`` and ``/api/bip/status|log|log-clear``
 handlers (``_scp81_bip_control``, ``_bip_control``, ``_scp81_script_*``,
 ``_parse_psk_map``, ``_scp81_gen_install``); the parity of the ported shapes
-lives in ``tests/test_simple_drift.py::Scp81DriftTests``.
+was checked by the drift module while both trees lived here.
 
 Spec anchors: GPC v2.2 Amendment B §4.3 (TLS-PSK: the Table 4-2 suites, TLS
 1.0-1.2, no resumption), §4.4 (the HTTP administration dialog), §4.4.2 (204 =

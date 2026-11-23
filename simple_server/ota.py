@@ -2,7 +2,7 @@
 """SCP80 operation helpers: keyset/TAR resolution, counters and the PoR decode.
 
 This module is the pysim-free port of the legacy server's operation logic
-(``pysim_simple_server.server``): the preset TAR table and its per-TAR default
+(the legacy 3.x ``server``): the preset TAR table and its per-TAR default
 keyset (v3.26.0), the MSL-derived SPI1 (TS 102 226 §8.2.1.3.2.4), the
 server-owned counter (v3.20.0), the response-packet (PoR) decode with its
 remote-management response forms (TS 102 225 §5.2, TS 102 226 §5.1.2/§5.2.2)

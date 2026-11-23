@@ -11,7 +11,7 @@ MENU cache, the GET INKEY/GET INPUT request, the BIP channel objects and the
 poll-negotiation answer).
 
 Provenance: a behavioural port of the existing server's private helpers
-(``pysim_simple_server/server.py``: ``_parse_proactive_header``,
+(the legacy 3.x ``server.py``: ``_parse_proactive_header``,
 ``_decode_cmd``, ``_parse_display_text``, ``_parse_select_item``,
 ``_parse_setup_menu_items``, ``_parse_setup_menu_command``,
 ``_parse_get_inkey``, ``_parse_get_input``, ``_decode_bip_cmd``,

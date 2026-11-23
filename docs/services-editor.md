@@ -244,7 +244,7 @@ list of **symbolic file names the cell mentions**, in the cell's order:
   §A.4 RFU/reserved rows are not features and therefore have no entry.
 
 The names are the standard file list's (`frontend/uicc_files.json`, built from
-pySim by `pysim_simple_server/uicc_files.py`) `name` values, so the check can
+pySim; the generator lives in the `simple-pysim` fork) `name` values, so the check can
 resolve them **path-exactly**: a FID alone is ambiguous across applications
 (`4F30` is EF.PBR *and* EF.SAI, `6F38` EF.SST *and* EF.UST, `6F4E` EF.EXT4
 under DF.TELECOM *and* EF.EXT5 under ADF.USIM).  `servicesPathIndexBuild()`
@@ -282,7 +282,8 @@ compares the two sides:
   `SoLSA` and `MExE` in the MF tree (the DF.TELECOM copies of DF.SoLSA/DF.MExE
   are not in the list) and `3GPP PS Data Off Service List`
   (EF.3GPPPSDATAOFFservicelist).  Reported instead of guessed — the follow-up
-  is to add those files to `SUPPLEMENT` in `pysim_simple_server/uicc_files.py`.
+  is to add those files to `SUPPLEMENT` in the generator (the `simple-pysim`
+  fork's `pysim_simple_server/uicc_files.py`).
 
 **Resolution per declaring tree.**  A role resolves in the declaring tree's
 root first, then — for a USIM/ISIM declaration — in the **MF** tree, because
@@ -417,8 +418,8 @@ tables by path and writes via `/api/write`.  The **FS check** additionally
 needs the *cardless* standard file list (`frontend/uicc_files.json`) to resolve
 a feature's symbolic files to paths (`(name, root) -> path`, §B.0) — the card's
 own tree supplies presence, the list supplies the paths.  Part 1 of step 4b
-added the service-gated files pySim's model omits to `SUPPLEMENT`
-(`pysim_simple_server/uicc_files.py`): EF.LRPLMNSI, EF.IAL, EF.IPD,
+added the service-gated files pySim's model omits to `SUPPLEMENT` in the
+generator (the `simple-pysim` fork's `pysim_simple_server/uicc_files.py`): EF.LRPLMNSI, EF.IAL, EF.IPD,
 EF.TVCONFIG, EF.3GPPPSDATAOFF, DF.MExE + its files, DF.SoLSA + EF.SAI/EF.SLL,
 DF.BCAST, DF.ACDC + EF.ACDC_LIST, DF.TV, DF.A2X + EF.AST/EF.A2X_CONFIG.
 

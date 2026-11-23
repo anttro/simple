@@ -16,7 +16,7 @@ so "the terminal should set the CR flag to comprehension not required").
 
 Provenance: a behavioural port of the existing server's ``_build_tr``,
 ``_decode_tr``, ``_tr_data_only``, ``_extract_tr_result``, ``_tr_result_name`` /
-``_tr_result_add_info_name`` (``pysim_simple_server/server.py``) and
+``_tr_result_add_info_name`` (the legacy 3.x ``server.py``) and
 ``testscript.build_tr`` / ``TR_RESULTS`` / ``TR_RESULT_ADD_INFO``, with the I/O
 switched from hex strings to bytes.  The PWA's scripted-TERMINAL-RESPONSE
 builder and the test runner keep the same byte output.

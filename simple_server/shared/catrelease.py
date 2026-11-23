@@ -14,8 +14,9 @@ human-readable reference with the per-row sources lives in the workspace at
 (an item the histories never name); an item absent from this table is one the
 histories do not pin down - never filter on it.
 
-The PWA mirrors this table (``CAT_RELEASE`` in frontend/index.html); the drift
-guard is tests/test_catrelease.py.  Releases below 6 display as "pre-Rel-6"
+The PWA mirrors this table (``CAT_RELEASE`` in frontend/index.html) and
+``frontend/tests/cat_release.test.js`` pins its entries.  Releases below 6
+display as "pre-Rel-6"
 (``release_label``).  ``DEFAULT_RELEASE`` (Rel-12) is the release a card
 preset's empty ``release`` resolves to (``preset_release``) - the safe level
 for cards whose release is not known.
@@ -127,7 +128,7 @@ def item_release(kind, key, default=None):
 # The release a preset's empty `release` resolves to: Rel-12 is the safe level
 # for cards whose release is not known (the CAT items the tool sends stay
 # within what a modern card implements).  Mirrored in the PWA
-# (`CAT_RELEASE_DEFAULT`), drift-guarded by tests/test_catrelease.py.
+# (`CAT_RELEASE_DEFAULT`).
 DEFAULT_RELEASE = 12
 
 

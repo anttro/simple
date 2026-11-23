@@ -160,7 +160,7 @@ def init_card(transport, skip_init=False):
     except FileError:
         # Probing may leave an ADF (ISD-R) selected and some cards refuse the
         # MF select by FID from within it.  The generic recovery is a physical
-        # reset - never a card-specific branch (see pysim_simple_server's
+        # reset - never a card-specific branch (see the legacy 3.x tree's
         # fastinit `_restore_mf_after_probe`).
         if not _connect(transport):
             raise

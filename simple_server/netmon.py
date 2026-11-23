@@ -16,7 +16,7 @@ than re-derived:
   ``_mcc_mnc_load``/``_mcc_mnc_is_mvno``/``_mcc_mnc_search``/
   ``_mcc_mnc_random``, ported name for name).
 
-Provenance: ``pysim_simple_server/server.py``'s ``_netstate_read`` and the
+Provenance: the legacy 3.x ``server.py``'s ``_netstate_read`` and the
 four ``_mcc_mnc_*`` helpers.  Differences, both deliberate:
 
 * the read is driven by :class:`~simple_server.commands.FileOps` and the file

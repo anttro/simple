@@ -2,8 +2,9 @@
 """The card's file model: names, FIDs, paths and the tree to select through.
 
 One tree holds the standard file list (the committed
-``frontend/uicc_files.json`` asset, generated cardless by
-``pysim_simple_server/uicc_files.py`` - it already carries the ``SUPPLEMENT``
+``frontend/uicc_files.json`` asset, generated cardless from pySim's
+profiles/application classes (the generator lives in the ``simple-pysim``
+fork) - it already carries the ``SUPPLEMENT``
 files and every ADF subtree), the files a card turned out to have through its
 EF.PBR, and **custom files**.  A file is just an entry; ``source`` says where
 it came from (``standard``/``pbr``/``supplement``/``custom``), so "custom" is

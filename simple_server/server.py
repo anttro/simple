@@ -1,7 +1,7 @@
 # coding=utf-8
 """The pysim-free server core: one server's state, card lifecycle, HTTP API.
 
-This module owns what the legacy ``pysim_simple_server/server.py`` spread over
+This module owns what the legacy 3.x ``server.py`` spread over
 module globals: the card link, the detected card, the CAT session, the BIP
 session, the file model, the session caches and the background threads.  One
 :class:`ServerState` describes one server; nothing here is a module global.

@@ -9,11 +9,11 @@ FETCH/TERMINAL RESPONSE chain of a profile switch's REFRESH.  The HTTP
 endpoints run through a real :class:`ThreadingHTTPServer` on an ephemeral
 loopback port.  No card and no pysim are involved.
 
-The legacy reference is ``pysim_simple_server/server.py``'s
+The reference is the 3.x server's
 ``/api/esim/chip|profiles|notifications|profile`` handlers and
-``pysim_simple_server/esim.py``'s two-phase switch (``build_switch_apdu`` -
+``esim.py``'s two-phase switch (``build_switch_apdu`` -
 ``_esim_refresh_chain`` - ``_esim_reinit`` - ``_esim_verify_switch``); the
-decoder parity lives in ``tests/test_simple_drift.py``.
+decoder parity was checked by the drift module while both trees lived here.
 
 Spec anchors: SGP.22 v2.6 §5.7.2 (the ES10 STORE DATA exchange), §5.7.8
 (EUICCInfo1/2), §5.7.9 (ListNotification), §5.7.22 (GetRAT), §5.7.15

@@ -1,10 +1,9 @@
 # coding=utf-8
 """Tests for :mod:`simple_server.proactive` and :mod:`simple_server.tr`.
 
-The command fixtures and their expected decodes are the ones the existing
-server's suite pins (``tests/test_ota_helpers.py``, ``tests/test_testscript.py``,
-``tests/test_tag_variants.py``), copied as literals so this suite stays free of
-any pysim/pysim_simple_server import: the live Alfa SET UP MENU, the live
+The command fixtures and their expected decodes are the ones the 3.x server's
+suite pinned, copied as literals so this suite stays free of any pySim import:
+the live Alfa SET UP MENU, the live
 RemMobileID GET INPUT, the reference-trace OPEN CHANNEL/SEND DATA, the
 live SEND SHORT MESSAGE with its long-form 150-octet TPDU, the SEND SHORT
 MESSAGE TPDU family, the TERMINAL RESPONSE builders' byte pins and the
@@ -70,7 +69,7 @@ TIMER_PLAIN = bytes.fromhex('d00c010301270102028182240103')
 
 # The live card's SEND SHORT MESSAGE with a BER long-form TLV (v3.6.57): the
 # template's own length is `D0 81 AB` and the SMS TPDU is `8B 81 96`, i.e. 150
-# octets.  `tests/test_ota_helpers.py`'s `ProactiveLongTlvTests` capture, copied
+# octets.  The 3.x suite's `ProactiveLongTlvTests` capture, copied
 # as literals - reading a length as one octet walked into the TPDU and indexed
 # past the end (`IndexError: index out of range`, live 2026-09-30, a 500 in the
 # FETCH path with the card's command left unanswered).
@@ -757,9 +756,8 @@ class TrResultTableDriftTests(unittest.TestCase):
     """The §8.12.0 result and §8.12.2 additional-information tables against the
     shared fixture ``frontend/tests/tr_results.json``.
 
-    The Node suite asserts the same file against the PWA's tables and
-    ``tests/test_tr_results.py`` against ``testscript.py``; this is the port's
-    side, read as JSON so the module stays free of a pysim import.
+    The Node suite asserts the same file against the PWA's tables; this is the
+    server's side, read as JSON so the module stays free of a pysim import.
     """
 
     @classmethod
@@ -779,8 +777,8 @@ class TrResultTableDriftTests(unittest.TestCase):
 
 class PackageImportHygieneTests(unittest.TestCase):
     """The hard phase-out constraint: no ``pySim``/``osmocom``/``construct``
-    import anywhere in ``simple_server/``, and no ``pysim_simple_server``
-    import at all (Phase 3d-3b moved the pysim-free modules into
+    import anywhere in ``simple_server/``, and no import of the deleted 3.x
+    package at all (Phase 3d-3b moved the pysim-free modules into
     ``simple_server.shared``, so the package must stand without the legacy
     tree).
 

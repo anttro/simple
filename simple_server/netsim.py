@@ -2,8 +2,8 @@
 """The network-condition simulator's card adapter.
 
 The scenario builders, the byte layouts and the step log are
-:mod:`simple_server.shared.netsim` (pysim-free, moved from the legacy
-``pysim_simple_server.netsim`` unchanged), so the
+:mod:`simple_server.shared.netsim` (pysim-free, moved from the legacy 3.x
+``netsim`` unchanged), so the
 observed phone write patterns (``projects/UICC_NAA.md`` section 13) have one
 implementation.  Its runner drives the card through pySim's runtime-channel
 API (``_select_path``, the selected file's FCP metadata, UPDATE/READ, the
@@ -12,7 +12,7 @@ surface on :class:`simple_server.commands.FileOps` and
 :class:`simple_server.cat_session.CatSession` instead of copying the
 scenarios.
 
-Provenance: ``pysim_simple_server/server.py``'s ``_netstate_read``/
+Provenance: the legacy 3.x ``server.py``'s ``_netstate_read``/
 ``_netstate_after_net_sim`` were the legacy glue; the adapter here is the
 equivalent for :func:`run_scenario`.
 

@@ -15,12 +15,12 @@ operations use:
   handed to :func:`simple_server.sms.build_sms_tpdu`.
 
 Everything here is a behavioural port of the byte-exact implementation the
-existing server carries (``pysim_simple_server.server._spi_from_bytes``,
+legacy 3.x server carries (``_spi_from_bytes``,
 ``_ota_keyset``, ``_encode_cmd_unlimited``, ``_build_secured_packet``,
 ``_split_secured_packet``, ``_por_header_parse`` and ``_decode_por``'s header
 part), with the crypto written against ``pycryptodomex`` instead of pySim's
 dialect classes.  The functions are pure and card-free testable; the tests pin
-them to the same vectors the existing server asserts, so both produce
+them to the same vectors the legacy server asserts, so both produce
 identical bytes.
 
 Cryptographic algorithms (TS 102 225 §5.1.2/§5.1.3, keyed by the low nibble
@@ -458,7 +458,7 @@ def _algo(registry, name, key, kind):
 def _encode_cmd(keyset, spi, tar, apdu):
     """The bare SCP80 command packet (no unciphered CPL fix-up).
 
-    Port of ``pysim_simple_server.server._encode_cmd_unlimited`` - the coding
+    Port of the legacy 3.x server's ``_encode_cmd_unlimited`` - the coding
     of pySim's ``OtaDialectSms.encode_cmd`` without its single-SMS length
     refusal.  Layout (TS 102 225 §5.1.1, TS 31.115 §4.2)::
 

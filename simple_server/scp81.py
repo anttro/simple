@@ -12,8 +12,8 @@ the channels, the redirect/sink/passthru modes and the CAT events) stays
 :class:`simple_server.bip.BipSession` (Phase 3c-2), which this module drives
 through ``start``/``start_listener``/``stop``/``status``.
 
-Provenance: a behavioural port of the legacy
-``pysim_simple_server/server.py`` helpers ``_scp81_bip_control``,
+Provenance: a behavioural port of the legacy 3.x
+``server.py`` helpers ``_scp81_bip_control``,
 ``_bip_control``/``_bip_session_stop``/``_bip_status_body``/
 ``_bip_listener_status``, ``_scp81_reset_script``/``_scp81_queue_script``/
 ``_scp81_restart_run``/``_scp81_script_mid_run``/``_scp81_script_state``/

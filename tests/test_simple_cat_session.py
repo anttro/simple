@@ -6,10 +6,10 @@ answers), so the suite needs no card and no pysim.  The command fixtures are
 existing live captures - the live Alfa SET UP MENU and DISPLAY TEXT, the live
 RemMobileID GET INPUT, the live TIMER MANAGEMENT, the POLL INTERVAL and the
 SEND SHORT MESSAGE form - and the TERMINAL RESPONSE / ENVELOPE bytes are
-pinned as literals.  The byte parity with the legacy server
-(``pysim_simple_server/server.py``) lives in ``tests/test_simple_drift.py``
-(the one module allowed to import both implementations); this suite checks the
-port against the *spec-derived* expectation and the fixtures.
+pinned as literals.  The byte parity with the pySim-based 3.x server was
+checked by the ``test_simple_drift`` module while both trees lived here; after
+the 4.0.0 cut-over this suite checks the port against the *spec-derived*
+expectation and the fixtures.
 
 Spec anchors used below: TS 102 221 §11.2.2 (ENVELOPE), §11.2.3 (FETCH),
 §11.2.4 (TERMINAL RESPONSE); TS 102 223 §6.8.0/§6.8.1 (TR structure, the

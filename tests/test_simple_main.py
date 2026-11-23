@@ -6,9 +6,9 @@ driven through an injected readers function, the state through an injected
 factory, the HTTP server through an injected factory and the serving step
 through an injected callable.  The GSMTAP packet form is byte-pinned against
 the libosmocore header layout (16 bytes: version 2, ``hdr_len`` 4, type 0x04);
-the comparison against the legacy builder lives in ``tests/test_simple_drift.py``
-(the one module allowed to import both implementations - this file must stay
-pysim-free, like the package it tests).
+the comparison against the legacy builder lived in the ``test_simple_drift``
+module while both trees were present - this file must stay pysim-free, like
+the package it tests).
 """
 
 import contextlib

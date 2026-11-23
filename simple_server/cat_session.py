@@ -12,7 +12,7 @@ helpers, the PLI dictionary answers, the interactive menu state, the
 TIMER MANAGEMENT timers and the proactive log the PWA renders.
 
 Provenance: a behavioural port of the legacy server's CAT helpers
-(``pysim_simple_server/server.py``: ``_send_status``,
+(the legacy 3.x ``server.py``: ``_send_status``,
 ``_send_terminal_profile``, ``_handle_proactive_chain`` /
 ``_run_proactive_chain``, ``_send_envelope`` / ``_envelope_get_response``,
 ``_send_event_download``, ``_pli_data_hex`` / ``PLI_DEFAULTS``,
@@ -89,7 +89,7 @@ TIMER_COUNT = 8
 #: device identities + the event objects) is wrapped as ``D6`` and the APDU Lc
 #: must stay within one octet (255), so the inner data is capped at 252 bytes
 #: (244 bytes of event data + the 8-byte header).  Chained (multi-envelope)
-#: delivery is not implemented.  ``pysim_simple_server.events.EVENT_DATA_MAX``
+#: delivery is not implemented.  The legacy 3.x ``events.EVENT_DATA_MAX``
 #: carries the same value.
 EVENT_INNER_MAX = 252
 EVENT_DATA_MAX = EVENT_INNER_MAX - 8
