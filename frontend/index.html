@@ -44,7 +44,7 @@
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="cards" data-l10n="Cards">Cards</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="profiler" data-l10n="Profiler">Profiler</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="files" data-l10n="File manager">File manager</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Status">Status</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Card reader">Card reader</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Simulator">Simulator</button>
 	</div>
 
@@ -1056,36 +1056,88 @@
 		<div id="pysim-connected-row" class="mb-3 hidden">
 			<div class="flex gap-3 items-start">
 				<img id="pysim-status-img" src="nosim.svg" alt="pysim" class="w-16 h-16 shrink-0 dark:invert">
-				<div class="flex-1 min-w-0">
-					<div id="pysim-reader-row" class="mb-2 hidden">
-						<label class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Reader">Reader</label>
-						<div class="flex flex-wrap gap-2 items-center">
-							<select id="pysim-reader-sel" onchange="pysimReaderChanged(this.value)" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800"></select>
-							<span class="text-xs text-amber-600 dark:text-amber-400" data-l10n="Switching the reader resets and re-initializes the card.">Switching the reader resets and re-initializes the card.</span>
+				<div class="flex-1 min-w-0 space-y-2">
+					<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3">
+						<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Reader">Reader</legend>
+						<div id="pysim-reader-row">
+							<select id="pysim-reader-sel" onchange="pysimReaderChanged(this.value)" class="font-mono w-full border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"></select>
+							<p id="pysim-reader-hint" class="hidden mt-1 text-xs text-gray-500 dark:text-slate-400" data-l10n="Only one PC/SC reader is present">Only one PC/SC reader is present</p>
+							<p id="pysim-reader-switch-note" class="hidden mt-1 text-xs text-amber-600 dark:text-amber-400" data-l10n="Switching the reader resets and re-initializes the card.">Switching the reader resets and re-initializes the card.</p>
 						</div>
+						<div class="flex items-center gap-2 mt-2 flex-wrap">
+							<button data-needs="server" onclick="pysimEquipCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Equip card">Equip card</button>
+							<button data-needs="card" onclick="pysimStatusCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Check status">Check status</button>
+							<button data-needs="card" onclick="pysimResetCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Reset card">Reset card</button>
+							<button onclick="pysimDisconnect()" id="pysim-disconnect-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Disconnect from server">Disconnect from server</button>
+						</div>
+					</fieldset>
+					<div class="flex flex-col lg:flex-row gap-3 items-start">
+						<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
+							<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="Card">Card</legend>
+							<div id="pysim-status" class="text-xs leading-snug"></div>
+						</fieldset>
+						<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
+							<legend id="pysim-pin-legend" class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="PIN / ADM">PIN / ADM</legend>
+							<div class="space-y-1">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="w-10 shrink-0 text-xs font-mono text-gray-600 dark:text-slate-400">PIN1</span>
+									<span id="pysim-pin1-state" class="flex-1 min-w-24 text-xs font-mono text-gray-500 dark:text-slate-400"></span>
+									<button data-needs="card" data-pin-gate="pin1" data-preset-code="pin1" onclick="pysimVerifyPin('pin1')" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+								</div>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="w-10 shrink-0 text-xs font-mono text-gray-600 dark:text-slate-400">PIN2</span>
+									<span id="pysim-pin2-state" class="flex-1 min-w-24 text-xs font-mono text-gray-500 dark:text-slate-400"></span>
+									<button data-needs="card" data-pin-gate="pin2" data-preset-code="pin2" onclick="pysimVerifyPin('pin2')" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+								</div>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="w-10 shrink-0 text-xs font-mono text-gray-600 dark:text-slate-400">ADM</span>
+									<span id="pysim-adm-state" class="flex-1 min-w-24 text-xs font-mono text-gray-500 dark:text-slate-400"></span>
+									<button data-needs="card" data-preset-code="adm" onclick="pysimVerifyAdm()" class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+								</div>
+							</div>
+							<div id="pysim-pin-msg" class="mt-1 text-xs font-mono text-gray-600 dark:text-slate-400"></div>
+						</fieldset>
 					</div>
-					<div class="flex items-center gap-2 mb-1 flex-wrap">
-						<button data-needs="server" onclick="pysimEquipCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Equip card">Equip card</button>
-						<button data-needs="card" onclick="pysimStatusCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Check status">Check status</button>
-						<button data-needs="card" onclick="pysimResetCmd()" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Reset card">Reset card</button>
-						<button onclick="pysimDisconnect()" id="pysim-disconnect-btn" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Disconnect from server">Disconnect from server</button>
-					</div>
-					<div class="flex items-center gap-2 mb-1 flex-wrap">
-						<span class="text-xs text-gray-500 dark:text-slate-400" data-l10n="PIN (matched preset)">PIN (matched preset)</span>
-						<button data-needs="card" data-pin-gate="pin1" onclick="pysimVerifyPin('pin1')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN1</button>
-						<button data-needs="card" data-pin-gate="pin2" onclick="pysimVerifyPin('pin2')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN2</button>
-						<span id="pysim-pin-state" class="text-xs font-mono text-gray-500 dark:text-slate-400"></span>
-						<span id="pysim-pin-msg" class="text-xs font-mono text-gray-600 dark:text-slate-400"></span>
-					</div>
-					<div id="pysim-status" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
 				</div>
 			</div>
 		</div>
 		<div id="pysim-body" class="hidden">
 			<div class="flex flex-wrap justify-center gap-1 mb-2">
-				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-pysim-sub="apdu" data-l10n="Raw APDU">Raw APDU</button>
+				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-pysim-sub="chv" data-l10n="PIN / ADM">PIN / ADM</button>
+				<button class="pysim-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-pysim-sub="apdu" data-l10n="Raw APDU">Raw APDU</button>
 			</div>
-		<div id="pysim-sub-apdu">
+		<div id="pysim-sub-chv">
+			<div class="flex flex-wrap gap-2 items-end mb-2">
+				<div>
+					<label for="pysim-chv-code" class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Code">Code</label>
+					<select id="pysim-chv-code" onchange="pysimChvRender()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+						<option value="pin1">PIN1</option>
+						<option value="pin2">PIN2</option>
+						<option value="adm">ADM</option>
+					</select>
+				</div>
+				<div>
+					<label for="pysim-chv-action" class="block mb-1 text-xs font-medium text-gray-600 dark:text-slate-400" data-l10n="Action">Action</label>
+					<select id="pysim-chv-action" onchange="pysimChvRender()" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800">
+						<option value="verify" data-l10n="Verify">Verify</option>
+						<option value="change" data-l10n="Change">Change</option>
+						<option value="unblock" data-l10n="Unblock">Unblock</option>
+						<option value="enable" data-l10n="Enable">Enable</option>
+						<option value="disable" data-l10n="Disable">Disable</option>
+					</select>
+				</div>
+				<button type="button" data-needs="card" data-preset-gate="matched" onclick="pysimChvPrefill(true)" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Use the matched preset's codes">Use the matched preset's codes</button>
+			</div>
+			<div id="pysim-chv-fields" class="space-y-2"></div>
+			<div class="flex items-center gap-2 mt-2 flex-wrap">
+				<button type="button" id="pysim-chv-run" data-needs="card" data-chv-gate="execute" onclick="pysimChvExecute()" class="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Execute">Execute</button>
+				<span id="pysim-chv-warning" class="text-xs text-amber-600 dark:text-amber-400"></span>
+			</div>
+			<p id="pysim-chv-state" class="text-xs font-mono text-gray-500 dark:text-slate-400 mt-2"></p>
+			<p id="pysim-chv-result" class="text-xs font-mono text-gray-600 dark:text-slate-400"></p>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="Every attempt is confirmed first.">Every attempt is confirmed first.</p>
+		</div>
+		<div id="pysim-sub-apdu" class="hidden">
 			<div class="flex gap-2 items-center mb-2">
 				<input id="pysim-apdu" class="font-mono flex-1 border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-2.5 dark:bg-slate-800" placeholder="00A4040000" onkeydown="if(event.key==='Enter')pysimApdu()">
 				<button data-needs="card" onclick="pysimApdu()" class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Send">Send</button>
@@ -1745,11 +1797,6 @@
 					<label for="cards-pin1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN1</label>
 					<input id="cards-pin1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
-				<div class="flex items-center gap-2 pl-12 -mt-1">
-					<button type="button" data-needs="card" data-pin-gate="pin1" onclick="cardsChv('pin1','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
-					<button type="button" data-needs="card" onclick="cardsChv('pin1','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
-					<button type="button" data-needs="card" onclick="cardsChv('pin1','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
-				</div>
 				<div class="flex items-center gap-2">
 					<label for="cards-puk1" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK1</label>
 					<input id="cards-puk1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
@@ -1757,11 +1804,6 @@
 				<div class="flex items-center gap-2">
 					<label for="cards-pin2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PIN2</label>
 					<input id="cards-pin2" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
-				</div>
-				<div class="flex items-center gap-2 pl-12 -mt-1">
-					<button type="button" data-needs="card" data-pin-gate="pin2" onclick="cardsChv('pin2','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
-					<button type="button" data-needs="card" onclick="cardsChv('pin2','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
-					<button type="button" data-needs="card" onclick="cardsChv('pin2','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
 				</div>
 				<div class="flex items-center gap-2">
 					<label for="cards-puk2" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">PUK2</label>
@@ -1771,13 +1813,9 @@
 					<label for="cards-adm" class="w-10 shrink-0 text-xs text-gray-600 dark:text-slate-400">ADM</label>
 					<input id="cards-adm" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="16" placeholder="ADM">
 				</div>
-				<div class="flex items-center gap-2 pl-12 -mt-1">
-					<button type="button" data-needs="card" onclick="cardsAdmVerify()" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
-				</div>
 			</div>
-			<p id="cards-pin-state" class="text-xs font-mono text-gray-500 dark:text-slate-400 mt-2"></p>
-			<p id="cards-chv-status" class="text-xs text-gray-600 dark:text-slate-400 mt-2"></p>
 			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="All codes are optional">All codes are optional</p>
+			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="Card operations use these codes from the Card reader tab's PIN / ADM pill.">Card operations use these codes from the Card reader tab's PIN / ADM pill.</p>
 		</fieldset>
 		<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-3 flex-1 min-w-0">
 			<legend class="px-1 text-xs font-medium text-gray-500 dark:text-slate-400" data-l10n="TAR">TAR</legend>
@@ -2003,7 +2041,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '4.2.0';
+const SIMPLE_VERSION = '4.3.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -2017,7 +2055,7 @@ let _scp80Sub = 'sp';
 let _capduSub = 'sim';
 let _phoneSub = 'phone';
 let _scp81Sub = 'listener';
-let _pysimSub = 'apdu';        // the Status tab's Raw APDU pill
+let _pysimSub = 'chv';         // the Card reader tab's PIN / ADM pill (default)
 let _filesSub = 'files';       // the File manager tab's view
 let _cardsView = 'list';
 let _cardsEditId = null;       // the preset being edited (id; null = a new one)
@@ -9715,6 +9753,29 @@ function pysimApplyAvailability() {
 				if (!hint) hint = gate;
 			}
 		}
+		const presetGate = el.getAttribute('data-preset-gate');
+		if (presetGate && !pysimPresetGateOk(presetGate)) {
+			// The control works from the matched preset (the pill's prefill):
+			// without one there is nothing to fill from.
+			disabled = true;
+			if (!hint) hint = t('No card preset matches the equipped card');
+		}
+		const presetCode = el.getAttribute('data-preset-code');
+		if (presetCode && !pysimPresetCodePresent(presetCode)) {
+			// The reader rows' Verify needs the matched preset's code.
+			disabled = true;
+			if (!hint) hint = t('No code in the matched preset — use the PIN / ADM pill');
+		}
+		const chvGate = el.getAttribute('data-chv-gate');
+		if (chvGate) {
+			// A redundant ENABLE/DISABLE (or a blocked PIN) leaves nothing the
+			// card would execute (TS 102 221 §11.1.11.1/§11.1.12.1).
+			const gate = pysimChvGate();
+			if (gate && gate.stop) {
+				disabled = true;
+				if (!hint) hint = gate.stop;
+			}
+		}
 		el.disabled = disabled;
 		if (hint) el.setAttribute('title', hint);
 		else el.removeAttribute('title');
@@ -9814,9 +9875,8 @@ function pysimPinVerifyGate(code) {
 		+ ' (' + t('there is nothing to verify') + ')';
 }
 
-// The small per-PIN state line of the Cards editor and the Status tab
-// ("PIN1: required, 3 tries left").
-// "N tries left" / singular "1 try left" (both the rows and the badge tooltip).
+// "N tries left" / singular "1 try left" (the reader rows, the pill and the
+// badge tooltip).
 function pysimPinTriesLeft(count) {
 	return count + ' ' + t(count === 1 ? 'try left' : 'tries left');
 }
@@ -9830,50 +9890,101 @@ function pysimPinNotRequiredText(entry) {
 	return t('not required — no PIN needed');
 }
 
-function pysimPinStateLabel(code, entry) {
-	const name = code.toUpperCase();
+// The state part alone ("required, 3 tries left" / "not required — disabled
+// on this card" / ...), shared by the reader rows and the PIN / ADM pill.
+function pysimPinStateText(entry) {
 	const state = (entry && entry.state) ? entry.state : 'unknown';
 	if (state === 'required') {
 		let text = t('required');
 		if (entry && typeof entry.attempts_left === 'number') {
 			text += ', ' + pysimPinTriesLeft(entry.attempts_left);
 		}
-		return name + ': ' + text;
+		return text;
 	}
-	if (state === 'not_required') return name + ': ' + pysimPinNotRequiredText(entry);
-	if (state === 'blocked') return name + ': ' + t('blocked');
-	if (state === 'not_usable') return name + ': ' + t('not usable');
-	if (state === 'not_initialized') return name + ': ' + t('not initialized');
+	if (state === 'not_required') return pysimPinNotRequiredText(entry);
+	if (state === 'blocked') return t('blocked');
+	if (state === 'not_usable') return t('not usable');
+	if (state === 'not_initialized') return t('not initialized');
 	const sw = (entry && entry.sw) ? ' (' + entry.sw + ')' : '';
-	return name + ': ' + t('unknown') + sw;
+	return t('unknown') + sw;
 }
 
-function pysimPinStateRender() {
-	// No state at all (no card session yet): leave the lines blank rather than
-	// inventing "PIN1: unknown".
-	let text = '';
-	if (_pysimChvState) {
-		text = ['pin1', 'pin2']
-			.map(code => pysimPinStateLabel(code, pysimPinStateEntry(code)))
-			.join(' · ');
+function pysimPinStateLabel(code, entry) {
+	return code.toUpperCase() + ': ' + pysimPinStateText(entry);
+}
+
+// The ADM row's state: the verify latch plus the client-side attempts/blocked
+// tracking (every session resets it), never an attempt-free readout (the ADM
+// has none).
+function pysimAdmStateText() {
+	const status = _pysimLastStatus || {};
+	if (_pysimAdmBlocked) return t('blocked') + ' — ' + t('unblock the card to try again');
+	if (status.adm_verified) return t('verified');
+	if (typeof _pysimAdmAttemptsLeft === 'number') {
+		return t('verification failed') + ', ' + _pysimAdmAttemptsLeft + ' '
+			+ t('attempt(s) left');
 	}
-	['cards-pin-state', 'pysim-pin-state'].forEach(id => {
-		const el = document.getElementById(id);
-		if (el) el.textContent = text;
-	});
+	return t('not verified');
 }
 
-// Compact PIN state next to the ADM badge: "PIN1 locked" (the card asks for
-// PIN1) / "PIN1 unlocked" (no PIN needed) / "PIN1 blocked" / "PIN1 not
-// usable" / "PIN1 n/a" / "PIN1 ?" - clickable to re-read the attempt-free
-// state.  Mirrors pysimUpdateAdmIndicator: only rewrites the DOM when the
-// state changes (the 2 s /api/status poll calls this on every update).
+// A generic preset gate for controls that work from the matched preset.
+// `matched` is the only value today (the pill's "Use the matched preset's
+// codes" button); a future gate value can extend the map.
+function pysimPresetGateOk(gate) {
+	if (gate === 'matched') return !!cardsMatchedPreset();
+	return true;
+}
+
+// Does the matched preset carry this code?  (The reader rows' Verify buttons
+// use it; without a value they are disabled and point at the pill.)
+function pysimPresetCodePresent(code) {
+	const preset = cardsMatchedPreset();
+	if (!preset) return false;
+	if (code === 'adm') return cardsAdmPresent(preset);
+	return !!String(preset[code] || '').trim();
+}
+
+// The PIN / ADM block's legend follows the matched preset: the base text,
+// plus the preset's name when one matches the equipped card (the block is
+// still useful without one - only its Verify buttons go inactive).
+function pysimPinLegendRender() {
+	const el = document.getElementById('pysim-pin-legend');
+	if (!el) return;
+	const preset = cardsMatchedPreset();
+	el.textContent = t('PIN / ADM')
+		+ (preset && preset.name ? ' · ' + preset.name : '');
+}
+
+function pysimPinStateRender(connected) {
+	// No card session (the caller's status, else the last poll's): leave the
+	// rows blank rather than inventing "unknown".
+	const on = (connected === undefined)
+		? !!(_pysimLastStatus && _pysimLastStatus.connected) : !!connected;
+	['pin1', 'pin2'].forEach(code => {
+		const el = document.getElementById('pysim-' + code + '-state');
+		if (!el) return;
+		el.textContent = (on && _pysimChvState)
+			? pysimPinStateText(pysimPinStateEntry(code)) : '';
+	});
+	const adm = document.getElementById('pysim-adm-state');
+	if (adm) adm.textContent = on ? pysimAdmStateText() : '';
+	pysimPinLegendRender();
+	// The PIN / ADM pill's own state line and enable/disable gate.
+	pysimChvStateRender();
+}
+
+// Compact monochrome PIN state next to the ADM badge (v4.3.0): green when
+// nothing is needed, amber for "the card asks for it", red for blocked, gray
+// when the answer is unavailable.  The glyph is not translated (the words live
+// in the tooltip); the badge is clickable to re-read the attempt-free state.
+// Mirrors pysimUpdateAdmIndicator: only rewrites the DOM when the state changes
+// (the 2 s /api/status poll calls this on every update).
 const PYSIM_PIN_BADGES = {
-	required: ['PIN1 locked', 'text-amber-600', 'dark:text-amber-400'],
-	not_required: ['PIN1 unlocked', 'text-emerald-600', 'dark:text-emerald-400'],
-	blocked: ['PIN1 blocked', 'text-red-500'],
-	not_usable: ['PIN1 not usable', 'text-amber-600', 'dark:text-amber-400'],
-	not_initialized: ['PIN1 n/a', 'text-gray-500', 'dark:text-slate-400'],
+	required: ['PIN1 !', 'text-amber-600', 'dark:text-amber-400'],
+	not_required: ['PIN1 ✓', 'text-emerald-600', 'dark:text-emerald-400'],
+	blocked: ['PIN1 ✗', 'text-red-500'],
+	not_usable: ['PIN1 ⊘', 'text-gray-500', 'dark:text-slate-400'],
+	not_initialized: ['PIN1 –', 'text-gray-500', 'dark:text-slate-400'],
 	unknown: ['PIN1 ?', 'text-gray-500', 'dark:text-slate-400'],
 };
 
@@ -9882,7 +9993,7 @@ function pysimUpdatePinIndicator(status) {
 	_pysimChvState = (status && status.connected) ? (status.chv || null) : null;
 	const entry = pysimPinStateEntry('pin1');
 	// The rows follow the state even when the header badge is absent.
-	pysimPinStateRender();
+	pysimPinStateRender(!!(status && status.connected));
 	const el = document.getElementById('state-indicator-pin');
 	if (!el) return;
 	const connected = !!(status && status.connected);
@@ -9903,7 +10014,7 @@ function pysimUpdatePinIndicator(status) {
 		return;
 	}
 	const badge = PYSIM_PIN_BADGES[state] || PYSIM_PIN_BADGES.unknown;
-	el.textContent = t(badge[0]);
+	el.textContent = badge[0];
 	el.classList.remove('hidden');
 	el.classList.add(badge[1]);
 	if (badge[2]) el.classList.add(badge[2]);
@@ -9974,10 +10085,10 @@ async function pysimRefreshChvState(codes) {
 		return data;
 	} catch (e) {
 		// A message line, not the state lines (the next render overwrites
-		// those): the first one the user can actually see - the Cards editor's
-		// line is hidden from every other tab, and the app hides views with
-		// the `hidden` class.
-		const el = pysimVisibleElement(['cards-chv-status', 'pysim-pin-msg'])
+		// those): the first one the user can actually see - a line of the
+		// Cards editor is hidden outside that view, and the app hides views
+		// with the `hidden` class.
+		const el = pysimVisibleElement(['pysim-pin-msg', 'pysim-chv-result'])
 			|| document.getElementById('pysim-status');
 		if (el) el.textContent = t('Error') + ': ' + e.message;
 		return null;
@@ -10007,7 +10118,8 @@ async function pysimVerifyAdm(statusEl, admOverride) {
 		? (cardsAdmPresent(preset) ? preset.adm : '')
 		: String(admOverride).trim();
 	if (!adm) return;
-	const el = statusEl || document.getElementById('pysim-status');
+	const el = statusEl || document.getElementById('pysim-pin-msg')
+		|| document.getElementById('pysim-status');
 	if (_pysimAdmBlocked) {
 		if (el) el.textContent = t('ADM is blocked — unblock the card to try again');
 		return;
@@ -10066,10 +10178,11 @@ function pysimAdmResetAttempts() {
 // ===== CHV (PIN/PUK) actions =====
 // The last failure state per code, per card session (like the ADM attempt
 // tracking; an equip/removal forgets it).  A wrong value consumes a card
-// attempt, so every action is confirmed first.  The Cards editor sends its
-// form values (the preset being edited); the Status tab sends the matched
-// preset's PIN.  The commands and status words are in the server's
-// /api/chv (TS 102 221 / TS 51 011).
+// attempt, so every action is confirmed first.  The form values come from the
+// Card reader's PIN / ADM pill (manual entry, or prefilled from the matched
+// preset); its PIN1/PIN2 rows verify the preset's codes directly.  The
+// commands and status words are in the server's /api/chv (TS 102 221 /
+// TS 51 011).
 let _cardsChvState = {};
 
 function cardsChvReset() {
@@ -10077,6 +10190,8 @@ function cardsChvReset() {
 	// The per-PIN lock state belongs to the card session too (v4.2.0).
 	_pysimChvState = null;
 	_pysimPinStateKey = null;
+	const result = document.getElementById('pysim-chv-result');
+	if (result) result.textContent = '';
 }
 
 function cardsChvState(code) {
@@ -10110,6 +10225,19 @@ function cardsChvRetryPrompt(code) {
 	return null;
 }
 
+// TS 102 221 Table 10.9: a 63CX on CHANGE/ENABLE/DISABLE is the card's own
+// internal retries, not the PIN attempts (the state readout is the counter).
+function pysimChvRetriesText(data) {
+	const n = data && data.internal_retries;
+	if (typeof n !== 'number') return '';
+	if (data.ok) {
+		return t('the card completed the command with') + ' ' + n + ' '
+			+ t('internal retries - check the PIN state');
+	}
+	return t('the card reports') + ' ' + n + ' '
+		+ t('internal retries - check the PIN state (the command may not have completed)');
+}
+
 // One CHV request: the confirmation, the POST and the result line.  A
 // change/unblock's new PIN arrives as `values.new_pin` (typed by the
 // operator); the server never reads a stored secret.
@@ -10127,7 +10255,8 @@ async function pysimChvRun(code, action, values, statusEl) {
 	}
 	const retry = cardsChvRetryPrompt(code);
 	if (retry && !(await pysimConfirm(retry))) return null;
-	const verb = { verify: 'Verify', change: 'Change', unblock: 'Unblock' }[action] || action;
+	const verb = { verify: 'Verify', change: 'Change', unblock: 'Unblock',
+		enable: 'Enable', disable: 'Disable' }[action] || action;
 	const warning = action === 'unblock'
 		? t('A wrong PUK consumes one attempt.')
 		: t('A wrong PIN consumes one attempt.');
@@ -10152,20 +10281,38 @@ async function pysimChvRun(code, action, values, statusEl) {
 		pysimUpdatePinIndicator(_pysimLastStatus);
 		pysimApplyAvailability();
 	}
+	// The refreshed counter is authoritative after any operation: a
+	// change/enable/disable answers a 63CX as the card's internal retries,
+	// but the state readout still carries the real attempts left - feed it in
+	// so the "last attempt" warning can fire for those actions too.
+	const refreshed = data.chv && data.chv[code];
+	const counter = (refreshed && refreshed.state === 'required'
+		&& typeof refreshed.attempts_left === 'number')
+		? refreshed.attempts_left : null;
 	if (data.ok) {
-		state.attempts = null;
+		state.attempts = counter;
 		state.blocked = false;
 		state.failed = false;
 		state.invalidated = false;
-		const refreshed = data.chv && data.chv[code];
 		if (action === 'verify' && refreshed && refreshed.enabled === false) {
 			// The card answered 9000 but its FCP says this PIN is disabled:
 			// nothing was actually verified - do not claim "verified".
 			set(label + ' ' + t('is not required on this card (disabled) — nothing was verified'));
 		} else if (action === 'verify') set(label + ' ' + t('verified'));
-		else set(label + ' ' + t(action === 'change' ? 'changed' : 'unblocked'));
+		else {
+			// change -> changed, enable -> enabled, disable -> disabled,
+			// unblock -> unblocked (v4.3.1: enable/disable used to report
+			// "unblocked", the old two-way ternary).
+			const done = { change: 'changed', enable: 'enabled',
+				disable: 'disabled', unblock: 'unblocked' }[action] || action;
+			let text = label + ' ' + t(done);
+			const retries = pysimChvRetriesText(data);
+			if (retries) text += ' — ' + retries;
+			set(text);
+		}
 		return data;
 	}
+	if (counter !== null) state.attempts = counter;
 	if (data.blocked) {
 		state.blocked = true;
 		state.attempts = 0;
@@ -10188,64 +10335,256 @@ async function pysimChvRun(code, action, values, statusEl) {
 	}
 	if (data.invalidated) {
 		// TS 102 221 Table 10.13: a generic refusal - no attempt count, not
-		// necessarily blocked; the card will not use this CHV reference (a
-		// disabled/not-initialized PIN answers this way).
+		// necessarily blocked.  Live 2026-11-23: the bench card answered 6984
+		// to a *wrong* PIN1 value (the counter stayed 63C3) and 9000 to the
+		// correct one, so the message must not claim the PIN is disabled.
 		state.invalidated = true;
 		set(label + ' ' + t('refused by the card (referenced data invalidated)')
 			+ ' — SW: ' + (data.sw || '6984') + '. '
-			+ t('PIN verification is not enabled for this PIN on this card, or the PIN is otherwise not usable'));
+			+ t('it reported no attempt count - the value may be wrong, or the reference is disabled / not usable on this card'));
+		return data;
+	}
+	if (typeof data.internal_retries === 'number' || data.warning) {
+		// TS 102 221 §10.2.1.3 Table 10.9: for these commands a 63CX is the
+		// card's own internal retries, not the remaining PIN attempts (the
+		// attempt-free state readout has the counter).  The composed line is
+		// translated; the server's English warning is only the fallback.
+		const retries = pysimChvRetriesText(data);
+		set('SW: ' + (data.sw || '?') + ' — ' + (retries || data.warning));
 		return data;
 	}
 	set('SW: ' + (data.sw || '?') + ' — ' + (data.error || t('Error')));
 	return data;
 }
 
-// The Cards editor's PIN actions: the form's values, a typed new PIN for
-// change/unblock (a successful one updates the form field for saving).
-async function cardsChv(code, action) {
-	const statusEl = document.getElementById('cards-chv-status');
-	const pinField = document.getElementById('cards-' + code);
-	const pukField = document.getElementById('cards-puk' + code.slice(3));
-	const values = {};
-	if (action !== 'unblock') {
-		const pin = cardsChvDigits(pinField && pinField.value, 'pin');
-		if (!pin) { if (statusEl) statusEl.textContent = t('PIN must be 4-8 decimal digits'); return; }
-		values.pin = pin;
-	} else {
-		const puk = cardsChvDigits(pukField && pukField.value, 'puk');
-		if (!puk) { if (statusEl) statusEl.textContent = t('PUK must be exactly 8 decimal digits'); return; }
-		values.puk = puk;
-	}
-	if (action !== 'verify') {
-		const answer = await pysimPrompt(t('New PIN (4-8 decimal digits)'));
-		if (answer === null || answer === undefined) return;
-		const newPin = cardsChvDigits(answer, 'new_pin');
-		if (!newPin) { if (statusEl) statusEl.textContent = t('PIN must be 4-8 decimal digits'); return; }
-		values.new_pin = newPin;
-	}
-	const data = await pysimChvRun(code, action, values, statusEl);
-	if (data && data.ok && action !== 'verify') {
-		if (pinField) pinField.value = values.new_pin;
-		if (statusEl) statusEl.textContent += ' — ' + t('save the preset to store the new PIN');
-	}
-}
-
-// The Cards editor's ADM verify (the field's key, not the stored preset's).
-function cardsAdmVerify() {
-	const statusEl = document.getElementById('cards-chv-status');
-	const admField = document.getElementById('cards-adm');
-	const adm = String((admField && admField.value) || '').replace(/\s/g, '').toUpperCase();
-	if (!adm) { if (statusEl) statusEl.textContent = t('ADM is required'); return; }
-	pysimVerifyAdm(statusEl, adm);
-}
-
-// The Status tab's per-card PIN verify (the matched preset's PIN).
+// The Card reader's per-card PIN verify (the matched preset's PIN).
 async function pysimVerifyPin(code) {
 	const el = document.getElementById('pysim-pin-msg') || document.getElementById('pysim-status');
 	const preset = cardsMatchedPreset();
 	const pin = preset ? String(preset[code] || '').trim() : '';
 	if (!pin) { if (el) el.textContent = t('No PIN in the matched preset'); return; }
 	await pysimChvRun(code, 'verify', { pin }, el);
+}
+
+// ----- the PIN / ADM pill (v4.3.0) -----------------------------------------
+// Manual-first card operations: the Cards editor only edits presets.  The
+// actions are the server's /api/chv set (VERIFY 20 / CHANGE 24 / DISABLE 26 /
+// ENABLE 28 / UNBLOCK 2C, TS 102 221 §11.1.9-§11.1.13) plus ADM's VERIFY
+// (/api/verify-adm) - ADM has no change/unblock clause (TS 102 221 §9.5.1
+// Table 9.3 names 0A ADM1; CHANGE/UNBLOCK point their P2 at VERIFY's coding
+// and nothing pinned covers ADM1).
+function pysimChvCode() {
+	const el = document.getElementById('pysim-chv-code');
+	return (el && el.value) || 'pin1';
+}
+
+function pysimChvAction() {
+	const el = document.getElementById('pysim-chv-action');
+	const action = (el && el.value) || 'verify';
+	// ADM only verifies (§9.5.1).
+	return pysimChvCode() === 'adm' ? 'verify' : action;
+}
+
+function pysimChvIsSim() {
+	const card = _pysimLastStatus && _pysimLastStatus.card;
+	return !!(card && card.kind === 'sim');
+}
+
+// The action's fields: verify -> PIN (or the ADM key); change -> current + new
+// PIN; unblock -> PUK + new PIN; enable/disable -> PIN.
+function pysimChvFieldsFor(code, action) {
+	if (action === 'verify') return code === 'adm' ? ['adm'] : ['pin'];
+	if (action === 'change') return ['pin', 'new_pin'];
+	if (action === 'unblock') return ['puk', 'new_pin'];
+	return ['pin'];
+}
+
+const PYSIM_CHV_FIELDS = {
+	pin: ['PIN (4-8 decimal digits)', '4-8 digits', 8],
+	adm: ['ADM key (4-16 hex digits)', 'ADM', 16],
+	puk: ['PUK (exactly 8 decimal digits)', '8 digits', 8],
+	new_pin: ['New PIN (4-8 decimal digits)', '4-8 digits', 8],
+};
+
+function pysimChvFieldId(name) {
+	return 'pysim-chv-' + name.replace('_', '-');
+}
+
+function pysimChvFieldValue(name) {
+	const el = document.getElementById(pysimChvFieldId(name));
+	return el ? String(el.value || '').trim() : '';
+}
+
+// The enable/disable gate: the attempt-free state decides whether the action
+// can work at all (a redundant ENABLE/DISABLE is refused by the card, TS 102
+// 221 §11.1.11.1/§11.1.12.1).  `stop` blocks Execute, `warning` allows it.
+function pysimChvGate() {
+	const code = pysimChvCode();
+	const action = pysimChvAction();
+	if (code === 'adm') return null;
+	if (action !== 'enable' && action !== 'disable') return null;
+	if (pysimChvIsSim() && code === 'pin2') {
+		return { stop: t('A 2G SIM can only enable/disable CHV1 (TS 51 011 §9.2.11/.12)') };
+	}
+	const entry = pysimPinStateEntry(code);
+	if (entry && entry.state === 'blocked') {
+		return { stop: t('The PIN is blocked — unblock it with the PUK first') };
+	}
+	if (!entry || entry.enabled === null || entry.enabled === undefined) {
+		return { warning: t('The card does not report whether this PIN is enabled — it may refuse the command') };
+	}
+	if (action === 'disable' && entry.enabled === false) {
+		return { stop: t('The PIN is already disabled') };
+	}
+	if (action === 'enable' && entry.enabled === true) {
+		return { stop: t('The PIN is already enabled') };
+	}
+	return null;
+}
+
+function pysimChvGating() {
+	const gate = pysimChvGate();
+	const warn = document.getElementById('pysim-chv-warning');
+	if (warn) warn.textContent = gate ? (gate.stop || gate.warning || '') : '';
+	const run = document.getElementById('pysim-chv-run');
+	// The availability pass owns the disabled state; this only reflects the
+	// gate for the moment before the next poll.
+	if (run && gate && gate.stop) run.disabled = true;
+}
+
+// The selected code's live state (the pill's state line).
+function pysimChvStateRender() {
+	const code = pysimChvCode();
+	const el = document.getElementById('pysim-chv-state');
+	if (el) {
+		let text = '';
+		if (_pysimLastStatus && _pysimLastStatus.connected) {
+			text = code === 'adm'
+				? 'ADM: ' + (pysimAdmStateText() || t('unknown'))
+				: pysimPinStateLabel(code, pysimPinStateEntry(code));
+		}
+		el.textContent = text;
+	}
+	pysimChvGating();
+}
+
+// Fill the form's fields from the matched preset (`force` = the "Use the
+// matched preset's codes" button; a typed value always wins otherwise).
+function pysimChvPrefill(force) {
+	const matched = cardsMatchedPreset();
+	if (!matched) {
+		// Nothing to prefill from: leave whatever the operator typed alone
+		// (the forced path used to blank every field).
+		pysimChvGating();
+		return;
+	}
+	const preset = matched;
+	const code = pysimChvCode();
+	const action = pysimChvAction();
+	const set = (name, value) => {
+		const el = document.getElementById(pysimChvFieldId(name));
+		if (!el) return;
+		if (!force && String(el.value || '').trim()) return;   // typing overrides
+		el.value = value == null ? '' : String(value);
+	};
+	if (code === 'adm') set('adm', preset.adm || '');
+	else if (action === 'unblock') set('puk', preset['puk' + code.slice(3)] || '');
+	else if (action === 'change') {
+		set('pin', preset[code] || '');
+		// a new PIN has nothing to prefill from
+	} else set('pin', preset[code] || '');
+	pysimChvGating();
+}
+
+function pysimChvRender() {
+	const code = pysimChvCode();
+	const action = pysimChvAction();
+	const actionEl = document.getElementById('pysim-chv-action');
+	if (actionEl) {
+		actionEl.value = action;
+		Array.from(actionEl.options || []).forEach(o => {
+			o.disabled = (code === 'adm' && o.value !== 'verify');
+		});
+	}
+	const host = document.getElementById('pysim-chv-fields');
+	if (host) {
+		host.innerHTML = pysimChvFieldsFor(code, action).map(name => {
+			const spec = PYSIM_CHV_FIELDS[name];
+			const id = pysimChvFieldId(name);
+			const numeric = name !== 'adm';
+			return '<div class="flex items-center gap-2">'
+				+ '<label for="' + id + '" class="w-52 shrink-0 text-xs text-gray-600 dark:text-slate-400">' + esc(t(spec[0])) + '</label>'
+				+ '<input id="' + id + '" class="font-mono flex-1 max-w-xs border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1 dark:bg-slate-800" placeholder="' + esc(spec[1]) + '"'
+				+ (numeric ? ' inputmode="numeric" maxlength="8"' : ' maxlength="16"')
+				+ ' oninput="pysimChvGating()">'
+				+ '</div>';
+		}).join('');
+	}
+	pysimChvPrefill(false);
+	pysimChvStateRender();
+	pysimPinLegendRender();
+	// The availability pass owns the Execute button's disabled state (card,
+	// 2G SIM, gate); re-run it for the freshly built form.
+	pysimApplyAvailability();
+}
+
+// One pill run: the values, the confirmation (inside pysimChvRun), the result
+// line, and - for a changed/unblocked PIN - the offer to store the new value
+// in the matched preset.
+async function pysimChvExecute() {
+	const resultEl = document.getElementById('pysim-chv-result');
+	const set = text => { if (resultEl) resultEl.textContent = text; };
+	const code = pysimChvCode();
+	const action = pysimChvAction();
+	const gate = pysimChvGate();
+	if (gate && gate.stop) { set(gate.stop); return null; }
+	const preset = cardsMatchedPreset();
+	if (code === 'adm') {
+		const adm = pysimChvFieldValue('adm').replace(/\s/g, '').toUpperCase();
+		if (!adm) { set(t('ADM is required')); return null; }
+		if (!(await pysimConfirm(t('Verify ADM?') + ' '
+			+ t('A wrong ADM key consumes one attempt.')))) return null;
+		await pysimVerifyAdm(resultEl, adm);
+		return null;
+	}
+	const values = {};
+	if (action === 'unblock') {
+		const puk = cardsChvDigits(pysimChvFieldValue('puk'), 'puk');
+		if (!puk) { set(t('PUK must be exactly 8 decimal digits')); return null; }
+		values.puk = puk;
+	} else {
+		const pin = cardsChvDigits(pysimChvFieldValue('pin'), 'pin');
+		if (!pin) { set(t('PIN must be 4-8 decimal digits')); return null; }
+		values.pin = pin;
+	}
+	if (action === 'change' || action === 'unblock') {
+		const newPin = cardsChvDigits(pysimChvFieldValue('new_pin'), 'new_pin');
+		if (!newPin) { set(t('PIN must be 4-8 decimal digits')); return null; }
+		values.new_pin = newPin;
+	}
+	const data = await pysimChvRun(code, action, values, resultEl);
+	if (!data || !data.ok) return data;
+	if ((action === 'change' || action === 'unblock') && preset && preset.id) {
+		await pysimChvPresetUpdate(preset, code, values.new_pin, resultEl);
+	}
+	return data;
+}
+
+// Offer to store a changed/unblocked PIN in the preset matching the equipped
+// card (the PUK never changes, so only the PIN field is written).
+async function pysimChvPresetUpdate(preset, code, newPin, resultEl) {
+	const set = text => { if (resultEl) resultEl.textContent = text; };
+	const append = text => { if (resultEl) resultEl.textContent += ' — ' + text; };
+	if (!(await pysimConfirm(t('Update the matched preset with the new PIN?')))) return;
+	try {
+		await pysimFetchOk('/api/presets/update',
+			{ id: preset.id, fields: { [code]: newPin } });
+	} catch (e) {
+		set(t('Save error') + ': ' + e.message);
+		return;
+	}
+	await cardsFetch();
+	append(t('preset updated'));
 }
 
 // Render a failed file-manager operation; when the SW is a security error and
@@ -10368,34 +10707,40 @@ function pysimShowConnected(connected) {
 }
 
 // The status block is the /api/status shape the pysim-free server defines:
-// our own card model (reader/card/ATR/ICCID/selection), never pySim internals
-// (no profile/CLA/SEL/channels).  The state machines ride the same payload.
+// our own card model (card/ATR/ICCID/selection), never pySim internals (no
+// profile/CLA/SEL/channels).  The rows form a two-column definition grid
+// inside the "Card" fieldset; the reader lives in its own block above.
 function pysimStatusHtml(data) {
 	data = data || {};
+	const row = (label, value) =>
+		'<div class="flex gap-2">'
+		+ '<span class="w-24 shrink-0 text-gray-500 dark:text-slate-400">' + esc(label) + '</span>'
+		+ '<span class="flex-1 min-w-0 break-all font-mono">' + value + '</span>'
+		+ '</div>';
 	const card = data.card || null;
 	const cardName = card ? (card.name || card.kind || '?') : null;
-	let html = t('Reader:') + ' <b>' + esc(data.reader || t('none')) + '</b>' +
-		' | ' + t('Card:') + ' <b>' + esc(cardName || t('none')) + '</b>' +
+	const cardText = esc(cardName || t('none')) +
 		(card && card.name && card.kind
 			&& card.name.toLowerCase() !== card.kind.toLowerCase()
-			? ' (' + esc(card.kind) + ')' : '') +
-		' | ' + t('Session:') + ' <b>' + (data.connected ? t('connected')
-			: (data.equipping ? t('initializing') : t('not connected'))) + '</b>' +
-		' | ' + t('Card present:') + ' <b>' + (data.card_present ? t('yes') : t('no')) + '</b><br>' +
-		'ATR: <b>' + esc(data.atr || t('n/a')) + '</b>' +
-		(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '') +
-		(data.eid ? ' | EID: <b>' + esc(data.eid) + '</b>' : '') +
-		' | ADM: <b>' + (data.adm_verified ? t('verified') : t('not verified')) + '</b>';
+			? ' (' + esc(card.kind) + ')' : '');
+	let html = row(t('Session:'), esc(data.connected ? t('connected')
+			: (data.equipping ? t('initializing') : t('not connected'))))
+		+ row(t('Card:'), cardText)
+		+ row(t('Card present:'), esc(data.card_present ? t('yes') : t('no')))
+		+ row('ATR:', esc(data.atr || t('n/a')))
+		+ row('ICCID:', esc(data.iccid || t('n/a')));
+	if (data.eid) html += row('EID:', esc(data.eid));
 	const sel = data.selection;
-	html += '<br>' + t('Selection:') + ' <b>' + (sel ? esc(sel.name || sel.fid || '?') : t('none')) + '</b>';
+	let selection = esc(sel ? (sel.name || sel.fid || '?') : t('none'));
 	if (sel) {
-		html += ' [' + esc(sel.kind || '?') + ']';
-		if (sel.path) html += ' path=' + esc(sel.path);
-		if (sel.fid) html += ' FID=' + esc(sel.fid);
-		if (sel.size != null) html += ' size=' + sel.size;
-		if (sel.record_len != null) html += ' rec_len=' + sel.record_len;
-		if (sel.num_records != null) html += ' rec_cnt=' + sel.num_records;
+		selection += ' [' + esc(sel.kind || '?') + ']';
+		if (sel.path) selection += ' path=' + esc(sel.path);
+		if (sel.fid) selection += ' FID=' + esc(sel.fid);
+		if (sel.size != null) selection += ' size=' + sel.size;
+		if (sel.record_len != null) selection += ' rec_len=' + sel.record_len;
+		if (sel.num_records != null) selection += ' rec_cnt=' + sel.num_records;
 	}
+	html += row(t('Selection:'), selection);
 	const states = [];
 	if (data.proactive_mode) states.push(t('mode=') + esc(data.proactive_mode));
 	const poll = data.poll;
@@ -10421,7 +10766,7 @@ function pysimStatusHtml(data) {
 		if (data.scp80.cntr) parts.push(t('counter') + ' ' + esc(String(data.scp80.cntr)));
 		states.push('SCP80=' + (parts.join(' ') || t('ready')));
 	}
-	if (states.length) html += '<br>' + t('State:') + ' ' + states.join(' · ');
+	if (states.length) html += row(t('State:'), states.join(' · '));
 	return html;
 }
 
@@ -10431,27 +10776,32 @@ function pysimStatusRender(data) {
 	pysimReaderRender(data);
 }
 
-// The reader selector: shown only when more than one PC/SC reader is present
-// (the server owns the active one).  The list is rebuilt only when it changes,
-// so an open dropdown keeps its state across the 2 s status poll.
+// The reader block: always visible.  The select lists the PC/SC readers (the
+// server owns the active one) and is disabled while only one is present,
+// where the hint explains it; the amber reset note only makes sense when a
+// switch is possible.  The list is rebuilt only when it changes, so an open
+// dropdown keeps its state across the 2 s status poll.
 let _pysimReaderKey = null;
 let _pysimActiveReader = null;
 
 function pysimReaderRender(data) {
-	const row = document.getElementById('pysim-reader-row');
 	const sel = document.getElementById('pysim-reader-sel');
+	const hint = document.getElementById('pysim-reader-hint');
+	const note = document.getElementById('pysim-reader-switch-note');
 	const readers = (data && Array.isArray(data.readers)) ? data.readers : [];
 	_pysimActiveReader = (data && data.reader) || null;
-	if (row && sel) {
-		const key = readers.join('\u0000') + '\u0001' + (_pysimActiveReader || '');
-		if (key !== _pysimReaderKey) {
-			_pysimReaderKey = key;
-			sel.innerHTML = readers.map(r =>
-				'<option value="' + esc(r) + '">' + esc(r) + '</option>').join('');
-		}
-		if (_pysimActiveReader) sel.value = _pysimActiveReader;
-		row.classList.toggle('hidden', readers.length <= 1);
+	if (!sel) return;
+	const key = readers.join('\u0000') + '\u0001' + (_pysimActiveReader || '');
+	if (key !== _pysimReaderKey) {
+		_pysimReaderKey = key;
+		sel.innerHTML = readers.map(r =>
+			'<option value="' + esc(r) + '">' + esc(r) + '</option>').join('');
 	}
+	if (_pysimActiveReader) sel.value = _pysimActiveReader;
+	const single = readers.length <= 1;
+	sel.disabled = single;
+	if (hint) hint.classList.toggle('hidden', !single);
+	if (note) note.classList.toggle('hidden', single);
 }
 
 async function pysimReaderChanged(name) {
@@ -14810,6 +15160,7 @@ async function cardsFetch() {
 	cardsAutoSelectByIccid(_pysimCardIccid);
 	scp81PushPskMap();
 	spPresetWarningRender();
+	pysimPinLegendRender();
 	return true;
 }
 
@@ -16321,15 +16672,19 @@ async function cardsOutfileImport() {
 	}
 }
 
-// ===== Status / File manager sub-tabs =====
+// ===== Card reader / File manager sub-tabs =====
 let _pysimAutoConnectAttempted = false;
 let filesHelpAnchor = 'file-manager';
 
-// The Status tab carries the Raw APDU pill only.  A recorded state from an
-// older layout (files/services/cmd) would hide the panel with nothing to show,
-// so any other name folds onto the one pill (the profilerListSwitch pattern).
+// The Card reader's two views: PIN / ADM (the default pill, v4.3.0) and Raw
+// APDU.  A recorded state from an older layout (files/services/cmd) would
+// hide the panel with nothing to show, so any other name folds onto the
+// default pill (the profilerListSwitch pattern).
+const PYSIM_SUB_PANELS = { chv: 'pysim-sub-chv', apdu: 'pysim-sub-apdu' };
+const PYSIM_SUB_HELP = { chv: 'pin-adm', apdu: 'raw-apdu' };
+
 function pysimSwitchSubtab(name) {
-	if (name !== 'apdu') name = 'apdu';
+	if (!PYSIM_SUB_PANELS[name]) name = 'chv';
 	_pysimSub = name;
 	document.querySelectorAll('.pysim-subtab').forEach(btn => {
 		const isActive = btn.dataset.pysimSub === name;
@@ -16340,9 +16695,12 @@ function pysimSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !isActive);
 		btn.classList.toggle('dark:text-slate-300', !isActive);
 	});
-	const apdu = document.getElementById('pysim-sub-apdu');
-	if (apdu) apdu.classList.toggle('hidden', name !== 'apdu');
-	pysimHelpAnchor = 'raw-apdu';
+	Object.keys(PYSIM_SUB_PANELS).forEach(key => {
+		const el = document.getElementById(PYSIM_SUB_PANELS[key]);
+		if (el) el.classList.toggle('hidden', key !== name);
+	});
+	if (name === 'chv') pysimChvRender();
+	pysimHelpAnchor = PYSIM_SUB_HELP[name] || 'pin-adm';
 	setHelpAnchor(pysimHelpAnchor);
 	navRecord();
 }
@@ -28167,6 +28525,7 @@ const LANG_RU = {
 	'R-APDU parser': 'Разбор R-APDU',
 	'C-APDU Parser': 'Разбор C-APDU',
 	'Cards': 'Карты',
+	'Card reader': 'Картридер',
 	'Status': 'Статус',
 	'Card presets are stored locally in your browser. JSON export/import buttons are below the card list.': 'Данные карт хранятся локально в браузере. Кнопки экспорта/импорта JSON — под списком карт.',
 	'Add': 'Добавить',
@@ -28390,6 +28749,8 @@ const LANG_RU = {
 	'File manager': 'Файловый менеджер',
 	'Custom files': 'Пользовательские файлы',
 	'Reader': 'Ридер',
+	'Card': 'Карта',
+	'Only one PC/SC reader is present': 'Доступен один PC/SC считыватель',
 	'Switching the reader resets and re-initializes the card.': 'Переключение ридера сбрасывает и заново инициализирует карту.',
 	'Switch the active reader?': 'Переключить активный ридер?',
 	'The card is reset and re-initialized: the current selection, CAT session and card state are lost.': 'Карта будет сброшена и инициализирована заново: текущий выбор, CAT-сессия и состояние карты будут потеряны.',
@@ -28409,7 +28770,7 @@ const LANG_RU = {
 	'mode=': 'режим=',
 	'poll=': 'опрос=',
 	'test run=': 'тест-скрипт=',
-	'idle': 'простой',
+	'idle': 'не активен',
 	'off': 'выключен',
 	'suspended': 'приостановлен',
 	'BIP=': 'BIP=',
@@ -28854,7 +29215,6 @@ const LANG_RU = {
 	'Access Technology': 'Технология доступа',
 	'Rejection cause code': 'Код причины отклонения',
 	'Extended EMM cause (optional)': 'Расширенная EMM причина (опционально)',
-	'Status': 'Статус',
 	'Card reader removed': 'Картридер извлечён',
 	'Card reader inserted': 'Картридер вставлен',
 	'Channel': 'Канал',
@@ -29550,14 +29910,8 @@ const LANG_RU = {
 	'ADM is required': 'Требуется ADM',
 	'verification failed': 'проверка не удалась',
 	'refused by the card (referenced data invalidated)': 'отклонён картой (ссылочные данные аннулированы)',
-	'PIN verification is not enabled for this PIN on this card, or the PIN is otherwise not usable': 'проверка этого PIN на этой карте не включена, либо PIN по иным причинам непригоден',
+	'it reported no attempt count - the value may be wrong, or the reference is disabled / not usable on this card': 'число попыток не сообщено — значение может быть неверным, либо ссылка отключена / непригодна на этой карте',
 	'The card already refused this PIN (referenced data invalidated). A new attempt may consume one. Try again?': 'Карта уже отклонила этот PIN (ссылочные данные аннулированы). Новая попытка может израсходовать одну. Повторить?',
-	'PIN1 locked': 'PIN1 требуется',
-	'PIN1 unlocked': 'PIN1 не требуется',
-	'PIN1 blocked': 'PIN1 заблокирован',
-	'PIN1 not usable': 'PIN1 непригоден',
-	'PIN1 n/a': 'PIN1 отсутствует',
-	'PIN1 ?': 'PIN1 ?',
 	'PIN1 verification is required': 'Требуется проверка PIN1',
 	'PIN1 is not required on this card (disabled or already verified) — no PIN is needed': 'PIN1 на этой карте не требуется (отключён или уже проверен) — PIN не нужен',
 	'PIN1 is blocked — no retries left': 'PIN1 заблокирован — попыток не осталось',
@@ -29571,7 +29925,30 @@ const LANG_RU = {
 	'not required — already verified': 'не требуется — уже проверен',
 	'PIN1 is disabled on this card — no PIN is needed': 'PIN1 на этой карте отключён — PIN не нужен',
 	'PIN1 is already verified — no PIN is needed': 'PIN1 уже проверен — PIN не нужен',
+	'unblock the card to try again': 'разблокируйте карту, чтобы повторить',
+	'PIN / ADM': 'PIN / ADM',
+	'Code': 'Код',
+	'Use the matched preset\'s codes': 'Взять коды из подобранного пресета',
+	'Every attempt is confirmed first.': 'Каждая попытка сначала подтверждается.',
+	'No code in the matched preset — use the PIN / ADM pill': 'в подобранном пресете нет этого кода — используйте вкладку PIN / ADM',
+	'A 2G SIM can only enable/disable CHV1 (TS 51 011 §9.2.11/.12)': '2G SIM позволяет включать/отключать только CHV1 (TS 51 011 §9.2.11/.12)',
+	'The PIN is blocked — unblock it with the PUK first': 'PIN заблокирован — сначала разблокируйте его через PUK',
+	'The card does not report whether this PIN is enabled — it may refuse the command': 'карта не сообщает, включён ли этот PIN — она может отклонить команду',
+	'The PIN is already disabled': 'PIN уже отключён',
+	'The PIN is already enabled': 'PIN уже включён',
+	'PIN (4-8 decimal digits)': 'PIN (4–8 десятичных цифр)',
+	'ADM key (4-16 hex digits)': 'Ключ ADM (4–16 hex-цифр)',
+	'PUK (exactly 8 decimal digits)': 'PUK (ровно 8 десятичных цифр)',
+	'Update the matched preset with the new PIN?': 'Обновить подобранный пресет новым PIN?',
+	'preset updated': 'пресет обновлён',
+	'Card operations use these codes from the Card reader tab\'s PIN / ADM pill.': 'Операции с картой используют эти коды из вкладки PIN / ADM вкладки «Картридер».',
 	'there is nothing to verify': 'проверять нечего',
+	'the card completed the command with': 'карта выполнила команду после',
+	'internal retries - check the PIN state': 'внутренних повторов — проверьте состояние PIN',
+	'the card reports': 'карта сообщает',
+	'internal retries - check the PIN state (the command may not have completed)': 'внутренних повторов — проверьте состояние PIN (команда могла не выполниться)',
+	'Verify ADM?': 'Проверить ADM?',
+	'A wrong ADM key consumes one attempt.': 'Неверный ключ ADM расходует попытку.',
 	'is not required on this card (disabled) — nothing was verified': 'на этой карте не требуется (отключён) — ничего не проверялось',
 	'try left': 'попытка осталась',
 	'blocked': 'заблокирован',
@@ -29582,6 +29959,8 @@ const LANG_RU = {
 	'the card has no such PIN — there is nothing to verify': 'на карте нет такого PIN — проверять нечего',
 	'at least one attempt left': 'осталась хотя бы одна попытка',
 	'changed': 'изменён',
+	'enabled': 'включён',
+	'disabled': 'отключён',
 	'unblocked': 'разблокирован',
 	'is blocked': 'заблокирован',
 	'use Unblock with the PUK': 'используйте «Разблокировать» с PUK',
@@ -29686,7 +30065,9 @@ function toggleLang() {
 }
 
 let currentHelpAnchor = 'sim-rfm';
-let pysimHelpAnchor = 'status-block';
+// The Card reader opens on its default pill (PIN / ADM), so the help link
+// points at that section first.
+let pysimHelpAnchor = PYSIM_SUB_HELP[_pysimSub];
 
 function updateHelpLink() {
 	const link = document.getElementById('help-link');
@@ -29728,6 +30109,7 @@ function refreshDynamicI18n() {
 	_pysimPinStateKey = null;
 	pysimUpdateAdmIndicator(_pysimLastStatus);
 	pysimUpdatePinIndicator(_pysimLastStatus);
+	pysimPinLegendRender();
 	if (isViewVisible('tab-profiler')) {
 		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); }
 		else if (profilerView === 'editor') profilerRenderEditor();

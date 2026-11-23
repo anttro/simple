@@ -222,7 +222,9 @@ test('the card-state update wires the ICCID into the preset selection', () => {
 	assert.ok(html.includes('_cardsAutoIccid = null;'));
 	assert.ok(html.includes("getElementById('tar-card-sel')"),
 		'the auto-selection must cover the TAR probe view');
-	assert.ok(html.includes("(data.iccid ? ' | ICCID: <b>' + esc(data.iccid) + '</b>' : '')"));
+	// the card grid shows the ICCID (or n/a); v4.3.0 moved it out of the old
+	// run-on status paragraph into a definition-grid row
+	assert.ok(html.includes("row('ICCID:', esc(data.iccid || t('n/a')))"));
 });
 
 test('cardsFetch retries the auto-selection once the presets load', () => {

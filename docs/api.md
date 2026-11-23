@@ -603,35 +603,77 @@ so the UI confirms before a retry.
 
 ### `POST /api/chv`
 
-Verify, change or unblock a PIN (CHV) - the operations the retired pySim
-command line provided.  The values travel in the request (the PWA sends the
-Cards editor's or the matched preset's codes after a confirmation; a new PIN
-is typed by the operator); nothing is stored, and `pin`/`puk`/`new_pin` are
-redacted from the request log.
+Verify, change, unblock, enable or disable a PIN (CHV) - the operations the
+retired pySim command line provided.  The values travel in the request (the
+PWA's Card reader tab sends them from its **PIN / ADM** pill after a
+confirmation; the matched preset pre-fills the form and a new PIN is typed by
+the operator); nothing is stored, and `pin`/`puk`/`new_pin` are redacted from
+the request log.
 
 ```json
 {"action": "verify", "code": "pin1", "pin": "1234"}
 {"action": "change", "code": "pin1", "pin": "1234", "new_pin": "5678"}
 {"action": "unblock", "code": "pin1", "puk": "12345678", "new_pin": "4321"}
+{"action": "disable", "code": "pin1", "pin": "1234"}
+{"action": "enable", "code": "pin1", "pin": "1234"}
 ```
 
-`action` is `verify` / `change` / `unblock`; `code` is `pin1` or `pin2`.  The
-values are decimal digits coded as the 8-byte CHV field (T.50 digits,
-`FF`-padded; TS 31.101 §9.6 / TS 51 011): `pin` 4-8 digits, `puk` **exactly
-8**, `new_pin` 4-8.  The command forms are `20` / `24` / `2C` with P1 `00`
-and the CHV reference in P2: a UICC uses PIN1 `01` / PIN2 `81` (TS 102 221
-§9.5.1/§11.1.9-13); a 2G SIM uses CHV1 `01` / CHV2 `02` and the exceptional
-UNBLOCK CHV1 coding `00` (TS 51 011 §9.2.9/§9.2.13).  The PIN's application
-is selected first - ADF.USIM on a UICC (the PIN is an application PIN), DF.GSM
-on a 2G SIM (TS 51 011 §9.1) - and MF is restored afterwards.
+`action` is `verify` / `change` / `unblock` / `enable` / `disable`; `code` is
+`pin1` or `pin2`.  The values are decimal digits coded as the 8-byte CHV field
+(T.50 digits, `FF`-padded; TS 31.101 §9.6 / TS 51 011): `pin` 4-8 digits,
+`puk` **exactly 8**, `new_pin` 4-8.  The command forms are `20` / `24` / `2C`
+/ `26` / `28` with P1 `00` and the CHV reference in P2: a UICC uses PIN1 `01`
+/ PIN2 `81` (TS 102 221 §9.5.1/§11.1.9-13); a 2G SIM uses CHV1 `01` / CHV2
+`02` and the exceptional UNBLOCK CHV1 coding `00` (TS 51 011
+§9.2.9/§9.2.13).  The PIN's application is selected first - ADF.USIM on a
+UICC (the PIN is an application PIN), DF.GSM on a 2G SIM (TS 51 011 §9.1) -
+and MF is restored afterwards.
 
-Success is `{"ok": true, "sw": "9000"}`.  A wrong value reports the retries
-left (`63Cx`; `63C0` = 0 left + `blocked`), the SIM's `9804` (at least one
-attempt left) as `{"ok": false, "sw": "9804", "failed": true}`, and `9840` /
-`6983` as `blocked`; `6982`/`6985`/the 6Axx errors carry an `error` line.  A
-successful UNBLOCK resets the card's counters and sets the new PIN
-(TS 102 221 §11.1.13.1.1); the preset store is not updated - the PWA offers
-the new value for saving.
+**The application context is always established before the command.**  A card
+without a selectable ADF.USIM may still verify/change/enable/disable a
+**global** reference (PIN1) in the **MF** context: TS 102 221 §9.3.0 (printed
+p. 75) makes `SE_No_Active_Application` "valid under the MF and under its
+child DFs/EFs", and TS 31.102 §6.4 (printed p. 320) makes the USIM's PIN a
+global key reference and its PIN2 a local one (§9.5.1 Table 9.3, pp. 76-77:
+`01` global, `81` local) - so for PIN1 the endpoint selects the MF (best
+effort) and proceeds.  A **local** reference (PIN2) without its application, a
+2G SIM whose DF.GSM is not selectable (TS 51 011 §9.1) and a failed MF
+fallback all answer `400` and send **no** APDU.  The readout follows the same
+rule (`POST /api/chv-status`: MF fallback, only the global reference probed).
+
+**DISABLE PIN** (`26`, TS 102 221 §11.1.11.1/.2) "shall not be executed by the
+selected application when PIN is already disabled or blocked"; a correct PIN
+"shall be reset" to its initial value 3 attempts and disables the PIN, a false
+one decrements and keeps it enabled.  **ENABLE PIN** (`28`, §11.1.12.1/.2) is
+the reverse and "shall not be executed ... when PIN is already enabled or
+blocked".  Neither clause prints a command-specific SW - Table 10.16
+(pp. 85-86) lists the possible set only.  On a **2G SIM** both are CHV1 only
+(TS 51 011 §9.2.11/.12: class `A0`, P1 `'00'`, P2 fixed at `'01'`), so
+`code: pin2` answers `400` naming those clauses.
+
+**ADM is not part of this endpoint.**  TS 102 221 §9.5.1 Table 9.3 (printed
+p. 76) identifies `0A` as ADM1 and its VERIFY is `POST /api/verify-adm`, but
+CHANGE PIN/UNBLOCK PIN point their P2 at VERIFY's coding and no pinned clause
+establishes changing or unblocking ADM1 - the PWA offers **Verify** only.
+
+Success is `{"ok": true, "sw": "9000"}`.  The status words are
+**action-aware**: `63CX` is the remaining attempts for `verify` (and, as the
+spec's explicit exception, `unblock` - §11.1.13.1.1's `63C9`..`63C1` ladder),
+but TS 102 221 §10.2.1.3 Table 10.9 (printed p. 82) labels it *"Command
+successful but after using an internal update retry routine 'X' times"* for
+every command except VERIFY - so `enable`/`disable` are **successful**
+(`{"ok": true, "sw": "63CX", "internal_retries": X, "warning": …}`; the
+refreshed `chv.enabled` is the outcome check), while `change` stays
+`{"ok": false, …, "internal_retries": X}` with both readings in its `warning`
+(§11.1.10.1 prints the counter decrement for a false old PIN but no status
+word).  None of them sets `attempts_left` - the attempt-free state readout is
+the authoritative counter.  `63C0` is 0 retries left -> `blocked` for
+**every** action: Table 10.9's "internal retries" framing does not override
+an exhausted counter.  The SIM's `9804` (at least one attempt left) is
+`{"ok": false, "sw": "9804", "failed": true}`, `9840`/`6983` are `blocked`;
+`6982`/`6985`/the 6Axx errors carry an `error` line.  A successful CHANGE/UNBLOCK/ENABLE/DISABLE resets the
+card's counter (TS 102 221 §11.1.10.1/§11.1.11.1/§11.1.12.1/§11.1.13.1.1); the
+preset store is not updated - the PWA offers the new value for saving.
 
 `6984` is reported as the generic "referenced data invalidated" answer:
 
@@ -645,12 +687,14 @@ It is TS 102 221 §10.2.1.5.2 Table 10.13's "Referenced data invalidated"
 prints the same pair as "Reference data not usable"), listed for VERIFY PIN,
 CHANGE PIN and UNBLOCK PIN by Table 10.16 - but **no clause assigns it a
 CHV-specific meaning**: it reports neither attempts left nor a blocked state.
-A card whose PIN is **disabled / not initialized for verification** answers
-this way, so PIN verification is simply not applicable on that card;
-`DISABLE PIN` / `ENABLE PIN` (INS `26`/`28`, available in the Remote APDU
-builder) are the PIN-state commands, not VERIFY.  UNBLOCK is only the next
-step when the PIN is actually blocked, which the card reports separately as
-`63C0`/`6983` (or `9840` on a 2G SIM).
+A **disabled / not-usable** reference may answer this way, and some cards also
+answer it for a **wrong value while reporting no attempt count** (live
+2026-11-23, bench card: a wrong PIN1 answered `6984` with the counter still
+`63C3`, and the correct value answered `9000`), so `6984` does not by itself
+mean the PIN is disabled.  `DISABLE PIN` / `ENABLE PIN` (INS `26`/`28`, this
+endpoint's `disable`/`enable` actions) are the PIN-state commands, not VERIFY.
+UNBLOCK is only the next step when the PIN is actually blocked, which the card
+reports separately as `63C0`/`6983` (or `9840` on a 2G SIM).
 
 The response also carries `chv` - the per-PIN state block refreshed after the
 exchange (the same shape `GET /api/status` carries), so a client updates its
@@ -735,16 +779,36 @@ presentations remaining (`0` = blocked); `enabled` is byte 14 b8 for CHV1
 (`null` for CHV2).  No `20` command is sent; `sw` is `null`.
 
 The empty-data probe form is confirmed by local handset captures (`00 20 00 01
-00` -> `63C3`).  The `C6` readout is **hardware-verified**: the bench card's
-ADF.USIM PS template (`C6 0C` = PS_DO `60` + `83 01` `01`/`0A`/`81`) lists
-PIN1 **disabled** while ADM and PIN2 are **enabled** (read 2026-11-23 through
-a read-only SELECT, no PIN attempt; the vector is in
-`frontend/tests/ps_template_vectors.json`).  On that same card the empty-data
-VERIFY PIN1 (`00 20 00 01`, case 1) answers **`63C3`** and consumes no
-attempt - so the `C6` flag, not the probe, is what makes a disabled PIN read
-`not_required` (the probe alone would say "locked, 3 tries left").  There is
-no packet capture of that combination: it is a bench-card observation, not a
-capture.
+00` -> `63C3`).  The `C6` readout is **hardware-verified** (bench card,
+2026-11-23, read-only SELECTs - no PIN attempt): an ADF.USIM FCP of one
+session reported PIN1 disabled (PS_DO `60` + references `01`/`0A`/`81`), and
+the ISO/UICC-only card without a selectable ADF.USIM reported PIN1 and ADM
+enabled in its **MF** FCP (PS_DO `C0`, vector `9001C083010183010A` in
+`frontend/tests/ps_template_vectors.json`).  On that card the empty-data
+VERIFY PIN1 answers **`63C3` in both states**: a successful `DISABLE PIN1`
+flips the MF PS_DO from `0xC0` to `0x40` (PIN1's bit cleared, ADM's kept) and
+`ENABLE PIN1` restores it, while the counter query still answers `63C3`
+(§11.1.9.1.2: the query is performed whether or not the PIN is disabled) - so
+the `C6` flag, not the probe, is what makes a disabled PIN read
+`not_required`.  Likewise a successful `VERIFY` leaves the counter query at
+`63CX` (this card never answers ISO's `9000`), so the per-session verify
+latch, not the probe, is what keeps it `not_required`.  There is no packet
+capture of these combinations: they are bench-card observations, not captures.
+
+**MF fallback (no selectable ADF.USIM).**  When the ADF.USIM SELECT fails
+(e.g. `6A82`), the read falls back to the **MF**: its FCP carries the
+mandatory `C6` as well (Table 11.3), and the MF context defines only the
+**global** references - TS 31.102 §6.4 (printed p. 320) "The USIM application
+shall use a global key reference as PIN and local key reference as PIN2",
+TS 102 221 §9.5.1 Table 9.3 (printed pp. 76-77: b8=0 is a global "PIN Appl 1",
+b8=1 the local "Second PIN Appl 1") and §9.3.0 (printed p. 75:
+SE_No_Active_Application is valid under the MF and its children).  Only the
+global reference (PIN1 `01`) is probed; PIN2 `81` stays `unknown` with **no**
+probe (the MF context does not say which application's local PIN2 it would
+be).  If the MF select fails too, every requested code is `unknown`.
+Observed on the bench card: `VERIFY PIN1` with the correct value answers
+`9000`, a wrong value `6984` with the counter unchanged (`63C3`), and
+`DISABLE`/`ENABLE PIN1` flip the MF `C6` `C0`/`40` and back.
 
 The state is re-read at every equip (in the CAT-free window) and cached on the
 server; `POST /api/chv` also refreshes the operated PIN.  A failing code is
@@ -809,8 +873,9 @@ from that TAR's `keyset`; a request naming a TAR outside the preset must pass
 `spi1` itself, otherwise it is refused with `400` and a hint.
 
 **Card codes.**  The optional `pin1`/`puk1`/`pin2`/`puk2` fields feed
-`/api/chv` (VERIFY / CHANGE CHV / UNBLOCK CHV); the PWA's Cards editor offers
-Verify / Change / Unblock per PIN (and the ADM Verify).  PIN/PUK must be
+`/api/chv` (VERIFY / CHANGE / UNBLOCK / ENABLE / DISABLE CHV); the PWA's
+**PIN / ADM** pill (Card reader tab) runs the operations and pre-fills from
+them, and the Cards editor only edits the preset.  PIN/PUK must be
 **4-8 decimal digits** when set (empty is fine; anything else is refused with
 `400` naming the field) - but the unblock command requires a PUK of **exactly
 8** digits (TS 31.101 §9.6), which the endpoint enforces.  The ADM key is

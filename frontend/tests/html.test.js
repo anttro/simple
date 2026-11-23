@@ -145,10 +145,11 @@ test('top-level tabs match the rearranged views', () => {
     assert.deepStrictEqual(tabs, ['c-apdu', 'scp80', 'scp81', 'cards', 'profiler',
         'files', 'pysim', 'phone']);
     assert.match(html, /data-tab="c-apdu">Remote APDU</);
-    // the filesystem tools have their own tab; "Card reader" is now Status
+    // the filesystem tools have their own tab; the old "Status" tab is the
+    // Card reader since v4.3.0 (the card operations moved to its PIN / ADM pill)
     assert.match(html, /data-tab="files" data-l10n="File manager"/);
-    assert.match(html, /data-tab="pysim" data-l10n="Status"/);
-    assert.ok(!html.includes('data-l10n="Card reader"'), 'the Card reader label is gone');
+    assert.match(html, /data-tab="pysim" data-l10n="Card reader"/);
+    assert.ok(!html.includes('data-l10n="Status"'), 'the Status label is gone');
 });
 
 test('cards list shows the SCP81 PSK column with blue/red row buttons', () => {

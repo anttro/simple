@@ -145,7 +145,7 @@ __all__ = [
 #: The server version served by ``GET /api/version``.  It moves together with
 #: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
 #: three).
-VERSION = '4.2.0'
+VERSION = '4.3.0'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
@@ -602,39 +602,86 @@ def _chv_bytes(digits):
     return digits.encode('ascii') + b'\xff' * (8 - len(digits))
 
 
-def _chv_sw_result(sw):
-    """The structured result of a CHV command's status word.
+def _chv_sw_result(sw, action='verify'):
+    """The structured result of a CHV command's status word (action-aware).
 
-    ``63Cx`` is "verification failed, X retries remaining" (TS 102 221
-    §10.2.1.3 Table 10.9, printed p. 82); ``63C0`` is therefore 0 left - the
-    PIN is now blocked (the next command answers ``6983``, §11.1.9.1.1).  A
-    2G SIM uses ``9804`` ("unsuccessful CHV verification, at least one
+    ``63CX`` means different things per command: TS 102 221 V18.4.0 §10.2.1.3
+    Table 10.9's note (printed p. 82): "For the VERIFY PIN command, SW1SW2
+    indicates that the command was successful but the PIN was not correct and
+    there are 'X' retries left.  For all other commands it indicates the
+    number of internal retries performed by the card to complete the
+    command."  Table 10.9 itself labels that answer *"Command successful but
+    after using an internal update retry routine 'X' times"*.  So this
+    function reads ``63CX`` as ``attempts_left`` only for ``verify`` (and
+    ``unblock``, §11.1.13.1.1's explicit exception: "The UICC shall return
+    SW1 SW2 = '63C9', '63C8', ..., '63C1' for up to the ninth consecutive
+    false UNBLOCK PIN presentation", ``63C0`` on the tenth); ``enable`` /
+    ``disable`` are **successful** (``ok: True``) with ``internal_retries``
+    and a ``warning``; ``change`` stays ``ok: False`` with both readings in
+    its warning (§11.1.10.1 prints the counter decrement for a false old PIN
+    but no status word for it, while Table 10.9 reads 63CX as "completed
+    after internal retries").  The attempts counter is read by the
+    attempt-free state readout (``/api/chv-status``).  ``63C0`` is 0 left for
+    **every** action - the PIN is now blocked (the next command answers
+    ``6983``, §11.1.9.1.1); Table 10.9's "internal retries" framing does not
+    override an exhausted counter.
+
+    A 2G SIM uses ``9804`` ("unsuccessful CHV verification, at least one
     attempt left") and ``9840`` ("... no attempt left", blocked) instead
     (TS 51 011 §9.4.5, printed p. 32) - **``9804`` is not a blocked answer**.
-    The UNBLOCK command's counter runs 10 -> `63C9`..`63C1`, `63C0`
-    (§11.1.13.1.1).  ``6983``/``9840`` are blocked; ``6982`` (security
-    status), ``6985`` (conditions) and the 6Axx errors are failures.
+    ``6983``/``9840`` are blocked; ``6982`` (security status), ``6985``
+    (conditions) and the 6Axx errors are failures.
 
     ``6984`` is "Referenced data invalidated" (ETSI TS 102 221 V18.4.0
     §10.2.1.5.2 Table 10.13, printed p. 83 - in the ``69`` "command not
     allowed" group; ISO/IEC 7816-4:2005 §5.1.3 Table 6, printed p. 12, prints
     the same pair as "Reference data not usable").  Table 10.16 (printed
-    pp. 85-86) lists it as a possible answer to VERIFY PIN, CHANGE PIN and
-    UNBLOCK PIN, but **no clause assigns it a CHV-specific meaning**: it
-    reports neither attempts left nor a blocked state.  The blocked answers
-    are ``63C0``/``6983`` (§11.1.9.1.1/§11.1.13.1.1, printed pp. 106/111) and
-    ``9840`` (TS 51 011 §9.4.5) - so a ``6984`` result never claims either.
-    A card whose PIN is disabled / not initialized for verification answers
-    this way: the PIN is simply not usable on that card.
+    pp. 85-86) lists it as a possible answer to the PIN commands, but **no
+    clause assigns it a CHV-specific meaning**: it reports neither attempts
+    left nor a blocked state.  The blocked answers are ``63C0``/``6983``
+    (§11.1.9.1.1/§11.1.13.1.1, printed pp. 106/111) and ``9840``
+    (TS 51 011 §9.4.5) - so a ``6984`` result never claims either.  A card
+    whose PIN is disabled / not initialized for verification answers this way:
+    the PIN is simply not usable on that card.
+
+    ``action`` is the CHV operation (``verify`` default, ``change``,
+    ``unblock``, ``enable``, ``disable``); it only changes the ``63CX``
+    reading above.
     """
+    action = str(action or 'verify').strip().lower()
     if sw == '9000':
         return {'ok': True, 'sw': sw}
     if re.fullmatch(r'63C[0-9A-F]', sw):
         left = int(sw[3], 16)
-        result = {'ok': False, 'sw': sw, 'attempts_left': left}
         if left == 0:
-            result['blocked'] = True
-        return result
+            # 0 retries left is the blocked state whatever Table 10.9's
+            # "internal retries" framing says - the card answers 6983 from
+            # then on (§11.1.9.1.1) - so every action reports blocked here.
+            return {'ok': False, 'sw': sw, 'attempts_left': 0,
+                    'blocked': True}
+        if action in ('verify', 'unblock'):
+            return {'ok': False, 'sw': sw, 'attempts_left': left}
+        if action in ('enable', 'disable'):
+            # Table 10.9 (printed p. 82): '63CX' is "Command successful but
+            # after using an internal update retry routine 'X' times", and its
+            # note applies that to every command except VERIFY - so the
+            # ENABLE/DISABLE succeeded; the refreshed chv.enabled is the
+            # outcome check.
+            return {'ok': True, 'sw': sw, 'internal_retries': left,
+                    'warning': ('SW %s: the card completed the %s after %d '
+                                'internal retries (TS 102 221 Table 10.9) - '
+                                'check the PIN state for the outcome'
+                                % (sw, action, left))}
+        # change: genuinely ambiguous - §11.1.10.1 prints the counter
+        # decrement for a false old PIN but no status word for it, while
+        # Table 10.9 reads 63CX as "completed after internal retries".  Keep
+        # it a failure and say both readings.
+        return {'ok': False, 'sw': sw, 'internal_retries': left,
+                'warning': ('SW %s: the card reports %d internal retries '
+                            '(TS 102 221 Table 10.9: the command completed '
+                            'after internal retries); a wrong old PIN is the '
+                            'other reading - check the PIN state'
+                            % (sw, left))}
     if sw in ('6983', '9840'):
         return {'ok': False, 'sw': sw, 'blocked': True}
     if sw == '9804':
@@ -2300,16 +2347,27 @@ class ServerState(object):
         probe supplies the counter: a **disabled** PIN may answer the same
         ``63CX``, and its counter is meaningless (:func:`_chv_combined_state`).
 
+        **A UICC without a selectable ADF.USIM falls back to the MF** (live
+        2026-11-23: an ISO/UICC-only card - SELECT `A0000000871002` answers
+        `6A82` - whose MF and DF.GSM FCPs both carry the mandatory ``C6``).
+        The MF's ``C6`` supplies ``enabled`` the same way, but the MF context
+        defines only the **global** references: TS 31.102 §6.4 (printed
+        p. 320) "The USIM application shall use a global key reference as PIN
+        and local key reference as PIN2", TS 102 221 §9.5.1 Table 9.3
+        (printed pp. 76-77: b8=0 is a global "PIN Appl 1", b8=1 the local
+        "Second PIN Appl 1"), and §9.3.0 (printed p. 75: the
+        SE_No_Active_Application "is valid under the MF and under its child
+        DFs/EFs").  So only the global references (PIN1 ``01``) are probed
+        there; PIN2 ``81`` stays ``unknown`` with **no** probe and **no**
+        ``enabled`` flag from the MF's ``C6`` - the MF context does not say
+        which application's local PIN2 it would be.  When the MF select fails
+        too, every requested code is ``unknown`` (no probe).
+
         A 2G SIM cannot probe (TS 51 011 §9.2.9: VERIFY CHV "can not be used to
         retrieve the retry counter value"), so its states come from the
         DF.GSM SELECT response bytes (:func:`_chv_sim_state`; the application
         directory, not the MF - §9.2.1 Note 2), with ``enabled`` from byte 14
         b8 for CHV1 (``None`` for CHV2 - it has no such bit).
-
-        A **failed ADF select sends no probe**: the previous selection stays,
-        and ``81`` (PIN2) is a *local* reference (TS 102 221 §9.5.1 level 2),
-        so a probe there could read a different application's PIN.  Every
-        requested code is ``unknown`` then.
 
         A code whose VERIFY **succeeded in this card session**
         (:attr:`chv_verified`) is always ``not_required``: the card accepted
@@ -2318,8 +2376,9 @@ class ServerState(object):
         change forgets it).
 
         ``codes`` limits the read (default both).  MF is restored in a
-        ``finally``.  Never raises: a failing code is ``unknown`` and a
-        failing selection leaves every code ``unknown`` (logged at debug) -
+        ``finally`` (the MF fallback already sits there, so it skips that).
+        Never raises: a failing code is ``unknown`` and a failing selection
+        leaves the codes it could not read ``unknown`` (logged at debug) -
         this runs inside the equip sequence, so it must not cost the session.
         """
         codes = list(CHV_CODES) if not codes else [code for code in CHV_CODES
@@ -2329,6 +2388,7 @@ class ServerState(object):
         ops = self._file_ops()
         states = {}
         selected = False
+        mf_restored = False
         try:
             if kind == 'sim':
                 fcp = ops.select_file('7F20')       # DF.GSM (TS 51 011 §9.1)
@@ -2349,18 +2409,35 @@ class ServerState(object):
                         _chv_sim_state(fcp.raw, code), enabled)
             else:
                 fcp = self._chv_select_app(ops, kind)
+                # No selectable ADF.USIM: fall back to the MF, whose FCP
+                # carries the mandatory C6 as well (TS 102 221 §11.1.1.3.1
+                # Table 11.3).  The MF context defines only the global
+                # references (PIN2 is local - TS 31.102 §6.4, TS 102 221
+                # §9.5.1/§9.3.0), so `mf_context` restricts the probe.
+                mf_context = fcp is None
+                if mf_context:
+                    log.debug('CHV state: ADF.USIM select failed - '
+                              'falling back to MF')
+                    try:
+                        fcp = ops.select_mf()
+                    except Exception as exc:
+                        log.debug('CHV state: MF select failed too: %s', exc)
+                        fcp = None
                 selected = fcp is not None
-                if not selected:
-                    # TS 102 221 §9.5.1: 81 is a local reference - never probe
-                    # while the selection is unknown.
-                    log.debug('CHV state: ADF.USIM select failed - no probe')
-                else:
-                    for code in codes:
-                        ref = CHV_REFERENCES[kind][code][0]
+                # The fallback already sits in the MF: no restore to do.
+                mf_restored = mf_context and selected
+                for code in codes:
+                    ref = CHV_REFERENCES[kind][code][0]
+                    enabled = None
+                    if fcp is not None and not (mf_context and ref & 0x80):
+                        # The MF's C6 cannot speak for a *local* reference
+                        # (§9.5.1): PIN2 stays unknown without its ADF, its
+                        # enabled flag included.
                         enabled = fcp_module.ps_reference_enabled(
                             fcp.ps_template, ref)
-                        probe = {'state': 'unknown', 'attempts_left': None,
-                                 'sw': None}
+                    probe = {'state': 'unknown', 'attempts_left': None,
+                             'sw': None}
+                    if fcp is not None and not (mf_context and ref & 0x80):
                         try:
                             # 4-byte APDU = case 1: no Lc/Le, no PIN value; the
                             # card's 63CX is final (no GET RESPONSE).
@@ -2370,11 +2447,11 @@ class ServerState(object):
                         except Exception as exc:
                             log.debug('CHV state probe %s failed: %s',
                                       code, exc)
-                        states[code] = _chv_combined_state(probe, enabled)
+                    states[code] = _chv_combined_state(probe, enabled)
         except Exception as exc:
             log.debug('CHV state read failed: %s', exc)
         finally:
-            if selected:
+            if selected and not mf_restored:
                 try:
                     esim_module.restore_mf(ops)
                 except Exception as exc:
@@ -2411,45 +2488,84 @@ class ServerState(object):
             return None
 
     def chv_operation(self, body):
-        """``POST /api/chv``: VERIFY / CHANGE / UNBLOCK a PIN (CHV).
+        """``POST /api/chv``: VERIFY / CHANGE / UNBLOCK / ENABLE / DISABLE PIN.
 
-        ``action`` is ``verify``, ``change`` or ``unblock``; ``code`` is
-        ``pin1`` or ``pin2``.  The values are decimal digits (T.50 coded,
-        ``'FF'``-padded to the 8 CHV bytes): ``pin`` (4-8) for verify/change,
+        ``action`` is ``verify``, ``change``, ``unblock``, ``enable`` or
+        ``disable``; ``code`` is ``pin1`` or ``pin2``.  The values are decimal digits (T.50 coded, ``'FF'``-padded
+        to the 8 CHV bytes): ``pin`` (4-8) for verify/change/enable/disable,
         ``puk`` (exactly 8) and ``new_pin`` (4-8) for unblock, ``new_pin``
         for change.  The request carries them (the PWA sends the matched
         preset's values after a confirmation), so the endpoint never reads a
         stored secret itself; the values are masked in the request log.
 
-        The commands (ETSI TS 102 221 V18.4.0 §11.1.9/§11.1.10/§11.1.13,
-        printed pp. 106-112; 3GPP TS 31.101 V18.1.0 §9.6; 3GPP TS 51 011
-        V4.15.0 §9.2.9-§9.2.13 for a 2G SIM): ``20 P1=00 P2=<ref> Lc=08``,
-        ``24 P1=00 P2=<ref> Lc=10 <old><new>``, ``2C P1=00 P2=<ref> Lc=10
-        <PUK><new>``.  The card class decides the reference
-        (:data:`CHV_REFERENCES`), and the PIN's application is selected first
-        (:meth:`_chv_select_app`).  The result is :func:`_chv_sw_result`:
-        ``63Cx`` attempts left (``63C0``/``6983``/``9840`` blocked),
-        ``9804`` a 2G SIM failure with attempts left, ``6984`` the generic
-        "referenced data invalidated" answer (``invalidated: True``; TS 102
-        221 §10.2.1.5.2 Table 10.13 - neither an attempt count nor a blocked
-        state, e.g. a PIN disabled / not initialized for verification),
-        ``6982``/``6985`` and the 6Axx errors as errors.  A successful UNBLOCK
-        resets the counters and sets the new PIN on the card (TS 102 221
-        §11.1.13.1.1); the preset store is not updated - the PWA offers the
-        value for saving.  The response also carries ``chv`` - the refreshed
-        per-PIN state block (:meth:`_read_chv_state`, the attempt-free
-        readout), so the UI's PIN badge follows the exchange; a successful
-        ``verify`` latches that PIN as ``not_required`` for the card session
-        (later reads keep it, a session change forgets it).
+        The commands (ETSI TS 102 221 V18.4.0 §11.1.9-§11.1.13, printed
+        pp. 106-112; 3GPP TS 31.101 V18.1.0 §9.6; 3GPP TS 51
+        011 V4.15.0 §9.2.9-§9.2.13 for a 2G SIM): ``20 P1=00 P2=<ref> Lc=08``
+        (VERIFY), ``24 P1=00 P2=<ref> Lc=10 <old><new>`` (CHANGE), ``2C P1=00
+        P2=<ref> Lc=10 <PUK><new>`` (UNBLOCK), ``26 P1=00 P2=<ref> Lc=08
+        <PIN>`` (DISABLE, §11.1.11.1/.2: "shall not be executed by the
+        selected application when PIN is already disabled or blocked"; "If
+        the PIN presented is correct, the number of remaining PIN attempts
+        shall be reset to its initial value 3 and PIN shall be disabled"; a
+        false PIN decrements and keeps it enabled) and ``28 P1=00 P2=<ref>
+        Lc=08 <PIN>`` (ENABLE, §11.1.12.1/.2 - the reverse: "shall not be
+        executed ... when PIN is already enabled or blocked").  ``P1`` is
+        Table 11.16's ``'00'`` (the ``'01'`` row is reserved).  Neither
+        clause prints a command-specific SW: Table 10.16 (pp. 85-86) lists
+        the possible set only, and :func:`_chv_sw_result` reads ``63CX`` per
+        command (Table 10.9's note).
+
+        For a **2G SIM**, DISABLE/ENABLE CHV are CHV1 only (TS 51 011
+        §9.2.11/.12, printed p. 28: identical to the TS 31.101 commands with
+        class ``A0``, P1 ``'00'`` and P2 fixed at ``'01'``), so
+        ``code: pin2`` answers ``ValueError``.  The card class decides the
+        reference (:data:`CHV_REFERENCES`), and the PIN's application is
+        selected first (:meth:`_chv_select_app`).
+
+        **The context is always well defined before the APDU.**  A UICC whose
+        ADF.USIM is not selectable may still use a **global** reference: TS 102
+        221 §9.3.0 (printed p. 75) makes ``SE_No_Active_Application`` "valid
+        under the MF and under its child DFs/EFs", and TS 31.102 §6.4 (printed
+        p. 320) "The USIM application shall use a global key reference as PIN
+        and local key reference as PIN2" (§9.5.1 Table 9.3, pp. 76-77: ``01``
+        global, ``81`` local) - so PIN1 (``01``) falls back to the **MF**
+        (best effort; a failed MF select is a ``ValueError``), while a local
+        reference (PIN2 ``81``) is refused with ``ValueError`` and no command
+        is sent.  A 2G SIM whose DF.GSM select fails is refused the same way
+        (its CHV commands belong in the application directory, TS 51 011
+        §9.1).
+
+        The result is :func:`_chv_sw_result`: ``63Cx`` attempts left for
+        verify/unblock (internal retries for change/enable/disable;
+        ``63C0``/``6983``/``9840`` blocked), ``9804`` a 2G SIM failure with
+        attempts left, ``6984`` the generic "referenced data invalidated"
+        answer (``invalidated: True``; TS 102 221 §10.2.1.5.2 Table 10.13 -
+        neither an attempt count nor a blocked state, e.g. a PIN disabled /
+        not initialized for verification), ``6982``/``6985`` and the 6Axx
+        errors as errors.  A successful CHANGE/UNBLOCK/ENABLE/DISABLE resets
+        the counter (TS 102 221 §11.1.10.1/§11.1.11.1/§11.1.12.1/§11.1.13.1.1);
+        the preset store is not updated - the PWA offers the value for
+        saving.  The response also carries ``chv`` - the refreshed per-PIN
+        state block (:meth:`_read_chv_state`, the attempt-free readout), so
+        the UI's PIN badge follows the exchange; only a successful ``verify``
+        latches that PIN as ``not_required`` for the card session (later
+        reads keep it, a session change forgets it).
+
+        ADM is **not** part of this endpoint: TS 102 221 §9.5.1 Table 9.3
+        (printed p. 76) identifies ``0A`` as ADM1 and its VERIFY is
+        ``POST /api/verify-adm``, but CHANGE PIN/UNBLOCK PIN point their P2 at
+        VERIFY's coding and no pinned clause establishes changing or
+        unblocking ADM1 - so the PWA offers Verify only for ADM.
         """
         action = str(body.get('action') or '').strip().lower()
-        if action not in ('verify', 'change', 'unblock'):
-            raise ValueError("action must be 'verify', 'change' or 'unblock'")
+        if action not in ('verify', 'change', 'unblock', 'enable', 'disable'):
+            raise ValueError("action must be 'verify', 'change', 'unblock', "
+                             "'enable' or 'disable'")
         code = str(body.get('code') or 'pin1').strip().lower()
         if code not in CHV_CODES:
             raise ValueError("code must be 'pin1' or 'pin2'")
         pin = puk = new_pin = None
-        if action in ('verify', 'change'):
+        if action in ('verify', 'change', 'enable', 'disable'):
             pin = _chv_digits(body.get('pin'), 'pin', 4, 8)
         if action == 'unblock':
             # TS 31.101 §9.6 / TS 51 011: the UNBLOCK value is always 8 digits
@@ -2460,24 +2576,66 @@ class ServerState(object):
             raise NoCardSessionError('no card session: equip a card first')
         kind = ('sim' if self.card is not None and self.card.kind == 'sim'
                 else 'uicc')
+        if kind == 'sim' and action in ('enable', 'disable') and code != 'pin1':
+            # TS 51 011 §9.2.11/.12: the 2G SIM's DISABLE/ENABLE CHV are the
+            # CHV1 commands with P2 fixed at '01' - there is no CHV2 form.
+            raise ValueError('a 2G SIM enables/disables CHV1 only (TS 51 011 '
+                             '§9.2.11/.12 fix P2 at 01)')
         verify_ref, unblock_ref = CHV_REFERENCES[kind][code]
         reference = unblock_ref if action == 'unblock' else verify_ref
         if action == 'verify':
             ins, data = '20', _chv_bytes(pin)
         elif action == 'change':
             ins, data = '24', _chv_bytes(pin) + _chv_bytes(new_pin)
-        else:
+        elif action == 'unblock':
             ins, data = '2C', _chv_bytes(puk) + _chv_bytes(new_pin)
+        elif action == 'disable':
+            ins, data = '26', _chv_bytes(pin)
+        else:
+            ins, data = '28', _chv_bytes(pin)
         ops = self._file_ops()
         selected = False
         try:
-            selected = self._chv_select_app(ops, kind)
+            try:
+                selected = self._chv_select_app(ops, kind) is not None
+            except commands.FileError as exc:
+                # a 2G SIM's DF.GSM select (the UICC path catches its own
+                # FileError and reports "not selected")
+                log.debug('CHV %s %s: application select failed: %s',
+                          action, code, exc)
+                selected = False
+            if not selected:
+                # The context must be well defined before any APDU: TS 102 221
+                # §9.3.0 (printed p. 75) makes SE_No_Active_Application "valid
+                # under the MF and under its child DFs/EFs", and TS 31.102 §6.4
+                # (printed p. 320) makes the USIM's PIN a **global** key
+                # reference and its PIN2 a **local** one (§9.5.1 Table 9.3:
+                # `01` global "PIN Appl 1", `81` local "Second PIN Appl 1").
+                if kind == 'sim':
+                    raise ValueError(
+                        'the 2G SIM application directory (DF.GSM) could not be '
+                        'selected; the CHV commands belong in the application '
+                        'directory (TS 51 011 §9.1) - no command was sent')
+                if reference & 0x80:
+                    raise ValueError(
+                        'PIN2 is a local key reference (TS 102 221 §9.5.1) and '
+                        'needs its application: the ADF.USIM select failed, so '
+                        'no command was sent')
+                # A global reference (PIN1) is valid under the MF.
+                try:
+                    ops.select_mf()
+                except Exception as exc:
+                    raise ValueError(
+                        'the card application could not be selected (the '
+                        'ADF.USIM and the MF select both failed): %s' % exc
+                    ) from exc
+                selected = True
             apdu = (bytes.fromhex(ops.cla + ins + '00' + '%02X' % reference)
                     + bytes((len(data),)) + data)
             _data, sw = self.transport.send_apdu(apdu)
             sw = bytes(sw or b'').hex().upper()
             log.info('CHV %s %s -> SW: %s', action.upper(), code.upper(), sw)
-            result = _chv_sw_result(sw)
+            result = _chv_sw_result(sw, action)
         finally:
             if selected:
                 esim_module.restore_mf(ops)

@@ -76,38 +76,86 @@ test('navCurrent builds the state from the view variables', () => {
 	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'list', listtab: 'custom' });
 });
 
-test('a stale Status sub-tab replay folds onto the Raw APDU pill', () => {
+test('a stale Card reader sub-tab replay folds onto the PIN / ADM pill', () => {
 	// A recorded state from an older layout names a sub-panel that no longer
-	// exists (files / services / cmd): it must show the one pill instead of
-	// leaving the tab blank.
-	for (const stale of ['files', 'services', 'cmd', 'apdu']) {
-		const toggled = [];
-		const panel = { classList: { toggle: (c, on) => toggled.push([c, on]) } };
+	// exists (files / services / cmd): it must show the default pill (PIN /
+	// ADM since v4.3.1) instead of leaving the tab blank.
+	const consts = (name) => {
+		const from = html.indexOf('const ' + name);
+		assert.ok(from >= 0, 'const ' + name + ' not found');
+		const end = html.indexOf(';', from);
+		return 'var ' + html.slice(from + 'const '.length, end) + ';\n';
+	};
+	const run = (name) => {
+		const panels = {};
+		const panel = id => {
+			if (!panels[id]) {
+				const toggled = [];
+				panels[id] = { toggled,
+					classList: { toggle: (c, on) => toggled.push([c, on]) } };
+			}
+			return panels[id];
+		};
 		globalThis.document = {
 			querySelectorAll: () => [],
-			getElementById: id => (id === 'pysim-sub-apdu' ? panel : null),
+			getElementById: id => ((id === 'pysim-sub-apdu' || id === 'pysim-sub-chv')
+				? panel(id) : null),
 		};
 		let help = null, recorded = 0;
 		const stub = 'var _pysimSub = null; var pysimHelpAnchor = null;\n'
 			+ 'function setHelpAnchor(a) { __setHelp(a); }\n'
 			+ 'function navRecord() { __recorded(); }\n'
+			+ 'function pysimChvRender() { __chvRender(); }\n'
+			+ consts('PYSIM_SUB_PANELS') + consts('PYSIM_SUB_HELP')
 			+ extractFunc(html, 'pysimSwitchSubtab')
-			+ '\npysimSwitchSubtab(' + JSON.stringify(stale) + ');\n'
+			+ '\npysimSwitchSubtab(' + JSON.stringify(name) + ');\n'
 			+ 'return { sub: _pysimSub, help: pysimHelpAnchor };';
-		const out = new Function('__setHelp', '__recorded', stub)(
-			a => { help = a; }, () => { recorded++; });
-		assert.strictEqual(out.sub, 'apdu', stale + ' folds onto the pill');
-		assert.strictEqual(out.help, 'raw-apdu');
-		assert.strictEqual(help, 'raw-apdu');
-		assert.strictEqual(recorded, 1);
-		assert.deepStrictEqual(toggled, [['hidden', false]], stale + ' shows the panel');
+		const out = new Function('__setHelp', '__recorded', '__chvRender', stub)(
+			a => { help = a; }, () => { recorded++; }, () => { recorded += 100; });
+		return { out, panels, help, recorded };
+	};
+
+	for (const stale of ['files', 'services', 'cmd']) {
+		const { out, panels } = run(stale);
+		assert.strictEqual(out.sub, 'chv', stale + ' folds onto the PIN / ADM pill');
+		assert.strictEqual(out.help, 'pin-adm');
+		assert.deepStrictEqual(panels['pysim-sub-chv'].toggled, [['hidden', false]],
+			stale + ' shows the PIN / ADM panel');
+		assert.deepStrictEqual(panels['pysim-sub-apdu'].toggled, [['hidden', true]]);
 	}
+	// both pills are first-class targets with their own help anchors
+	const chv = run('chv');
+	assert.strictEqual(chv.out.sub, 'chv');
+	assert.strictEqual(chv.out.help, 'pin-adm');
+	assert.strictEqual(chv.help, 'pin-adm');
+	assert.strictEqual(chv.recorded, 101, 'navRecord plus the pill render');
+	assert.deepStrictEqual(chv.panels['pysim-sub-apdu'].toggled, [['hidden', true]]);
+	assert.deepStrictEqual(chv.panels['pysim-sub-chv'].toggled, [['hidden', false]]);
+	const apdu = run('apdu');
+	assert.strictEqual(apdu.out.sub, 'apdu');
+	assert.strictEqual(apdu.out.help, 'raw-apdu');
+	assert.deepStrictEqual(apdu.panels['pysim-sub-apdu'].toggled, [['hidden', false]]);
+	assert.deepStrictEqual(apdu.panels['pysim-sub-chv'].toggled, [['hidden', true]]);
 	delete globalThis.document;
 });
 
-test('the Status and File manager help anchors point at their own section', () => {
-	// the Status tab opens the status block (§6.2), not Raw APDU (§6.3)
-	assert.match(html, /let pysimHelpAnchor = 'status-block'/);
+test('the Card reader opens on the PIN / ADM pill', () => {
+	// the default view state
+	assert.match(html, /let _pysimSub = 'chv';/);
+	// the map's order puts PIN / ADM first, and the unknown-name fallback is
+	// the default pill
+	assert.match(html, /const PYSIM_SUB_PANELS = \{ chv: 'pysim-sub-chv', apdu: 'pysim-sub-apdu' \};/);
+	assert.match(html, /if \(!PYSIM_SUB_PANELS\[name\]\) name = 'chv';/);
+	// the help anchor starts at the default pill and follows the switches
+	assert.match(html, /let pysimHelpAnchor = PYSIM_SUB_HELP\[_pysimSub\];/);
+	assert.match(html, /const PYSIM_SUB_HELP = \{ chv: 'pin-adm', apdu: 'raw-apdu' \};/);
+	// the tab's own switch keeps the last-used anchor
+	assert.match(html, /else if \(name === 'pysim'\) \{ setHelpAnchor\(pysimHelpAnchor\); \}/);
+});
+
+test('the Card reader and File manager help anchors point at their own section', () => {
+	// the Card reader opens on the PIN / ADM pill (§6.3), not the status block
+	assert.match(html, /let pysimHelpAnchor = PYSIM_SUB_HELP\[_pysimSub\]/);
 	const files = extractFunc(html, 'filesSwitchSubtab');
 	assert.match(files, /services: 'services'/);
 	assert.match(files, /custom: 'custom-files'/);

@@ -131,5 +131,26 @@
     "reference": "81",
     "expected": true,
     "decoded": "PIN app1: unknown, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's MF PS template read on 2026-11-23 (PIN1 and ADM enabled, PIN2 unlisted)",
+    "ps_template": "9001C083010183010A",
+    "reference": "01",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified; ADM1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's MF PS template read on 2026-11-23 (reference 0A)",
+    "ps_template": "9001C083010183010A",
+    "reference": "0A",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified; ADM1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's MF PS template read on 2026-11-23 (reference 81)",
+    "ps_template": "9001C083010183010A",
+    "reference": "81",
+    "expected": null,
+    "decoded": "PIN app1: enabled, always verified; ADM1: enabled, always verified"
   }
 ]

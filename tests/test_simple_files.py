@@ -211,6 +211,10 @@ class PsTemplateTests(unittest.TestCase):
     references ``01`` (PIN1), ``0A`` (ADM) and ``81`` (PIN2), so PIN1 is
     **disabled** on that card while ADM and PIN2 are enabled and an unlisted
     reference (``02``/``11``) stays unknown.
+
+    The final three are that card's **MF** PS template (``9001C083010183010A``,
+    PS_DO ``C0``: PIN1 and ADM enabled, PIN2 unlisted), read the same way on a
+    card without a selectable ADF.USIM - the CHV read's MF fallback.
     """
 
     def vectors(self):

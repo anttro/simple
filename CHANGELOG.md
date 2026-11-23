@@ -9,6 +9,85 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-11-23
+
+### Added
+
+- **ENABLE / DISABLE PIN** on `POST /api/chv`: `action: "enable"` (INS `28`)
+  and `"disable"` (INS `26`), the PIN in the 8-byte CHV field, P1 `00` and the
+  same P2 reference as VERIFY (TS 102 221 V18.4.0 §11.1.11.1/.2 and
+  §11.1.12.1/.2: "shall not be executed ... when PIN is already disabled or
+  blocked" / "... enabled or blocked"; a correct PIN resets the counter to 3
+  and flips the state, a false one decrements).  A **2G SIM** enables/disables
+  CHV1 only (TS 51 011 §9.2.11/.12: class `A0`, P1 `'00'`, P2 fixed at
+  `'01'`), so `code: pin2` answers `400` naming those clauses.  ADM is
+  **Verify only** (`/api/verify-adm`): §9.5.1 Table 9.3 names `0A` as ADM1 but
+  no pinned clause covers changing or unblocking it.  Live-confirmed on the
+  bench card (2026-11-23): `DISABLE PIN1` -> `9000` flips the MF `C6` PS_DO
+  from `0xC0` to `0x40` (PIN1's bit cleared, ADM's kept) and `ENABLE PIN1`
+  restores it, while the empty-data counter query answers `63CX` in both
+  states - the `C6` flag, not the probe, decides enabled/disabled.
+- **The Card reader tab** (the old Status tab, renamed): three rows
+  **PIN1 / PIN2 / ADM** with their state and a **Verify** button that uses the
+  matched preset's code (without one it is disabled and points at the pill),
+  and a new **PIN / ADM** pill for the manual card operations - Code
+  (PIN1/PIN2/ADM) + Action (Verify/Change/Unblock/Enable/Disable; ADM folds
+  onto Verify), the per-action fields, "Use the matched preset's codes", the
+  result line and the selected code's live state/attempts.  Every attempt is
+  confirmed first (the existing confirmation/retry texts).  Enable/Disable are
+  gated by the attempt-free enabled bit (already disabled/enabled -> refused,
+  blocked -> unblock first, an unreported flag -> allowed with an amber
+  warning; a 2G SIM's PIN2 enable/disable is unavailable).  After a
+  successful change/unblock the PWA offers once to store the new PIN in the
+  preset matching the equipped card's ICCID (the PUK never changes).
+
+### Fixed
+
+- **The PIN state readout on a UICC without a selectable ADF.USIM** falls back
+  to the **MF** instead of reporting both PINs `unknown`: its FCP carries the
+  mandatory `C6` too (TS 102 221 §11.1.1.3.1 Table 11.3), and only the
+  **global** reference (PIN1) is probed there - PIN2 stays `unknown` as a
+  local reference (TS 31.102 §6.4, TS 102 221 §9.5.1/§9.3.0); a failing MF
+  select leaves every code `unknown`.  Live 2026-11-23: such a card's MF `C6`
+  (PS_DO `0xC0`) reported PIN1 and ADM enabled, and the empty-data probe
+  answered `63C3`.
+- **A CHV command is only sent with a well-defined application context**: a
+  UICC without a selectable ADF.USIM may still use a **global** reference
+  (PIN1) - the endpoint selects the MF (TS 102 221 §9.3.0, TS 31.102 §6.4) -
+  while a **local** reference (PIN2), a 2G SIM whose DF.GSM is not selectable
+  (TS 51 011 §9.1) and a failed MF fallback answer `400` with **no** APDU
+  sent.
+- **The enable/disable success line** no longer reports "unblocked": each
+  action names its own result (`changed` / `enabled` / `disabled` /
+  `unblocked`).
+- **The `6984` line no longer claims the PIN is not enabled**: the bench card
+  answered `6984` to a **wrong** PIN1 value (the counter stayed `63C3`) and
+  `9000` to the correct one, so the message now states that the card reported
+  no attempt count and the value may be wrong (or the reference disabled / not
+  usable on the card).
+
+### Changed
+
+- **The `63CX` mapping is action-aware**: TS 102 221 §10.2.1.3 Table 10.9
+  (printed p. 82) makes `63CX` the remaining attempts for VERIFY only (with
+  UNBLOCK as the spec's explicit exception, §11.1.13.1.1); for
+  CHANGE/ENABLE/DISABLE it is labeled *"Command successful but after using an
+  internal update retry routine 'X' times"*, so `enable`/`disable` report
+  **success** with `internal_retries` (the outcome check is the refreshed
+  `chv.enabled`) and `change` stays a failure with both readings in its
+  warning - none sets `attempts_left` (the attempt-free PIN state is the
+  authoritative counter), and the PWA composes the line itself (the server's
+  English `warning` is only a fallback).  `63C0` stays "blocked" for every
+  action.
+- **The header PIN badge is monochrome glyphs** (`PIN1 ✓` green / `PIN1 !`
+  amber / `PIN1 ✗` red / `PIN1 ⊘`, `PIN1 –`, `PIN1 ?` gray) with the words in
+  the tooltip; the `PIN1 locked/unlocked/...` translations are gone.
+- **The Cards editor only edits presets**: its Verify/Change/Unblock and the
+  ADM Verify buttons, the per-PIN state line and the result line moved to the
+  Card reader's PIN / ADM pill (the file manager's inline **Verify ADM** hint
+  stays).  A changed/unblocked PIN no longer fills the preset form silently -
+  the pill asks once.
+
 ## [4.2.0] — 2026-11-23
 
 *The v4.1.0 release was withdrawn shortly after publication (the PIN/PUK

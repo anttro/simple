@@ -2314,11 +2314,13 @@ recommended handling:
 
 **Shipped in 4.2.0** (was the retired command line's
 `verify_chv`/`change_chv`/`unblock_chv`): `POST /api/chv` runs VERIFY `20`,
-CHANGE CHV `24` and UNBLOCK CHV `2C`, with the CHV reference by card class
-(UICC PIN1 `01`/PIN2 `81`, TS 102 221 §9.5.1; a 2G SIM's `01`/`02` with the
-exceptional UNBLOCK CHV1 `00`, TS 51 011 §9.2.9/§9.2.13) and the PIN's
-application selected first.  The Cards editor's PIN/ADM block and the Status
-tab's PIN row drive it; every attempt is confirmed, the `63Cx` attempts left,
+CHANGE CHV `24`, UNBLOCK CHV `2C`, DISABLE `26` and ENABLE `28`, with the CHV
+reference by card class (UICC PIN1 `01`/PIN2 `81`, TS 102 221 §9.5.1; a 2G
+SIM's `01`/`02` with the exceptional UNBLOCK CHV1 `00`, TS 51
+011 §9.2.9/§9.2.13) and the PIN's application selected first.  The Card
+reader's **PIN / ADM** pill (and its PIN1/PIN2/ADM rows' Verify) drives it
+since 4.3.0; every attempt is confirmed, the `63Cx` attempts left (the card's
+internal retries for CHANGE/ENABLE/DISABLE, TS 102 221 Table 10.9's note),
 `63C0`/`6983`/`9840` blocked and the `6984` "referenced data invalidated"
 answer are reported, and a successful change/unblock offers the new value for
 the preset store (the endpoint never stores a key).
@@ -2329,12 +2331,15 @@ DO `C6` (mandatory in an MF/DF/ADF FCP, §11.1.1.3.1 Table 11.3; the PS_DO
 bitmap over the `83` references, §9.5.2) with the empty-data VERIFY PIN probe
 (§11.1.9.1.2: the retry counter), so a **disabled** PIN (`C6` bit clear) is
 told apart from a locked one; a 2G SIM's DF.GSM SELECT bytes (§9.2.1) stand in
-for the probe it cannot make (§9.2.9).  The header badge, the Cards editor's
-per-PIN state line and the Verify gating use it.
+for the probe it cannot make (§9.2.9).  The header badge (glyphs since 4.3.0),
+the Card reader's PIN1/PIN2 rows and the Verify/enable-disable gating use it.
 
-Still unexposed as typed endpoints: **ENABLE CHV `28` / DISABLE CHV `26`**
-(only the Remote APDU builder offers the raw commands; the lock-state readout
-reports the resulting disabled/enabled bit).
+**ENABLE CHV `28` / DISABLE CHV `26`** followed in **4.3.0** (`/api/chv`'s
+`enable`/`disable` actions, the PWA's PIN / ADM pill): the card refuses a
+redundant ENABLE/DISABLE (§11.1.11.1/§11.1.12.1), the PWA gates them on the
+attempt-free enabled bit, and a 2G SIM's CHV1-only limitation (TS 51 011
+§9.2.11/.12) is reported.  ADM remains **Verify-only** (`/api/verify-adm`):
+no pinned clause covers changing or unblocking ADM1.
 
 ### pySim command audit (what else was lost)
 
@@ -2345,7 +2350,7 @@ covered:
   — see above.
 - `suspend_uicc` / `resume_uicc` — SUSPEND UICC / RESUME UICC testing.
 - `open_channel` / `close_channel` / `switch_channel` — logical-channel
-  management (ties into the Status tab's "logical channel states"; the new
+  management (ties into the Card reader's "logical channel states"; the new
   transport is channel-0 only today).
 - `activate_file` / `deactivate_file` — file lifecycle (ACTIVATE/DEACTIVATE
   FILE).
@@ -2358,7 +2363,7 @@ covered:
   might still be useful.
 
 Already covered without the command line: `apdu` (Raw APDU), `cardinfo`/
-`status` (the Status tab), `dir`/`tree`/`select`/`read_*`/`update_*`/`edit_*`
+`status` (the Card reader tab), `dir`/`tree`/`select`/`read_*`/`update_*`/`edit_*`
 (the file manager), `envelope` (Simulator), `terminal_profile` (Simulator),
 the service tables (the Services editor), the eSIM ES10 calls (the eSIM
 view), `authenticate` (network simulation).  Deliberately out of scope:

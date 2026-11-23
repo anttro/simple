@@ -2837,24 +2837,30 @@ class ChvCard(CardScript):
 
     The detection/init APDUs go to :class:`CardScript`; the UICC ADF.USIM
     select, the 2G SIM's A0 select form (DF.GSM/MF) and the ``20``/``24``/
-    ``2C`` commands are answered here.  Every APDU is recorded in ``flow``;
+    ``26``/``28``/``2C`` commands are answered here.  Every APDU is recorded
+    in ``flow``;
     the data-bearing CHV commands in ``chv`` and the **empty-data** VERIFY PIN
     probes (the case-1 ``0020 00<ref>`` readout) in ``probes`` - the probe
     answers ``probe_sw`` and never carries a PIN value.  ``adf_fcp`` is the
     ADF.USIM SELECT response (the DF's FCP with its PS template ``C6``;
-    ``adf_sw`` refuses it, e.g. ``6A82``), and ``sim_select`` the DF.GSM
-    SELECT response block for the 2G SIM state read (TS 51 011 §9.2.1).
+    ``adf_sw`` refuses it, e.g. ``6A82``), ``mf_fcp``/``mf_sw`` the MF SELECT
+    response (the fallback's FCP), and ``sim_select`` the DF.GSM SELECT
+    response block for the 2G SIM state read (TS 51 011 §9.2.1).
     """
 
     def __init__(self, sw='9000', sw_by_ins=None, probe_sw=None,
-                 sim_select=None, adf_fcp=None, adf_sw='9000'):
+                 sim_select=None, adf_fcp=None, adf_sw='9000',
+                 mf_fcp=None, mf_sw='9000', sim_sw='9000'):
         super().__init__()
         self.sw = sw
         self.sw_by_ins = dict(sw_by_ins or {})
         self.probe_sw = sw if probe_sw is None else probe_sw
         self.sim_select = sim_select
+        self.sim_sw = sim_sw
         self.adf_fcp = adf_fcp
         self.adf_sw = adf_sw
+        self.mf_fcp = mf_fcp
+        self.mf_sw = mf_sw
         self.chv = []
         self.probes = []
         self.flow = []
@@ -2863,22 +2869,36 @@ class ChvCard(CardScript):
         apdu = bytes(apdu)
         self.flow.append(apdu)
         ins = apdu[1]
-        if ins in (0x20, 0x24, 0x2C) and apdu[0] in (0x00, 0xA0):
-            if len(apdu) == 4:
+        if ins in (0x20, 0x24, 0x26, 0x28, 0x2C) and apdu[0] in (0x00, 0xA0):
+            if ins == 0x20 and len(apdu) == 4:
                 # the empty-data VERIFY PIN probe (case 1): no PIN, no attempt
                 self.probes.append(apdu)
                 return b'', bytes.fromhex(self.probe_sw)
             self.chv.append(apdu)
             return b'', bytes.fromhex(self.sw_by_ins.get(ins, self.sw))
-        if apdu[:2] == b'\x00\xa4' and apdu[2] == 0x04:
+        if apdu[:2] == b'\x00\xa4' and apdu[3] == 0x04:
+            # P2=04 (return the FCP) covers SELECT by FID (P1=00, the MF
+            # fallback) and by DF name (P1=04, the ADF.USIM probe).
             aid = apdu[5:5 + apdu[4]].hex().upper()
+            if aid == '3F00':
+                # SELECT MF: the CHV state read's fallback reads its FCP.
+                self.selected = 'MF'
+                return bytes(self.mf_fcp or b''), bytes.fromhex(self.mf_sw)
             if aid == cards.AID_USIM:
                 self.selected = 'USIM'
                 return bytes(self.adf_fcp or b''), bytes.fromhex(self.adf_sw)
         if apdu[:2] == b'\xa0\xa4':
             self.selected = 'SIM'
-            return bytes(self.sim_select or b''), b'\x90\x00'
+            return bytes(self.sim_select or b''), bytes.fromhex(self.sim_sw)
         return super().__call__(apdu)
+
+
+#: The bench card's live MF FCP (read 2026-11-23 through a read-only SELECT):
+#: a DF FCP whose ``C6`` is ``90 01 C0 83 01 01 83 01 0A`` - PS_DO 0xC0 (PIN1
+#: and ADM enabled, PIN2 unlisted).  That card has no ADF.USIM, so the CHV
+#: read falls back to the MF.
+MF_FCP = bytes.fromhex('62248202782183023F00A507800179830225B48A01058B032F0601'
+                       'C6099001C083010183010A')
 
 
 def ps_fcp(ps_template, descriptor=b'\x78'):
@@ -2899,9 +2919,11 @@ class ChvTests(HTTPTestBase):
     """
 
     def chv_state(self, sw='9000', sim=False, sw_by_ins=None, probe_sw=None,
-                  sim_select=None, adf_fcp=None, adf_sw='9000'):
+                  sim_select=None, adf_fcp=None, adf_sw='9000',
+                  mf_fcp=None, mf_sw='9000', sim_sw='9000'):
         card = ChvCard(sw=sw, sw_by_ins=sw_by_ins, probe_sw=probe_sw,
-                       sim_select=sim_select, adf_fcp=adf_fcp, adf_sw=adf_sw)
+                       sim_select=sim_select, adf_fcp=adf_fcp, adf_sw=adf_sw,
+                       mf_fcp=mf_fcp, mf_sw=mf_sw, sim_sw=sim_sw)
         transport = FakeTransport(handler=card)
         state = make_state(reader='Reader A')
         state.open(transport=transport, start_threads=False)
@@ -2984,6 +3006,91 @@ class ChvTests(HTTPTestBase):
         self.assertTrue(body['ok'])
         self.assertEqual(card.chv[-1].hex().upper(),
                          '002400011031323334FFFFFFFF35363738FFFFFFFF')
+
+    def test_uicc_disable_enable_pin1(self):
+        # TS 102 221 §11.1.11.1/.2 (DISABLE, INS 26) and §11.1.12.1/.2 (ENABLE,
+        # INS 28): P1 '00' (Table 11.16), P2 as VERIFY, Lc '08', PIN value.
+        state, card, _transport = self.chv_state()
+        status, body = self.post(state, {'action': 'disable', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002600010831323334FFFFFFFF')
+        self.assertIn('chv', body)
+        status, body = self.post(state, {'action': 'enable', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002800010831323334FFFFFFFF')
+        # PIN2 uses its own application reference '81'
+        status, body = self.post(state, {'action': 'disable', 'code': 'pin2',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(card.chv[-1].hex().upper()[:8], '00260081')
+
+    def test_sim_disable_enable_is_chv1_only(self):
+        # TS 51 011 §9.2.11/.12: class A0, P1 '00', P2 fixed at '01'.
+        state, card, _transport = self.chv_state(sim=True)
+        for action, ins in (('disable', '26'), ('enable', '28')):
+            with self.subTest(action=action):
+                status, body = self.post(state, {'action': action,
+                                                 'code': 'pin1',
+                                                 'pin': '1234'})
+                self.assertEqual(status, 200, body)
+                self.assertTrue(body['ok'])
+                self.assertEqual(card.chv[-1].hex().upper()[:8],
+                                 'A0' + ins + '0001')
+        sent = len(_transport.sent)
+        status, body = self.post(state, {'action': 'enable', 'code': 'pin2',
+                                         'pin': '1234'})
+        self.assertEqual(status, 400, body)
+        self.assertIn('9.2.11', body['error'])
+        # the refusal happens before any APDU (no 24/26/28/2C went out)
+        self.assertEqual([a for a in _transport.sent[sent:]
+                          if a[1] in (0x24, 0x26, 0x28, 0x2C)], [])
+
+    def test_the_mf_c6_cannot_authorise_a_local_reference(self):
+        # A local reference (PIN2 81) in the MF context stays unknown - its
+        # enabled flag must not come from the MF's C6 either (TS 102 221
+        # §9.5.1: 81 is a local reference).
+        state, card, _transport = self.chv_state(
+            adf_sw='6A82', mf_fcp=ps_fcp('900100830181'), probe_sw='63C3')
+        card.flow.clear()
+        card.probes.clear()
+        status, body = self.post_status(state, {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin2'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': None, 'enabled': None})
+        # PIN1 is unlisted in this C6: probe-only, enabled stays None
+        self.assertIsNone(body['chv']['pin1']['enabled'])
+        self.assertEqual([a.hex().upper() for a in card.probes],
+                         ['00200001'])
+
+    def test_enable_disable_do_not_latch_the_verify_state(self):
+        # Only a successful VERIFY latches not_required for the session; an
+        # ENABLE (which is what removes the disabled flag) keeps the probe's
+        # answer.
+        state, _card, _transport = self.chv_state(sw='9000', probe_sw='63C3')
+        self.post(state, {'action': 'enable', 'code': 'pin1', 'pin': '1234'})
+        self.assertNotIn('pin1', state.chv_verified)
+        status, body = self.post_status(state, {'codes': ['pin1']})
+        self.assertEqual(body['chv']['pin1']['state'], 'required')
+
+    def test_a_change_63cx_is_internal_retries_not_attempts(self):
+        # TS 102 221 §10.2.1.3 Table 10.9 note: 63CX is the remaining attempts
+        # for VERIFY only; for CHANGE it is the card's internal retries.
+        state, _card, _transport = self.chv_state(
+            sw='63C2', sw_by_ins={0x24: '63C2'}, probe_sw='63C2')
+        status, body = self.post(state, {'action': 'change', 'code': 'pin1',
+                                         'pin': '1234', 'new_pin': '5678'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['ok'])
+        self.assertNotIn('attempts_left', body)
+        self.assertEqual(body['internal_retries'], 2)
+        self.assertIn('internal retries', body['warning'])
 
     def test_uicc_unblock_pin1(self):
         state, card, _transport = self.chv_state()
@@ -3200,6 +3307,69 @@ class ChvTests(HTTPTestBase):
         self.assertEqual(status['chv']['pin1']['state'], 'unknown')
         self.assertEqual(status['chv']['pin2']['state'], 'unknown')
 
+    def test_a_global_pin_works_without_a_usim_in_the_mf_context(self):
+        # TS 102 221 §9.3.1: SE_No_Active_Application is valid under the MF and
+        # its children; TS 31.102 §6.4: the USIM's PIN is a *global* reference.
+        # Live 2026-11-23: the ISO/UICC-only bench card (no ADF.USIM) verifies
+        # its PIN1 in the MF context.
+        state, card, _transport = self.chv_state(adf_sw='6A82')
+        card.flow.clear()
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        # ADF select (6A82), the MF fallback, the CHV command, the MF restore
+        self.assertEqual([a.hex().upper() for a in card.flow[:4]],
+                         ['00A4040407A000000087100200',
+                          '00A40004023F0000',
+                          '002000010831323334FFFFFFFF',
+                          '00A40004023F0000'])
+        self.assertEqual(card.chv[-1].hex().upper(),
+                         '002000010831323334FFFFFFFF')
+
+    def test_a_local_pin_without_its_application_is_refused(self):
+        # TS 102 221 §9.5.1: 81 is a local reference - without its application
+        # the command must not be sent.
+        state, card, transport = self.chv_state(adf_sw='6A82')
+        card.flow.clear()
+        sent = len(transport.sent)
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin2',
+                                         'pin': '1234'})
+        self.assertEqual(status, 400, body)
+        self.assertIn('local key reference', body['error'])
+        self.assertEqual(card.chv, [])
+        # the failed ADF select only: no MF fallback, no CHV command
+        self.assertEqual([a.hex().upper() for a in card.flow],
+                         ['00A4040407A000000087100200'])
+        self.assertEqual([a for a in transport.sent[sent:]
+                          if a[1] in (0x20, 0x24, 0x26, 0x28, 0x2C)], [])
+
+    def test_a_2g_sim_without_its_application_directory_is_refused(self):
+        # TS 51 011 §9.1: the CHV commands belong in the application directory.
+        state, card, transport = self.chv_state(sim=True, sim_sw='6A82')
+        card.flow.clear()
+        sent = len(transport.sent)
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 400, body)
+        self.assertIn('application directory', body['error'])
+        self.assertEqual(card.chv, [])
+        self.assertEqual([a for a in transport.sent[sent:]
+                          if a[1] in (0x20, 0x24, 0x26, 0x28, 0x2C)], [])
+
+    def test_a_failed_mf_fallback_refuses_the_command(self):
+        state, card, transport = self.chv_state(adf_sw='6A82')
+        card.mf_sw = '6A82'          # the MF fallback fails too
+        card.flow.clear()
+        sent = len(transport.sent)
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 400, body)
+        self.assertIn('both failed', body['error'])
+        self.assertEqual(card.chv, [])
+        self.assertEqual([a for a in transport.sent[sent:]
+                          if a[1] in (0x20, 0x24, 0x26, 0x28, 0x2C)], [])
+
     def test_a_verified_pin_stays_not_required_for_the_session(self):
         # The v4.2.0 latch (the adm_session pattern): the card keeps answering
         # 63CX to the attempt-free probe after a successful VERIFY (a verified
@@ -3292,17 +3462,78 @@ class ChvTests(HTTPTestBase):
         self.assertEqual(chv['pin2']['enabled'], None)
         self.assertEqual(chv['pin2']['state'], 'required')
 
-    def test_no_probe_after_a_failed_adf_select(self):
-        # TS 102 221 §9.5.1: 81 (PIN2) is a local reference - a probe after a
-        # failed SELECT could read another application's PIN.
-        state, card, transport = self.chv_state(adf_sw='6A82')
-        chv = state.status()['chv']
-        self.assertEqual(card.probes, [])
-        self.assertEqual([a for a in transport.sent
-                          if a[:2] in (b'\x00\x20', b'\xa0\x20')], [])
-        self.assertEqual(chv['pin1'],
+    def test_the_chv_read_falls_back_to_the_mf_without_a_usim(self):
+        # Live 2026-11-23: an ISO/UICC-only card whose ADF.USIM select answers
+        # 6A82, while its MF (and DF.GSM) FCP carries the mandatory C6.  The
+        # MF context defines only the **global** references, so PIN1 is probed
+        # and PIN2 stays unknown (TS 31.102 §6.4, TS 102 221 §9.5.1).
+        state, card, _transport = self.chv_state(
+            adf_sw='6A82', mf_fcp=MF_FCP, probe_sw='63C3')
+        self.assertEqual(state.status()['chv']['pin1']['enabled'], True)
+        # A dedicated re-read shows the exchange itself: the failed ADF
+        # select, the MF fallback, the PIN1 probe, then the MF restore.
+        card.flow.clear()
+        card.probes.clear()
+        status, body = self.post_status(state, {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': True})
+        self.assertEqual(body['chv']['pin2'],
                          {'state': 'unknown', 'attempts_left': None,
                           'sw': None, 'enabled': None})
+        # only the global reference was probed
+        self.assertEqual([a.hex().upper() for a in card.probes],
+                         ['00200001'])
+        self.assertNotIn('00200081',
+                         [a.hex().upper() for a in card.probes])
+        # the fallback already sits in the MF: no redundant restore SELECT
+        self.assertEqual([a.hex().upper() for a in card.flow],
+                         ['00A4040407A000000087100200',
+                          '00A40004023F0000',
+                          '00200001'])
+
+    def test_no_probe_when_the_mf_fallback_fails_too(self):
+        # Both selections refused: the states stay unknown and nothing is
+        # probed (an unknown context can name neither a global nor a local
+        # reference).
+        state, card, transport = self.chv_state(
+            adf_sw='6A82', mf_fcp=MF_FCP, probe_sw='63C3')
+        card.mf_sw = '6A82'        # the next MF select fails
+        card.probes.clear()
+        sent = len(transport.sent)
+        status, body = self.post_status(state, {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': None, 'enabled': None})
+        self.assertEqual(body['chv']['pin2'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': None, 'enabled': None})
+        self.assertEqual(card.probes, [])
+        self.assertEqual([a for a in transport.sent[sent:]
+                          if a[:2] in (b'\x00\x20', b'\xa0\x20')], [])
+
+    def test_a_failing_probe_keeps_the_mf_enabled_flag(self):
+        # The C6 flag is read from the MF's FCP even when the probe itself
+        # fails: enabled stays authoritative, the state is unknown.
+        card = ChvCard(adf_sw='6A82', mf_fcp=MF_FCP)
+
+        def boom(apdu):
+            apdu = bytes(apdu)
+            if apdu[:2] in (b'\x00\x20', b'\xa0\x20') and len(apdu) == 4:
+                raise RuntimeError('probe failed')
+            return card(apdu)
+
+        transport = FakeTransport(handler=boom)
+        state = make_state(reader='Reader A')
+        state.open(transport=transport, start_threads=False)
+        self.track(state)
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': None, 'enabled': True})
+        self.assertIsNone(chv['pin2']['enabled'])
         self.assertEqual(chv['pin2']['state'], 'unknown')
 
     def test_the_2g_sim_equip_path(self):

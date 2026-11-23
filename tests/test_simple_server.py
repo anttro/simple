@@ -926,6 +926,66 @@ class ChvStateSummaryTests(unittest.TestCase):
                 self.assertIn(summary[code]['state'], server_module.CHV_STATES)
 
 
+class ChvSwResultTests(unittest.TestCase):
+    """``_chv_sw_result``: the action-aware status-word mapping.
+
+    TS 102 221 §10.2.1.3 Table 10.9 note (printed p. 82): 63CX is the
+    remaining attempts for VERIFY only; for the other commands it is the
+    card's internal retries.  UNBLOCK is the explicit exception (§11.1.13.1.1).
+    """
+
+    def test_9000_is_ok_for_every_action(self):
+        for action in ('verify', 'change', 'unblock', 'enable', 'disable'):
+            self.assertEqual(server_module._chv_sw_result('9000', action),
+                             {'ok': True, 'sw': '9000'})
+
+    def test_verify_and_unblock_report_the_attempts(self):
+        self.assertEqual(server_module._chv_sw_result('63C2', 'verify'),
+                         {'ok': False, 'sw': '63C2', 'attempts_left': 2})
+        self.assertEqual(server_module._chv_sw_result('63C2'), {'ok': False,
+                         'sw': '63C2', 'attempts_left': 2})
+        self.assertEqual(server_module._chv_sw_result('63C2', 'unblock'),
+                         {'ok': False, 'sw': '63C2', 'attempts_left': 2})
+
+    def test_enable_and_disable_succeed_with_internal_retries(self):
+        # TS 102 221 Table 10.9 (printed p. 82): 63CX is "Command successful
+        # but after using an internal update retry routine 'X' times" for
+        # every command except VERIFY - so ENABLE/DISABLE succeeded.
+        for action in ('enable', 'disable'):
+            with self.subTest(action=action):
+                result = server_module._chv_sw_result('63C2', action)
+                self.assertTrue(result['ok'])
+                self.assertNotIn('attempts_left', result)
+                self.assertEqual(result['internal_retries'], 2)
+                self.assertIn('internal retries', result['warning'])
+
+    def test_change_63cx_keeps_both_readings(self):
+        # §11.1.10.1 prints the counter decrement for a false old PIN but no
+        # status word, so a 63CX stays a failure with both readings.
+        result = server_module._chv_sw_result('63C2', 'change')
+        self.assertFalse(result['ok'])
+        self.assertNotIn('attempts_left', result)
+        self.assertEqual(result['internal_retries'], 2)
+        self.assertIn('internal retries', result['warning'])
+        self.assertIn('wrong old PIN', result['warning'])
+
+    def test_63c0_is_blocked_for_every_action(self):
+        # Table 10.9's "internal retries" framing does not override an
+        # exhausted counter: 0 retries left is the blocked state.
+        for action in ('verify', 'change', 'unblock', 'enable', 'disable'):
+            result = server_module._chv_sw_result('63C0', action)
+            self.assertTrue(result['blocked'])
+            self.assertEqual(result['attempts_left'], 0)
+            self.assertFalse(result['ok'])
+
+    def test_the_shared_answers_are_action_independent(self):
+        for sw, key in (('6983', 'blocked'), ('9840', 'blocked'),
+                        ('9804', 'failed'), ('6984', 'invalidated')):
+            for action in ('verify', 'change', 'unblock', 'enable', 'disable'):
+                self.assertTrue(server_module._chv_sw_result(sw, action)[key],
+                                (sw, action))
+
+
 class ChvCombinedStateTests(unittest.TestCase):
     """``_chv_combined_state``: the FCP's C6 flag decides over the probe.
 

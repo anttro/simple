@@ -42,6 +42,17 @@ code += extractFunc(html, 'cardsTarList') + '\n';
 code += extractFunc(html, 'cardsScp80Complete') + '\n';
 code += extractFunc(html, 'cardsScp81Complete') + '\n';
 code += extractFunc(html, 'cardsMatchedPreset') + '\n';
+code += extractFunc(html, 'pysimPresetGateOk') + '\n';
+code += extractFunc(html, 'pysimPresetCodePresent') + '\n';
+code += extractFunc(html, 'pysimPinVerifyGate') + '\n';
+code += extractFunc(html, 'pysimPinStateEntry') + '\n';
+code += extractFunc(html, 'pysimPinState') + '\n';
+code += extractFunc(html, 'pysimPinNotRequiredText') + '\n';
+code += extractFunc(html, 'pysimChvGate') + '\n';
+code += extractFunc(html, 'pysimChvCode') + '\n';
+code += extractFunc(html, 'pysimChvAction') + '\n';
+code += extractFunc(html, 'pysimChvIsSim') + '\n';
+code += 'var _pysimChvState = null;\nvar _pysimAdmBlocked = false;\nvar _pysimLastStatus = null;\n';
 code += extractFunc(html, 'spKeysetStartReady') + '\n';
 code += extractFunc(html, 'spKeysetGuard') + '\n';
 code += extractFunc(html, 'ramKeysetGuard') + '\n';
@@ -222,6 +233,42 @@ test('SCP80/SCP81 markers follow the matching preset completeness', () => {
 	pysimUpdatePresetIndicators(null);
 	assert.ok(e80.classes.has('hidden'));
 	assert.ok(e81.classes.has('hidden'));
+});
+
+test('a matched-preset gate disables its control without a preset', () => {
+	const run = (matched, cardEquipped) => {
+		const el = fakeEl();
+		el.setAttribute('data-needs', 'card');
+		el.setAttribute('data-preset-gate', 'matched');
+		globalThis.document = { querySelectorAll: () => [el], getElementById: () => null };
+		_pysimServerAvailable = true;
+		_pysimCardEquipped = cardEquipped;
+		_pysimCardIccid = '89701450001700031958';
+		globalThis.cards = [{ name: 'C' }];
+		globalThis.cardsFindByIccid = () => (matched ? 0 : -1);
+		pysimApplyAvailability();
+		return el;
+	};
+	// a matching preset and a card -> enabled, no hint
+	let el = run(true, true);
+	assert.strictEqual(el.disabled, false);
+	assert.strictEqual(el.attrs.title, undefined);
+	// no matching preset -> disabled with the preset hint
+	el = run(false, true);
+	assert.strictEqual(el.disabled, true);
+	assert.strictEqual(el.attrs.title, 'No card preset matches the equipped card');
+	// no card -> the card hint wins over the preset one
+	el = run(false, false);
+	assert.strictEqual(el.disabled, true);
+	assert.strictEqual(el.attrs.title, 'Insert and equip a card');
+	// an unknown gate value is not a gate (generic attribute)
+	el = fakeEl();
+	el.setAttribute('data-needs', 'card');
+	el.setAttribute('data-preset-gate', 'something-else');
+	globalThis.document = { querySelectorAll: () => [el], getElementById: () => null };
+	_pysimCardEquipped = true;
+	pysimApplyAvailability();
+	assert.strictEqual(el.disabled, false);
 });
 
 test('card-iccid controls need an equipped card with a readable ICCID', () => {

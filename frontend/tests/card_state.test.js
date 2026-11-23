@@ -87,7 +87,10 @@ function fakeIndicator() {
 }
 
 function setup() {
-	const el = { textContent: 'status line', innerHTML: '' };
+	// the status element doubles as the id fallback for unknown ids, so it
+	// carries the reader/status controls' shape too (v4.3.0 layout)
+	const el = { textContent: 'status line', innerHTML: '', value: '',
+		disabled: false, classList: { toggle: () => {} } };
 	const adm = fakeIndicator();
 	const iccidEl = fakeIndicator();
 	const scp80El = fakeIndicator();
