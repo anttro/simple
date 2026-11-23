@@ -81,8 +81,22 @@ if %errorlevel% neq 0 (
 echo.
 
 REM Install SIMple (editable, so the bundled frontend/ is served by default).
+REM setuptools emits an informational "Editable installation." warning for
+REM every editable build; its same-name-folder advice cannot apply here (the
+REM import package is simple_server), so that one message is appended to any
+REM existing PYTHONWARNINGS (a comma-separated list) and the original value is
+REM restored afterwards.
 echo === Installing SIMple ===
+set "OLD_WARNINGS=%PYTHONWARNINGS%"
+if defined PYTHONWARNINGS (
+    set "PYTHONWARNINGS=%PYTHONWARNINGS%,ignore:Editable installation"
+) else (
+    set "PYTHONWARNINGS=ignore:Editable installation"
+)
 pip install --no-build-isolation -e "%~dp0."
+REM restore the original value (an empty original unsets, i.e. clears it)
+set "PYTHONWARNINGS=%OLD_WARNINGS%"
+set "OLD_WARNINGS="
 if %errorlevel% neq 0 (
     echo Error: Failed to install SIMple.
     pause

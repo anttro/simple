@@ -1,8 +1,9 @@
 # UI rearrangement — the deferred 4.4.0 work
 
-Status: **planned, not started** (recorded 2026-11-23, after 4.3.0).  The
-pin/PUK work shipped first; this is a separate change that must not be mixed
-into it.
+Status: **implemented in 4.4.0** (2026-11-23).  Shipped as planned: the new
+tab order with the Card reader landing view, `File manager` -> `Files`, the
+Profiler tab folded into the Files pills with the editor state preserved, the
+help/README renumbering, and `simple-v515`.
 
 ## 1. `File manager` becomes `Files` (RU «Файлы»)
 
@@ -31,7 +32,9 @@ shell changes:
 - **Router**: `tab:'files'` carries `sub` (files/services/custom/profiles/
   snapshots) plus the profiler `view`/`item` when a profiler pill is active;
   `navApply` maps a legacy `tab:'profiler'` entry onto `files` (an open tab
-  across a SW update can still hold one).
+  across a SW update can still hold one).  A recorded `results` view replays
+  with an empty panel after a page reload - the result data lives in memory
+  only (pre-existing, inherited by the Files form).
 - **Help**: fold the Profiler section into the Files section (both languages),
   renumber the following sections, and **keep the existing ids** (`profiler`,
   `card-snapshots`) so old links and the "every UI anchor exists" test keep

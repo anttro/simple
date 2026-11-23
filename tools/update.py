@@ -159,8 +159,18 @@ def reinstall():
         return False
     # --no-build-isolation: setuptools is in the venv (setup installed it);
     # this keeps the update working offline.
+    # setuptools emits an InformationOnly "Editable installation." warning for
+    # every editable build; append that one message to the operator's filter so
+    # the update output stays clean without discarding it (its same-name-folder
+    # advice cannot apply: the import package is `simple_server`).  pip's `-q`
+    # did not hide the warning on pip 26.2.1; newer pip shows backend warnings
+    # only with `-v`.
+    inherited = os.environ.get('PYTHONWARNINGS')
+    warnings = inherited + ',ignore:Editable installation' if inherited \
+        else 'ignore:Editable installation'
+    env = dict(os.environ, PYTHONWARNINGS=warnings)
     r = subprocess.run([str(py), '-m', 'pip', 'install', '--no-build-isolation',
-                        '-e', str(APP)], capture_output=True, text=True)
+                        '-e', str(APP)], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         print('warning: the files were updated, but "pip install -e" failed:')
         print((r.stderr or r.stdout).strip()[-800:])

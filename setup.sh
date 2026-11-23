@@ -60,9 +60,18 @@ echo "=== Installing dependencies ==="
 $PIP install -r "$SCRIPT_DIR/requirements.txt"
 
 # Install SIMple.  Editable, so the bundled frontend/ is served by default.
+# setuptools emits an InformationOnly "Editable installation." warning for
+# every editable build (editable_wheel.py: `InformationOnly.emit(...)`); its
+# "folders in your working directory with the same name as your package"
+# advice cannot apply here - the import package is `simple_server`, and the
+# distribution name `simple` has no directory of its own - so this
+# message-prefix filter keeps the setup output clean without hiding anything
+# else.  It is appended to any PYTHONWARNINGS the operator set (the variable is
+# a comma-separated list).  pip's `-q` did not hide the warning on pip 26.2.1;
+# newer pip shows backend warnings only with `-v`.
 echo ""
 echo "=== Installing SIMple ==="
-$PIP install --no-build-isolation -e "$SCRIPT_DIR"
+PYTHONWARNINGS="${PYTHONWARNINGS:+$PYTHONWARNINGS,}ignore:Editable installation" $PIP install --no-build-isolation -e "$SCRIPT_DIR"
 
 # Check for PC/SC
 echo ""

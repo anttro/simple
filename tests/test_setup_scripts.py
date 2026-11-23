@@ -58,6 +58,16 @@ class SetupShTests(unittest.TestCase):
     def test_the_pysim_free_dependencies_are_installed(self):
         self.assertIn('install -r "$SCRIPT_DIR/requirements.txt"', self.src)
         self.assertIn('install --no-build-isolation -e "$SCRIPT_DIR"', self.src)
+        # setuptools' unconditional InformationOnly "Editable installation."
+        # warning is filtered by its message prefix; the filter is appended to
+        # any inherited PYTHONWARNINGS (a comma-separated list).  The import
+        # package is simple_server, so the warning's advice cannot apply.
+        install = 'install --no-build-isolation -e "$SCRIPT_DIR"'
+        before = self.src[:self.src.index(install)]
+        self.assertIn(
+            'PYTHONWARNINGS="${PYTHONWARNINGS:+$PYTHONWARNINGS,}'
+            'ignore:Editable installation" $PIP', before)
+        self.assertIn('ignore:Editable installation', before)
         # no pysim checkout, no legacy requirement file, no git dependency
         self.assertNotIn('git+https://github.com/osmocom/pysim.git', self.src)
         self.assertNotIn('requirements-pysim.txt', self.src)
@@ -100,6 +110,20 @@ class SetupBatTests(unittest.TestCase):
     def test_the_pysim_free_dependencies_are_installed(self):
         self.assertIn('pip install -r "%~dp0requirements.txt"', self.src)
         self.assertIn('pip install --no-build-isolation -e "%~dp0."', self.src)
+        # the same filter around the editable install: the previous value is
+        # saved, the filter appended (or set alone), and the value restored
+        # afterwards (an empty original restores to an unset variable)
+        install = 'pip install --no-build-isolation -e "%~dp0."'
+        self.assertIn('set "PYTHONWARNINGS=ignore:Editable installation"', self.src)
+        self.assertIn('%PYTHONWARNINGS%,ignore:Editable installation', self.src)
+        self.assertLess(self.src.index('set "OLD_WARNINGS=%PYTHONWARNINGS%"'),
+                        self.src.index(install))
+        self.assertLess(self.src.index('set "PYTHONWARNINGS=ignore:Editable installation"'),
+                        self.src.index(install))
+        self.assertLess(self.src.index(install),
+                        self.src.index('set "PYTHONWARNINGS=%OLD_WARNINGS%"'))
+        self.assertLess(self.src.index('set "PYTHONWARNINGS=%OLD_WARNINGS%"'),
+                        self.src.index('set "OLD_WARNINGS="'))
         self.assertNotIn('git+https://github.com/osmocom/pysim.git', self.src)
         self.assertNotIn('requirements-pysim.txt', self.src)
         self.assertNotIn('Installing pysim', self.src)

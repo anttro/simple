@@ -52,11 +52,13 @@ test('the status block renders our own /api/status shape, not pySim internals', 
 	});
 	// the reader lives in its own block now, not in the card grid
 	assert.ok(!out.includes('ACS ACR39U'), out);
-	// the definition-grid labels, in order
-	for (const label of ['Session:', 'Card:', 'Card present:', 'ATR:', 'ICCID:',
-		'Selection:', 'State:']) {
+	// the definition-grid labels, in order: one Card row for the identity,
+	// presence and init state (v4.4.0), no session/presence rows
+	for (const label of ['Card:', 'ATR:', 'ICCID:', 'Selection:', 'State:']) {
 		assert.ok(out.includes('>' + label + '<'), label + ' in ' + out);
 	}
+	assert.ok(!out.includes('>Card session:<'), out);
+	assert.ok(!out.includes('>Card present:<'), out);
 	assert.ok(out.includes('UICC'), out);
 	assert.ok(out.includes('8970119000004600098'), out);
 	assert.ok(out.includes('EF.SPN'), out);
@@ -103,28 +105,78 @@ test('the status block reports a BIP session only while one exists', () => {
 	assert.ok(!idle.includes('BIP='), idle);
 });
 
-test('the status block folds a name and kind that differ only by case', () => {
-	const out = statusHtml({ card: { kind: 'uicc', name: 'UICC' } });
-	assert.ok(out.includes('UICC'), out);
-	assert.ok(!out.includes('(uicc)'), 'the kind is not repeated');
-	const named = statusHtml({ card: { kind: 'uicc', name: 'USIM' } });
-	assert.ok(named.includes('USIM (uicc)'), named);
+test('the Card row shows the reported name without a kind suffix', () => {
+	const out = statusHtml({ connected: true, card: { kind: 'uicc', name: 'UICC' } });
+	assert.ok(out.includes('>UICC<'), out);
+	assert.ok(!out.includes('(uicc)'), 'the kind suffix is gone');
+	const named = statusHtml({ connected: true, card: { kind: 'uicc', name: 'USIM' } });
+	assert.ok(named.includes('>USIM<'), named);
+	assert.ok(!named.includes('(uicc)'), named);
+	// the name-or-kind fallback survives when the server reports only a kind
+	assert.ok(statusHtml({ connected: true, card: { kind: 'sim' } }).includes('>sim<'));
+});
+
+test('the Card row merges the identity, the presence and the init state', () => {
+	// a usable session (connected and a card object): the server's card name
+	assert.ok(statusHtml({ connected: true, card: { kind: 'euicc', name: 'eUICC' } })
+		.includes('>eUICC<'));
+	assert.ok(statusHtml({ connected: true, card: { kind: 'uicc', name: 'UICC' } })
+		.includes('>UICC<'));
+	// equipping (not connected yet): initializing, the existing key
+	const boot = statusHtml({ connected: false, equipping: true, card_present: true });
+	assert.ok(boot.includes('>initializing<'), boot);
+	// present but neither connected nor equipping
+	const inserted = statusHtml({ connected: false, card_present: true });
+	assert.ok(inserted.includes('>inserted, not initialized<'), inserted);
+	// nothing in the reader
+	const empty = statusHtml({});
+	assert.ok(empty.includes('>not inserted<'), empty);
+	// the old rows (and their keys) are gone
+	for (const label of ['Card session:', 'Card present:']) {
+		assert.ok(!empty.includes('>' + label + '<'), label + ' is gone');
+	}
+	assert.ok(!html.includes("'Card session:'"), 'the session key is gone');
+	assert.ok(!html.includes("'Card present:'"), 'the presence key is gone');
+	assert.ok(!html.includes("'n/a':"), 'the n/a key is gone');
+	// the two new keys are translated
+	assert.match(html, /'inserted, not initialized': 'вставлена, не инициализирована'/);
+	assert.match(html, /'not inserted': 'не вставлена'/);
 });
 
 test('the status block renders a grid row per field, escaped', () => {
 	const out = statusHtml({
-		connected: false, equipping: true, card_present: true,
+		connected: true, equipping: false, card_present: true,
 		atr: '3B9F&', iccid: null,
 		card: { kind: 'sim', name: 'SIM <x>' },
 		selection: { name: 'EF.A&B', kind: 'transparent', fid: '6F46' },
 	});
-	assert.ok(out.includes('initializing'), out);
 	assert.ok(out.includes('SIM &lt;x&gt;'), out);
 	assert.ok(out.includes('3B9F&amp;'), out);
-	assert.ok(out.includes('n/a'), 'a missing ICCID is n/a');
+	// an empty value hides its row (no n/a filler)
+	assert.ok(!out.includes('>ICCID:<'), out);
+	assert.ok(!out.includes('n/a'), out);
 	assert.ok(out.includes('EF.A&amp;B [transparent] FID=6F46'), out);
 	// only the fields that are set: an empty selection is "none"
 	assert.ok(statusHtml({}).includes('none'), 'no selection -> none');
+});
+
+test('the ATR and ICCID rows exist only when the server reports them', () => {
+	const full = statusHtml({ connected: true, card: { kind: 'uicc', name: 'UICC' },
+		atr: '3B9F', iccid: '8970119000004600098' });
+	assert.ok(full.includes('>ATR:<'), full);
+	assert.ok(full.includes('>3B9F<'), full);
+	assert.ok(full.includes('>ICCID:<'), full);
+	assert.ok(full.includes('>8970119000004600098<'), full);
+	const bare = statusHtml({ connected: true, card: { kind: 'uicc', name: 'UICC' } });
+	assert.ok(!bare.includes('>ATR:<'), bare);
+	assert.ok(!bare.includes('>ICCID:<'), bare);
+	assert.ok(!bare.includes('>EID:<'), bare);
+	// the EID stays conditional (an eUICC), the State row is always rendered
+	assert.ok(statusHtml({ connected: true, card: { kind: 'euicc', name: 'eUICC' },
+		eid: '8904903' }).includes('>EID:<'));
+	assert.ok(bare.includes('>State:<'), bare);
+	assert.ok(statusHtml({}).includes('>State:<'),
+		'the State row is always rendered');
 });
 
 function fakeReaderDom(readers, active) {

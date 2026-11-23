@@ -45,14 +45,17 @@ test('navStateKey canonicalises the view state', () => {
 });
 
 test('navCurrent builds the state from the view variables', () => {
-	// the module view variables + the one helper it calls, stubbed
-	eval(`var _activeTab = 'c-apdu', _scp80Sub = 'sp', _capduSub = 'sim', _parserSub = 'parse',
-		_phoneSub = 'phone', _scp81Sub = 'listener', _pysimSub = 'apdu', _filesSub = 'files',
+	// the module view variables + the helpers it calls, stubbed
+	eval(`var _activeTab = 'pysim', _scp80Sub = 'sp', _capduSub = 'sim', _parserSub = 'parse',
+		_phoneSub = 'phone', _scp81Sub = 'listener', _pysimSub = 'chv', _filesSub = 'files',
 		_cardsView = 'list', _cardsEditId = null, _testView = 'suites', _testScriptId = null,
-		_navSuite = null, profilerView = 'list', profilerListTab = 'profiles',
+		_navSuite = null, profilerView = 'list',
 		profilerEditId = null, snapshotViewId = null;
 		function testCurrentSuite() { return _navSuite; }`);
+	eval(extractFunc(html, 'filesProfilerPill'));
 	eval(extractFunc(html, 'navCurrent'));
+	// the landing view
+	assert.deepStrictEqual(navCurrent(), { tab: 'pysim', sub: 'chv' });
 	_activeTab = 'scp80'; _scp80Sub = 'ram';
 	assert.deepStrictEqual(navCurrent(), { tab: 'scp80', sub: 'ram' });
 	_activeTab = 'c-apdu'; _capduSub = 'parser'; _parserSub = 'response';
@@ -63,17 +66,79 @@ test('navCurrent builds the state from the view variables', () => {
 		{ tab: 'phone', sub: 'test', view: 'script', suite: 'S', script: 'C' });
 	_activeTab = 'pysim'; _pysimSub = 'apdu';
 	assert.deepStrictEqual(navCurrent(), { tab: 'pysim', sub: 'apdu' });
-	_activeTab = 'files'; _filesSub = 'custom';
+	// the plain Files pills carry the sub only
+	_activeTab = 'files'; _filesSub = 'custom'; profilerView = 'editor';
 	assert.deepStrictEqual(navCurrent(), { tab: 'files', sub: 'custom' });
+	// a profiler pill carries the overlay and, for the two item views, its id
+	_filesSub = 'profiles'; profilerView = 'list';
+	assert.deepStrictEqual(navCurrent(), { tab: 'files', sub: 'profiles', view: 'list' });
+	profilerView = 'editor'; profilerEditId = 'P';
+	assert.deepStrictEqual(navCurrent(),
+		{ tab: 'files', sub: 'profiles', view: 'editor', item: 'P' });
+	profilerEditId = null;
+	assert.deepStrictEqual(navCurrent(), { tab: 'files', sub: 'profiles', view: 'editor' });
+	_filesSub = 'snapshots'; profilerView = 'snapshot'; snapshotViewId = 'N';
+	assert.deepStrictEqual(navCurrent(),
+		{ tab: 'files', sub: 'snapshots', view: 'snapshot', item: 'N' });
+	// the results view has no item
+	profilerView = 'results';
+	assert.deepStrictEqual(navCurrent(),
+		{ tab: 'files', sub: 'snapshots', view: 'results' });
 	_activeTab = 'cards'; _cardsView = 'edit'; _cardsEditId = 'P';
 	assert.deepStrictEqual(navCurrent(), { tab: 'cards', view: 'edit', preset: 'P' });
 	// a new-preset editor carries no id
 	_cardsEditId = null;
 	assert.deepStrictEqual(navCurrent(), { tab: 'cards', view: 'edit' });
-	_activeTab = 'profiler'; profilerView = 'snapshot'; snapshotViewId = 'N';
-	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'snapshot', item: 'N' });
-	profilerView = 'list'; profilerListTab = 'custom';
-	assert.deepStrictEqual(navCurrent(), { tab: 'profiler', view: 'list', listtab: 'custom' });
+});
+
+test('navApply replays the Files state and folds a legacy Profiler tab', () => {
+	// navApply runs against stubs: the switch functions record, the router's
+	// own bookkeeping variables are provided.
+	function runApply(state) {
+		const calls = [];
+		const stub = 'var _navApplying = false; var _navState = null; var _filesSub = "files";\n'
+			+ 'function switchTab(n) { __c("switchTab:" + n); }\n'
+			+ 'function scp80SwitchSubtab(n) { __c("scp80:" + n); }\n'
+			+ 'function cApduSwitchSubtab(n) { __c("capdu:" + n); }\n'
+			+ 'function parserSwitchSubtab(n) { __c("parser:" + n); }\n'
+			+ 'function phoneSwitchSubtab(n) { __c("phone:" + n); }\n'
+			+ 'function scp81SwitchSubtab(n) { __c("scp81:" + n); }\n'
+			+ 'function pysimSwitchSubtab(n) { __c("pysim:" + n); }\n'
+			+ 'function filesSwitchSubtab(n) { _filesSub = n; __c("files:" + n); }\n'
+			+ 'function navApplyTest(st) { __c("test"); }\n'
+			+ 'function navApplyCards(st) { __c("cards"); }\n'
+			+ 'function navApplyProfiler(st) { __c("profiler:" + (st.view || "list") + ":" + (st.item || "")); }\n'
+			+ 'function navCurrent() { return { tab: "seed" }; }\n'
+			+ extractFunc(html, 'filesProfilerPill')
+			+ '\n' + extractFunc(html, 'navApply')
+			+ '\nnavApply(__state);\n';
+		const fn = new Function('__state', '__c', stub);
+		fn(state, name => calls.push(name));
+		return calls;
+	}
+	// a Files state replays the pill, then the profiler overlay
+	assert.deepStrictEqual(runApply({ tab: 'files', sub: 'profiles', view: 'editor', item: 'P' }),
+		['switchTab:files', 'files:profiles', 'profiler:editor:P']);
+	assert.deepStrictEqual(runApply({ tab: 'files', sub: 'files' }),
+		['switchTab:files', 'files:files']);
+	assert.deepStrictEqual(runApply({ tab: 'files', sub: 'snapshots', view: 'results' }),
+		['switchTab:files', 'files:snapshots', 'profiler:results:']);
+	// a state recorded before 4.4.0 names the Profiler tab: it is a Files state
+	// now, the legacy listtab naming the pill
+	assert.deepStrictEqual(runApply({ tab: 'profiler', view: 'editor', item: 'P',
+		listtab: 'snapshots' }),
+		['switchTab:files', 'files:snapshots', 'profiler:editor:P']);
+	assert.deepStrictEqual(runApply({ tab: 'profiler', view: 'list', listtab: 'profiles' }),
+		['switchTab:files', 'files:profiles', 'profiler:list:']);
+	assert.deepStrictEqual(runApply({ tab: 'profiler', view: 'list', listtab: 'custom' }),
+		['switchTab:files', 'files:profiles', 'profiler:list:']);
+	// the landing state and a missing tab
+	assert.deepStrictEqual(runApply({ tab: 'pysim', sub: 'chv' }),
+		['switchTab:pysim', 'pysim:chv']);
+	assert.deepStrictEqual(runApply({}), ['switchTab:pysim']);
+	// the fallback after a throwing replay is the landing tab
+	const apply = extractFunc(html, 'navApply');
+	assert.match(apply, /switchTab\('pysim'\)/);
 });
 
 test('a stale Card reader sub-tab replay folds onto the PIN / ADM pill', () => {
@@ -149,16 +214,25 @@ test('the Card reader opens on the PIN / ADM pill', () => {
 	// the help anchor starts at the default pill and follows the switches
 	assert.match(html, /let pysimHelpAnchor = PYSIM_SUB_HELP\[_pysimSub\];/);
 	assert.match(html, /const PYSIM_SUB_HELP = \{ chv: 'pin-adm', apdu: 'raw-apdu' \};/);
-	// the tab's own switch keeps the last-used anchor
-	assert.match(html, /else if \(name === 'pysim'\) \{ setHelpAnchor\(pysimHelpAnchor\); \}/);
+	// the tab's own switch re-applies the last-used pill (which sets its
+	// anchor and builds the form for the first paint)
+	assert.match(html, /else if \(name === 'pysim'\) pysimSwitchSubtab\(_pysimSub\);/);
 });
 
-test('the Card reader and File manager help anchors point at their own section', () => {
+test('the Card reader and Files help anchors point at their own section', () => {
 	// the Card reader opens on the PIN / ADM pill (§6.3), not the status block
 	assert.match(html, /let pysimHelpAnchor = PYSIM_SUB_HELP\[_pysimSub\]/);
-	const files = extractFunc(html, 'filesSwitchSubtab');
+	// the app lands there too: the first help link follows the same pill
+	assert.match(html, /let currentHelpAnchor = PYSIM_SUB_HELP\[_pysimSub\]/);
+	// the Files pills map onto their sections (the profiler list included)
+	const files = extractFunc(html, 'filesPanelsApply');
 	assert.match(files, /services: 'services'/);
 	assert.match(files, /custom: 'custom-files'/);
+	assert.match(files, /profiles: 'profiler'/);
+	assert.match(files, /snapshots: 'card-snapshots'/);
+	// ... and the switch itself sets the pill before applying it
+	const sw = extractFunc(html, 'filesSwitchSubtab');
+	assert.match(sw, /_filesSub = name;\s*filesPanelsApply\(\)/);
 });
 
 test('the view switches record history, the back buttons replace it', () => {
@@ -166,7 +240,7 @@ test('the view switches record history, the back buttons replace it', () => {
 	for (const fn of ['switchTab', 'scp80SwitchSubtab', 'cApduSwitchSubtab',
 		'parserSwitchSubtab', 'phoneSwitchSubtab', 'scp81SwitchSubtab',
 		'pysimSwitchSubtab', 'filesSwitchSubtab', 'cardsShowList', 'cardsShowEditor',
-		'testViewShow', 'profilerSetView', 'profilerListSwitch']) {
+		'testViewShow', 'profilerSetView']) {
 		assert.match(extractFunc(html, fn), /navRecord\(\)/, fn + ' must record');
 	}
 	// the view variables the state is built from

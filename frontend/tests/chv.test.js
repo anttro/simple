@@ -41,16 +41,22 @@ for (const f of ['cardsChvDigits', 'cardsChvState', 'cardsChvReset',
 	'pysimChvAction', 'pysimChvIsSim', 'pysimChvFieldsFor',
 	'pysimChvFieldId', 'pysimChvFieldValue', 'pysimChvGate',
 	'pysimChvGating', 'pysimChvStateRender', 'pysimChvPrefill',
-	'pysimPinLegendRender', 'pysimChvRender']) {
+	'pysimPinLegendRender', 'pysimChvRender', 'pysimSwitchSubtab',
+	'refreshDynamicI18n']) {
 	code += extractFunc(html, f) + '\n';
 }
 code += extractConst(html, 'PYSIM_CHV_FIELDS');
+// the pill switcher's maps (they are one-line consts, not extractConst's shape)
+code += html.match(/const PYSIM_SUB_PANELS = \{[^}]*\};/)[0]
+	.replace('const ', 'var ') + '\n';
+code += html.match(/const PYSIM_SUB_HELP = \{[^}]*\};/)[0]
+	.replace('const ', 'var ') + '\n';
 code += extractFunc(html, 'pysimChvRetriesText') + '\n';
 for (const f of ['pysimChvRun', 'pysimChvExecute', 'pysimChvPresetUpdate',
 	'pysimVerifyPin']) {
 	code += extractFunc(html, f, true) + '\n';
 }
-code += 'var _cardsChvState = {};\n';
+code += 'var _cardsChvState = {};\nvar _pysimSub = null;\nvar pysimHelpAnchor = null;\n';
 code += 'var _pysimChvState = null;\n';
 code += 'var _pysimPinStateKey = null;\n';
 code += 'var _pysimAdmAttemptsLeft = null;\n';
@@ -80,6 +86,7 @@ function stubPage() {
 	admCalls = [];
 	cardsFetchCalls = 0;
 	for (const key of Object.keys(elements)) delete elements[key];
+	stubFieldsHost();
 	cardsChvReset();
 	_pysimLastStatus = { connected: true };
 	global.t = s => s;
@@ -103,16 +110,40 @@ function stubPage() {
 	global.cardsFetch = async () => { cardsFetchCalls += 1; return true; };
 }
 
+// The fields host: a real host.innerHTML rebuild replaces the child inputs,
+// so the stub drops the field elements on every write.  Without that, the
+// auto-vivifying registry would keep the old objects and a value-preservation
+// test could never fail.
+function stubFieldsHost() {
+	const host = el('pysim-chv-fields');
+	let markup = '';
+	Object.defineProperty(host, 'innerHTML', {
+		configurable: true,
+		get: () => markup,
+		set: value => {
+			markup = value;
+			for (const name of ['pin', 'adm', 'puk', 'new_pin']) {
+				delete elements['pysim-chv-' + name.replace('_', '-')];
+			}
+		},
+	});
+}
+
 // An auto-vivifying DOM: the pill builds its fields by innerHTML, so the field
 // elements come into existence on demand.
 const elements = {};
 function el(id) {
 	if (!elements[id]) {
-		elements[id] = { id, value: '', textContent: '', innerHTML: '', disabled: false };
+		elements[id] = { id, value: '', textContent: '', innerHTML: '', disabled: false,
+		// the pill switcher toggles the panels' classes
+		classList: { _c: new Set(),
+			toggle(c, on) { if (on) this._c.add(c); else this._c.delete(c); },
+			add(c) { this._c.add(c); },
+			remove(c) { this._c.delete(c); } } };
 	}
 	return elements[id];
 }
-global.document = { getElementById: id => el(id) };
+global.document = { getElementById: id => el(id), querySelectorAll: () => [] };
 
 function selectValue(id, value) {
 	el(id).value = value;
@@ -406,6 +437,105 @@ test('the pill builds the action fields and its live state', () => {
 	pysimChvRender();
 	assert.match(el('pysim-chv-fields').innerHTML, /id="pysim-chv-adm"/);
 	assert.match(el('pysim-chv-state').textContent, /^ADM: /);
+});
+
+test('the default PIN1 / Verify form is one PIN field', () => {
+	stubPage();
+	// no select value: the markup defaults are PIN1 + Verify
+	pysimChvRender();
+	const markup = el('pysim-chv-fields').innerHTML;
+	assert.strictEqual((markup.match(/<input /g) || []).length, 1);
+	assert.match(markup, /id="pysim-chv-pin"/);
+	assert.match(markup, /PIN \(4-8 decimal digits\)/);
+	assert.ok(!markup.includes('pysim-chv-puk'));
+	assert.ok(!markup.includes('pysim-chv-adm'));
+	assert.ok(!markup.includes('pysim-chv-new-pin'));
+});
+
+test('the init fills the seeded pill for the first paint', () => {
+	// the markup ships the seeded state with no fields; the startup call is
+	// what builds #pysim-chv-fields (pysimSwitchSubtab -> pysimChvRender)
+	global.navRecord = () => {};
+	global.setHelpAnchor = () => {};
+	try {
+		stubPage();
+		assert.strictEqual(el('pysim-chv-fields').innerHTML, '',
+			'nothing fills the form before the init call');
+		_pysimSub = 'chv';
+		pysimSwitchSubtab(_pysimSub);
+		assert.match(el('pysim-chv-fields').innerHTML, /id="pysim-chv-pin"/);
+		assert.match(el('pysim-chv-fields').innerHTML,
+			/PIN \(4-8 decimal digits\)/);
+		assert.strictEqual(pysimHelpAnchor, 'pin-adm');
+		assert.ok(!el('pysim-sub-chv').classList._c.has('hidden'),
+			'the PIN / ADM panel is shown');
+		assert.ok(el('pysim-sub-apdu').classList._c.has('hidden'),
+			'the Raw APDU panel is hidden');
+	} finally {
+		delete global.navRecord;
+		delete global.setHelpAnchor;
+	}
+});
+
+test('the startup renders the landing pill and the tab switch re-applies it', () => {
+	// the markup only shows the seeded state; the form (and the help anchor)
+	// come from the pill switcher, so the init must run it after navSeed()
+	const init = html.slice(html.indexOf('navSeed();'));
+	assert.match(init,
+		/if \(document\.getElementById\('pysim-chv-fields'\)\) pysimSwitchSubtab\(_pysimSub\)/);
+	// entering the tab without touching the pill applies the current one too
+	const tab = extractFunc(html, 'switchTab');
+	assert.match(tab, /name === 'pysim'\) pysimSwitchSubtab\(_pysimSub\)/);
+});
+
+test('a typed PIN survives a re-render and the language refresh', () => {
+	stubPage();
+	pysimChvRender();
+	el('pysim-chv-pin').value = '1234';
+	// a Code/Action switch that keeps the PIN field rebuilds the form
+	selectValue('pysim-chv-code', 'pin1');
+	selectValue('pysim-chv-action', 'enable');
+	pysimChvRender();
+	assert.strictEqual(el('pysim-chv-pin').value, '1234',
+		'the rebuild keeps the typed value');
+	// the language refresh re-renders the labels but keeps the value
+	global.t = s => 'RU:' + s;
+	pysimChvRender();
+	assert.strictEqual(el('pysim-chv-pin').value, '1234');
+	assert.match(el('pysim-chv-fields').innerHTML,
+		/RU:PIN \(4-8 decimal digits\)/);
+});
+
+test('the language refresh re-renders the PIN / ADM fields', () => {
+	stubPage();
+	const noop = () => {};
+	for (const name of ['pysimFsFilterRender', 'pysimUpdateAdmIndicator',
+		'pysimUpdatePinIndicator', 'pysimUpdateCardActionLabels',
+		'pysimUpdateStateIndicator', 'spCntrPlaceholder', 'capRenderAnalysis']) {
+		global[name] = noop;
+	}
+	global._ramExplorerData = null;
+	// only the CHV panel is visible: every other view refresh is skipped
+	global.isViewVisible = id => id === 'pysim-sub-chv';
+	try {
+		selectValue('pysim-chv-code', 'pin1');
+		selectValue('pysim-chv-action', 'verify');
+		pysimChvRender();
+		el('pysim-chv-pin').value = '4321';
+		global.t = s => 'RU ' + s;
+		refreshDynamicI18n();
+		assert.strictEqual(el('pysim-chv-pin').value, '4321');
+		assert.match(el('pysim-chv-fields').innerHTML,
+			/RU PIN \(4-8 decimal digits\)/,
+			'the labels follow the language');
+	} finally {
+		for (const name of ['pysimFsFilterRender', 'pysimUpdateAdmIndicator',
+			'pysimUpdatePinIndicator', 'pysimUpdateCardActionLabels',
+			'pysimUpdateStateIndicator', 'spCntrPlaceholder', 'capRenderAnalysis',
+			'isViewVisible', '_ramExplorerData']) {
+			delete global[name];
+		}
+	}
 });
 
 test('the pill prefills from the matched preset and typing overrides', () => {

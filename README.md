@@ -8,11 +8,10 @@ English | [Русский](README_RUS.md)
 
 SIMple is an all-in-one toolkit for UICC/SIM card specialists: an offline HTML/JS frontend (PWA — a Progressive Web App) and a local card server ([`simple-server`](simple_server/), a pysim-free PC/SC server). It packs a wide set of card tools:
 
-- **File manager** — browse and edit files, including in decoded form, with FCP/FCI and access-rule decoding;
+- **Files** — browse and edit files, including in decoded form, with FCP/FCI and access-rule decoding, plus the **Profiles** and **Card snapshots** lists (filesystem snapshot capture, comparing snapshots to each other and to the rule sets a profile must satisfy);
 - **APDU builder and parser** — SIM/USIM RFM, RAM in the compact format, Expanded Format Scripts (TS 102 226), a C-APDU/R-APDU parser and a response decoder (ISO 7816 / TS 102 221 / GP);
 - **OTA lab** — TS 102 225 / GSM 03.48 secured packets (SCP80) for sending through a card reader, and HTTP OTA (SCP81): BIP channel emulation and a PSK-TLS server for working through a card reader;
-- **Simulator** — an STK menu browser, proactive command and event handling, TERMINAL PROFILE editing, and test scripts for checking any scenario;
-- **Profiler** — filesystem snapshot capture, comparing snapshots to each other and to the rule sets a profile must satisfy.
+- **Simulator** — an STK menu browser, proactive command and event handling, TERMINAL PROFILE editing, and test scripts for checking any scenario.
 
 **Demo:** [simsimple.ru](https://simsimple.ru) — the frontend alone, for experimenting. Install the server (below) for card-reader functions.
 
@@ -74,7 +73,7 @@ npm run build
 
 ## Interface
 
-Eight top-level tabs: **Remote APDU**, **SCP80**, **SCP81**, **Cards**, **Profiler**, **File manager**, **Card reader**, and **Simulator**. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills; the **File manager** tab has **File manager**, **Services**, and **Custom files** pills; the **Card reader** tab carries the connection form, the card-session state (with its PIN1/PIN2/ADM rows) and the **Raw APDU** and **PIN / ADM** pills; the Profiler tab lists **Profiles** and **Card snapshots**.
+Seven top-level tabs, left to right: **Card reader**, **Files**, **Simulator**, **Cards**, **Remote APDU**, **SCP80**, and **SCP81**. The app opens on the **Card reader** (its **PIN / ADM** pill); that tab carries the connection form, the card-session state (with its PIN1/PIN2/ADM rows) and the **PIN / ADM** and **Raw APDU** pills. The **Files** tab has **Files**, **Services**, **Custom files**, **Profiles**, and **Card snapshots** pills. **Remote APDU** and **SCP80** use pill sub-tabs; the **SCP81** tab has **Listener** and **Scripts** pills.
 
 ---
 
@@ -576,7 +575,7 @@ Stores saved card configurations (presets) in a **server-side store** — `~/.py
 |---|---|
 | Name | Human-readable label (required) |
 | ICCID | Optional card identifier |
-| ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), used by the file manager and the **PIN / ADM** pill's Verify (ADM verifies only - §9.5.1 names `0A` ADM1); not used by the SCP80/SCP81 views |
+| ADM | Optional administrator PIN (hex, or up to 8 ASCII digits), used by the **Files** tab and the **PIN / ADM** pill's Verify (ADM verifies only - §9.5.1 names `0A` ADM1); not used by the SCP80/SCP81 views |
 | PIN1 / PUK1 / PIN2 / PUK2 | Optional card codes (PIN 4–8 decimal digits, PUK exactly 8) stored in the preset. The editor only edits presets: every card operation lives in the **Card reader** tab's **PIN / ADM** pill — VERIFY / CHANGE / UNBLOCK / ENABLE / DISABLE via `/api/chv` (TS 102 221 / TS 51 011; every attempt is confirmed first) and ADM's Verify via `/api/verify-adm` — which pre-fills from these codes. After a change/unblock the pill offers to store the new PIN in the matched preset |
 | CAT release | Optional card CAT (USAT) release (4–18; empty = unspecified, resolved as Rel-12) — the release guard hides CAT items introduced later (the Simulator's event parameters) |
 | SPI1 / SPI2 | Security level and PoR settings |
@@ -597,13 +596,13 @@ The **SCP81** column shows whether the preset supplies a usable PSK pair: **✓*
 
 ---
 
-## Card reader and File manager tabs
+## Card reader and Files tabs
 
-Two top-level tabs talk to the PWA's server, the pysim-free **`simple_server`** (the `simple-server` entry point): **Card reader** (server connection, card-session state, **Raw APDU** and **PIN / ADM**) and **File manager** (**File manager**, **Services**, **Custom files**).
+Two top-level tabs talk to the PWA's server, the pysim-free **`simple_server`** (the `simple-server` entry point): **Card reader** (server connection, card-session state, **PIN / ADM** and **Raw APDU**) and **Files** (**Files**, **Services**, **Custom files**, **Profiles**, **Card snapshots**).
 
 > **Browser restriction:** when the frontend is served from a public HTTPS host, reaching the local server (`http://127.0.0.1:8080`) requires two things: the server must send `Access-Control-Allow-Private-Network: true` (the server does this automatically), and the browser must be allowed to access the local network — in Chrome/Edge/Vivaldi: Site settings → Local network access → allow the site (or accept the permission prompt). Without the browser permission, the request to `127.0.0.1` is blocked before any preflight is sent.
 
-### File Browser
+### Files
 
 Browse the UICC filesystem in a tree view. Files are shown with names, FIDs, and AIDs (for ADFs). Selecting a file shows its detail pane: FID, file type, size / record layout and the decoded FCI (in a bordered block labelled with the file's symbolic name) above the content pane. When the FCI references its access rules through an EF.ARR record (security attribute `8B`), the referenced record's decoded rules are shown as indented lines under that row — resolved from the card's cached EF.ARR copies (MF, DF.TELECOM/DF.GSM and ADF.USIM, following the file's DF chain; a snapshot resolves them from its own captured copy).
 
@@ -616,11 +615,11 @@ Browse the UICC filesystem in a tree view. Files are shown with names, FIDs, and
 
 #### Custom files
 
-Files not in pysim's model can be added manually from the **Custom files** pill in the **File manager** tab:
+Files not in pysim's model can be added manually from the **Custom files** pill in the **Files** tab:
 
 1. Pick the **Root (MF / ADF)** and type the **Parent DF** path — the root itself, a standard DF known from the file-manager tree, or a custom DF (any depth; suggestions while you type). A parent that has not been seen in the tree yet stays valid and is marked `⚠`
 2. Enter the 4-hex **FID** and an alias (`EF.…`/`DF.…`; the prefix decides whether the entry is an EF or a DF)
-3. Click **Add** — the file appears in the File manager tree; use **Edit** on a row to reload it into the form (the button becomes **Save**, **Cancel** aborts) or **Delete** to remove it (deleting a DF also deletes its child entries after a confirmation)
+3. Click **Add** — the file appears in the Files tree; use **Edit** on a row to reload it into the form (the button becomes **Save**, **Cancel** aborts) or **Delete** to remove it (deleting a DF also deletes its child entries after a confirmation)
 
 The path is always canonical (MF- or ADF-rooted) — the same file is never described both relatively and absolutely. Custom files persist in `localStorage` across sessions and are included in card scans under the same existence check. Export/import as JSON for sharing; legacy relative paths (e.g. `a153/4954`) are resolved on load, unresolvable ones are dropped and reported in the list.
 
@@ -630,9 +629,9 @@ The Card reader tab shows the server's own session model (no pySim internals): t
 
 ---
 
-## Profiler
+### Profiles and card snapshots
 
-Verifies that a card matches a named **profile** — an ordered set of rules describing the expected file system and, optionally, file contents. Profiles are stored in `localStorage`.
+The **Profiles** and **Card snapshots** pills of the Files tab. A **profile** verifies that a card matches a named rule set — an ordered set of rules describing the expected file system and, optionally, file contents. Profiles are stored in `localStorage`.
 
 - **New profile** creates an empty ruleset; **Profile from card** scans the equipped card and generates one rule per existing file; **Profile from snapshot** generates the same ruleset from a saved snapshot (same ignore/mask/FCP-FCI options, no card reader, name prefilled from the snapshot); **Import profile** loads a ruleset from JSON (the name is stored inside the file).
 - Each profile row has **Check card ▶** (run against the equipped card), **Check card snapshot** (run offline against a saved snapshot), **Edit**, **Clone** (copies the profile as *Copy of &lt;name&gt;* and opens the copy in the editor), **Export** (download JSON), and **Delete**.
@@ -649,11 +648,11 @@ The check report marks each verified aspect (e.g. *filetype ✓, size ✗, conte
 
 #### “Profile from card” scan options
 
-The scan dialog asks for a profile name and offers the FCP/FCI mode described above, an **Ignore contents of files** checklist of frequently-overwritten files (all checked by default except `EF.ARR`; the header checkbox toggles the whole list) — `EF.LOCI`, `EF.PSLOCI`, `EF.EPSLOCI`, `EF.5GS3GPPLOCI`, `EF.Keys`, `EF.KeysPS`, `EF.SMS`, `EF.Kc`, `EF.KcGPRS`, `EF.LOCIGPRS`, `EF.CBMID`, `EF.SMSS`, `EF.ACC`, `EF.EPSNSC`, `EF.START-HFN`, `EF.ARR` — and two checked-by-default mask options that capture only the first 4 bytes of `EF.IMSI` and `EF.ICCID` (uncheck for exact matching). A progress line shows *N / total files* with the current path; the options are locked while scanning. Rules are created only for files that actually exist (a FCP template is returned); custom files from the File manager tab's **Custom files** pill are included under the same existence check.
+The scan dialog asks for a profile name and offers the FCP/FCI mode described above, an **Ignore contents of files** checklist of frequently-overwritten files (all checked by default except `EF.ARR`; the header checkbox toggles the whole list) — `EF.LOCI`, `EF.PSLOCI`, `EF.EPSLOCI`, `EF.5GS3GPPLOCI`, `EF.Keys`, `EF.KeysPS`, `EF.SMS`, `EF.Kc`, `EF.KcGPRS`, `EF.LOCIGPRS`, `EF.CBMID`, `EF.SMSS`, `EF.ACC`, `EF.EPSNSC`, `EF.START-HFN`, `EF.ARR` — and two checked-by-default mask options that capture only the first 4 bytes of `EF.IMSI` and `EF.ICCID` (uncheck for exact matching). A progress line shows *N / total files* with the current path; the options are locked while scanning. Rules are created only for files that actually exist (a FCP template is returned); custom files from the Files tab's **Custom files** pill are included under the same existence check.
 
 #### Card snapshots
 
-The list view has two pills — **Profiles** and **Card snapshots**. A snapshot is an immutable capture of the card filesystem: for every existing file it stores the path, symbolic name, file type, size (or record length/count), the raw FCI from the SELECT response, and the contents whenever the file is readable (no ignore list, no masking). The ICCID is decoded from EF.ICCID and shown next to the snapshot name. Captured contents are shown with their decoded form where a decoder exists — a field table for transparent files and a one-line summary per record for record files. The scan also measures every card command (SELECT / READ BINARY / READ RECORD) from command to response and stores min/avg/max per type plus the total scan time; the snapshot view shows these in the summary and the select/read time per file (read time per record). Timings are display-only and ignored by checks/comparisons.
+The **Card snapshots** pill lists the captures. A snapshot is an immutable capture of the card filesystem: for every existing file it stores the path, symbolic name, file type, size (or record length/count), the raw FCI from the SELECT response, and the contents whenever the file is readable (no ignore list, no masking). The ICCID is decoded from EF.ICCID and shown next to the snapshot name. Captured contents are shown with their decoded form where a decoder exists — a field table for transparent files and a one-line summary per record for record files. The scan also measures every card command (SELECT / READ BINARY / READ RECORD) from command to response and stores min/avg/max per type plus the total scan time; the snapshot view shows these in the summary and the select/read time per file (read time per record). Timings are display-only and ignored by checks/comparisons.
 
 - **New snapshot** scans the card; **Import snapshot** loads JSON.
 - Each snapshot row has **Open** (all captured data read-only, raw FCI with decoded FCI and contents; only the name is editable), **Export**, and **Delete**.

@@ -69,6 +69,21 @@ def _app(tmp, version='1.0.0', legacy=False):
     return app
 
 
+class ReinstallWarningFilterTests(unittest.TestCase):
+    """The re-install filters setuptools' unconditional editable warning."""
+
+    def test_the_reinstall_passes_the_warning_filter(self):
+        src = UPDATE.read_text(encoding='utf-8')
+        # setuptools emits "Editable installation." for every editable build;
+        # the filter is appended to an inherited PYTHONWARNINGS instead of
+        # replacing it, and the child gets a copy of the environment (its
+        # same-name-folder advice cannot apply - the package is simple_server).
+        self.assertIn("os.environ.get('PYTHONWARNINGS')", src)
+        self.assertIn(",ignore:Editable installation'", src)
+        self.assertIn('dict(os.environ, PYTHONWARNINGS=', src)
+        self.assertIn('env=env', src)
+
+
 class InPlaceUpdateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

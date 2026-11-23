@@ -9,6 +9,73 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [4.4.0] — 2026-11-23
+
+### Added
+
+- **The Card reader is the landing view.** The app opens on the Card reader
+  tab and its **PIN / ADM** pill (`_activeTab = 'pysim'`, the button and the
+  panel marked accordingly); a failed history replay falls back there. The
+  initial help link follows the same pill (§6.3).
+- **Profiles and Card snapshots live in the Files tab** as its fourth and
+  fifth pills (the Profiler tab is gone, the `#profiler-list/-editor/-results/
+  -snapshot` blocks moved into `#tab-files`). `_filesSub` is the single source
+  of the active pill; `filesSwitchSubtab` handles all five (an unknown legacy
+  value folds onto `files`) and the profiler overlay is shown per
+  `profilerView` only while a profiler pill is active. A tab or pill switch
+  never resets `profilerView` - an unsaved profile editor survives until
+  **Back to list** / **Save**, and returning to **Profiles** re-shows it;
+  `profilerEdit`/`snapshotOpen` (and a scan's saved editor) select their pill,
+  so Back returns to the right list. The router carries
+  `{tab:'files', sub, view, item}`, and a state recorded before this release
+  (`tab:'profiler'` plus its `listtab`) is replayed as a Files state.
+
+### Fixed
+
+- **The landing view's PIN / ADM form is built on the first paint.** The
+  fields are rendered by `pysimChvRender`, which only ran on a pill click or a
+  Code/Action change, so the seeded landing state showed an empty form until
+  the operator touched it.  The init now runs the pill switcher for
+  `_pysimSub` (guarded for a DOM-less fragment; the seeded state is unchanged,
+  so no history entry is added) and entering the Card reader tab re-applies
+  the current pill.
+- **The PIN / ADM form survives its own rebuilds.** `pysimChvRender` keeps
+  each field's value by name across the `innerHTML` rebuild (a Code/Action
+  switch that keeps a field, or a language refresh, no longer clears a typed
+  PIN), and the language switch re-renders the form so its labels follow the
+  new language.  The snapshot summary's `Files:` label has its own key
+  (`'Files:'` -> «Файлов:») now that `'Files'` is the tab/pill label.
+
+### Changed
+
+- **New top-level tab order:** Card reader, Files, Simulator, Cards, Remote
+  APDU, SCP80, SCP81 (`data-tab` ids and containers unchanged).
+- **`File manager` is renamed `Files`** (RU «Файлы») - the tab button and the
+  tab's first pill, which now shares the name with the tab.
+- **Help and READMEs:** section 6 is "Card reader and Files tabs", its 6.1 is
+  the Files tab with the five pills; the old Profiler section became **6.7
+  Profiles and card snapshots** (ids `profiler` and `card-snapshots` kept),
+  the usage scenarios moved to 6.8, and the Simulator, Server installation and
+  Version compatibility sections were renumbered to 7, 8 and 9 (their
+  subsections follow; the `&sect;8.9`/`&sect;8.10` cross-references became
+  `&sect;7.9`/`&sect;7.10`). READMEs carry the new order and fold the Profiler
+  text under the Files section.  Known limitation (inherited, pre-existing):
+  a recorded `results` view replays after a page reload with an empty panel -
+  the result data lives in memory only and is not part of the history state.
+- **A clean setup output:** setuptools emits an `InformationOnly`
+  "Editable installation." warning for *every* editable build
+  (`editable_wheel.py`), whose "folders in your working directory with the
+  same name as your package" advice cannot apply here (the import package is
+  `simple_server`, and the distribution name `simple` has no directory of its
+  own).  `setup.sh`, `setup.bat` and `tools/update.py`'s in-place re-install
+  now run the editable install with that one message appended to
+  `PYTHONWARNINGS` - a message-prefix filter, so no other build warning is
+  hidden.  An inherited value is kept (the variable is a comma-separated
+  list): `setup.sh` and `tools/update.py` append to it, `setup.bat` saves and
+  restores it (clearing it when nothing was inherited).  pip's `-q` did not
+  hide the warning on pip 26.2.1 (newer pip shows backend warnings only with
+  `-v`).
+
 ## [4.3.0] — 2026-11-23
 
 ### Added

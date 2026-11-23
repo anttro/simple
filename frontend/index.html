@@ -38,17 +38,16 @@
 	</div>
 
 	<div class="flex flex-wrap gap-1 mb-4 border-b border-gray-300 dark:border-slate-600">
-		<button class="tab-btn active px-4 py-1.5 text-sm rounded-t bg-blue-600 dark:bg-blue-500 text-white dark:text-white" data-tab="c-apdu">Remote APDU</button>
+		<button class="tab-btn active px-4 py-1.5 text-sm rounded-t bg-blue-600 dark:bg-blue-500 text-white dark:text-white" data-tab="pysim" data-l10n="Card reader">Card reader</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="files" data-l10n="Files">Files</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Simulator">Simulator</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="cards" data-l10n="Cards">Cards</button>
+		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="c-apdu">Remote APDU</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="scp80">SCP80</button>
 		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="scp81" data-l10n="SCP81">SCP81</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="cards" data-l10n="Cards">Cards</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="profiler" data-l10n="Profiler">Profiler</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="files" data-l10n="File manager">File manager</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="pysim" data-l10n="Card reader">Card reader</button>
-		<button class="tab-btn px-4 py-1.5 text-sm rounded-t bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-tab="phone" data-l10n="Simulator">Simulator</button>
 	</div>
 
-	<div id="tab-c-apdu" class="tab-content">
+	<div id="tab-c-apdu" class="tab-content hidden">
 		<div class="flex gap-4">
 		<div class="flex-1">
 		<div class="flex flex-wrap justify-center gap-2 mb-3">
@@ -980,67 +979,7 @@
 	</div>
 
 
-	<div id="tab-profiler" class="tab-content hidden">
-			<div id="profiler-list">
-				<div class="flex flex-wrap justify-center gap-2 mb-3">
-					<button class="profiler-list-tab px-4 py-1.5 text-sm rounded-full bg-blue-600 dark:bg-blue-500 text-white dark:text-white" data-list-tab="profiles" onclick="profilerListSwitch('profiles')" data-l10n="Profiles">Profiles</button>
-					<button class="profiler-list-tab px-4 py-1.5 text-sm rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300" data-list-tab="snapshots" onclick="profilerListSwitch('snapshots')" data-l10n="Card snapshots">Card snapshots</button>
-				</div>
-				<div id="profiler-list-profiles">
-					<div class="flex flex-wrap gap-2 mb-3">
-						<button onclick="profilerNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New profile">New profile</button>
-						<button id="profiler-from-card-btn" data-needs="card-iccid" onclick="profilerFromCard()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="Profile from card">Profile from card</span><span class="profiler-iccid-label"></span></button>
-						<button onclick="profilerFromSnapshot()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Profile from snapshot">Profile from snapshot</button>
-						<button onclick="document.getElementById('profiler-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import profile">Import profile</button>
-						<input type="file" id="profiler-import-file" accept=".json,application/json" class="hidden" onchange="profilerImportFile(this)">
-					</div>
-					<div id="profiler-list-body"></div>
-				</div>
-				<div id="profiler-list-snapshots" class="hidden">
-					<div class="flex flex-wrap gap-2 mb-3">
-						<button id="snapshot-new-btn" data-needs="card-iccid" onclick="snapshotNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="New snapshot">New snapshot</span><span class="profiler-iccid-label" data-iccid-sep=": "></span></button>
-						<button onclick="document.getElementById('snapshot-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import snapshot">Import snapshot</button>
-						<button onclick="snapshotCompareOpen()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Compare snapshots">Compare snapshots</button>
-						<input type="file" id="snapshot-import-file" accept=".json,application/json" class="hidden" onchange="snapshotImportFile(this)">
-					</div>
-					<div id="snapshot-list-body"></div>
-				</div>
-			</div>
-			<div id="profiler-editor" class="hidden">
-				<div class="flex flex-wrap gap-2 items-center mb-3">
-					<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
-					<input id="profiler-name" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Profile name">
-					<button onclick="profilerAddRule()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add rule">Add rule</button>
-					<button onclick="profilerSaveProfile()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Save">Save</button>
-				</div>
-				<div id="profiler-rules"></div>
-			</div>
-			<div id="profiler-results" class="hidden">
-				<div class="flex flex-wrap gap-2 items-center mb-3">
-					<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
-					<span id="profiler-results-title" class="text-sm font-semibold"></span>
-					<label class="ml-auto flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400 cursor-pointer">
-						<input id="profiler-mismatch-only" type="checkbox" onchange="profilerToggleMismatchOnly(this.checked)">
-						<span data-l10n="Only mismatches">Only mismatches</span>
-					</label>
-				</div>
-				<div id="profiler-progress" class="mb-2 text-base font-mono text-gray-600 dark:text-slate-400"></div>
-				<div id="profiler-summary" class="mb-2 text-sm"></div>
-				<div id="profiler-report"></div>
-			</div>
-			<div id="profiler-snapshot" class="hidden">
-				<div class="flex flex-wrap gap-2 items-center mb-3">
-					<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
-					<input id="snapshot-name" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Snapshot name">
-					<span id="snapshot-iccid" class="text-xs font-mono text-gray-500 dark:text-slate-400"></span>
-					<button onclick="snapshotSaveName()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Save">Save</button>
-				</div>
-				<div id="snapshot-summary" class="mb-3"></div>
-				<div id="snapshot-files"></div>
-			</div>
-		</div>
-
-		<div id="tab-pysim" class="tab-content hidden">
+		<div id="tab-pysim" class="tab-content">
 		<div id="pysim-connect-row" class="mb-3">
 			<label class="block mb-1 text-sm font-medium text-gray-700 dark:text-slate-300" data-l10n="Server URL">Server URL</label>
 			<div class="flex gap-2 items-center">
@@ -1149,9 +1088,11 @@
 
 	<div id="tab-files" class="tab-content hidden">
 		<div class="flex flex-wrap justify-center gap-1 mb-2">
-			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-files-sub="files" data-needs="card" data-l10n="File manager">File manager</button>
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-blue-600 text-white" data-files-sub="files" data-needs="card" data-l10n="Files">Files</button>
 			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" data-files-sub="services" data-needs="card" data-l10n="Services">Services</button>
 			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-files-sub="custom" data-l10n="Custom files">Custom files</button>
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-files-sub="profiles" data-l10n="Profiles">Profiles</button>
+			<button class="files-subtab px-3 py-1 text-sm rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600" data-files-sub="snapshots" data-l10n="Card snapshots">Card snapshots</button>
 		</div>
 		<div id="pysim-sub-files">
 			<div class="flex gap-2">
@@ -1249,6 +1190,59 @@
 				</div>
 				<div id="pysim-cf-io" class="hidden mt-2 text-xs text-gray-500 dark:text-slate-400"></div>
 			</div>
+		<div id="profiler-list" class="hidden">
+			<div id="profiler-list-profiles">
+				<div class="flex flex-wrap gap-2 mb-3">
+					<button onclick="profilerNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="New profile">New profile</button>
+					<button id="profiler-from-card-btn" data-needs="card-iccid" onclick="profilerFromCard()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="Profile from card">Profile from card</span><span class="profiler-iccid-label"></span></button>
+					<button onclick="profilerFromSnapshot()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Profile from snapshot">Profile from snapshot</button>
+					<button onclick="document.getElementById('profiler-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import profile">Import profile</button>
+					<input type="file" id="profiler-import-file" accept=".json,application/json" class="hidden" onchange="profilerImportFile(this)">
+				</div>
+				<div id="profiler-list-body"></div>
+			</div>
+			<div id="profiler-list-snapshots" class="hidden">
+				<div class="flex flex-wrap gap-2 mb-3">
+					<button id="snapshot-new-btn" data-needs="card-iccid" onclick="snapshotNew()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"><span data-l10n="New snapshot">New snapshot</span><span class="profiler-iccid-label" data-iccid-sep=": "></span></button>
+					<button onclick="document.getElementById('snapshot-import-file').click()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Import snapshot">Import snapshot</button>
+					<button onclick="snapshotCompareOpen()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Compare snapshots">Compare snapshots</button>
+					<input type="file" id="snapshot-import-file" accept=".json,application/json" class="hidden" onchange="snapshotImportFile(this)">
+				</div>
+				<div id="snapshot-list-body"></div>
+			</div>
+		</div>
+		<div id="profiler-editor" class="hidden">
+			<div class="flex flex-wrap gap-2 items-center mb-3">
+				<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
+				<input id="profiler-name" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Profile name">
+				<button onclick="profilerAddRule()" class="px-2.5 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" data-l10n="Add rule">Add rule</button>
+				<button onclick="profilerSaveProfile()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Save">Save</button>
+			</div>
+			<div id="profiler-rules"></div>
+		</div>
+		<div id="profiler-results" class="hidden">
+			<div class="flex flex-wrap gap-2 items-center mb-3">
+				<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
+				<span id="profiler-results-title" class="text-sm font-semibold"></span>
+				<label class="ml-auto flex items-center gap-1 text-xs text-gray-600 dark:text-slate-400 cursor-pointer">
+					<input id="profiler-mismatch-only" type="checkbox" onchange="profilerToggleMismatchOnly(this.checked)">
+					<span data-l10n="Only mismatches">Only mismatches</span>
+				</label>
+			</div>
+			<div id="profiler-progress" class="mb-2 text-base font-mono text-gray-600 dark:text-slate-400"></div>
+			<div id="profiler-summary" class="mb-2 text-sm"></div>
+			<div id="profiler-report"></div>
+		</div>
+		<div id="profiler-snapshot" class="hidden">
+			<div class="flex flex-wrap gap-2 items-center mb-3">
+				<button onclick="profilerBackToList()" class="px-2.5 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300" data-l10n="Back to list">Back to list</button>
+				<input id="snapshot-name" class="font-mono border border-gray-300 dark:border-slate-600 text-sm rounded px-3 py-1.5 dark:bg-slate-800" placeholder="Snapshot name">
+				<span id="snapshot-iccid" class="text-xs font-mono text-gray-500 dark:text-slate-400"></span>
+				<button onclick="snapshotSaveName()" class="px-2.5 py-1 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700" data-l10n="Save">Save</button>
+			</div>
+			<div id="snapshot-summary" class="mb-3"></div>
+			<div id="snapshot-files"></div>
+		</div>
 	</div>
 
 
@@ -2041,7 +2035,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '4.3.0';
+const SIMPLE_VERSION = '4.4.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -2050,13 +2044,13 @@ document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 // list/editor, the test-suite views and the Profiler views.  Session-only -
 // the URL never changes (pushState can throw on file://, and the feature then
 // degrades to no history).
-let _activeTab = 'c-apdu';
+let _activeTab = 'pysim';          // the landing view: Card reader (v4.4.0)
 let _scp80Sub = 'sp';
 let _capduSub = 'sim';
 let _phoneSub = 'phone';
 let _scp81Sub = 'listener';
 let _pysimSub = 'chv';         // the Card reader tab's PIN / ADM pill (default)
-let _filesSub = 'files';       // the File manager tab's view
+let _filesSub = 'files';       // the Files tab's pill (files/services/custom/profiles/snapshots)
 let _cardsView = 'list';
 let _cardsEditId = null;       // the preset being edited (id; null = a new one)
 let _navState = null;          // the state of the current history entry
@@ -2064,6 +2058,8 @@ let _navApplying = false;      // replaying: the switch functions must not recor
 let _navOk = true;             // false when pushState is unavailable (file://)
 let _navReplaceNext = false;   // the next record replaces (in-app Cancel/Back)
 
+// `listtab` is legacy-only: it serves a pre-4.4.0 Profiler entry (navApply
+// folds it onto a Files pill); nothing writes it any more.
 const NAV_FIELDS = ['tab', 'sub', 'parser', 'view', 'listtab',
 	'preset', 'suite', 'script', 'item'];
 
@@ -2089,16 +2085,19 @@ function navCurrent() {
 			if (_testView === 'script' && _testScriptId) st.script = _testScriptId;
 		}
 	} else if (_activeTab === 'scp81') st.sub = _scp81Sub;
-	else if (_activeTab === 'files') st.sub = _filesSub;
-	else if (_activeTab === 'pysim') st.sub = _pysimSub;
+	else if (_activeTab === 'files') {
+		// the profiler overlay is part of a profiler pill's state (v4.4.0:
+		// the Profiler tab moved into Files)
+		st.sub = _filesSub;
+		if (filesProfilerPill()) {
+			st.view = profilerView;
+			if (profilerView === 'editor' && profilerEditId) st.item = profilerEditId;
+			else if (profilerView === 'snapshot' && snapshotViewId) st.item = snapshotViewId;
+		}
+	} else if (_activeTab === 'pysim') st.sub = _pysimSub;
 	else if (_activeTab === 'cards') {
 		st.view = _cardsView;
 		if (_cardsView === 'edit' && _cardsEditId) st.preset = _cardsEditId;
-	} else if (_activeTab === 'profiler') {
-		st.view = profilerView;
-		if (profilerView === 'list') st.listtab = profilerListTab;
-		else if (profilerView === 'editor' && profilerEditId) st.item = profilerEditId;
-		else if (profilerView === 'snapshot' && snapshotViewId) st.item = snapshotViewId;
 	}
 	return st;
 }
@@ -2136,9 +2135,16 @@ function navSeed() {
 // Replay a history entry (popstate).
 function navApply(st) {
 	st = st || {};
+	// A state recorded before v4.4.0 may still name the Profiler tab (an open
+	// page across a service-worker update): it is a Files state now, its
+	// legacy `listtab` naming the pill.
+	if (st.tab === 'profiler') {
+		st = { tab: 'files', sub: st.listtab === 'snapshots' ? 'snapshots' : 'profiles',
+			view: st.view, item: st.item };
+	}
 	_navApplying = true;
 	try {
-		switchTab(st.tab || 'c-apdu');
+		switchTab(st.tab || 'pysim');
 		if (st.tab === 'scp80') {
 			scp80SwitchSubtab(st.sub || 'sp');
 		} else if (st.tab === 'c-apdu') {
@@ -2151,18 +2157,17 @@ function navApply(st) {
 			scp81SwitchSubtab(st.sub || 'listener');
 		} else if (st.tab === 'files') {
 			filesSwitchSubtab(st.sub || 'files');
+			if (filesProfilerPill()) navApplyProfiler(st);
 		} else if (st.tab === 'pysim') {
-			pysimSwitchSubtab(st.sub || 'apdu');
+			pysimSwitchSubtab(st.sub || 'chv');
 		} else if (st.tab === 'cards') {
 			navApplyCards(st);
-		} else if (st.tab === 'profiler') {
-			navApplyProfiler(st);
 		}
 	} catch (e) {
 		// a replay must never leave the app half-switched: fall back to the
-		// default tab (the console carries the original failure)
+		// landing tab (the console carries the original failure)
 		if (typeof console !== 'undefined') console.warn('navApply failed:', e);
-		try { switchTab('c-apdu'); } catch (e2) { /* the default view failed too */ }
+		try { switchTab('pysim'); } catch (e2) { /* the landing view failed too */ }
 	} finally {
 		_navApplying = false;
 	}
@@ -2200,7 +2205,6 @@ function navApplyProfiler(st) {
 		if (idx >= 0) { snapshotOpen(idx); return; }
 	}
 	profilerSetView(view === 'editor' || view === 'snapshot' ? 'list' : view);
-	profilerListSwitch(st.listtab || profilerListTab);
 }
 
 // The test-suite views' in-app back buttons.
@@ -2225,9 +2229,8 @@ function switchTab(name) {
 	if (name === 'c-apdu') cApduSwitchSubtab('sim');
 	else if (name === 'scp80') setHelpAnchor(scp80HelpAnchor);
 	else if (name === 'cards') { cardsRender(); cardsFetch(); setHelpAnchor('cards'); }
-	else if (name === 'files') { setHelpAnchor(filesHelpAnchor); pysimFsFitTree(); }
-	else if (name === 'pysim') { setHelpAnchor(pysimHelpAnchor); }
-	else if (name === 'profiler') { profilerSetView('list'); setHelpAnchor('profiler'); }
+	else if (name === 'files') { filesPanelsApply(); pysimFsFitTree(); }
+	else if (name === 'pysim') pysimSwitchSubtab(_pysimSub);
 	else if (name === 'phone') phoneSwitchSubtab('phone');
 	else if (name === 'scp81') scp81Enter();
 	navRecord();
@@ -10508,6 +10511,15 @@ function pysimChvRender() {
 	}
 	const host = document.getElementById('pysim-chv-fields');
 	if (host) {
+		// The rebuild replaces the inputs: keep what the operator typed (a
+		// Code/Action switch can keep a field, and a language refresh
+		// re-renders the labels).  pysimChvPrefill(false) below fills only
+		// the empty ones.
+		const typed = {};
+		Object.keys(PYSIM_CHV_FIELDS).forEach(name => {
+			const el = document.getElementById(pysimChvFieldId(name));
+			if (el) typed[name] = String(el.value == null ? '' : el.value);
+		});
 		host.innerHTML = pysimChvFieldsFor(code, action).map(name => {
 			const spec = PYSIM_CHV_FIELDS[name];
 			const id = pysimChvFieldId(name);
@@ -10519,6 +10531,10 @@ function pysimChvRender() {
 				+ ' oninput="pysimChvGating()">'
 				+ '</div>';
 		}).join('');
+		Object.keys(typed).forEach(name => {
+			const el = document.getElementById(pysimChvFieldId(name));
+			if (el) el.value = typed[name];
+		});
 	}
 	pysimChvPrefill(false);
 	pysimChvStateRender();
@@ -10717,18 +10733,20 @@ function pysimStatusHtml(data) {
 		+ '<span class="w-24 shrink-0 text-gray-500 dark:text-slate-400">' + esc(label) + '</span>'
 		+ '<span class="flex-1 min-w-0 break-all font-mono">' + value + '</span>'
 		+ '</div>';
+	// One Card row for the identity, the presence and the init state: the
+	// server's card name (eUICC / UICC / SIM, no kind suffix) while a card
+	// session is usable, otherwise what is known about the card.
 	const card = data.card || null;
-	const cardName = card ? (card.name || card.kind || '?') : null;
-	const cardText = esc(cardName || t('none')) +
-		(card && card.name && card.kind
-			&& card.name.toLowerCase() !== card.kind.toLowerCase()
-			? ' (' + esc(card.kind) + ')' : '');
-	let html = row(t('Session:'), esc(data.connected ? t('connected')
-			: (data.equipping ? t('initializing') : t('not connected'))))
-		+ row(t('Card:'), cardText)
-		+ row(t('Card present:'), esc(data.card_present ? t('yes') : t('no')))
-		+ row('ATR:', esc(data.atr || t('n/a')))
-		+ row('ICCID:', esc(data.iccid || t('n/a')));
+	let cardText;
+	if (data.connected && card) cardText = esc(card.name || card.kind || '?');
+	else if (data.equipping) cardText = esc(t('initializing'));
+	else if (data.card_present) cardText = esc(t('inserted, not initialized'));
+	else cardText = esc(t('not inserted'));
+	let html = row(t('Card:'), cardText);
+	// the ATR / ICCID rows exist only when the server reports them; the EID
+	// stays conditional (an eUICC only) and the selection keeps `none`
+	if (data.atr) html += row('ATR:', esc(data.atr));
+	if (data.iccid) html += row('ICCID:', esc(data.iccid));
 	if (data.eid) html += row('EID:', esc(data.eid));
 	const sel = data.selection;
 	let selection = esc(sel ? (sel.name || sel.fid || '?') : t('none'));
@@ -10766,7 +10784,7 @@ function pysimStatusHtml(data) {
 		if (data.scp80.cntr) parts.push(t('counter') + ' ' + esc(String(data.scp80.cntr)));
 		states.push('SCP80=' + (parts.join(' ') || t('ready')));
 	}
-	if (states.length) html += row(t('State:'), states.join(' · '));
+	html += row(t('State:'), states.join(' · '));
 	return html;
 }
 
@@ -16679,7 +16697,7 @@ let filesHelpAnchor = 'file-manager';
 // The Card reader's two views: PIN / ADM (the default pill, v4.3.0) and Raw
 // APDU.  A recorded state from an older layout (files/services/cmd) would
 // hide the panel with nothing to show, so any other name folds onto the
-// default pill (the profilerListSwitch pattern).
+// default pill (the filesSwitchSubtab pattern).
 const PYSIM_SUB_PANELS = { chv: 'pysim-sub-chv', apdu: 'pysim-sub-apdu' };
 const PYSIM_SUB_HELP = { chv: 'pin-adm', apdu: 'raw-apdu' };
 
@@ -16705,11 +16723,23 @@ function pysimSwitchSubtab(name) {
 	navRecord();
 }
 
-// The File manager tab's three views (files / services / custom files).
-function filesSwitchSubtab(name) {
-	_filesSub = name;
+// The Files tab's pills (v4.4.0): files / services / custom files, plus the
+// two profiler lists, profiles / card snapshots (the Profiler tab moved here).
+const FILES_SUB_PANELS = { files: 'pysim-sub-files', services: 'pysim-sub-services',
+	custom: 'pysim-cf-panel' };
+const FILES_SUB_NAMES = ['files', 'services', 'custom', 'profiles', 'snapshots'];
+
+function filesProfilerPill() {
+	return _filesSub === 'profiles' || _filesSub === 'snapshots';
+}
+
+// Apply the active pill (and, while a profiler pill is active, the overlay
+// `profilerView` names) to the DOM.  It never changes the state: an unsaved
+// profile editor stays in `profilerView` across a pill or tab switch, and the
+// pill it returns to is `_filesSub`.
+function filesPanelsApply() {
 	document.querySelectorAll('.files-subtab').forEach(btn => {
-		const isActive = btn.dataset.filesSub === name;
+		const isActive = btn.dataset.filesSub === _filesSub;
 		btn.classList.toggle('bg-blue-600', isActive);
 		btn.classList.toggle('text-white', isActive);
 		btn.classList.toggle('bg-gray-200', !isActive);
@@ -16717,18 +16747,44 @@ function filesSwitchSubtab(name) {
 		btn.classList.toggle('text-gray-700', !isActive);
 		btn.classList.toggle('dark:text-slate-300', !isActive);
 	});
-	const panels = { files: 'pysim-sub-files', services: 'pysim-sub-services',
-		custom: 'pysim-cf-panel' };
-	Object.keys(panels).forEach(k => {
-		const el = document.getElementById(panels[k]);
-		if (el) el.classList.toggle('hidden', k !== name);
+	Object.keys(FILES_SUB_PANELS).forEach(k => {
+		const el = document.getElementById(FILES_SUB_PANELS[k]);
+		if (el) el.classList.toggle('hidden', k !== _filesSub);
 	});
+	// the profiler blocks live in this tab now: only while a profiler pill is
+	// active, and then the one profilerView names
+	const on = filesProfilerPill();
+	const blocks = { list: 'profiler-list', editor: 'profiler-editor',
+		results: 'profiler-results', snapshot: 'profiler-snapshot' };
+	Object.keys(blocks).forEach(view => {
+		const el = document.getElementById(blocks[view]);
+		if (el) el.classList.toggle('hidden', !(on && profilerView === view));
+	});
+	// the list's own sub-panel follows the pill
+	const listPill = _filesSub === 'snapshots' ? 'snapshots' : 'profiles';
+	const wp = document.getElementById('profiler-list-profiles');
+	if (wp) wp.classList.toggle('hidden', !on || listPill !== 'profiles');
+	const ws = document.getElementById('profiler-list-snapshots');
+	if (ws) ws.classList.toggle('hidden', !on || listPill !== 'snapshots');
 	filesHelpAnchor = {files: 'file-manager', services: 'services',
-		custom: 'custom-files'}[name] || 'file-manager';
+		custom: 'custom-files', profiles: 'profiler',
+		snapshots: 'card-snapshots'}[_filesSub] || 'file-manager';
 	setHelpAnchor(filesHelpAnchor);
+}
+
+function filesSwitchSubtab(name) {
+	if (FILES_SUB_NAMES.indexOf(name) < 0) name = 'files';
+	_filesSub = name;
+	filesPanelsApply();
 	if (name === 'files') pysimFsFitTree();
 	if (name === 'services') pysimServicesOpen();
 	if (name === 'custom') pysimCustomRender();
+	// the profiler lists are rendered on entry; the overlay (an unsaved
+	// editor included) is left alone and re-shown by filesPanelsApply()
+	if (filesProfilerPill() && profilerView === 'list') {
+		profilerRenderList();
+		profilerRenderSnapshotList();
+	}
 	navRecord();
 }
 
@@ -21444,7 +21500,6 @@ let profilerMismatchOnly = false;
 let snapshots = [];
 let snapshotViewId = null;
 let _scanTarget = 'profile';
-let profilerListTab = 'profiles';
 
 // Files whose contents are ignored (contents check omitted) when scanning.
 // Keyed by FID; display name is the pySim name.
@@ -21645,39 +21700,19 @@ function profilerRenderList() {
 	pysimApplyAvailability();
 }
 
-function profilerListSwitch(name) {
-	// The Profiler is offline-only now: Custom files moved to the File manager
-	// tab (a legacy recorded 'custom' state falls back to Profiles).
-	if (name !== 'snapshots') name = 'profiles';
-	profilerListTab = name;
-	document.querySelectorAll('.profiler-list-tab').forEach(btn => {
-		const active = btn.dataset.listTab === name;
-		btn.classList.toggle('bg-blue-600', active);
-		btn.classList.toggle('dark:bg-blue-500', active);
-		btn.classList.toggle('text-white', active);
-		btn.classList.toggle('dark:text-white', active);
-		btn.classList.toggle('bg-gray-200', !active);
-		btn.classList.toggle('dark:bg-slate-700', !active);
-		btn.classList.toggle('text-gray-700', !active);
-		btn.classList.toggle('dark:text-slate-300', !active);
-	});
-	document.getElementById('profiler-list-profiles').classList.toggle('hidden', name !== 'profiles');
-	document.getElementById('profiler-list-snapshots').classList.toggle('hidden', name !== 'snapshots');
-	setHelpAnchor({ profiles: 'profiler', snapshots: 'card-snapshots' }[name] || 'profiler');
-	navRecord();
-}
-
+// The profiler's own view: list / editor / results / snapshot.  It is NOT a
+// pill - the pills above (`_filesSub`) decide which list it belongs to, and an
+// open overlay stays open across a pill or tab switch until Back / Save.
 function profilerSetView(view) {
 	profilerView = view;
-	document.getElementById('profiler-list').classList.toggle('hidden', view !== 'list');
-	document.getElementById('profiler-editor').classList.toggle('hidden', view !== 'editor');
-	document.getElementById('profiler-results').classList.toggle('hidden', view !== 'results');
-	document.getElementById('profiler-snapshot').classList.toggle('hidden', view !== 'snapshot');
+	// the list (and an overlay reached from it) belongs to a profiler pill; a
+	// list reached from anywhere else lands on Profiles
+	if (view === 'list' && !filesProfilerPill()) _filesSub = 'profiles';
 	if (view === 'list') {
 		profilerRenderList();
 		profilerRenderSnapshotList();
-		profilerListSwitch(profilerListTab);
 	}
+	filesPanelsApply();
 	navRecord();
 }
 
@@ -21866,8 +21901,10 @@ async function profilerScanStart() {
 			snapshots.push(snapshot);
 			snapshotsSave();
 			profilerScanCancel();
-			profilerSetView('list');
-			profilerListSwitch('snapshots');
+			// the pill switch renders the list; only force the view when it is
+			// not already the list (the scan starts there)
+			if (profilerView !== 'list') profilerSetView('list');
+			filesSwitchSubtab('snapshots');
 		} else {
 			const rules = await profilerScanCard(ignoreFids, ignoreNames, fciMode, onProgress, maskFids);
 			const profile = { id: profilerNewId(), name: name, created: new Date().toISOString(), rules: rules };
@@ -22229,8 +22266,8 @@ function profilerImportFile(input) {
 			obj.created = obj.created || new Date().toISOString();
 			profiles.push(obj);
 			profilerSave();
-			profilerRenderList();
-			profilerListSwitch('profiles');
+			if (profilerView !== 'list') profilerSetView('list');
+			filesSwitchSubtab('profiles');
 		} catch (e) {
 			pysimAlert(t('Import error') + ': ' + e.message);
 		}
@@ -22257,6 +22294,8 @@ async function profilerDelete(i) {
 
 function profilerEdit(i) {
 	const p = profiles[i];
+	// editing a profile is the Profiles pill's overlay: Back returns there
+	_filesSub = 'profiles';
 	profilerEditId = p.id;
 	profilerDraft = JSON.parse(JSON.stringify(p));
 	// a fresh draft starts with every access-rules block collapsed
@@ -22300,8 +22339,8 @@ function snapshotImportFile(input) {
 			obj.iccid = obj.iccid || profilerSnapshotIccid(obj.files);
 			snapshots.push(obj);
 			snapshotsSave();
-			profilerRenderSnapshotList();
-			profilerListSwitch('snapshots');
+			if (profilerView !== 'list') profilerSetView('list');
+			filesSwitchSubtab('snapshots');
 		} catch (e) {
 			pysimAlert(t('Import error') + ': ' + e.message);
 		}
@@ -22328,6 +22367,8 @@ async function snapshotDelete(i) {
 
 function snapshotOpen(i) {
 	const s = snapshots[i];
+	// opening a snapshot is the Card snapshots pill's overlay: Back returns there
+	_filesSub = 'snapshots';
 	snapshotViewId = s.id;
 	profilerSetView('snapshot');
 	document.getElementById('snapshot-name').value = s.name;
@@ -22351,7 +22392,7 @@ function profilerRenderSnapshotSummary(s) {
 		if (f.content && f.content.kind === 'record' && f.content.records) records += f.content.records.length;
 	}
 	let html = '<div class="text-xs text-gray-500 dark:text-slate-400">' +
-		esc(t('Files')) + ': <b>' + files + '</b> · ' + esc(t('Records')) + ': <b>' + records + '</b>';
+		esc(t('Files:')) + ' <b>' + files + '</b> · ' + esc(t('Records')) + ': <b>' + records + '</b>';
 	const timing = s.timing;
 	if (timing && timing.total_ms !== undefined) {
 		html += ' · ' + esc(t('Scan time')) + ': <b>' + esc(profilerFormatMs(timing.total_ms)) + '</b>';
@@ -28746,7 +28787,6 @@ const LANG_RU = {
 	'Check status': 'Проверить статус',
 	'Reset card': 'Сброс карты',
 	'Disconnect from server': 'Отключиться от сервера',
-	'File manager': 'Файловый менеджер',
 	'Custom files': 'Пользовательские файлы',
 	'Reader': 'Ридер',
 	'Card': 'Карта',
@@ -28757,15 +28797,14 @@ const LANG_RU = {
 	'Reader switch failed:': 'Не удалось переключить ридер:',
 	'Reader:': 'Ридер:',
 	'Card:': 'Карта:',
-	'Session:': 'Сессия:',
 	'connected': 'подключена',
 	'initializing': 'инициализация',
 	'not connected': 'не подключена',
-	'Card present:': 'Карта вставлена:',
+	'inserted, not initialized': 'вставлена, не инициализирована',
+	'not inserted': 'не вставлена',
 	'yes': 'да',
 	'no': 'нет',
 	'none': 'нет',
-	'n/a': 'н/д',
 	'Selection:': 'Выбор:',
 	'mode=': 'режим=',
 	'poll=': 'опрос=',
@@ -29035,7 +29074,6 @@ const LANG_RU = {
 	'Card equipped': 'Карта подключена',
 	'Connect to server': 'Подключитесь к серверу',
 	'Insert and equip a card': 'Вставьте и подключите карту',
-	'Files': 'Файлов',
 	'Records': 'Записей',
 	'Scan time': 'Время сканирования',
 	'scanned in': 'за',
@@ -29332,6 +29370,7 @@ const LANG_RU = {
 	'Raw': 'Raw',
 	'PoR': 'PoR',
 	'Files': 'Файлы',
+	'Files:': 'Файлов:',
 	'keyset number must be 1..15': 'номер keyset должен быть 1..15',
 	'Event fields (JSON)': 'Поля события (JSON)',
 	'Event fields must be a JSON object': 'Поля события должны быть объектом JSON',
@@ -30064,9 +30103,9 @@ function toggleLang() {
 	updateHelpLink();
 }
 
-let currentHelpAnchor = 'sim-rfm';
-// The Card reader opens on its default pill (PIN / ADM), so the help link
-// points at that section first.
+// The app lands on the Card reader, so the help link starts at that tab's
+// default pill (PIN / ADM) - switchTab('pysim') keeps the last-used anchor.
+let currentHelpAnchor = PYSIM_SUB_HELP[_pysimSub];
 let pysimHelpAnchor = PYSIM_SUB_HELP[_pysimSub];
 
 function updateHelpLink() {
@@ -30110,7 +30149,12 @@ function refreshDynamicI18n() {
 	pysimUpdateAdmIndicator(_pysimLastStatus);
 	pysimUpdatePinIndicator(_pysimLastStatus);
 	pysimPinLegendRender();
-	if (isViewVisible('tab-profiler')) {
+	// the PIN / ADM form's labels and titles are built by t() (a re-render
+	// keeps the typed values)
+	if (isViewVisible('pysim-sub-chv')) pysimChvRender();
+	// the profiler views live in the Files tab now: re-render them only while
+	// a profiler pill (and its overlay) is actually shown
+	if (isViewVisible('tab-files') && filesProfilerPill()) {
 		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); }
 		else if (profilerView === 'editor') profilerRenderEditor();
 		else if (profilerView === 'results') profilerRenderResultsView();
@@ -30228,6 +30272,10 @@ if (!window.matchMedia('(display-mode: standalone)').matches) {
 	window.addEventListener('appinstalled', () => { installBtn.style.display = 'none'; });
 }
 navSeed();
+// The Card reader is the landing view: the markup only shows the seeded state,
+// so build its default pill's form now (pysimChvRender fills the fields).  The
+// state matches the seeded entry, so navRecord() adds no history entry.
+if (document.getElementById('pysim-chv-fields')) pysimSwitchSubtab(_pysimSub);
 if ('serviceWorker' in navigator) {
 	navigator.serviceWorker.register('sw.js');
 }

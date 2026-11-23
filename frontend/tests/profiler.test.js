@@ -23,7 +23,7 @@ function extractFunc(src, name, asyncFn) {
 
 const FNS = ['profilerNormHex', 'profilerNormHexStrict', 'profilerMatch', 'profilerMatchMin', 'profilerMaskPrefix4', 'profilerFileFields', 'profilerContentKindForFileType', 'profilerEmptyRecordContent', 'profilerValidateProfile', 'profilerCustomNameForPath', 'pysimCustomNormPath', 'profilerUpdateRulePath', 'profilerResultAspects', 'profilerAspectSummary', 'profilerNumRanges', 'profilerMatchedRecordsText', 'profilerCloneName', 'profilerClone', 'profilerNewId', 'esc', 'escHtml', 'profilerRawDataCheck', 'profilerRenderReport', 'parseBerLen', 'parseTlvList', 'fcpInt', 'fcpParseTlvs', 'fcpFileDescriptor', 'fcpLifeCycle', 'fcpSfi', 'fcpDo', 'fcpDecode',
 	'fcpArrRef', 'fcpSeidName', 'fcpArrRules', 'fcpArrRefFromFci', 'fcpWithoutArrRef', 'fcpArrSplitTop', 'fcpArrKeyRefFromName', 'fcpArrKeyRefOptions', 'fcpArrScParse', 'fcpArrScEncode', 'fcpArrRuleParse', 'fcpArrRuleEncode', 'fcpArrRuleOps', 'fcpArrRuleOpCovered', 'fcpArrRuleSatisfied', 'fcpArrRuleToggleBit', 'fcpArrRuleSetKind', 'fcpArrRuleSetSc', 'fcpArrRuleSetUq', 'fcpArrRuleAddSc', 'fcpArrRuleRemoveSc', 'profilerRenderAccessRulesEditor', 'profilerArrRuleHtml', 'profilerArrScSelect', 'profilerArrUqSelect', 'profilerArrToggleOpen', 'profilerArrShiftOpen', 'profilerAccessRulesDiffHtml', 'fcpDosFromFci', 'fcpDoName', 'profilerRenderFciDosEditor', 'profilerFciDoRowHtml', 'profilerFciDosDiffHtml', 'profilerUpdateRuleFciMode', 'profilerSnapshotArr', 'efBytes', 'efHex', 'efTlv', 'efDecArr', 'efArrAmLabel', 'efArrSc', 'efArrAmDo', 'efFidFromPath',
-	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'profilerListSwitch', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
+	'pinKeyRefName', 'fcpPsTemplate', 'fcpDiffHtml', 'profilerFciPreviewItems', 'profilerUpdateFciPreview', 'profilerUpdateRule', 'profilerFciInput', 'profilerScanToggleAll', 'profilerScanIgnoreAllState', 'swapNibbles', 'decIccid', 'profilerSnapshotIccid', 'profilerValidateSnapshot', 'filesProfilerPill', 'filesPanelsApply', 'filesSwitchSubtab', 'profilerSetView', 'profilerBackToList', 'profilerSaveProfile', 'profilerScanRefreshOptions', 'profilerLiveSource', 'profilerSnapshotSource', 'profilerVisibleResults', 'profilerRulesFromSnapshot', 'profilerExtraFileResults', 'profilerScanNameKeydown', 'profilerTimingStats', 'profilerTimingAccumulator', 'profilerFormatMs', 'profilerRenderSnapshotSummary', 'profilerSnapshotCountLabel', 'pysimFsInfoHtml', 'profilerLabelText', 'profilerResultsHeaderText', 'profilerRenderResultsView', 'profilerBuildFileRuleFromSnapshot', 'profilerSnapshotPickListHtml', 'profilerScanSetTarget'];
 let code = '';
 for (const f of FNS) code += extractFunc(html, f) + '\n';
 code += extractFunc(html, 'profilerBuildFileRule', true) + '\n';
@@ -35,11 +35,13 @@ code += extractFunc(html, 'profilerCheck', true) + '\n';
 code += extractFunc(html, 'profilerCheckSnapshot', true) + '\n';
 code += extractFunc(html, 'profilerScanSnapshot', true) + '\n';
 code += extractFunc(html, 'pysimArrEnsure', true) + '\n';
-code += "var _scanTarget = 'profile';\nvar profilerResults = null;\nvar profilerResultsHeader = null;\nvar profilerMismatchOnly = false;\n";
+code += "var _scanTarget = 'profile';\nvar _filesSub = 'files';\nvar profilerView = 'list';\nvar profilerEditId = null;\nvar snapshotViewId = null;\nvar filesHelpAnchor = null;\nvar profilerResults = null;\nvar profilerResultsHeader = null;\nvar profilerMismatchOnly = false;\n";
 code += "var _pysimArrCache = null;\nvar _pysimCardSession = null;\n";
 code += "var _profilerArrOpen = {};\n";
 // the view-history hooks (the router lives in the page; this pure test stubs it)
 code += 'globalThis.navRecord = function() {};\nglobalThis.navReplace = function() {};\n';
+code += html.match(/const FILES_SUB_PANELS = \{[\s\S]*?\};/)[0] + '\n';
+code += html.match(/const FILES_SUB_NAMES = \[[\s\S]*?\];/)[0] + '\n';
 code += html.match(/const PROFILER_MASK_PREFIX4_FIDS = \{[\s\S]*?\n\};/)[0] + '\n';
 code += html.match(/const FCP_ARR_AM_BITS = \[[\s\S]*?\n\];/)[0] + '\n';
 code += html.match(/const FCP_DO_KEYS = \[[\s\S]*?\n\];/)[0] + '\n';
@@ -1897,40 +1899,160 @@ test('profilerScanCard walks nested dirs with their parent path, not their own s
 	delete global.pysimCustomFiles;
 });
 
-test('profilerListSwitch toggles the profiles/snapshots tabs', () => {
-	const mkBtn = tab => ({
-		dataset: { listTab: tab },
-		classList: { _c: new Set(), toggle(c, on) { if (on) this._c.add(c); else this._c.delete(c); } },
-	});
-	const btns = [mkBtn('profiles'), mkBtn('snapshots')];
-	const profilesEl = { hidden: false, classList: { toggle(cls, on) { profilesEl.hidden = on; } } };
-	const snapsEl = { hidden: true, classList: { toggle(cls, on) { snapsEl.hidden = on; } } };
-	global.setHelpAnchor = () => {};
-	global.document = {
-		querySelectorAll: sel => (sel === '.profiler-list-tab' ? btns : []),
-		getElementById: id => (id === 'profiler-list-profiles' ? profilesEl : id === 'profiler-list-snapshots' ? snapsEl : null),
+// The Files tab DOM the pill switch touches: every panel is an element whose
+// `hidden` class the switch toggles, and the five pills are real buttons.
+function filesDom() {
+	const els = {};
+	const el = id => {
+		if (!els[id]) {
+			els[id] = { hidden: false, value: '',
+				classList: { toggle(cls, on) { if (cls === 'hidden') els[id].hidden = on; } } };
+		}
+		return els[id];
 	};
+	const btns = ['files', 'services', 'custom', 'profiles', 'snapshots'].map(name => ({
+		dataset: { filesSub: name },
+		classList: { _c: new Set(), toggle(c, on) { if (on) this._c.add(c); else this._c.delete(c); } },
+	}));
+	global.document = {
+		querySelectorAll: sel => (sel === '.files-subtab' ? btns : []),
+		getElementById: el,
+	};
+	global.setHelpAnchor = () => {};
+	// the pill's side effects (the tree fit and the two cardless renders)
+	global.pysimFsFitTree = () => {};
+	global.pysimServicesOpen = () => {};
+	global.pysimCustomRender = () => {};
+	global.profilerRenderSnapshotList = () => {};
+	return { els, btns };
+}
 
-	profilerListSwitch('snapshots');
-	assert.strictEqual(profilesEl.hidden, true);
-	assert.strictEqual(snapsEl.hidden, false);
-	assert.ok(btns[0].classList._c.has('bg-gray-200'));
-	assert.ok(btns[1].classList._c.has('bg-blue-600'));
-
-	profilerListSwitch('profiles');
-	assert.strictEqual(profilesEl.hidden, false);
-	assert.strictEqual(snapsEl.hidden, true);
-	assert.ok(btns[0].classList._c.has('bg-blue-600'));
-	assert.ok(btns[1].classList._c.has('bg-gray-200'));
-
-	// Custom files moved to the File manager tab: a legacy recorded state
-	// falls back to Profiles instead of touching a panel that is gone.
-	profilerListSwitch('custom');
-	assert.strictEqual(profilesEl.hidden, false);
-	assert.strictEqual(snapsEl.hidden, true);
-
+function filesDomCleanup() {
 	delete global.document;
 	delete global.setHelpAnchor;
+	delete global.pysimFsFitTree;
+	delete global.pysimServicesOpen;
+	delete global.pysimCustomRender;
+	delete global.profilerRenderList;
+	delete global.profilerRenderSnapshotList;
+	delete global.profilerSave;
+}
+
+test('filesSwitchSubtab handles all five pills, an unknown value -> files', () => {
+	const { els, btns } = filesDom();
+	global.profilerRenderList = () => {};
+	global.snapshots = [];
+	try {
+		filesSwitchSubtab('services');
+		assert.strictEqual(_filesSub, 'services');
+		assert.strictEqual(els['pysim-sub-services'].hidden, false);
+		assert.strictEqual(els['pysim-sub-files'].hidden, true);
+		assert.strictEqual(els['pysim-cf-panel'].hidden, true);
+		assert.ok(btns[1].classList._c.has('bg-blue-600'));
+		assert.ok(btns[0].classList._c.has('bg-gray-200'));
+
+		filesSwitchSubtab('custom');
+		assert.strictEqual(els['pysim-cf-panel'].hidden, false);
+		assert.ok(btns[2].classList._c.has('bg-blue-600'));
+
+		// a profiler pill shows the list and its own sub-panel
+		filesSwitchSubtab('profiles');
+		assert.strictEqual(els['profiler-list'].hidden, false);
+		assert.strictEqual(els['profiler-editor'].hidden, true);
+		assert.strictEqual(els['profiler-list-profiles'].hidden, false);
+		assert.strictEqual(els['profiler-list-snapshots'].hidden, true);
+		assert.strictEqual(els['pysim-sub-files'].hidden, true);
+		assert.ok(btns[3].classList._c.has('bg-blue-600'));
+
+		filesSwitchSubtab('snapshots');
+		assert.strictEqual(els['profiler-list-profiles'].hidden, true);
+		assert.strictEqual(els['profiler-list-snapshots'].hidden, false);
+		assert.ok(btns[4].classList._c.has('bg-blue-600'));
+		assert.ok(btns[3].classList._c.has('bg-gray-200'));
+
+		// back to the tree hides the profiler blocks
+		filesSwitchSubtab('files');
+		assert.strictEqual(els['pysim-sub-files'].hidden, false);
+		assert.strictEqual(els['profiler-list'].hidden, true);
+		assert.strictEqual(els['profiler-list-profiles'].hidden, true);
+
+		// a legacy / unknown name folds onto the default pill
+		filesSwitchSubtab('cmd');
+		assert.strictEqual(_filesSub, 'files');
+		assert.strictEqual(els['pysim-sub-files'].hidden, false);
+	} finally {
+		filesDomCleanup();
+		delete global.snapshots;
+	}
+});
+
+test('the Files pill switch never resets the profiler view', () => {
+	const { els } = filesDom();
+	global.profilerRenderList = () => {};
+	global.snapshots = [];
+	try {
+		// an unsaved editor is open on the Profiles pill
+		_filesSub = 'profiles'; profilerView = 'editor'; profilerEditId = 'P';
+		filesPanelsApply();
+		assert.strictEqual(els['profiler-editor'].hidden, false);
+		// a switch to another pill hides it but keeps the view (and the id)
+		filesSwitchSubtab('files');
+		assert.strictEqual(profilerView, 'editor');
+		assert.strictEqual(profilerEditId, 'P');
+		assert.strictEqual(els['profiler-editor'].hidden, true);
+		// returning to the pill re-shows the editor that was left
+		filesSwitchSubtab('profiles');
+		assert.strictEqual(els['profiler-editor'].hidden, false);
+		assert.strictEqual(els['profiler-list'].hidden, true);
+		assert.strictEqual(_filesSub, 'profiles');
+		// Back to list shows that pill's list
+		profilerSetView('list');
+		assert.strictEqual(profilerView, 'list');
+		assert.strictEqual(els['profiler-list'].hidden, false);
+	} finally {
+		filesDomCleanup();
+		delete global.snapshots;
+	}
+});
+
+test('Back to list and Save return to the current profiler pill list', () => {
+	const { els } = filesDom();
+	global.profilerRenderList = () => {};
+	global.snapshots = [];
+	global.profiles = [];
+	global.profilerSave = () => {};
+	try {
+		// Back from a snapshot overlay: the Card snapshots list
+		_filesSub = 'snapshots'; profilerView = 'snapshot'; snapshotViewId = 'N';
+		profilerSetView('snapshot');
+		assert.strictEqual(els['profiler-snapshot'].hidden, false);
+		profilerBackToList();
+		assert.strictEqual(profilerView, 'list');
+		assert.strictEqual(_filesSub, 'snapshots');
+		assert.strictEqual(els['profiler-list'].hidden, false);
+		assert.strictEqual(els['profiler-list-snapshots'].hidden, false);
+		assert.strictEqual(els['profiler-list-profiles'].hidden, true);
+
+		// Save from the profile editor: the Profiles list
+		_filesSub = 'profiles'; profilerView = 'editor'; profilerEditId = 'P';
+		global.profilerDraft = { id: 'P', name: 'x', rules: [] };
+		profilerSaveProfile();
+		assert.strictEqual(profilerView, 'list');
+		assert.strictEqual(_filesSub, 'profiles');
+		assert.strictEqual(els['profiler-list-profiles'].hidden, false);
+		assert.strictEqual(els['profiler-list-snapshots'].hidden, true);
+
+		// a list reached while no profiler pill is active lands on Profiles
+		_filesSub = 'files'; profilerView = 'editor';
+		profilerSetView('list');
+		assert.strictEqual(_filesSub, 'profiles');
+		assert.strictEqual(els['profiler-list'].hidden, false);
+	} finally {
+		filesDomCleanup();
+		delete global.snapshots;
+		delete global.profiles;
+		delete global.profilerDraft;
+	}
 });
 
 test('profilerScanRefreshOptions re-translates mask labels without touching checkbox state', () => {

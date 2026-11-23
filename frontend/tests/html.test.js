@@ -141,15 +141,65 @@ test('the Simulator panels are siblings of the tab container, never nested', () 
 });
 
 test('top-level tabs match the rearranged views', () => {
+    // v4.4.0: Card reader, Files, Simulator, Cards, Remote APDU, SCP80, SCP81
     const tabs = [...html.matchAll(/class="tab-btn[^"]*" data-tab="([^"]+)"/g)].map(m => m[1]);
-    assert.deepStrictEqual(tabs, ['c-apdu', 'scp80', 'scp81', 'cards', 'profiler',
-        'files', 'pysim', 'phone']);
+    assert.deepStrictEqual(tabs, ['pysim', 'files', 'phone', 'cards', 'c-apdu',
+        'scp80', 'scp81']);
     assert.match(html, /data-tab="c-apdu">Remote APDU</);
     // the filesystem tools have their own tab; the old "Status" tab is the
     // Card reader since v4.3.0 (the card operations moved to its PIN / ADM pill)
-    assert.match(html, /data-tab="files" data-l10n="File manager"/);
+    // and the tab is "Files" since v4.4.0 (it carries the Profiler's lists)
+    assert.match(html, /data-tab="files" data-l10n="Files"/);
     assert.match(html, /data-tab="pysim" data-l10n="Card reader"/);
     assert.ok(!html.includes('data-l10n="Status"'), 'the Status label is gone');
+    assert.ok(!html.includes('data-l10n="File manager"'), 'the File manager tab label is gone');
+    assert.ok(!html.includes('data-tab="profiler"'), 'the Profiler tab is gone');
+});
+
+test('the app lands on the Card reader tab', () => {
+    assert.match(html, /let _activeTab = 'pysim';/);
+    // the markup agrees: the active button and the un-hidden panel
+    assert.match(html, /<button class="tab-btn active[^"]*" data-tab="pysim"/);
+    const apduBtn = /<button class="([^"]*)" data-tab="c-apdu">/.exec(html);
+    assert.ok(apduBtn, 'Remote APDU button');
+    assert.ok(!apduBtn[1].includes('bg-blue-600'), 'Remote APDU starts inactive');
+    assert.match(html, /<div id="tab-pysim" class="tab-content">/);
+    assert.match(html, /<div id="tab-c-apdu" class="tab-content hidden">/);
+    // a failed replay falls back to the landing tab
+    assert.match(html, /switchTab\(st\.tab \|\| 'pysim'\)/);
+    assert.match(html, /try \{ switchTab\('pysim'\); \}/);
+});
+
+test('the snapshot summary label has its own translation key', () => {
+    // the tab/pill label and the file-summary label differ in Russian, so the
+    // summary uses `Files:` and the dictionary keeps ONE `Files` key
+    const summary = /function profilerRenderSnapshotSummary\(s\)[\s\S]*?\n\}/.exec(html);
+    assert.ok(summary, 'profilerRenderSnapshotSummary not found');
+    assert.ok(summary[0].includes("t('Files:')"), 'the summary uses t(\'Files:\')');
+    assert.ok(!/t\('Files'\)/.test(summary[0]), 'the summary does not reuse the tab key');
+    const dict = html.match(/const LANG_RU = \{([\s\S]*?)\n\};/)[1];
+    assert.strictEqual((dict.match(/^\t'Files': /gm) || []).length, 1,
+        'exactly one Files key');
+    assert.match(dict, /^\t'Files': 'Файлы',$/m);
+    assert.match(dict, /^\t'Files:': 'Файлов:',$/m);
+});
+
+test('the help sections follow the Files move', () => {
+    const help = fs.readFileSync(path.join(__dirname, '..', 'help.html'), 'utf8');
+    // section 6 is the Card reader + Files section; the Profiler is 6.7 in it
+    assert.match(help, /<h2 id="card-reader"[^>]*>6\. Card reader and Files tabs<\/h2>/);
+    assert.match(help, /<h3 id="profiler"[^>]*>6\.7 Profiles and card snapshots<\/h3>/);
+    assert.ok(help.includes('<h4 id="card-snapshots"'), 'the card-snapshots id stays');
+    // the old 6.7 became 6.8 and the following sections moved up one
+    assert.match(help, /<h3 id="usage-scenarios"[^>]*>6\.8 Usage scenarios<\/h3>/);
+    assert.match(help, /<h2 id="proactive-uicc"[^>]*>7\. Simulator<\/h2>/);
+    assert.match(help, /<h3 id="bip"[^>]*>7\.10 BIP terminal/);
+    assert.match(help, /<h2 id="server"[^>]*>8\. Server installation<\/h2>/);
+    assert.match(help, /<h2 id="compatibility"[^>]*>9\. Version compatibility<\/h2>/);
+    // ... and the two cross-references into the Simulator were renumbered
+    assert.ok(help.includes('&sect;7.10'), 'the BIP cross-reference');
+    assert.ok(help.includes('&sect;7.9'), 'the test-script cross-reference');
+    assert.ok(!help.includes('&sect;8.10'), 'no stale Simulator reference');
 });
 
 test('cards list shows the SCP81 PSK column with blue/red row buttons', () => {
@@ -368,9 +418,19 @@ test('the document and its inline script are complete', () => {
     assert.ok(inline[1].includes('function cApduSwitchSubtab'), 'key function missing');
 });
 
-test('profiler and simulator are top-level tab contents', () => {
-    assert.ok(html.includes('id="tab-profiler" class="tab-content hidden"'));
+test('the Simulator stays top-level; the Profiler moved into Files', () => {
     assert.ok(html.includes('id="tab-phone" class="tab-content hidden"'));
+    assert.ok(!html.includes('id="tab-profiler"'));
+    // the four profiler blocks live inside the Files tab
+    const files = /<div id="tab-files" class="tab-content hidden">([\s\S]*?)\n\t<div id="tab-phone"/.exec(html);
+    assert.ok(files, 'the Files tab block');
+    for (const id of ['profiler-list', 'profiler-editor', 'profiler-results',
+        'profiler-snapshot']) {
+        assert.ok(files[1].includes('id="' + id + '"'), id + ' must live in the Files tab');
+    }
+    // the old Profiler list pills are gone (the Files pills replace them)
+    assert.ok(!html.includes('profiler-list-tab'));
+    assert.ok(!html.includes('data-list-tab='));
 });
 
 test('simulator has Phone / TR Config pills', () => {
@@ -388,12 +448,12 @@ test('snapshot view has a timing summary block', () => {
     assert.ok(html.includes('id="snapshot-summary"'));
 });
 
-test('header state indicator and the File manager custom-files pill', () => {
+test('header state indicator and the Files custom-files pill', () => {
     assert.ok(html.includes('id="state-indicator"'));
-    // Custom files moved out of the Profiler into the File manager tab
+    // Custom files moved out of the Profiler into the Files tab
     assert.ok(html.includes('id="pysim-cf-panel"'));
     assert.ok(html.includes('data-files-sub="custom"'));
-    // the File manager pills are wired to their switcher exactly once: the
+    // the Files pills are wired to their switcher exactly once: the
     // delegated registration in the startup block, no inline onclick (a second
     // wiring would run the switch - and pysimServicesOpen's card reads - twice)
     assert.strictEqual((html.match(/addEventListener\('click', \(\) => filesSwitchSubtab\(/g) || []).length, 1);
@@ -403,7 +463,22 @@ test('header state indicator and the File manager custom-files pill', () => {
     assert.match(html, /data-files-sub="files" data-needs="card"/);
     assert.ok(!html.includes('data-list-tab="custom"'), 'the Profiler custom tab is gone');
     assert.ok(!html.includes('data-pysim-sub="custom"'));
-    assert.ok(!html.includes('data-pysim-sub="files"'), 'the file manager is not a Status pill');
+    assert.ok(!html.includes('data-pysim-sub="files"'), 'the Files tab is not a Card reader pill');
+});
+
+test('the Files tab has five pills, Profiles and Card snapshots included', () => {
+    // flat five, in the decided order (v4.4.0)
+    const pills = [...html.matchAll(/data-files-sub="([^"]+)"/g)].map(m => m[1]);
+    assert.deepStrictEqual(pills, ['files', 'services', 'custom', 'profiles', 'snapshots']);
+    assert.match(html, /data-files-sub="files"[^>]*data-l10n="Files">Files</);
+    assert.match(html, /data-files-sub="profiles"[^>]*data-l10n="Profiles">Profiles</);
+    assert.match(html, /data-files-sub="snapshots"[^>]*data-l10n="Card snapshots">Card snapshots</);
+    // the profiler list panels sit in the tab, both hidden until a pill shows one
+    const files = /<div id="tab-files" class="tab-content hidden">([\s\S]*?)\n\t<div id="tab-phone"/.exec(html)[1];
+    const list = /<div id="profiler-list" class="hidden">([\s\S]*?)<\/div>\s*<div id="profiler-editor"/.exec(files);
+    assert.ok(list, 'the profiler list block');
+    assert.ok(list[1].includes('id="profiler-list-profiles"'), 'the profiles list');
+    assert.ok(/id="profiler-list-snapshots" class="hidden"/.test(list[1]), 'the snapshots list');
 });
 
 test('header status indicator has a compact ADM badge', () => {
@@ -605,7 +680,7 @@ test('every tab-content lives inside the max-w-7xl page container', () => {
         }
         depth++;
     }
-    assert.strictEqual(seen.size, 8, 'expected all eight tabs, saw ' + seen.size);
+    assert.strictEqual(seen.size, 7, 'expected all seven tabs, saw ' + seen.size);
 });
 
 test('the RAM form shows Card preset and Operation in one row', () => {

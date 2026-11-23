@@ -145,7 +145,7 @@ __all__ = [
 #: The server version served by ``GET /api/version``.  It moves together with
 #: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
 #: three).
-VERSION = '4.3.0'
+VERSION = '4.4.0'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
