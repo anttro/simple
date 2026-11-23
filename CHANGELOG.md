@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SIMple (the PWA and `pysim-simple-server`).
+All notable changes to SIMple (the PWA and `simple-server`).
 The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions use `MAJOR.MINOR.PATCH` (see the README).
 
@@ -34,6 +34,28 @@ every change carries a descriptive commit message.
   release.
 - The distribution is named `simple` (the console script stays
   `simple-server`).
+
+### Fixed
+
+- **2G SIM detection and selection.**  The first 4.0.0 probe sent the USIM
+  AID before the SIM probe; the bench 2G SIM answers an unknown AID with
+  `6999` and then refuses **every** command until a reset, and it also
+  refuses an A0 `SELECT MF` until a DF has been selected.  `detect_card` now
+  probes `SELECT MF` (CLA 00) → `SELECT DF.GSM` (CLA A0, `7F20`, pySim's
+  `SimCardBase.probe()`) → USIM ADF (last), and the TS 51 011 select form
+  carries the response-data octet (`A0A4 0000 02 <fid> 00`).
+
+### Verified
+
+- Live smoke on the bench cards before the release: the UICC (status, tree,
+  select/read, the STK menu, send-ota with the PoR and the counter, tar-probe,
+  the PWA), the eUICC (EID, EUICCInfo1/2, addresses, GetRat, profiles,
+  notifications and an enable/disable roundtrip with the re-init and the
+  verified state), the SCP81 TLS-PSK listener (the HTTP OTA trigger, the PSK
+  handshake, the 204 dialog and a command script with its R-APDU) and the 2G
+  SIM (detection as `sim`/CLA A0, EF.ICCID `897010272147119764`, the
+  `MegaFonPRO` STK menu with the CAT CLA A0).  Reading a 2G SIM's files still
+  refuses without an FCP (the recorded post-4.0.0 fallback).
 
 ### Legacy
 
