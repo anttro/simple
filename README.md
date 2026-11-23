@@ -698,7 +698,7 @@ The **Simulator** tab provides real-time CAT session interaction. It has five pi
 
 Values persist on the server until restart. Apply → hex updates; Save → POSTs to server. The server will use these values to populate TERMINAL RESPONSE data for future PLI proactive commands.
 
-**Network simulation** — replays the card-facing write patterns of a real phone on network-condition changes (trace study: `projects/UICC_NAA.md`): **Cold boot**, **EPS attach**, **2G attach**, **Service lost**, **Limited service**, **Roaming denied**, **Churn**, **SMS received**, **CB reconfig** and **AUTHENTICATE**. Each scenario sends the Location status event (only when the card subscribed to it), updates the EPS NAS context, location files, Kc and CB/SMS files exactly as observed, and logs every step with its SW. Parameters (collapsed) cover the operator (searchable worldwide MCC/MNC list served by the server, plus a random roaming picker and a **Home network** button that fills the card's HPLMN from EF.HPLMNwAcT's first record, falling back to the IMSI), LAC/Cell ID/TAC/RAC, optional identity values (empty = random: TMSI, GUTI, KSI, KASME, Kc, NAS counts, algorithm, RAND/AUTN), scenario toggles and the churn count/delay. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; EF.FPLMN is appended only by **Roaming denied** (TS 31.102 §4.2.16, duplicates skipped) and an attach to a listed PLMN clears its entry first (successful manual selection, TS 23.122), while the 5GS location files are never written. The operator list is bundled (`pysim_simple_server/data/mcc-mnc-list.json`, MIT; MVNO entries are hidden — the picker lists real networks), and `--mcc-mnc-list` overrides it.
+**Network simulation** — replays the card-facing write patterns of a real phone on network-condition changes (trace study: `projects/UICC_NAA.md`): **Cold boot**, **EPS attach**, **2G attach**, **Service lost**, **Limited service**, **Roaming denied**, **Churn**, **SMS received**, **CB reconfig** and **AUTHENTICATE**. Each scenario sends the Location status event (only when the card subscribed to it), updates the EPS NAS context, location files, Kc and CB/SMS files exactly as observed, and logs every step with its SW. Parameters (collapsed) cover the operator (searchable worldwide MCC/MNC list served by the server, plus a random roaming picker and a **Home network** button that fills the card's HPLMN from EF.HPLMNwAcT's first record, falling back to the IMSI), LAC/Cell ID/TAC/RAC, optional identity values (empty = random: TMSI, GUTI, KSI, KASME, Kc, NAS counts, algorithm, RAND/AUTN), scenario toggles and the churn count/delay. Only UPDATE BINARY/RECORD, ENVELOPE and AUTHENTICATE are sent; EF.FPLMN is appended only by **Roaming denied** (TS 31.102 §4.2.16, duplicates skipped) and an attach to a listed PLMN clears its entry first (successful manual selection, TS 23.122), while the 5GS location files are never written. The operator list is bundled (`simple_server/data/mcc-mnc-list.json`, MIT; MVNO entries are hidden — the picker lists real networks), and `--mcc-mnc-list` overrides it.
 
 **Network state monitor** — a compact **Network state** panel next to the simulation buttons shows what the card currently holds and what was last simulated. Its header carries the **simulated service state** (*Undefined* until a scenario or a Location status event sets it, then *Normal service* / *Limited service* / *No service*) with a *PLMN not allowed* marker when the location files or EF.FPLMN show a rejection, plus the current location: PLMN, country and operator, the LAI/RAI/TAI, and the **roaming class** (*Home* when the PLMN equals the HPLMN, *Home equivalent* when it is in EF.EHPLMN, otherwise *Guest*). Below it, one compact line per monitored file (IMSI, EHPLMN, SPDI, HPLMNwAcT, LOCI, PSLOCI, EPSLOCI, EPSNSC, CBMI, CBMIR, SMSstatus, FPLMN) with its decoded summary and how it was last updated (`init`, `write`, `read`, `refresh`); hover for the full decoded fields — long PLMN lists are abbreviated (EF.HPLMNwAcT shows only the first network plus a `… +N` counter). The panel reads the files once at equip (only when the ICCID was readable), updates them in place from the bytes the simulator wrote, re-reads EF.IMSI after every scenario and Location-status event, and never polls the card — **Refresh** re-reads all files on demand.
 
@@ -853,14 +853,13 @@ Each one is fully independent — install only the tools you need:
 
 ## License
 
-**GPL-2.0-or-later** — see [LICENSE](LICENSE).  Some client-side decoders were
-ported from [simtrace-analyser](https://github.com/anttro/simtrace-analyser),
-which is also GPL-2.0-or-later.
+**MIT** — see [LICENSE](LICENSE).  Some client-side decoders were adapted from
+[simtrace-analyser](https://github.com/anttro/simtrace-analyser), which is
+also MIT.
 
 pySim is no longer a dependency of the 4.x server (it is not imported and not
 shipped); the pySim-based 3.x line stays in the `simple-pysim` fork, which
-keeps its own GPL license.  **The planned switch of this repository to MIT
-waits for simtrace-analyser's relicensing** — until then the GPL stays.
+keeps its own GPL license.
 
 Bundled third-party components (the MCC/MNC operator list and the AES/DES
 bundles in the frontend) keep their own MIT licenses — see

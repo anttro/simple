@@ -2143,14 +2143,14 @@ Implications:
 
 ## Licensing & repo split plan
 
-Current license is **GPL-2.0-or-later**, for two reasons the repo itself
-documents (`LICENSE` / `THIRD-PARTY-NOTICES`):
+**Current license: MIT** (as of 4.0.0; `LICENSE` / `THIRD-PARTY-NOTICES` /
+`pyproject.toml`).  The GPL history had two anchors:
 
-1. the server **imports pysim** (GPL-2.0-or-later) — a runtime dependency; under
-   the FSF's reading a program that links to a GPL library is a derivative work
-   while so linked;
-2. the **client-side EF decoders** are *ported/adapted from simtrace-analyser*
-   (GPL-2.0-or-later; see `frontend/index.html`).
+1. the server **imported pysim** (GPL-2.0-or-later) — removed by this
+   phase-out;
+2. the **client-side EF decoders** were adapted from simtrace-analyser —
+   which is **MIT** (it has been for a while), so the second anchor is
+   cleared.
 
 The two anchors unblock on different timelines:
 
@@ -2168,25 +2168,23 @@ The two anchors unblock on different timelines:
    the whole repo stays GPL.
 2. **Complete the pysim phase-out** into `simple_server` (the phases above),
    written from the specs.
-3. **Relicense simtrace-analyser** (our own action) — or re-author the ~30
-   client-side EF decoders from the specs.  Either clears the second GPL anchor.
-4. **Fork `simple-pysim` at cutover** — a fresh repo from the **final
-   published 3.x tree** (no history; the v1.7.0 consolidation's "fresh move +
-   archive" recipe): `pysim_simple_server/`, the pysim-era `frontend/`, the
-   tests, the scripts, `requirements-pysim.txt`, the GPL `LICENSE`, the
-   READMEs.  It is a **frozen legacy tool** (maintenance mode: little or no
-   update), GPL-2.0-or-later, with a README pointing at `simple` as the
-   maintained tool.  Its PWA keeps the pysim-era UI (the pySim command line,
-   the old status block, "Verify vs pySim").
-5. **`simple` becomes fully pysim-free** — `pysim_simple_server/` is removed
-   (the 12 pysim-free modules move into `simple_server/`), the
-   `requirements-pysim.txt` / pysim install steps are gone, the PWA loses the
-   pySim-specific UI (see the Phase 3c API surface), and the license moves to
-   **MIT** once the simtrace-analyser relicensing lands.  One server, one
-   script set, one API, one PWA code path.  Version 4.0.0.
+3. **simtrace-analyser is MIT** — the second anchor is cleared.  **Done.**
+4. **Fork `simple-pysim`** — taken from the **last tagged release v3.40.9**
+   (no history; the v1.7.0 "fresh move + archive" recipe): the
+   `pysim_simple_server/` package, the pysim-era PWA, the tests, the scripts,
+   `requirements-pysim.txt`, the GPL `LICENSE`, the READMEs with the frozen
+   notice and `FORK.md`; the updater points at `anttro/simple-pysim`.
+   **Done** (`~/projects/simple-pysim`, a local repo — the remote/push is the
+   user's).
+5. **`simple` is fully pysim-free** — the 12 pysim-free modules live in
+   `simple_server/shared/`, the MCC/MNC data in `simple_server/data/`,
+   `requirements-pysim.txt` and the pysim install steps are gone, the PWA is
+   cut over, and the license is **MIT** (simtrace-analyser is MIT).  One
+   server, one script set, one API, one PWA code path.  4.0.0.  **Done.**
 6. Update `LICENSE`, `THIRD-PARTY-NOTICES`, `pyproject.toml`, the READMEs, the
-   workspace `AGENTS.md` (which still describes `pysim_simple_server` as the
-   server) and the phase-out notes to match.
+   workspace `AGENTS.md` and the phase-out notes to match.  **Done** (the
+   `AGENTS.md` carries a cutover note at the top; a full rewrite of its legacy
+   chapters is a follow-up).
 
 ### GitHub releases at the fork (2026-11-22)
 

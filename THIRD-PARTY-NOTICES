@@ -1,25 +1,17 @@
-SIMple / pysim-simple-server — third-party notices
+SIMple — third-party notices
 ===============================================================================
 
-This project is licensed under **GPL-2.0-or-later** (see LICENSE), the same
-license as the pySim library it imports and as simtrace-analyser, from which
-some client-side decoders were ported.
-
-Runtime dependency (not included)
----------------------------------
-pySim — https://github.com/osmocom/pysim — GPL-2.0-or-later.
-
-pySim is NOT included in this repository or in the release artifacts:
-setup.sh / setup.bat install it from its upstream git repository, so its
-source and license are obtained from there.
+This project is licensed under **MIT** (see LICENSE).  The client-side EF
+decoders were adapted from simtrace-analyser, which is MIT too, and the
+pysim-free server does not import pySim.
 
 Bundled third-party components
 ------------------------------
-1. MCC/MNC operator list — pysim_simple_server/data/mcc-mnc-list.json
+1. MCC/MNC operator list — simple_server/data/mcc-mnc-list.json
    Source: https://github.com/pbakondy/mcc-mnc-list
    License: MIT (Copyright (c) 2016 Peter Bakondy).
    The full notice, the upstream commit and the retrieval date are in
-   pysim_simple_server/data/mcc-mnc-list.LICENSE.
+   simple_server/data/mcc-mnc-list.LICENSE.
 
 2. AES implementation — frontend/aes-bundle.js
    Package: aes-js 3.1.2 (https://github.com/ricmoo/aes-js)

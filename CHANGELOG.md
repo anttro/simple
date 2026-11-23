@@ -41,9 +41,10 @@ every change carries a descriptive commit message.
   **`simple-pysim`** fork (GPL-2.0-or-later, maintenance mode).  The legacy
   `pysim_simple_server/` and `requirements-pysim.txt` stay in the repository
   for that fork but are not part of the 4.x release package.
-- The license stays **GPL-2.0-or-later** for now: the client-side EF decoders
-  are still derived from simtrace-analyser (GPL).  The MIT switch waits for
-  that project's relicensing.
+- **The license is now MIT.**  simtrace-analyser (the source of the
+  client-side EF decoders) is MIT, and the 4.x server no longer imports
+  pySim, so the repository moves from GPL-2.0-or-later to MIT.  The
+  `simple-pysim` fork keeps its GPL license.
 
 ## [3.40.11] — 2026-11-11
 

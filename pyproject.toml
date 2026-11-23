@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "simple"
 version = "4.0.0"
 description = "The pysim-free HTTP server for the SIMple PWA"
-license = "GPL-2.0-or-later"
+license = "MIT"
 license-files = ["LICENSE", "THIRD-PARTY-NOTICES"]
 requires-python = ">=3.9"
 # The runtime dependencies are pyscard, pycryptodomex and gsm0338
