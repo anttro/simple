@@ -500,7 +500,11 @@ Deliberate, documented decisions:
   may differ per card).  Tests: `tests/test_simple_files.py`
   (`GsmSelectTests`, `read_binary_until_end`, the SIM select parse),
   `tests/test_simple_http.py` (the GSM select/read, the fallback, the explicit
-  parameters); the live 2G read check is pending the card.
+  parameters); **live check (2026-11-23, server 4.0.1, the bench 2G SIM):**
+  EF.ICCID size 10, EF.IMSI 9, EF.ARR 2356 B (76 × 31), EF.ADN under
+  DF.TELECOM 9750 B (39 × 250) and EF.MSISDN 195 B (39 × 5) all select and
+  read (`fci_form: "gsm"`); EF.SPN 17 B reads `004D656761466F6E…`
+  ("MegaFon").
 - **`selection`** (`/api/status`) is published by select/read/write:
   `{path, name, fid, kind, size, record_len, num_records}`.  It describes the
   last file a file endpoint addressed, not a live mirror of the card's
@@ -1250,12 +1254,15 @@ Deliberate decisions (deviations from the legacy):
   what pySim's `scc.cla_byte` meant to the runner - not the CAT CLA.
 - **The network-state read needs an FCP** for a file's length, so a 2G SIM
   (whose SELECT carries no FCP, TS 51 011 §9.2.1) reports its files absent -
-  the same limitation `/api/read` has until a card-independent length source
-  lands.  No guessing read size.  The net-sim adapter's reads (`simple_server/
-  netsim.py`) hit the same wall; there the FCP-driven `read_file` raises, so
-  `_LchanShim` reports the read as **`NO_FCP_SW`** (`6985`) with empty data -
-  the runner's "read failed, skip" path (its optional writes fall back, e.g.
-  EF.FPLMN to `FF`×12) - instead of aborting the whole scenario with a
+  the same limitation `/api/read` had until a card-independent length source
+  landed.  **Fixed in 4.0.1**: the TS 51 011 SELECT file information carries
+  the size/structure/record length (`fcp.parse_gsm_select`), so the monitor
+  reads the SIM's files (live: IMSI/LOCI/FPLMN/SMSS present, SPDI absent).
+  The net-sim adapter's reads (`simple_server/netsim.py`) get the same sizes
+  from the parsed SELECT; its `_LchanShim` `NO_FCP_SW` path (`6985`, empty
+  data - the runner's "read failed, skip", its optional writes fall back, e.g.
+  EF.FPLMN to `FF`×12) remains the guard for a card that returns no
+  information at all, instead of aborting the whole scenario with a
   `ValueError`.  A card-refused READ returns the card's own status word the
   same way.
 - **`/api/net-state` and `/api/mcc-mnc` are card-free GETs**

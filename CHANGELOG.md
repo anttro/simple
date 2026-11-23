@@ -33,8 +33,9 @@ every change carries a descriptive commit message.
   at byte 14, the record length at byte 15) is now parsed, so
   `/api/select` reports the card's real size and record layout and
   `/api/read` works through the normal size-driven path (EF.ICCID, EF.ARR
-  31 × 76 B, ...).  The file manager, profiles and snapshots now work on a
-  2G SIM.  `fci_form: "gsm"` says what the raw SELECT response is; the PWA
+  31 × 76 B, EF.ADN 250 × 39 B, ...).  The file manager, profiles, snapshots
+  and the network-state monitor now work on a 2G SIM.  `fci_form: "gsm"`
+  says what the raw SELECT response is; the PWA
   labels it instead of decoding it as a BER FCP.
 
 ## [4.0.0] — 2026-11-23
