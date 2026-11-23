@@ -2087,10 +2087,15 @@ for the PWA.
   after the re-init (`null` when the state could not be read - a failed
   post-switch verification, e.g. the ISD-R refusing the selection, is
   `null`/`null` and never a `400`: the switch itself already happened).
-  **`refresh` defaults to `true`** and is read as a JSON boolean.  One bench
-  eUICC **refuses `refreshFlag` TRUE** (an undefined `enableResult` 7) while
-  FALSE works - this endpoint always resets the card itself, so a client may
-  pass `refresh: false` on such a card.  Failures carry the ES10c result code
+  **`refresh` defaults to `true`** and is read as a JSON boolean.  The flag
+  only asks whether the card should also send its REFRESH (this endpoint
+  resets the card itself), and card behaviour varies: the Phase 3a bench
+  probe refused `refreshFlag` TRUE (an undefined `enableResult` 7) and
+  accepted FALSE, while the 4.0.0 live run accepted TRUE in both directions
+  (the card returned its result inline and sent no REFRESH -
+  `refresh_seen: false`).  A client may pass `refresh: false` when it resets
+  the card itself or when a card refuses TRUE.  Failures carry the ES10c
+  result code
   (`iccidOrAidNotFound`, `profileNotInDisabledState`,
   `profileNotInEnabledState`, `disallowedByPolicy`, `wrongProfileReenabling`,
   `catBusy`, `undefinedError`) and a short `message`; an unexpected status

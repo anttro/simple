@@ -8,8 +8,9 @@ runtime dependencies (``requirements.txt``: pyscard, pycryptodomex, gsm0338)
 are installed by ``setup.sh`` / ``setup.bat``.
 
 The legacy pySim-based 3.x tree (``pysim_simple_server/`` and
-``requirements-pysim.txt``) stays in the repository for the frozen
-``simple-pysim`` fork but is **not** part of this package.
+``requirements-pysim.txt``) was removed from this repository when the
+``simple-pysim`` fork was cut; it lives in that fork and is **not** part of
+this package.
 
 Usage:
     python tools/build_release.py [--out DIR] [--expect-version X.Y.Z] [--list]

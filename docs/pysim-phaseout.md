@@ -1197,11 +1197,13 @@ Deliberate decisions (deviations from the legacy):
   the same choice the legacy made - but it is read as a real boolean: the
   literal `"true"`/`"false"`/`"1"`/`"0"` strings are accepted and anything else
   is a `400` (`bool("false")` is truthy, so a hand-written API call used to
-  ask for TRUE while saying "false").  The caveat from the Phase 3a spec check
-  stands: one bench eUICC **refuses `refreshFlag` TRUE** (an undefined
-  `enableResult` 7) and accepts FALSE; this flow always resets and
-  re-initializes the card itself, so a caller may prefer `refresh: false` on
-  such a card.
+  ask for TRUE while saying "false").  The Phase 3a caveat (one bench eUICC
+  **refused `refreshFlag` TRUE**, an undefined `enableResult` 7, and accepted
+  FALSE) did not reproduce in the 4.0.0 endpoint run, which accepted TRUE in
+  both directions (see the live smoke note below); the flag is kept and a card
+  that refuses TRUE can be given `refresh: false`.  This flow always resets and
+  re-initializes the card itself, so the flag only asks for the card's own
+  REFRESH.
 - **A failed post-switch verification is not a request error**: the ISD-R
   selection for the verification runs *inside* a guard, and a failure (the
   card refusing the select after the reset, a disabled active profile) leaves
@@ -1259,10 +1261,24 @@ The review round added the regressions for the non-Location event gate, the
 REFRESH-log safety net, the no-STATUS-after-REFRESH rule, the failed
 post-switch verification, the model-unknown candidate path and the FCP-less
 (2G SIM) read.
-**No live eUICC or card has run these endpoints**: the profile switch's real
-REFRESH timing, the re-init on a real profile change, the simulator's writes
-on a real card and the monitor's operator resolution on real files remain the
-bench acceptance checks.
+**Live smoke (2026-11-23, server 4.0.0 on :8080, the bench eUICC EID
+`89086030202200000026000024920451`):** the read path ran through the HTTP
+endpoints - `/api/esim/chip` (EID, EUICCInfo1 `svn 2.2.2` + the CI PKI lists,
+EUICCInfo2 with 14 fields, the configured addresses with the root DS
+`testrootsmds.gsma.com` and no default DP, one GetRAT rule, `errors: {}`),
+`/api/esim/profiles` (2 profiles, `error: null`; the card returns **no
+`profileNickname` (0x90)** - the "Alfa" labels are `serviceProviderName`
+(0x91) and `profileName` (0x92), so `nickname: null` is correct and the PWA
+title falls back to provider + name) and `/api/esim/notifications` (16
+pending, `error: null`).  On the UICC `/api/esim/chip` answered `400`
+`not_an_euicc`.  The switch ran both directions: `enable` `…4002667` with
+`refresh: true` → `ok`, `reinitialized: true`, `verified: true`,
+`state_after: "enabled"`, the ICCID re-read, session 2; `enable` `…393648`
+with `refresh: false` → the same, session 3 (the original state restored).
+`refresh_seen` was false in both runs - this card returned its result inline
+and sent no REFRESH, so the Phase 3a "TRUE is refused" observation did not
+reproduce here.  Remaining live checks: the simulator's writes on a real card
+and the monitor's operator resolution on real files.
 
 ## Phase 3c-3e-2b outcome (the SCP81/BIP control endpoints)
 

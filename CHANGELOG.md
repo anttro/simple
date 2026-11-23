@@ -39,8 +39,9 @@ every change carries a descriptive commit message.
 
 - The pySim-based 3.x line is frozen at its final 3.x release in the
   **`simple-pysim`** fork (GPL-2.0-or-later, maintenance mode).  The legacy
-  `pysim_simple_server/` and `requirements-pysim.txt` stay in the repository
-  for that fork but are not part of the 4.x release package.
+  `pysim_simple_server/` package and `requirements-pysim.txt` were removed
+  from this repository - they live in the fork - so the 4.x tree, the tests
+  and the release workflow carry no pySim dependency at all.
 - **The license is now MIT.**  simtrace-analyser (the source of the
   client-side EF decoders) is MIT, and the 4.x server no longer imports
   pySim, so the repository moves from GPL-2.0-or-later to MIT.  The

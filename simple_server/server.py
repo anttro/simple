@@ -4373,12 +4373,13 @@ class ServerState(object):
         card is touched; a switch failure is a result (``ok: false``), never an
         exception.
 
-        ``refresh`` defaults to **true**, the legacy's choice; one eUICC in the
-        bench sample refuses ``refreshFlag`` TRUE (an undefined
-        ``enableResult`` 7) and accepts FALSE, so a client that resets the card
-        itself may prefer ``refresh: false``.  This endpoint always
-        re-initializes the card after the switch, so the flag only decides
-        whether the card also sends its REFRESH.
+        ``refresh`` defaults to **true**, the legacy's choice; a card may
+        refuse ``refreshFlag`` TRUE (the Phase 3a bench probe got an undefined
+        ``enableResult`` 7 and accepted FALSE; the 4.0.0 live run accepted
+        TRUE), so a client that resets the card itself may prefer
+        ``refresh: false``.  This endpoint always re-initializes the card after
+        the switch, so the flag only decides whether the card also sends its
+        REFRESH.
         """
         action = str(body.get('action') or '').strip().lower()
         iccid = body.get('iccid')

@@ -46,11 +46,14 @@ confirmed this is correct, not a deviation: SGP.22 uses ``AUTOMATIC TAGS``
 encoding rules around the selected ``4F`` AID / ``5A`` ICCID CHOICE.
 
 ``refreshFlag`` is typed ``BOOLEAN`` and DER-encoded, so TRUE is ``FF`` (not
-the ``01`` octet pySim writes); see :class:`RefreshFlag`.  Live note (one test
-eUICC): a switch with ``refreshFlag`` TRUE is refused (an undefined
-``enableResult`` 7), while FALSE (a silent switch, no REFRESH) is accepted -
-the server re-initializes the card after a switch either way, so the caller
-should prefer FALSE when it performs its own reset.
+the ``01`` octet pySim writes); see :class:`RefreshFlag`.  Live notes (the
+bench eUICC): the Phase 3a ES10 probe was refused with ``refreshFlag`` TRUE
+(an undefined ``enableResult`` 7) while FALSE (a silent switch, no REFRESH)
+worked; the 4.0.0 endpoint run accepted TRUE for both directions, the card
+returning its result inline and sending no REFRESH (``refresh_seen`` false).
+The server re-initializes the card after a switch either way, so the flag only
+asks whether the card should also send its REFRESH - a card that refuses TRUE
+can be given FALSE.
 """
 
 import contextlib
