@@ -89,36 +89,59 @@ def _connect(transport):
 def detect_card(transport):
     """Classify the card: ``uicc``/``sim``/``euicc`` plus its CAT CLA.
 
-    Raises :class:`CardError` when neither the USIM nor any SELECT MF form is
-    accepted - a card that answers nothing is not silently treated as a SIM.
+    The probes run in the order that is safe for every card class:
+
+    1. the TS 102 221 SELECT MF (CLA 00) - a UICC answers it;
+    2. the TS 51 011 SELECT DF.GSM (``7F20``) with CLA A0 - pySim's
+       ``SimCardBase.probe()``, and the only SIM proof (some SIMs refuse an
+       A0 ``SELECT MF`` with SW ``6999`` until a DF has been selected, live
+       bench 2G SIM 2026-11-23);
+    3. the USIM ADF select - the last resort for a UICC that refuses the MF
+       select.  It must never run before the SIM probe: an **unknown-AID
+       select makes some 2G SIMs answer ``6999`` to every further command
+       until a reset** (live 2026-11-23), which would hide the SIM behind a
+       UICC probe.
+
+    Raises :class:`CardError` when none of the forms is accepted - a card
+    that answers nothing is not silently treated as a SIM.
     """
     aids = []
     kind = None
     try:
-        FileOps(transport).select_adf(AID_USIM)
+        FileOps(transport).select_mf()
     except FileError:
         pass
     else:
-        aids.append(AID_USIM)
         kind = 'uicc'
 
     if kind is None:
+        # A 2G SIM: CLA A0 and the DF.GSM probe (TS 51 011 §9.2.1).
         try:
-            FileOps(transport).select_mf()
+            FileOps(transport, cla='a0', sel_fcp=False).select_file('7F20')
         except FileError:
-            # A 2G SIM answers the TS 51 011 §9.2.1 form: CLA A0, P1/P2 00.
+            # No UICC MF and no SIM DF.GSM: a UICC may still be reachable
+            # through its USIM ADF.  Keep the AID probe last - see the
+            # docstring.
             try:
-                FileOps(transport, cla='a0', sel_fcp=False).select_file('3F00')
+                FileOps(transport).select_adf(AID_USIM)
             except FileError as exc:
                 raise CardError(
-                    'cannot classify the card: ADF.USIM, SELECT MF (ISO) and '
-                    'SELECT MF (TS 51 011) were all refused (%s)'
+                    'cannot classify the card: SELECT MF (ISO), SELECT DF.GSM '
+                    '(TS 51 011) and ADF.USIM were all refused (%s)'
                     % exc) from exc
-            kind = 'sim'
-        else:
+            aids.append(AID_USIM)
             kind = 'uicc'
+        else:
+            kind = 'sim'
 
-    if kind == 'uicc':
+    if kind in ('uicc', 'euicc'):
+        if not aids:
+            try:
+                FileOps(transport).select_adf(AID_USIM)
+            except FileError:
+                pass
+            else:
+                aids.append(AID_USIM)
         # An eUICC is UICC-based; the ISD-R probe is best-effort (a card
         # without it answers 6A82 and stays a plain UICC).
         try:

@@ -167,9 +167,11 @@ class FileOps(object):
 
         The default form is ``00A4 0004 02 <fid> 00`` (P2 = 04, "Return FCP
         template", TS 102 221 Table 11.2), or the TS 51 011 §9.2.1 form
-        ``A0A4 0000 02 <fid>`` when the instance was built with
-        ``sel_fcp=False`` («P1, P2 = '00', P3 = '02'»).  ``fcp`` overrides
-        that per call.  The GSM response is not a BER FCP, so the returned
+        ``A0A4 0000 02 <fid> 00`` when the instance was built with
+        ``sel_fcp=False`` («P1, P2 = '00', P3 = '02'» plus the response-data
+        field pySim's SIM path sends; the card signals its response data with
+        the GSM ``9F XX`` status byte).  ``fcp`` overrides that per call.  The
+        GSM response is not a BER FCP, so the returned
         :class:`~simple_server.fcp.Fcp` keeps ``fields None`` there - only the
         selection success matters.
         """
@@ -177,7 +179,7 @@ class FileOps(object):
         use_fcp = self.sel_fcp if fcp is None else bool(fcp)
         if use_fcp:
             return self._select('00', fid, fid)
-        apdu = self._apdu('A4', '00', '00', bytes.fromhex(fid))
+        apdu = self._apdu('A4', '00', '00', bytes.fromhex(fid), le=256)
         data, _sw = self._require(apdu, not_found=fid)
         return fcp_module.parse_fcp(data)
 

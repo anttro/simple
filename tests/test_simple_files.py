@@ -342,7 +342,7 @@ class FileOpsTests(unittest.TestCase):
     def test_select_file_sim_form(self):
         link = FakeLink([(b'', '9000')])
         commands.FileOps(link, cla='a0', sel_fcp=False).select_mf()
-        self.assertEqual(link.sent_hex(), ['a0a40000023f00'])
+        self.assertEqual(link.sent_hex(), ['a0a40000023f0000'])
 
     def test_select_adf(self):
         link = FakeLink([(b'', '9000')])
@@ -452,8 +452,8 @@ class FileOpsTests(unittest.TestCase):
 # ---- card detection and init ----------------------------------------------
 
 def uicc_script():
-    """USIM present, ISD-R absent: a plain UICC."""
-    return [(b'', '9000'), (b'', '6A82')]
+    """MF selectable, USIM present, ISD-R absent: a plain UICC."""
+    return [(b'', '9000'), (b'', '9000'), (b'', '6A82')]
 
 
 class CardDetectionTests(unittest.TestCase):
@@ -464,12 +464,13 @@ class CardDetectionTests(unittest.TestCase):
         self.assertEqual(card.cla, '80')
         self.assertEqual(card.aids, [cards.AID_USIM])
         self.assertEqual(link.sent_hex(), [
+            '00a40004023f0000',
             '00a4040407a000000087100200',
             '00a4040410a0000005591010ffffffff890000010000',
         ])
 
     def test_detect_euicc(self):
-        link = FakeLink([(b'', '9000'), (b'', '9000')])
+        link = FakeLink([(b'', '9000'), (b'', '9000'), (b'', '9000')])
         card = cards.detect_card(link)
         self.assertEqual(card.kind, 'euicc')
         self.assertEqual(card.cla, '80')
@@ -477,21 +478,35 @@ class CardDetectionTests(unittest.TestCase):
 
     def test_detect_uicc_when_only_the_iso_mf_select_works(self):
         # A UICC without a selectable USIM still answers the TS 102 221
-        # SELECT form, so it is UICC-class (never a 2G SIM): the TS 51 011
-        # SIM form is the only one that means CLA A0.
-        link = FakeLink([(b'', '6A82'), (b'', '9000'), (b'', '6A82')])
+        # SELECT MF form, so it is UICC-class (never a 2G SIM): the TS 51 011
+        # DF.GSM probe is the only one that means CLA A0.
+        link = FakeLink([(b'', '9000'), (b'', '6A82'), (b'', '6A82')])
         card = cards.detect_card(link)
         self.assertEqual(card.kind, 'uicc')
         self.assertEqual(card.cla, '80')
         self.assertEqual(card.aids, [])
-        self.assertEqual(link.sent_hex()[1], '00a40004023f0000')
+        self.assertEqual(link.sent_hex()[0], '00a40004023f0000')
 
-    def test_detect_sim_by_the_ts_51_011_select(self):
-        link = FakeLink([(b'', '6A82'), (b'', '6A86'), (b'', '9000')])
+    def test_detect_sim_by_the_ts_51_011_df_gsm_probe(self):
+        # A 2G SIM refuses CLA 00 and is probed with DF.GSM (7F20) - not MF,
+        # which some SIMs refuse with 6999 until a DF is selected.
+        link = FakeLink([(b'', '6A86'), (b'', '9000')])
         card = cards.detect_card(link)
         self.assertEqual(card.kind, 'sim')
         self.assertEqual(card.cla, 'a0')
-        self.assertEqual(link.sent_hex()[2], 'a0a40000023f00')
+        self.assertEqual(link.sent_hex()[1], 'a0a40000027f2000')
+
+    def test_the_usim_aid_probe_comes_last(self):
+        # An unknown-AID select poisons some 2G SIMs (6999 afterwards), so it
+        # must never precede the DF.GSM probe.
+        link = FakeLink([(b'', '6A86'), (b'', '6A82'), (b'', '9000'),
+                         (b'', '6A82')])
+        card = cards.detect_card(link)
+        self.assertEqual(card.kind, 'uicc')
+        self.assertEqual(card.aids, [cards.AID_USIM])
+        self.assertEqual(link.sent_hex()[1], 'a0a40000027f2000')
+        self.assertEqual(link.sent_hex()[2],
+                         '00a4040407a000000087100200')
 
     def test_detect_fails_when_nothing_answers(self):
         link = FakeLink([(b'', '6A82'), (b'', '6A82'), (b'', '6A82')])
@@ -501,13 +516,15 @@ class CardDetectionTests(unittest.TestCase):
 
 class CardInitTests(unittest.TestCase):
     def test_init_card_detects_and_selects_mf(self):
-        link = FakeLink([(b'', '9000'), (b'', '6A82'), (b'', '9000')])
+        link = FakeLink([(b'', '9000'), (b'', '9000'), (b'', '6A82'),
+                         (b'', '9000')])
         card = cards.init_card(link)
         self.assertEqual(card.kind, 'uicc')
         self.assertEqual(card.cla, '80')
         self.assertEqual(card.atr, b'\x3b\x8f\x80\x01')
         self.assertEqual(link.calls, ['reset'])
         self.assertEqual(link.sent_hex(), [
+            '00a40004023f0000',
             '00a4040407a000000087100200',
             '00a4040410a0000005591010ffffffff890000010000',
             '00a40004023f0000',
@@ -522,15 +539,17 @@ class CardInitTests(unittest.TestCase):
         self.assertEqual(link.sent, [])
 
     def test_init_card_reuses_the_sim_command_form(self):
-        link = FakeLink([(b'', '6A82'), (b'', '6A86'), (b'', '9000'),
-                         (b'', '9000')])
+        link = FakeLink([(b'', '6A82'), (b'', '9000'), (b'', '9000')])
         card = cards.init_card(link)
         self.assertEqual(card.kind, 'sim')
-        self.assertEqual(link.sent_hex()[-1], 'a0a40000023f00')
+        self.assertEqual(link.sent_hex()[-1], 'a0a40000023f0000')
 
     def test_init_card_retries_mf_after_a_reset(self):
-        link = FakeLink([(b'', '9000'), (b'', '9000'), (b'', '6A82'),
-                         (b'', '9000')])
+        # MF refused from the reset state and no SIM DF.GSM: the eUICC is
+        # classified through its USIM ADF, then the post-detect MF select
+        # fails and the physical-reset retry succeeds.
+        link = FakeLink([(b'', '6A86'), (b'', '6A82'), (b'', '9000'),
+                         (b'', '9000'), (b'', '6A82'), (b'', '9000')])
         card = cards.init_card(link)
         self.assertEqual(card.kind, 'euicc')
         # Initial reset, then the MF-retry reset.

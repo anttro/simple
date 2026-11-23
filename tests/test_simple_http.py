@@ -1317,7 +1317,8 @@ class FileSelectTests(HTTPTestBase):
 
     def test_a_sim_uses_the_ts_51_011_select_form(self):
         # A 2G SIM's file access is CLA A0 and the TS 51 011 §9.2.1 SELECT
-        # (P1/P2 00, no Le, no FCP).
+        # (P1/P2 00, no FCP) with pySim's response-data octet (the card
+        # signals the response data with the GSM 9F XX status byte).
         state = self.track(make_state())
         fake = FileCard()
         state.transport = fake
@@ -1328,7 +1329,7 @@ class FileSelectTests(HTTPTestBase):
         self.assertEqual(status, 200, body)
         self.assertEqual(body['file_type'], 'transparent')
         selects = [apdu.hex().upper() for apdu in fake.sent]
-        self.assertEqual(selects, ['A0A40000023F00', 'A0A40000022FE2'])
+        self.assertEqual(selects, ['A0A40000023F0000', 'A0A40000022FE200'])
 
     def test_a_probed_node_keeps_the_legacy_structure_name(self):
         # A probed custom node has no model kind, so the FCP decides.  A DF's

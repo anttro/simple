@@ -41,7 +41,10 @@ parent flagged `parent_known=False`, `path_chain()` for SELECT),
 `commands.py` (`FileOps`: SELECT by FID/AID, READ/UPDATE BINARY/RECORD,
 STATUS, and the FCP-driven `read_file()` port of `_read_selected_ef`) and
 `cards.py` (`detect_card` - USIM AID, then the ISO MF select, then the TS 51
-011 §9.2.1 SIM form `A0A4 0000 02 3F00`, ISD-R best-effort; `init_card` =
+011 §9.2.1 SIM form `A0A4 0000 02 3F00`, ISD-R best-effort; **the probe order
+and the SIM select form were corrected after the 2026-11-23 2G SIM live test -
+see "Live smoke (2026-11-23): the 2G SIM card-detection quirks"**: MF → DF.GSM
+→ USIM AID, with the A0 select carrying the response-data octet; `init_card` =
 connect/reset + ATR + detect + MF select, with a reset retry when probing left
 an ADF selected).  `util.sw_matches()` adds the `?` SW mask
 (`9???`/`6A??`) used by `send_apdu_checksw` and the file ops.  Card-type
@@ -1279,6 +1282,28 @@ with `refresh: false` → the same, session 3 (the original state restored).
 and sent no REFRESH, so the Phase 3a "TRUE is refused" observation did not
 reproduce here.  Remaining live checks: the simulator's writes on a real card
 and the monitor's operator resolution on real files.
+
+### Live smoke (2026-11-23): the 2G SIM card-detection quirks
+
+The bench 2G SIM (ATR `3B1695D0006B2C0D00`, T=0) failed the first cutover's
+`detect_card` with SW `6999` on every probe.  Two card behaviours were
+measured (the old tree's trace as the reference):
+
+- **An A0 `SELECT MF` is refused with `6999` until a DF has been selected.**
+  The old tree (pySim's `SimCardBase.probe()`) probes **DF.GSM (`7F20`)** with
+  CLA A0 first and only then selects MF; that order works.
+- **An unknown-USIM-AID select poisons the card**: `00A4 0404 07
+  A0000000871002` answers `6999` and every further command (A0 MF, A0 DF.GSM,
+  the ISO MF form) answers `6999` until a physical reset.  The old tree never
+  sent that AID before the SIM probe.
+
+Fix: `detect_card` probes **MF (CLA 00) → DF.GSM (CLA A0, `7F20`) → USIM
+ADF**, the AID probe strictly last; the TS 51 011 `select_file` form carries
+the response-data octet (`A0A4 0000 02 <fid> 00`, pySim's form - the T=0
+transform strips it on the wire).  Live result: `init_card` classifies `sim`
+(CLA `a0`, no AIDs), and EF.ICCID reads `980701721274117946FF` →
+`897010272147119764`.  The no-FCP read limitation (below) stands for this
+card.
 
 ## Phase 3c-3e-2b outcome (the SCP81/BIP control endpoints)
 
