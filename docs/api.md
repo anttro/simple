@@ -61,7 +61,8 @@ allowlist).
 **Test-run guard.**  While a test run owns the card, the card-exchange endpoints
 answer `409 {"error": "test script running - card commands are blocked until it
 finishes"}` before they are dispatched: `/api/tree`, `/api/select`, `/api/read`,
-`/api/write`, `/api/apdu`, `/api/verify-adm`, `/api/send-ota`, the RAM/CAP
+`/api/write`, `/api/apdu`, `/api/verify-adm`, `/api/chv`, `/api/chv-status`,
+`/api/send-ota`, the RAM/CAP
 operations (`/api/ram-install`, `/api/ram-install-app`, `/api/cap-compat`,
 `/api/tar-probe`, `/api/counter-probe`), the menu/event/profile/poll writes
 (`/api/menu-select`, `/api/menu-respond`, `/api/event-send`, `POST
@@ -112,6 +113,7 @@ auto-equip, never a decoder/protocol error.
 | `/api/apdu` | POST | Raw APDU send (automatic `91XX` chain) |
 | `/api/verify-adm` | POST | Verify the card's ADM PIN |
 | `/api/chv` | POST | Verify / change / unblock a PIN (VERIFY, CHANGE CHV, UNBLOCK CHV) |
+| `/api/chv-status` | POST | Re-read the per-PIN lock state (attempt-free: no PIN is presented) |
 | `/api/presets` | GET | Card preset store: all presets + the store path |
 | `/api/presets` | POST | Create a card preset |
 | `/api/presets/update` | POST | Update a preset (`{id, fields}`; the counter is written as given) |
@@ -216,6 +218,10 @@ exchange, so a long operation's live progress stays visible).
                "kind": "ef", "size": 9, "record_len": null,
                "num_records": null},
  "adm_verified": false,
+ "chv": {"pin1": {"state": "required", "attempts_left": 3, "sw": "63C3",
+                  "enabled": true},
+         "pin2": {"state": "not_required", "attempts_left": null,
+                  "sw": "9000", "enabled": false}},
  "proactive_mode": "polling",
  "poll": {"enabled": true, "suspended": false, "interval": 30},
  "test_run": {"running": false},
@@ -244,6 +250,7 @@ exchange, so a long operation's live progress stays visible).
 | `euicc` / `eid` | whether the card is an eUICC and its EID (best-effort ES10 read at equip) |
 | `selection` | `null` or the last file a file endpoint addressed: `{path, name, fid, kind, size, record_len, num_records}` - a publication, not a live mirror of the card's selected file |
 | `adm_verified` | a VERIFY succeeded in the current card session (the latch the test runner's ADM gate reads); an equip/disconnect clears it |
+| `chv` | `null` without a card session - and also when the connect-time read itself failed (it is best effort) - else the per-PIN state block `{pin1, pin2}` - each `{state, attempts_left, sw, enabled}` with `state` one of `required` / `not_required` / `blocked` / `not_usable` / `not_initialized` / `unknown`.  Read **without presenting a PIN** (see `POST /api/chv-status`): `enabled` is the DF FCP's PS template `C6` flag (the PIN is enabled on the card), `attempts_left`/`sw` the empty-data VERIFY PIN answer (`63CX`, TS 102 221 §11.1.9.1.2) - a 2G SIM has no probe, so its `sw` is `null` and its states come from the DF.GSM SELECT bytes |
 | `proactive_mode` | `test` (a run owns the card) > `paused` (a FETCHed command awaits its TR) > `chain` (a FETCH/TR chain runs) > `bip` (a BIP session is active) > `polling` (idle, poll on) > `idle` |
 | `poll` | `{enabled, suspended, interval}` - the operator's switch, the card's POLLING OFF state and the adopted interval (seconds) |
 | `test_run` | `{running}` - the full run report is `GET /api/test/status` |
@@ -625,6 +632,123 @@ attempt left) as `{"ok": false, "sw": "9804", "failed": true}`, and `9840` /
 successful UNBLOCK resets the card's counters and sets the new PIN
 (TS 102 221 §11.1.13.1.1); the preset store is not updated - the PWA offers
 the new value for saving.
+
+`6984` is reported as the generic "referenced data invalidated" answer:
+
+```json
+{"ok": false, "sw": "6984", "invalidated": true,
+ "error": "Referenced data invalidated"}
+```
+
+It is TS 102 221 §10.2.1.5.2 Table 10.13's "Referenced data invalidated"
+(the `69` "command not allowed" group; ISO/IEC 7816-4:2005 §5.1.3 Table 6
+prints the same pair as "Reference data not usable"), listed for VERIFY PIN,
+CHANGE PIN and UNBLOCK PIN by Table 10.16 - but **no clause assigns it a
+CHV-specific meaning**: it reports neither attempts left nor a blocked state.
+A card whose PIN is **disabled / not initialized for verification** answers
+this way, so PIN verification is simply not applicable on that card;
+`DISABLE PIN` / `ENABLE PIN` (INS `26`/`28`, available in the Remote APDU
+builder) are the PIN-state commands, not VERIFY.  UNBLOCK is only the next
+step when the PIN is actually blocked, which the card reports separately as
+`63C0`/`6983` (or `9840` on a 2G SIM).
+
+The response also carries `chv` - the per-PIN state block refreshed after the
+exchange (the same shape `GET /api/status` carries), so a client updates its
+PIN badge without a second request.
+
+### `POST /api/chv-status`
+
+Re-read the per-PIN lock state **without presenting a PIN**.  The read is
+attempt-free: no VERIFY with a PIN value is sent, so it can never consume an
+attempt.
+
+```json
+{"codes": ["pin1"]}
+```
+
+`codes` is optional (`["pin1"]`, `["pin2"]` or both; omitted = both).  The
+response is `{"ok": true, "chv": {"pin1": {…}, "pin2": {…}}}` - the shape
+`status.chv` carries, one entry per PIN: `state`, `attempts_left`, `sw`,
+`enabled` (the tri-state `true`/`false`/`null` of the FCP's `C6` flag).
+
+The probe alone cannot tell a **disabled** PIN from a **locked** one: the
+empty-data VERIFY PIN reports an enabled PIN's retry counter, but a disabled
+PIN may answer the same `63CX` with a meaningless counter.  The DF's **PS
+template DO `C6`** decides - it is **mandatory** in an MF/DF/ADF FCP (ETSI
+TS 102 221 V18.4.0 §11.1.1.3.1 Table 11.3, printed p. 89: "PIN Status Template
+DO | 'C6' | 11.1.1.4.10 | M") and its PS_DO bitmap says which key references
+are enabled (§9.5.2, printed p. 77: "The PS_DO is followed by one or more key
+reference data objects indicated by tag '83'. … For each bit set to '1' the
+corresponding key reference (PIN) is enabled.  The PS_DO is coded using a
+bitmap list.  Bit b8 in the most significant byte corresponds to the first key
+reference indicated by tag '83' following the PS_DO.  Bits b7 to b1 are mapped
+to consecutive key references"); an optional usage qualifier `95` precedes the
+reference it applies to (§11.1.1.4.10, printed p. 99).
+
+| `state` | Meaning | Source |
+|---|---|---|
+| `required` | the card asks for the PIN; `attempts_left` gives the retries | `C6` enabled + `63CX`, X > 0 |
+| `not_required` | no verification needed | `C6` **disabled** (the PIN is off on this card - any probe counter is informational), or enabled + `9000` (already verified) |
+| `blocked` | 0 retries left | `63C0` / `6983` (2G SIM: remaining `0`) |
+| `not_usable` | the PIN reference is not usable (`6984`, ISO "reference data not usable") | `6984` |
+| `not_initialized` | the card has no such PIN | `6A88` (2G SIM CHV2: not initialised) |
+| `unknown` | anything else - `sw` keeps the card's answer | any other SW |
+
+`enabled` is the tri-state FCP flag: `true`/`false` when the reference is
+listed in the `C6` PS template with its bit inside the PS_DO, `null` when it
+is not (no `C6` - an old card, an EF's FCP - a reference absent from the `83`
+list, or a bit beyond the PS_DO bytes).  With `null` the probe alone decides:
+the specs print no rule for an unlisted reference, so it is never reported as
+disabled - it stays `unknown` unless the probe answers.
+
+A successful `POST /api/chv` *verify* latches that PIN as `not_required` for
+the **card session** (the ADM pattern: the server remembers the session the
+verify succeeded in), so the badge cannot read "locked" right after it and the
+attempt-free re-reads (`/api/chv-status`, the editor open, the badge click)
+keep returning `not_required` even when the card keeps answering `63CX`; an
+equip/disconnect forgets the latch.  `change`/`unblock` keep the probe's
+answer.
+
+**UICC.**  The probe is VERIFY PIN with an **empty data field** (`00 20 00
+<P2>`, P2 `01` PIN1 / `81` PIN2): a case-1 APDU (no Lc, no Le), whose status
+word is final.  TS 102 221 V18.4.0 §11.1.9.1.2 (printed p. 107): "The VERIFY
+PIN with empty data field is used to retrieve the PIN retry counter from the
+UICC.  This function is performed whether or not the relevant PIN is disabled
+or blocked." ... "The number of retries, if any, is indicated in the response
+by SW1 SW2 = '63CX', where X indicates the number of retries left." ... "A
+VERIFY PIN command with empty data field applied to a blocked PIN shall return
+SW1 SW2 = '63C0' or SW1 SW2 = '6983'."  §11.1.9.3 codes `Lc` Empty or '08',
+Data EMPTY or PIN value, Le Not present.  The interpretation is ISO/IEC
+7816-4:2005 §7.5.6 (printed p. 54): the absence of the data field "is used to
+check whether the verification is required (SW1-SW2 = '63CX' where 'X'
+encodes the number of further allowed retries), or not (SW1-SW2 = '9000')";
+§7.5.1 (p. 50) makes `6A88` "reference data not found".
+
+**2G SIM: no probe.**  TS 51 011 V4.15.0 §9.2.9 (printed p. 27): VERIFY CHV
+"can not be used to retrieve the retry counter value".  The readout is the
+MF/DF file information of the SELECT response (§9.2.1, pp. 23-24; §9.2.2,
+p. 25 returns the same block), taken from the application directory (DF.GSM,
+Note 2 - not the MF): byte 14 (Detail 1) `b8=0` CHV1 enabled, `b8=1` CHV1
+disabled; byte 19 = CHV1 status and byte 21 = CHV2 status (Detail 2) `b8=0`
+secret code not initialised, `b8=1` initialised, `b4-b1` = number of false
+presentations remaining (`0` = blocked); `enabled` is byte 14 b8 for CHV1
+(`null` for CHV2).  No `20` command is sent; `sw` is `null`.
+
+The empty-data probe form is confirmed by local handset captures (`00 20 00 01
+00` -> `63C3`).  The `C6` readout is **hardware-verified**: the bench card's
+ADF.USIM PS template (`C6 0C` = PS_DO `60` + `83 01` `01`/`0A`/`81`) lists
+PIN1 **disabled** while ADM and PIN2 are **enabled** (read 2026-11-23 through
+a read-only SELECT, no PIN attempt; the vector is in
+`frontend/tests/ps_template_vectors.json`).  On that same card the empty-data
+VERIFY PIN1 (`00 20 00 01`, case 1) answers **`63C3`** and consumes no
+attempt - so the `C6` flag, not the probe, is what makes a disabled PIN read
+`not_required` (the probe alone would say "locked, 3 tries left").  There is
+no packet capture of that combination: it is a bench-card observation, not a
+capture.
+
+The state is re-read at every equip (in the CAT-free window) and cached on the
+server; `POST /api/chv` also refreshes the operated PIN.  A failing code is
+`unknown`, never an error; without a card session the endpoint answers `503`.
 
 ### Card presets (server-side store)
 

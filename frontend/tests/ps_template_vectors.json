@@ -1,0 +1,135 @@
+[
+  {
+    "name": "one reference, PS_DO bit b8",
+    "ps_template": "9001C0830101",
+    "reference": "01",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified"
+  },
+  {
+    "name": "two references in one byte, the first enabled",
+    "ps_template": "9001C0830101830181",
+    "reference": "01",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "two references in one byte, the second enabled",
+    "ps_template": "9001C0830101830181",
+    "reference": "81",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "two-byte PS_DO, the third reference (bit b6)",
+    "ps_template": "9002E000830101830181830182",
+    "reference": "82",
+    "expected": true,
+    "decoded": "PIN app1: enabled, always verified; PIN2 app1: enabled, always verified; PIN2 app2: enabled, always verified"
+  },
+  {
+    "name": "two-byte PS_DO, the ninth reference (second byte b8)",
+    "ps_template": "90020080830101830181830182830183830184830185830186830187830188",
+    "reference": "88",
+    "expected": true,
+    "decoded": "PIN app1: disabled, always verified; PIN2 app1: disabled, always verified; PIN2 app2: disabled, always verified; PIN2 app3: disabled, always verified; PIN2 app4: disabled, always verified; PIN2 app5: disabled, always verified; PIN2 app6: disabled, always verified; PIN2 app7: disabled, always verified; PIN2 app8: enabled, always verified"
+  },
+  {
+    "name": "usage qualifier 95 before a reference",
+    "ps_template": "900140830101950108830181",
+    "reference": "01",
+    "expected": false,
+    "decoded": "PIN app1: disabled, always verified; PIN2 app1: enabled, verify"
+  },
+  {
+    "name": "usage qualifier 95 before a reference, the second one",
+    "ps_template": "900140830101950108830181",
+    "reference": "81",
+    "expected": true,
+    "decoded": "PIN app1: disabled, always verified; PIN2 app1: enabled, verify"
+  },
+  {
+    "name": "a reference absent from the 83 list",
+    "ps_template": "9001C0830101",
+    "reference": "81",
+    "expected": null,
+    "decoded": "PIN app1: enabled, always verified"
+  },
+  {
+    "name": "no PS_DO",
+    "ps_template": "830101",
+    "reference": "01",
+    "expected": null,
+    "decoded": "PIN app1: unknown, always verified"
+  },
+  {
+    "name": "empty template",
+    "ps_template": "",
+    "reference": "01",
+    "expected": null,
+    "decoded": ""
+  },
+  {
+    "name": "truncated key reference",
+    "ps_template": "9001C0830201",
+    "reference": "01",
+    "expected": null,
+    "decoded": "9001C0830201"
+  },
+  {
+    "name": "the ninth bit beyond a one-byte PS_DO",
+    "ps_template": "9001C0830101830181830182830183830184830185830186830187830188",
+    "reference": "88",
+    "expected": null,
+    "decoded": "PIN app1: enabled, always verified; PIN2 app1: enabled, always verified; PIN2 app2: disabled, always verified; PIN2 app3: disabled, always verified; PIN2 app4: disabled, always verified; PIN2 app5: disabled, always verified; PIN2 app6: disabled, always verified; PIN2 app7: disabled, always verified; PIN2 app8: unknown, always verified"
+  },
+  {
+    "name": "the bench card's live ADF.USIM PS template read on 2026-11-23, PIN1 (01) disabled",
+    "ps_template": "90016083010183010A830181",
+    "reference": "01",
+    "expected": false,
+    "decoded": "PIN app1: disabled, always verified; ADM1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's live ADF.USIM PS template read on 2026-11-23, ADM (0A) enabled",
+    "ps_template": "90016083010183010A830181",
+    "reference": "0A",
+    "expected": true,
+    "decoded": "PIN app1: disabled, always verified; ADM1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's live ADF.USIM PS template read on 2026-11-23, PIN2 (81) enabled",
+    "ps_template": "90016083010183010A830181",
+    "reference": "81",
+    "expected": true,
+    "decoded": "PIN app1: disabled, always verified; ADM1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "the bench card's live ADF.USIM PS template read on 2026-11-23, an unlisted reference (02)",
+    "ps_template": "90016083010183010A830181",
+    "reference": "02",
+    "expected": null,
+    "decoded": "PIN app1: disabled, always verified; ADM1: enabled, always verified; PIN2 app1: enabled, always verified"
+  },
+  {
+    "name": "a duplicate PS_DO: the first 90 wins",
+    "ps_template": "9001009001C0830101",
+    "reference": "01",
+    "expected": false,
+    "decoded": "PIN app1: disabled, always verified"
+  },
+  {
+    "name": "a key reference before the PS_DO has no defined bit",
+    "ps_template": "8301019001C0",
+    "reference": "01",
+    "expected": null,
+    "decoded": "PIN app1: unknown, always verified"
+  },
+  {
+    "name": "a reference before the PS_DO still consumes a bit position",
+    "ps_template": "8301019001C0830181",
+    "reference": "81",
+    "expected": true,
+    "decoded": "PIN app1: unknown, always verified; PIN2 app1: enabled, always verified"
+  }
+]

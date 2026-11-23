@@ -32,11 +32,14 @@ __all__ = [
 ]
 
 #: The chaining bound of the T=0 exchange.  TS 102 221 §7.3.1.1 makes a
-#: conforming card answer ``61xx``/``9Fxx`` with the remaining bytes and
-#: ``62xx``/``63xx`` with one dummy GET RESPONSE, so a real exchange needs one
-#: or two rounds; 8 is far above that.  The cap keeps a card that never
-#: finishes chaining (a non-draining ``61xx`` or a repeating ``62xx``/``63xx``)
-#: from holding the caller - and the card lock - forever.
+#: conforming card answer ``61xx``/``9Fxx`` with the remaining bytes; the dummy
+#: GET RESPONSE for a ``62xx``/``63xx`` is spec'd **for case 4 commands only**
+#: (§7.3.1.1.0, printed p. 50) - cases 2/3 follow it here as a deliberate
+#: compatibility fallback for observed cards (see :meth:`PcscLink._send_t0`),
+#: so a real exchange needs one or two rounds and 8 is far above that.  The cap
+#: keeps a card that never finishes chaining (a non-draining ``61xx`` or a
+#: repeating ``62xx``/``63xx``) from holding the caller - and the card lock -
+#: forever.
 T0_MAX_ROUNDS = 8
 
 
@@ -278,8 +281,19 @@ class PcscLink(object):
             if sw[:1] in (b'\x61', b'\x9f'):
                 # 61XX / 9FXX: XX bytes available; fetch them.
                 le = sw[1:2]
-            elif sw[:1] in (b'\x62', b'\x63'):
-                # 62XX / 63XX: the card asks for a dummy GET RESPONSE (Le 00).
+            elif sw[:1] in (b'\x62', b'\x63') and case != 1:
+                # 62XX / 63XX: "response data pending" - follow with a dummy
+                # GET RESPONSE.  Strictly the spec prescribes this for **case 4
+                # commands only** (TS 102 221 §7.3.1.1.0, printed p. 50) and
+                # makes the transport *discontinue* on a status word for cases
+                # 2/3 (§7.3.1.1.2/.3); following it there is a deliberate
+                # **compatibility fallback**, not a spec rule - the live cards
+                # need it (the case-2 file reads this rule came from, and
+                # v3.25.7: an ENVELOPE answering 63xx with the PoR behind a
+                # GET RESPONSE).  Never on a **case 1** APDU: it has no Le and
+                # can carry no response data, so its status word is final - the
+                # empty-data VERIFY PIN answers the retry counter this way
+                # ('63CX', TS 102 221 §11.1.9.1.2).
                 le = b'\x00'
             else:
                 break

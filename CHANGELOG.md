@@ -9,7 +9,11 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
-## [4.1.0] — 2026-11-23
+## [4.2.0] — 2026-11-23
+
+*The v4.1.0 release was withdrawn shortly after publication (the PIN/PUK
+operations were not ripe enough); this section supersedes it and folds in the
+4.1.1 changes made afterwards.*
 
 ### Added
 
@@ -27,6 +31,54 @@ every change carries a descriptive commit message.
   tracked per card session, a successful change/unblock fills the form field
   for saving, and the Status tab's PIN row verifies the matched preset's
   PIN1/PIN2.
+- **The PIN lock state** - `PIN1 locked` / `PIN1 unlocked` / `PIN1 blocked` /
+  `PIN1 not usable` / `PIN1 n/a` / `PIN1 ?` - read **without presenting a
+  PIN**.  The server reads each PIN at every equip and serves it as
+  `status.chv`; `POST /api/chv-status` re-reads one or both PINs (and
+  `POST /api/chv` returns the refreshed block).  The probe alone cannot tell a
+  **disabled** PIN from a **locked** one (a disabled PIN may answer the same
+  `63CX` with a meaningless counter), so the application DF's **PS template DO
+  `C6`** decides the `enabled` flag first: it is **mandatory** in an MF/DF/ADF
+  FCP (ETSI TS 102 221 V18.4.0 §11.1.1.3.1 Table 11.3, printed p. 89) and its
+  PS_DO bitmap says which key references are enabled (§9.5.2, printed p. 77:
+  "For each bit set to '1' the corresponding key reference (PIN) is enabled.
+  … Bit b8 in the most significant byte corresponds to the first key reference
+  indicated by tag '83' following the PS_DO", an optional usage qualifier
+  `95` preceding its reference).  A UICC answers a VERIFY PIN
+  with an **empty data field** (a case-1 APDU `00 20 00 01|81`, no Lc/Le)
+  with its retry counter: ETSI TS 102 221 V18.4.0 §11.1.9.1.2 "The VERIFY PIN
+  with empty data field is used to retrieve the PIN retry counter from the
+  UICC.  This function is performed whether or not the relevant PIN is
+  disabled or blocked." ... "The number of retries, if any, is indicated in
+  the response by SW1 SW2 = '63CX'" ... "applied to a blocked PIN shall
+  return SW1 SW2 = '63C0' or ... '6983'".  ISO/IEC 7816-4:2005 §7.5.6 reads
+  the absent data field as verification required (`63CX`) or not (`9000`),
+  §7.5.1 makes `6A88` "reference data not found", Table 6 prints `6984` as
+  "Reference data not usable".  A 2G SIM cannot probe (TS 51 011 V4.15.0
+  §9.2.9: VERIFY CHV "can not be used to retrieve the retry counter value"),
+  so its states come from the DF.GSM SELECT bytes (§9.2.1: byte 14 Detail 1
+  b8 CHV1 enabled/disabled; bytes 19/21 the CHV1/CHV2 status, `b8` initialised
+  and `b4-b1` the remaining presentations), `enabled` from that b8 for CHV1
+  and `null` for CHV2.  A failed ADF selection sends **no** probe (the
+  previous selection stays and `81` is a local reference, §9.5.1); a
+  reference absent from the `C6` list stays probe-only - `unknown` unless the
+  card answers, never "disabled".  A successful VERIFY **latches** the PIN as
+  `not_required` for the card session (the ADM pattern): every later
+  attempt-free re-read keeps it even when the card keeps answering `63CX`,
+  and an equip/disconnect forgets it.  The PWA does not claim "verified" when
+  a verify's refreshed entry says the PIN is disabled (`enabled: false`) -
+  it says the PIN is not required and nothing was verified.  The
+  `C6`-over-probe precedence is
+  **hardware-confirmed**: on the bench card (2026-11-23) PIN1's `C6` bit is
+  clear while the empty-data VERIFY PIN1 answers `63C3` without consuming an
+  attempt - a disabled PIN therefore reads `not_required`, not "locked".
+  The PWA shows the state as a
+  header badge next to the ADM one (clickable: re-read) and as a per-PIN line
+  under the Cards editor's PIN fields and in the Status tab, distinguishing
+  "disabled on this card" from "already verified"; a PIN nothing
+  needs to verify (`not_required`/`not_usable`/`not_initialized`/`blocked`)
+  disables the Verify actions with the reason in the tooltip (Change/Unblock
+  stay available).
 - **The size-agnostic read fallback** for a card that returns no file
   information at all: `/api/read` accepts `length` (transparent) and
   `record_len`, and otherwise reads READ BINARY/RECORD with `Le = 256` until
@@ -42,6 +94,23 @@ every change carries a descriptive commit message.
 
 ### Fixed
 
+- **A CHV operation answering `6984`** (VERIFY / CHANGE / UNBLOCK PIN) is
+  reported as "Referenced data invalidated" instead of the generic `Error`:
+  the result is `{"ok": false, "sw": "6984", "invalidated": true, "error":
+  "Referenced data invalidated"}`, with no `blocked`/`attempts_left` field.
+  `6984` is ETSI TS 102 221 V18.4.0 §10.2.1.5.2 Table 10.13's "Referenced
+  data invalidated" (the `69` "command not allowed" group; ISO/IEC
+  7816-4:2005 §5.1.3 Table 6 prints the same pair as "Reference data not
+  usable").  Table 10.16 lists it for the three PIN commands, but no clause
+  assigns it a CHV-specific meaning - it reports neither attempts left nor a
+  blocked state (those are `63C0`/`6983`, and `9840` on a 2G SIM).  A card
+  whose PIN is **disabled / not initialized for verification** answers this
+  way.  The CHV command bytes and the PIN reference coding are unchanged.
+- **A 2G SIM's `9804` is no longer reported as a blocked ADM** on
+  `/api/verify-adm`: TS 51 011 §9.4.5 defines it as "unsuccessful
+  verification, at least one attempt left" (`failed: true`); `9840` (no
+  attempt left) and `6983` are the blocked answers, and `63C0` reports 0
+  attempts left + blocked.
 - **2G SIM file reads.**  A 2G SIM's SELECT returns no TS 102 221 FCP; its
   TS 51 011 §9.2.1 file information (file size at bytes 3-4, the structure
   at byte 14, the record length at byte 15) is now parsed, so
@@ -51,11 +120,26 @@ every change carries a descriptive commit message.
   and the network-state monitor now work on a 2G SIM.  `fci_form: "gsm"`
   says what the raw SELECT response is; the PWA
   labels it instead of decoding it as a BER FCP.
-- **A 2G SIM's `9804` is no longer reported as a blocked ADM** on
-  `/api/verify-adm`: TS 51 011 §9.4.5 defines it as "unsuccessful
-  verification, at least one attempt left" (`failed: true`); `9840` (no
-  attempt left) and `6983` are the blocked answers, and `63C0` reports 0
-  attempts left + blocked.
+
+### Changed
+
+- **The shared T=0 transport keeps a case-1 `62xx`/`63xx` answer final** (no
+  dummy GET RESPONSE): a case-1 APDU has no `Le` and can carry no response data
+  (TS 102 221 §7.3.1.1.0 prescribes the GET RESPONSE "for case 4 commands
+  only"; §7.3.1.1.2/.3 discontinue on the status word for cases 2/3 - the
+  case-2/3 fallback here stays by design, a compatibility choice the live
+  cards need).  `/api/apdu` and raw test-script APDUs therefore no longer emit
+  a spurious GET RESPONSE after a `63CX`, which is what makes the empty-data
+  VERIFY PIN probe usable; cases 2-4 behave exactly as before.
+- The PIN actions' result line names the refusal ("refused by the card
+  (referenced data invalidated)") and says PIN verification is not enabled for
+  that PIN on this card, or the PIN is otherwise not usable, instead of
+  `SW: 6984 — Error`; it carries the SW and does not promise UNBLOCK.  A retry
+  after the refusal is confirmed with a warning that a new attempt may consume
+  one, and a later successful verify clears the state.  `docs/api.md` and the
+  help (EN/RU) document the answer, `DISABLE PIN` / `ENABLE PIN` (INS
+  `26`/`28`, Remote APDU builder) as the PIN-state commands, and UNBLOCK as
+  the separate case of a PIN the card reports as blocked.
 
 ## [4.0.0] — 2026-11-23
 

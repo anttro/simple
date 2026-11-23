@@ -25,6 +25,7 @@
 				<img id="state-indicator-img" class="hidden dark:invert" style="width:30px;height:30px" alt="" src="nosim.svg">
 				<span id="state-indicator-iccid" class="hidden ml-0.5 text-xs font-mono text-gray-500 dark:text-slate-400 whitespace-nowrap"></span>
 				<span id="state-indicator-adm" class="hidden ml-2 text-xs font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
+				<span id="state-indicator-pin" class="hidden ml-1 text-xs font-mono border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
 				<span id="state-indicator-scp80" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400 border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
 				<span id="state-indicator-scp81" class="hidden ml-1 text-xs font-mono text-gray-500 dark:text-slate-400 border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5" title=""></span>
 			</span>
@@ -1071,8 +1072,9 @@
 					</div>
 					<div class="flex items-center gap-2 mb-1 flex-wrap">
 						<span class="text-xs text-gray-500 dark:text-slate-400" data-l10n="PIN (matched preset)">PIN (matched preset)</span>
-						<button data-needs="card" onclick="pysimVerifyPin('pin1')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN1</button>
-						<button data-needs="card" onclick="pysimVerifyPin('pin2')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN2</button>
+						<button data-needs="card" data-pin-gate="pin1" onclick="pysimVerifyPin('pin1')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN1</button>
+						<button data-needs="card" data-pin-gate="pin2" onclick="pysimVerifyPin('pin2')" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">PIN2</button>
+						<span id="pysim-pin-state" class="text-xs font-mono text-gray-500 dark:text-slate-400"></span>
 						<span id="pysim-pin-msg" class="text-xs font-mono text-gray-600 dark:text-slate-400"></span>
 					</div>
 					<div id="pysim-status" class="text-xs font-mono text-gray-600 dark:text-slate-400"></div>
@@ -1744,7 +1746,7 @@
 					<input id="cards-pin1" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
 				<div class="flex items-center gap-2 pl-12 -mt-1">
-					<button type="button" data-needs="card" onclick="cardsChv('pin1','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+					<button type="button" data-needs="card" data-pin-gate="pin1" onclick="cardsChv('pin1','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
 					<button type="button" data-needs="card" onclick="cardsChv('pin1','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
 					<button type="button" data-needs="card" onclick="cardsChv('pin1','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
 				</div>
@@ -1757,7 +1759,7 @@
 					<input id="cards-pin2" class="flex-1 min-w-0 border border-gray-300 dark:border-slate-600 text-sm rounded px-2 py-1.5 dark:bg-slate-800 font-mono text-center" maxlength="8" inputmode="numeric" placeholder="4-8 digits">
 				</div>
 				<div class="flex items-center gap-2 pl-12 -mt-1">
-					<button type="button" data-needs="card" onclick="cardsChv('pin2','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
+					<button type="button" data-needs="card" data-pin-gate="pin2" onclick="cardsChv('pin2','verify')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
 					<button type="button" data-needs="card" onclick="cardsChv('pin2','change')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Change">Change</button>
 					<button type="button" data-needs="card" onclick="cardsChv('pin2','unblock')" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Unblock">Unblock</button>
 				</div>
@@ -1773,6 +1775,7 @@
 					<button type="button" data-needs="card" onclick="cardsAdmVerify()" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" data-l10n="Verify">Verify</button>
 				</div>
 			</div>
+			<p id="cards-pin-state" class="text-xs font-mono text-gray-500 dark:text-slate-400 mt-2"></p>
 			<p id="cards-chv-status" class="text-xs text-gray-600 dark:text-slate-400 mt-2"></p>
 			<p class="text-xs text-gray-500 dark:text-slate-400 mt-1" data-l10n="All codes are optional">All codes are optional</p>
 		</fieldset>
@@ -2000,7 +2003,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '4.1.0';
+const SIMPLE_VERSION = '4.2.0';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -9602,6 +9605,10 @@ let _pysimAdmAttemptsLeft = null;  // last 63Cx result for this card session
 let _pysimAdmBlocked = false;      // 6983/9804 — no further tries until the session changes
 let _pysimAdmVerifying = false;    // verify request in flight (double-click guard)
 let _pysimAdmStateKey = null;      // last rendered indicator state
+let _pysimChvState = null;         // per-PIN state block ({pin1, pin2}) or null
+let _pysimPinStateKey = null;      // last rendered PIN badge state
+let _pysimChvRefreshing = false;   // /api/chv-status request in flight
+let _pysimChvRefreshAt = 0;        // ... and when it started (the stale guard)
 let _pysimLastStatus = null;       // last /api/status payload (for local repaints)
 let _pysimCardIccid = null;        // EF.ICCID digits of the equipped card (null = unknown)
 let _pysimHeaderIccid = undefined; // last value rendered in the header indicator
@@ -9697,6 +9704,17 @@ function pysimApplyAvailability() {
 			disabled = true;
 			if (!hint) hint = t('Test script running');
 		}
+		const pinGate = el.getAttribute('data-pin-gate');
+		if (pinGate) {
+			// Verify PIN is only useful while the card asks for the PIN: a
+			// not-required/not-usable/not-initialized/blocked state leaves
+			// nothing to verify (the tooltip says why).
+			const gate = pysimPinVerifyGate(pinGate);
+			if (gate) {
+				disabled = true;
+				if (!hint) hint = gate;
+			}
+		}
 		el.disabled = disabled;
 		if (hint) el.setAttribute('title', hint);
 		else el.removeAttribute('title');
@@ -9749,6 +9767,222 @@ function pysimUpdateAdmIndicator(status) {
 		el.classList.add('cursor-pointer');
 		el.setAttribute('role', 'button');
 		el.setAttribute('onclick', 'pysimVerifyAdm()');
+	}
+}
+
+// ----- the per-PIN lock state (v4.2.0) -------------------------------------
+// The state comes from the server's **attempt-free** readout
+// (`POST /api/chv-status` / `status.chv`), which combines two sources: the
+// application DF's PS template DO `C6` in the FCP says which PIN references
+// are enabled (mandatory in an MF/DF/ADF FCP, TS 102 221 §11.1.1.3.1
+// Table 11.3; the PS_DO bitmap over the following `83` references, §9.5.2),
+// and a UICC's VERIFY PIN with an empty data field (TS 102 221 §11.1.9.1.2)
+// supplies the retry counter; a 2G SIM reads its DF.GSM SELECT bytes
+// (TS 51 011 §9.2.1) instead.  `C6` decides a disabled PIN (the probe alone
+// cannot tell it from a locked one); no PIN value is ever sent, so the badge
+// can never consume an attempt.
+function pysimPinStateEntry(code) {
+	const block = _pysimChvState;
+	return (block && block[code]) ? block[code] : null;
+}
+
+function pysimPinState(code) {
+	const entry = pysimPinStateEntry(code);
+	return (entry && entry.state) ? entry.state : null;
+}
+
+// The Verify button's gate text: null while the PIN is worth verifying
+// ('required', or 'unknown' - the card may still ask for it), else the reason
+// the button is disabled.  A not-required/not-usable/not-initialized/blocked
+// PIN has nothing a VERIFY could achieve.
+function pysimPinVerifyGate(code) {
+	const state = pysimPinState(code);
+	if (!state || state === 'required' || state === 'unknown') return null;
+	const name = code.toUpperCase();
+	if (state === 'blocked') {
+		return name + ' ' + t('is blocked') + ' — ' + t('use Unblock with the PUK');
+	}
+	if (state === 'not_usable') {
+		return t('the card reports this PIN reference as not usable — there is nothing to verify');
+	}
+	if (state === 'not_initialized') {
+		return t('the card has no such PIN — there is nothing to verify');
+	}
+	// The same wording as the row/tooltip (disabled vs already verified),
+	// plus why the Verify action is disabled.
+	return pysimPinNotRequiredText(pysimPinStateEntry(code))
+		+ ' (' + t('there is nothing to verify') + ')';
+}
+
+// The small per-PIN state line of the Cards editor and the Status tab
+// ("PIN1: required, 3 tries left").
+// "N tries left" / singular "1 try left" (both the rows and the badge tooltip).
+function pysimPinTriesLeft(count) {
+	return count + ' ' + t(count === 1 ? 'try left' : 'tries left');
+}
+
+// The "not required" wording follows the FCP's enabled flag (v4.2.0): a PIN
+// disabled on the card, one already verified in this session, or a card that
+// says nothing (`enabled` null).
+function pysimPinNotRequiredText(entry) {
+	if (entry && entry.enabled === false) return t('not required — disabled on this card');
+	if (entry && entry.enabled === true) return t('not required — already verified');
+	return t('not required — no PIN needed');
+}
+
+function pysimPinStateLabel(code, entry) {
+	const name = code.toUpperCase();
+	const state = (entry && entry.state) ? entry.state : 'unknown';
+	if (state === 'required') {
+		let text = t('required');
+		if (entry && typeof entry.attempts_left === 'number') {
+			text += ', ' + pysimPinTriesLeft(entry.attempts_left);
+		}
+		return name + ': ' + text;
+	}
+	if (state === 'not_required') return name + ': ' + pysimPinNotRequiredText(entry);
+	if (state === 'blocked') return name + ': ' + t('blocked');
+	if (state === 'not_usable') return name + ': ' + t('not usable');
+	if (state === 'not_initialized') return name + ': ' + t('not initialized');
+	const sw = (entry && entry.sw) ? ' (' + entry.sw + ')' : '';
+	return name + ': ' + t('unknown') + sw;
+}
+
+function pysimPinStateRender() {
+	// No state at all (no card session yet): leave the lines blank rather than
+	// inventing "PIN1: unknown".
+	let text = '';
+	if (_pysimChvState) {
+		text = ['pin1', 'pin2']
+			.map(code => pysimPinStateLabel(code, pysimPinStateEntry(code)))
+			.join(' · ');
+	}
+	['cards-pin-state', 'pysim-pin-state'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) el.textContent = text;
+	});
+}
+
+// Compact PIN state next to the ADM badge: "PIN1 locked" (the card asks for
+// PIN1) / "PIN1 unlocked" (no PIN needed) / "PIN1 blocked" / "PIN1 not
+// usable" / "PIN1 n/a" / "PIN1 ?" - clickable to re-read the attempt-free
+// state.  Mirrors pysimUpdateAdmIndicator: only rewrites the DOM when the
+// state changes (the 2 s /api/status poll calls this on every update).
+const PYSIM_PIN_BADGES = {
+	required: ['PIN1 locked', 'text-amber-600', 'dark:text-amber-400'],
+	not_required: ['PIN1 unlocked', 'text-emerald-600', 'dark:text-emerald-400'],
+	blocked: ['PIN1 blocked', 'text-red-500'],
+	not_usable: ['PIN1 not usable', 'text-amber-600', 'dark:text-amber-400'],
+	not_initialized: ['PIN1 n/a', 'text-gray-500', 'dark:text-slate-400'],
+	unknown: ['PIN1 ?', 'text-gray-500', 'dark:text-slate-400'],
+};
+
+function pysimUpdatePinIndicator(status) {
+	// The poll is authoritative: no card session (or no field) means no state.
+	_pysimChvState = (status && status.connected) ? (status.chv || null) : null;
+	const entry = pysimPinStateEntry('pin1');
+	// The rows follow the state even when the header badge is absent.
+	pysimPinStateRender();
+	const el = document.getElementById('state-indicator-pin');
+	if (!el) return;
+	const connected = !!(status && status.connected);
+	const state = (entry && entry.state) ? entry.state : null;
+	const key = [connected, state, entry && entry.enabled,
+		entry ? entry.attempts_left : null, entry ? entry.sw : null].join('|');
+	if (key === _pysimPinStateKey) return;
+	_pysimPinStateKey = key;
+	el.classList.remove('text-amber-600', 'dark:text-amber-400', 'text-emerald-600',
+		'dark:text-emerald-400', 'text-red-500', 'text-gray-500',
+		'dark:text-slate-400', 'cursor-pointer');
+	el.removeAttribute('onclick');
+	el.removeAttribute('role');
+	if (!connected) {
+		el.classList.add('hidden');
+		el.textContent = '';
+		el.removeAttribute('title');
+		return;
+	}
+	const badge = PYSIM_PIN_BADGES[state] || PYSIM_PIN_BADGES.unknown;
+	el.textContent = t(badge[0]);
+	el.classList.remove('hidden');
+	el.classList.add(badge[1]);
+	if (badge[2]) el.classList.add(badge[2]);
+	let tip;
+	if (state === 'required') {
+		// TS 102 221 §11.1.9.1.2: 63CX names the retries left.
+		tip = t('PIN1 verification is required');
+		if (typeof entry.attempts_left === 'number') {
+			tip += ' — ' + pysimPinTriesLeft(entry.attempts_left);
+		}
+	} else if (state === 'not_required') {
+		if (entry && entry.enabled === false) {
+			tip = t('PIN1 is disabled on this card — no PIN is needed');
+		} else if (entry && entry.enabled === true) {
+			tip = t('PIN1 is already verified — no PIN is needed');
+		} else {
+			tip = t('PIN1 is not required on this card (disabled or already verified) — no PIN is needed');
+		}
+	} else if (state === 'blocked') {
+		tip = t('PIN1 is blocked — no retries left');
+	} else if (state === 'not_usable') {
+		tip = t('the card reports the PIN reference as not usable — PIN verification is not enabled for it');
+	} else if (state === 'not_initialized') {
+		tip = t('the card has no such PIN');
+	} else {
+		tip = t('PIN state unknown');
+		if (entry && entry.sw) tip += ' — SW: ' + entry.sw;
+	}
+	el.setAttribute('title', tip + ' — ' + t('click to re-read'));
+	el.classList.add('cursor-pointer');
+	el.setAttribute('role', 'button');
+	el.setAttribute('onclick', 'pysimRefreshChvState()');
+}
+
+// The first element of `ids` that is not inside a hidden ancestor (the app
+// hides views with the `hidden` class), or null.
+function pysimVisibleElement(ids) {
+	for (const id of ids) {
+		const el = document.getElementById(id);
+		if (!el) continue;
+		if (el.closest && el.closest('.hidden')) continue;
+		return el;
+	}
+	return null;
+}
+
+// Re-read the PIN state from the server (attempt-free: no PIN, no attempt).
+// `codes` limits the read (default both PINs).  Never throws.  The in-flight
+// guard is released after `PYSIM_CHV_REFRESH_STALE_MS` so one stalled request
+// cannot freeze the badge (the v3.28.7 RAM-panel class).
+const PYSIM_CHV_REFRESH_STALE_MS = 10000;
+
+async function pysimRefreshChvState(codes) {
+	if (_pysimChvRefreshing
+		&& Date.now() - _pysimChvRefreshAt < PYSIM_CHV_REFRESH_STALE_MS) return null;
+	_pysimChvRefreshing = true;
+	_pysimChvRefreshAt = Date.now();
+	try {
+		const body = codes ? { codes } : {};
+		const data = await pysimFetch('/api/chv-status', body);
+		if (data && data.chv) {
+			_pysimLastStatus = Object.assign({}, _pysimLastStatus || {},
+				{ connected: true, chv: data.chv });
+			_pysimChvState = data.chv;
+			pysimUpdatePinIndicator(_pysimLastStatus);
+			pysimApplyAvailability();
+		}
+		return data;
+	} catch (e) {
+		// A message line, not the state lines (the next render overwrites
+		// those): the first one the user can actually see - the Cards editor's
+		// line is hidden from every other tab, and the app hides views with
+		// the `hidden` class.
+		const el = pysimVisibleElement(['cards-chv-status', 'pysim-pin-msg'])
+			|| document.getElementById('pysim-status');
+		if (el) el.textContent = t('Error') + ': ' + e.message;
+		return null;
+	} finally {
+		_pysimChvRefreshing = false;
 	}
 }
 
@@ -9807,8 +10041,12 @@ async function pysimVerifyAdm(statusEl, admOverride) {
 	} finally {
 		_pysimAdmVerifying = false;
 		const base = _pysimLastStatus || { connected: true };
-		pysimUpdateAdmIndicator(Object.assign({}, base,
-			verifiedOverride === undefined ? {} : { adm_verified: verifiedOverride }));
+		// Keep the last status in step too: refreshDynamicI18n re-renders the
+		// badges from it, so a language switch inside the poll window must not
+		// revert a just-verified ADM badge.
+		_pysimLastStatus = Object.assign({}, base,
+			verifiedOverride === undefined ? {} : { adm_verified: verifiedOverride });
+		pysimUpdateAdmIndicator(_pysimLastStatus);
 	}
 }
 
@@ -9836,6 +10074,9 @@ let _cardsChvState = {};
 
 function cardsChvReset() {
 	_cardsChvState = {};
+	// The per-PIN lock state belongs to the card session too (v4.2.0).
+	_pysimChvState = null;
+	_pysimPinStateKey = null;
 }
 
 function cardsChvState(code) {
@@ -9853,6 +10094,8 @@ function cardsChvDigits(value, kind) {
 function cardsChvRetryPrompt(code) {
 	const state = cardsChvState(code);
 	if (state.blocked) return null;
+	// An earlier 6984 must not mask a later, more specific answer: the
+	// attempts/failed branches come first (and clear the flag in pysimChvRun).
 	if (typeof state.attempts === 'number') {
 		if (state.attempts <= 1) return t('This is the last attempt before the PIN is blocked. Try again?');
 		return t('The PIN verification already failed') + ' — ' + state.attempts + ' ' + t('attempt(s) left')
@@ -9860,6 +10103,9 @@ function cardsChvRetryPrompt(code) {
 	}
 	if (state.failed) {
 		return t('The PIN verification already failed') + '. ' + t('A wrong PIN can block it. Try again?');
+	}
+	if (state.invalidated) {
+		return t('The card already refused this PIN (referenced data invalidated). A new attempt may consume one. Try again?');
 	}
 	return null;
 }
@@ -9894,29 +10140,60 @@ async function pysimChvRun(code, action, values, statusEl) {
 		set(t('Error') + ': ' + e.message);
 		return null;
 	}
+	if (data && data.chv) {
+		// The attempt-free state the server refreshed after the exchange
+		// (v4.2.0): the rows, the header badge and the Verify gates follow.
+		// _pysimLastStatus itself is updated too - refreshDynamicI18n
+		// re-renders from it, so a language switch inside the poll window must
+		// not show the previous block.
+		_pysimLastStatus = Object.assign({}, _pysimLastStatus || {},
+			{ connected: true, chv: data.chv });
+		_pysimChvState = data.chv;
+		pysimUpdatePinIndicator(_pysimLastStatus);
+		pysimApplyAvailability();
+	}
 	if (data.ok) {
 		state.attempts = null;
 		state.blocked = false;
 		state.failed = false;
-		if (action === 'verify') set(label + ' ' + t('verified'));
+		state.invalidated = false;
+		const refreshed = data.chv && data.chv[code];
+		if (action === 'verify' && refreshed && refreshed.enabled === false) {
+			// The card answered 9000 but its FCP says this PIN is disabled:
+			// nothing was actually verified - do not claim "verified".
+			set(label + ' ' + t('is not required on this card (disabled) — nothing was verified'));
+		} else if (action === 'verify') set(label + ' ' + t('verified'));
 		else set(label + ' ' + t(action === 'change' ? 'changed' : 'unblocked'));
 		return data;
 	}
 	if (data.blocked) {
 		state.blocked = true;
 		state.attempts = 0;
+		state.invalidated = false;
 		set(label + ' ' + t('is blocked') + ' — ' + t('use Unblock with the PUK'));
 		return data;
 	}
 	if (typeof data.attempts_left === 'number') {
 		state.attempts = data.attempts_left;
+		state.invalidated = false;
 		set(label + ' ' + t('verification failed') + ' — ' + data.attempts_left + ' ' + t('attempt(s) left'));
 		return data;
 	}
 	if (data.failed) {
 		// A 2G SIM's 9804: a failure with at least one attempt left
 		state.failed = true;
+		state.invalidated = false;
 		set(label + ' ' + t('verification failed') + ' — ' + t('at least one attempt left'));
+		return data;
+	}
+	if (data.invalidated) {
+		// TS 102 221 Table 10.13: a generic refusal - no attempt count, not
+		// necessarily blocked; the card will not use this CHV reference (a
+		// disabled/not-initialized PIN answers this way).
+		state.invalidated = true;
+		set(label + ' ' + t('refused by the card (referenced data invalidated)')
+			+ ' — SW: ' + (data.sw || '6984') + '. '
+			+ t('PIN verification is not enabled for this PIN on this card, or the PIN is otherwise not usable'));
 		return data;
 	}
 	set('SW: ' + (data.sw || '?') + ' — ' + (data.error || t('Error')));
@@ -10031,6 +10308,7 @@ function pysimSetServerAvailable(available) {
 	_pysimServerAvailable = available;
 	if (available !== true) {
 		pysimUpdateAdmIndicator(null);
+		pysimUpdatePinIndicator(null);
 		pysimUpdateIccidIndicator(null);
 		pysimUpdatePresetIndicators(null);
 		netStateRender(null);
@@ -15120,6 +15398,11 @@ function cardsShowEditor() {
 	const editor = document.getElementById('cards-editor-view');
 	if (list) list.classList.add('hidden');
 	if (editor) editor.classList.remove('hidden');
+	// The per-PIN state line follows the equipped card (the attempt-free
+	// readout); with no card session the refresh is skipped - an offline
+	// editor must not fire a failing POST (the 2 s poll keeps it current).
+	if (typeof pysimRefreshChvState === 'function'
+		&& _pysimLastStatus && _pysimLastStatus.connected) pysimRefreshChvState();
 	navRecord();
 }
 
@@ -18797,6 +19080,7 @@ function pysimCardStateUpdate(status) {
 	_pysimCardIccid = status.connected ? (status.iccid || null) : null;
 	if (prevIccid !== _pysimCardIccid) cardsRender();   // equipped-preset highlight
 	pysimUpdateAdmIndicator(status);
+	pysimUpdatePinIndicator(status);
 	pysimUpdateIccidIndicator(_pysimCardIccid);
 	pysimUpdatePresetIndicators(_pysimCardIccid);
 	spPresetWarningRender();
@@ -22903,22 +23187,30 @@ function fcpSfi(v) {
 
 // TS 102 221 11.1.1.4.10 / 9.5.2: PS template DO 'C6' = PS_DO ('90') + optional
 // usage qualifier ('95') + key reference ('83', repeatable).  The PS_DO is a
-// bitmap over the key references in order, MSB first; a set bit = PIN enabled.
+// bitmap over the key references in order, MSB first (b8 = the first '83'); a
+// set bit = PIN enabled.  A reference whose bit lies outside the PS_DO bytes
+// (or a template with no PS_DO) has no answer the specs define, so it reads
+// "unknown" - never "disabled".  The server's fcp.ps_reference_enabled uses the
+// same convention, drift-guarded by tests/ps_template_vectors.json.
 function fcpPsTemplate(v) {
 	const parsed = fcpParseTlvs(v);
 	let psDo = null, uq = null;
 	const pins = [];
 	for (const t of parsed.tlvs) {
-		if (t.tag === '90') psDo = t.value;
+		// The first PS_DO is the bitmap (a second one would be malformed); the
+		// server's fcp.ps_reference_enabled keeps the first too, so the two
+		// agree on a duplicate.
+		if (t.tag === '90') { if (psDo === null) psDo = t.value; }
 		else if (t.tag === '95') uq = t.value.length ? parseInt(t.value, 16) : 0;
 		else if (t.tag === '83' && t.value.length) {
 			const idx = pins.length;
-			let enabled = false;
+			let enabled = null;
 			if (psDo && psDo.length) {
 				const byteIdx = idx >> 3, bit = 7 - (idx & 7);
 				if (byteIdx * 2 + 2 <= psDo.length) enabled = ((parseInt(psDo.substr(byteIdx * 2, 2), 16) >> bit) & 1) === 1;
 			}
-			let s = pinKeyRefName(parseInt(t.value, 16)) + ': ' + (enabled ? 'enabled' : 'disabled');
+			let s = pinKeyRefName(parseInt(t.value, 16)) + ': '
+				+ (enabled === null ? 'unknown' : (enabled ? 'enabled' : 'disabled'));
 			if (uq === null) s += ', always verified';
 			else if (uq === 0) s += ', verification not used';
 			else if (uq & 0x08) s += ', verify';
@@ -29257,6 +29549,37 @@ const LANG_RU = {
 	'No PIN in the matched preset': 'В подобранном пресете нет PIN',
 	'ADM is required': 'Требуется ADM',
 	'verification failed': 'проверка не удалась',
+	'refused by the card (referenced data invalidated)': 'отклонён картой (ссылочные данные аннулированы)',
+	'PIN verification is not enabled for this PIN on this card, or the PIN is otherwise not usable': 'проверка этого PIN на этой карте не включена, либо PIN по иным причинам непригоден',
+	'The card already refused this PIN (referenced data invalidated). A new attempt may consume one. Try again?': 'Карта уже отклонила этот PIN (ссылочные данные аннулированы). Новая попытка может израсходовать одну. Повторить?',
+	'PIN1 locked': 'PIN1 требуется',
+	'PIN1 unlocked': 'PIN1 не требуется',
+	'PIN1 blocked': 'PIN1 заблокирован',
+	'PIN1 not usable': 'PIN1 непригоден',
+	'PIN1 n/a': 'PIN1 отсутствует',
+	'PIN1 ?': 'PIN1 ?',
+	'PIN1 verification is required': 'Требуется проверка PIN1',
+	'PIN1 is not required on this card (disabled or already verified) — no PIN is needed': 'PIN1 на этой карте не требуется (отключён или уже проверен) — PIN не нужен',
+	'PIN1 is blocked — no retries left': 'PIN1 заблокирован — попыток не осталось',
+	'the card reports the PIN reference as not usable — PIN verification is not enabled for it': 'карта сообщает, что ссылка на PIN непригодна — проверка PIN для него не включена',
+	'the card has no such PIN': 'на карте нет такого PIN',
+	'PIN state unknown': 'Состояние PIN неизвестно',
+	'click to re-read': 'нажмите, чтобы перечитать',
+	'tries left': 'попыток осталось',
+	'not required — no PIN needed': 'не требуется — PIN не нужен',
+	'not required — disabled on this card': 'не требуется — отключён на этой карте',
+	'not required — already verified': 'не требуется — уже проверен',
+	'PIN1 is disabled on this card — no PIN is needed': 'PIN1 на этой карте отключён — PIN не нужен',
+	'PIN1 is already verified — no PIN is needed': 'PIN1 уже проверен — PIN не нужен',
+	'there is nothing to verify': 'проверять нечего',
+	'is not required on this card (disabled) — nothing was verified': 'на этой карте не требуется (отключён) — ничего не проверялось',
+	'try left': 'попытка осталась',
+	'blocked': 'заблокирован',
+	'not usable': 'непригоден',
+	'not initialized': 'не инициализирован',
+	'PIN verification is not required on this card — there is nothing to verify': 'Проверка PIN на этой карте не требуется — проверять нечего',
+	'the card reports this PIN reference as not usable — there is nothing to verify': 'карта сообщает, что ссылка на этот PIN непригодна — проверять нечего',
+	'the card has no such PIN — there is nothing to verify': 'на карте нет такого PIN — проверять нечего',
 	'at least one attempt left': 'осталась хотя бы одна попытка',
 	'changed': 'изменён',
 	'unblocked': 'разблокирован',
@@ -29399,6 +29722,12 @@ function isViewVisible(id) {
 // visible ones after a language switch so they don't stay in the old language.
 function refreshDynamicI18n() {
 	pysimFsFilterRender();
+	// The header badges carry t() strings and dedupe on their state key: reset
+	// the key so the language switch re-renders them (v4.2.0).
+	_pysimAdmStateKey = null;
+	_pysimPinStateKey = null;
+	pysimUpdateAdmIndicator(_pysimLastStatus);
+	pysimUpdatePinIndicator(_pysimLastStatus);
 	if (isViewVisible('tab-profiler')) {
 		if (profilerView === 'list') { profilerRenderList(); profilerRenderSnapshotList(); }
 		else if (profilerView === 'editor') profilerRenderEditor();

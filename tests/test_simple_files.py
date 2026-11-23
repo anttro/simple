@@ -6,6 +6,8 @@ detection.  No reader is needed: every card exchange is driven through a fake
 transport with scripted ``(data, sw)`` responses.
 """
 
+import json
+import pathlib
 import unittest
 
 from simple_server import cards
@@ -192,6 +194,77 @@ ENTRIES = [
     {'path': 'ADF.USIM/6F07', 'name': 'EF.IMSI', 'sym': 'ADF.USIM/EF.IMSI',
      'fid': '6F07', 'kind': 'ef', 'root': 'ADF.USIM'},
 ]
+
+
+class PsTemplateTests(unittest.TestCase):
+    """The FCP's PS template DO ``C6`` (TS 102 221 §11.1.1.4.10 / §9.5.2).
+
+    ``C6`` is **mandatory** in an MF/DF/ADF FCP (Table 11.3, printed p. 89);
+    its PS_DO ('90') is a bitmap over the key reference ('83') objects that
+    follow it, MSB first (b8 = the first reference).  The vectors are shared
+    with the PWA decoder (``frontend/tests/ps_template_vectors.json``).
+
+    The last four vectors are the bench card's **live** ADF.USIM PS template,
+    read through ``POST /api/select {"name": "ADF.USIM"}`` on 2026-11-23 (a
+    read-only SELECT, no PIN attempt):
+    ``90016083010183010A830181`` - ``C6 0C`` = PS_DO ``60`` plus the
+    references ``01`` (PIN1), ``0A`` (ADM) and ``81`` (PIN2), so PIN1 is
+    **disabled** on that card while ADM and PIN2 are enabled and an unlisted
+    reference (``02``/``11``) stays unknown.
+    """
+
+    def vectors(self):
+        path = (pathlib.Path(__file__).resolve().parents[1]
+                / 'frontend' / 'tests' / 'ps_template_vectors.json')
+        with open(path, encoding='utf-8') as handle:
+            return json.load(handle)
+
+    def test_the_ps_template_do_is_parsed(self):
+        # A DF's FCP: C6 next to the file descriptor, as a real card sends it.
+        data = fcp_template(ber(0x82, FD_DF),
+                            ber(0xC6, bytes.fromhex('9001C0830101')))
+        info = fcp.parse_fcp(data)
+        self.assertEqual(info.ps_template, '9001C0830101')
+        # An EF's FCP (Table 11.4) has no C6.
+        self.assertIsNone(fcp.parse_fcp(TRANSPARENT_FCP).ps_template)
+
+    def test_a_c6_inside_an_fci_template_reaches_the_fcp(self):
+        # Some cards wrap the FCP in an FCI (6F -> 62 -> C6): the flattening
+        # path of _data_objects must surface the PS template too.
+        data = fci_template(ber(0x62, ber(0x82, FD_DF)
+                                + ber(0xC6, bytes.fromhex('9001C0830101'))))
+        info = fcp.parse_fcp(data)
+        self.assertEqual(info.ps_template, '9001C0830101')
+        self.assertTrue(fcp.ps_reference_enabled(info.ps_template, '01'))
+
+    def test_the_shared_vectors(self):
+        for vector in self.vectors():
+            with self.subTest(vector['name']):
+                self.assertIs(
+                    fcp.ps_reference_enabled(vector['ps_template'],
+                                             vector['reference']),
+                    vector['expected'])
+
+    def test_a_reference_absent_from_the_list_is_unknown(self):
+        # No printed rule exists, so it must never become "disabled".
+        self.assertIsNone(fcp.ps_reference_enabled('9001C0830101', '81'))
+        self.assertIsNone(fcp.ps_reference_enabled('9001C0830101', 0x81))
+
+    def test_the_reference_forms(self):
+        template = '9001C0830101'
+        self.assertIs(fcp.ps_reference_enabled(template, 0x01), True)
+        self.assertIs(fcp.ps_reference_enabled(template, '01'), True)
+        self.assertIs(fcp.ps_reference_enabled(template, b'\x01'), True)
+        self.assertIs(fcp.ps_reference_enabled(bytes.fromhex(template), '01'),
+                      True)
+
+    def test_a_malformed_template_is_unknown(self):
+        for value in (None, '', b'', 'zz', '83', '9001', '9001C0'):
+            with self.subTest(value=value):
+                self.assertIsNone(fcp.ps_reference_enabled(value, '01'))
+
+    def test_the_helper_is_exported(self):
+        self.assertIn('ps_reference_enabled', fcp.__all__)
 
 
 class GsmSelectTests(unittest.TestCase):

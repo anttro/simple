@@ -38,8 +38,10 @@ let code = 'var _pysimCardStateKey = null;\nvar _pysimCardSession = null;\n'
 	+ 'var _cardsAutoIccid = null;\nvar _pysimCardIccid = null;\n';
 code += extractFunc(html, 'pysimCardStateUpdate') + '\n';
 // the status poll also feeds the RAM operation modal (DOM-bound, covered in
-// ram.test.js) - stub it for these state tests
+// ram.test.js) and the per-PIN badge (pin_state.test.js) - stub them here
 code += 'var ramOpProgress = function() {};\n';
+code += 'var pysimUpdatePinIndicator = function() {};\n';
+code += 'var _pysimChvState = null;\nvar _pysimPinStateKey = null;\n';
 code += 'var _pysimReaderKey = null;\nvar _pysimActiveReader = null;\n';
 code += extractFunc(html, 'pysimStatusHtml') + '\n';
 code += extractFunc(html, 'pysimStatusRender') + '\n';

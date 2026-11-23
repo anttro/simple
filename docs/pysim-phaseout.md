@@ -2312,23 +2312,29 @@ recommended handling:
 
 ### PIN/PUK operations (lost with the pySim command line)
 
-The card presets already store `pin1`/`puk1`/`pin2`/`puk2` (and `adm`), but
-nothing consumes the PIN/PUK codes — the retired pySim command line was the
-only way to run `verify_chv`/`change_chv`/`unblock_chv`.  Add them as typed
-endpoints/UI (spec-checker gate before implementation; the INS bytes are
-ISO 7816-4 VERIFY `20`, CHANGE CHV `24`, DISABLE CHV `26`, ENABLE CHV `28`,
-UNBLOCK CHV `2C`; CHV numbers PIN1 `01`, PIN2 `81`, ADM `0A` as the legacy
-`/api/verify-adm` already uses):
+**Shipped in 4.2.0** (was the retired command line's
+`verify_chv`/`change_chv`/`unblock_chv`): `POST /api/chv` runs VERIFY `20`,
+CHANGE CHV `24` and UNBLOCK CHV `2C`, with the CHV reference by card class
+(UICC PIN1 `01`/PIN2 `81`, TS 102 221 §9.5.1; a 2G SIM's `01`/`02` with the
+exceptional UNBLOCK CHV1 `00`, TS 51 011 §9.2.9/§9.2.13) and the PIN's
+application selected first.  The Cards editor's PIN/ADM block and the Status
+tab's PIN row drive it; every attempt is confirmed, the `63Cx` attempts left,
+`63C0`/`6983`/`9840` blocked and the `6984` "referenced data invalidated"
+answer are reported, and a successful change/unblock offers the new value for
+the preset store (the endpoint never stores a key).
 
-- **Verify PIN1/PIN2** (the ADM path exists: `/api/verify-adm`).  Report the
-  `63Cx` attempts left; a wrong key consumes one, so the UI confirms before a
-  retry (the ADM badge pattern).  A blocked PIN (`6983`/`9804`) needs the PUK.
-- **Change PIN** (old + new).
-- **Unblock PIN** (PUK + new PIN; RESET RETRY COUNTER / UNBLOCK CHV).
-- **Enable/disable CHV** (if useful; less common).
-- Where: the Cards editor's PIN/ADM block (the codes live there) and/or the
-  Status tab's card tools.  The preset supplies the key; the endpoint never
-  stores it.
+**The PIN lock state** is read **without presenting a PIN** (v4.2.0):
+`status.chv` + `POST /api/chv-status` combine the application DF's PS template
+DO `C6` (mandatory in an MF/DF/ADF FCP, §11.1.1.3.1 Table 11.3; the PS_DO
+bitmap over the `83` references, §9.5.2) with the empty-data VERIFY PIN probe
+(§11.1.9.1.2: the retry counter), so a **disabled** PIN (`C6` bit clear) is
+told apart from a locked one; a 2G SIM's DF.GSM SELECT bytes (§9.2.1) stand in
+for the probe it cannot make (§9.2.9).  The header badge, the Cards editor's
+per-PIN state line and the Verify gating use it.
+
+Still unexposed as typed endpoints: **ENABLE CHV `28` / DISABLE CHV `26`**
+(only the Remote APDU builder offers the raw commands; the lock-state readout
+reports the resulting disabled/enabled bit).
 
 ### pySim command audit (what else was lost)
 

@@ -12,6 +12,7 @@ from simple_server import text
 from simple_server import tlv
 from simple_server import transport
 from simple_server import util
+from simple_server import server as server_module
 
 
 class AParse(object):
@@ -495,11 +496,48 @@ class TransportExchangeTests(unittest.TestCase):
         self.assertEqual((data, sw), (b'\x07', b'\x90\x00'))
         self.assertEqual(conn.sent[1], bytes.fromhex('00c0000000'))
 
+    def test_case3_63xx_dummy_get_response_is_a_compatibility_fallback(self):
+        # A **behaviour pin**: it passes on the pre-v4.2.0 code by design
+        # (cases 2/3 were never narrowed) - only the case-1 test guards the
+        # change; this one keeps the fallback from being "fixed" away.
+        #
+        # TS 102 221 §7.3.1.1.0 prescribes the dummy GET RESPONSE **"for case 4
+        # commands only"**, and §7.3.1.1.2/.3 make the transport discontinue on
+        # a status word for cases 2/3.  Following it for a case-3 APDU is a
+        # deliberate *compatibility fallback*, not a spec rule: the live cards
+        # need it (the case-2 file reads this rule came from, and v3.25.7 - an
+        # ENVELOPE answering 63xx with the PoR behind a GET RESPONSE).  Pinned
+        # so nobody "fixes" it as a spec violation.
+        link, conn = self.link([
+            (b'', b'\x63\x00'),
+            (b'\x07', b'\x90\x00'),
+        ])
+        data, sw = link.send_apdu(bytes.fromhex('00a40004023f00'))   # case 3
+        self.assertEqual((data, sw), (b'\x07', b'\x90\x00'))
+        self.assertEqual(conn.sent[0], bytes.fromhex('00a40004023f00'))
+        self.assertEqual(conn.sent[1], bytes.fromhex('00c0000000'))
+
     def test_9100_breaks_without_a_get_response(self):
         # The CAT success state: no response data is pending.
         link, conn = self.link([(b'', b'\x91\x00')])
         self.assertEqual(link.send_apdu(bytes.fromhex('00b0000004')),
                          (b'', b'\x91\x00'))
+        self.assertEqual(len(conn.sent), 1)
+
+    def test_case1_63xx_is_final_without_a_get_response(self):
+        # A case-1 APDU has no Le and cannot carry response data, so its
+        # status word is final: VERIFY PIN with an empty data field answers
+        # the retry counter this way ('63CX', TS 102 221 §11.1.9.1.2) - a
+        # dummy GET RESPONSE would lose it (and could not return data).
+        link, conn = self.link([(b'', b'\x63\xc3')])
+        data, sw = link.send_apdu(bytes.fromhex('00200001'))
+        self.assertEqual((data, sw), (b'', b'\x63\xc3'))
+        self.assertEqual(conn.sent, [bytes.fromhex('0020000100')])
+
+    def test_case1_6983_is_final_too(self):
+        link, conn = self.link([(b'', b'\x69\x83')])
+        self.assertEqual(link.send_apdu(bytes.fromhex('00200081')),
+                         (b'', b'\x69\x83'))
         self.assertEqual(len(conn.sent), 1)
 
     def test_6cxx_resends_with_the_correct_le(self):
@@ -730,6 +768,210 @@ class HookBaseTests(unittest.TestCase):
         handler = transport.ProactiveHandler()
         self.assertIsNone(handler.receive_fetch_raw(None, None))
         self.assertEqual(handler.prepare_response(None), [])
+
+
+# ---- the per-PIN state readouts (v4.2.0) ----------------------------------
+
+class ChvProbeResultTests(unittest.TestCase):
+    """``_chv_probe_result``: a UICC's empty-data VERIFY PIN answer.
+
+    TS 102 221 §11.1.9.1.2 (63CX = retries left, 63C0/6983 for a blocked PIN),
+    ISO 7816-4 §7.5.6 (9000 = verification not required), §7.5.1 (6A88) and
+    Table 6 (6984 "Reference data not usable").
+    """
+
+    def test_the_state_table(self):
+        cases = (
+            ('9000', 'not_required', None),
+            ('63C3', 'required', 3),
+            ('63CA', 'required', 10),
+            ('63C0', 'blocked', 0),
+            ('6983', 'blocked', 0),
+            ('6A88', 'not_initialized', None),
+            ('6984', 'not_usable', None),
+        )
+        for sw, state, attempts in cases:
+            with self.subTest(sw=sw):
+                result = server_module._chv_probe_result(sw)
+                self.assertEqual(result['state'], state)
+                self.assertEqual(result['attempts_left'], attempts)
+                self.assertEqual(result['sw'], sw)
+
+    def test_an_unknown_answer_keeps_the_status_word(self):
+        for sw in ('6A82', '6985', '6D00', '0000', ''):
+            with self.subTest(sw=sw):
+                result = server_module._chv_probe_result(sw)
+                self.assertEqual(result['state'], 'unknown')
+                self.assertIsNone(result['attempts_left'])
+                self.assertEqual(result['sw'], sw)
+
+    def test_the_input_is_normalised_and_63c0_is_not_required(self):
+        self.assertEqual(server_module._chv_probe_result(' 63c3 ')['attempts_left'], 3)
+        # 63C0 is 0 retries left: blocked, never 'required' with 0
+        self.assertEqual(server_module._chv_probe_result('63C0')['state'], 'blocked')
+
+    def test_every_state_is_in_the_vocabulary(self):
+        for sw in ('9000', '63C3', '63C0', '6983', '6A88', '6984', '6A82'):
+            self.assertIn(server_module._chv_probe_result(sw)['state'],
+                          server_module.CHV_STATES)
+
+
+class ChvSimStateTests(unittest.TestCase):
+    """``_chv_sim_state``: a 2G SIM's MF/DF SELECT block (TS 51 011 §9.2.1).
+
+    Byte 14 (Detail 1) b8 = CHV1 disabled; byte 19 / 21 (Detail 2) b8 =
+    secret code initialised, b4-b1 = remaining false presentations ('0' =
+    blocked).  Indices are byte-1 (byte 14 -> raw[13]).
+    """
+
+    @staticmethod
+    def block(chv1_enabled=True, chv1_status=0x83, chv2_status=0x8A):
+        raw = bytearray(22)
+        raw[13] = 0x00 if chv1_enabled else 0x80     # byte 14
+        raw[18] = chv1_status                        # byte 19
+        raw[20] = chv2_status                        # byte 21
+        return bytes(raw)
+
+    def test_chv1_required_with_the_remaining_count(self):
+        result = server_module._chv_sim_state(self.block(), 'pin1')
+        self.assertEqual(result, {'state': 'required', 'attempts_left': 3})
+
+    def test_chv1_disabled_needs_no_verification(self):
+        # The disabled bit wins over the status byte (a disabled CHV1 needs no
+        # verification whatever its counter says).
+        raw = self.block(chv1_enabled=False, chv1_status=0x83)
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin1'),
+                         {'state': 'not_required', 'attempts_left': None})
+        raw = self.block(chv1_enabled=False, chv1_status=0x00)
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin1')['state'],
+                         'not_required')
+
+    def test_chv1_blocked(self):
+        raw = self.block(chv1_status=0x80)           # initialised, 0 remaining
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin1'),
+                         {'state': 'blocked', 'attempts_left': 0})
+
+    def test_chv2_is_not_initialised(self):
+        raw = self.block(chv2_status=0x00)
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin2'),
+                         {'state': 'not_initialized', 'attempts_left': None})
+
+    def test_chv2_reads_its_own_byte(self):
+        # CHV1's status/disabled bits must not leak into CHV2 and vice versa.
+        raw = self.block(chv1_enabled=False, chv1_status=0x80, chv2_status=0x8A)
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin2'),
+                         {'state': 'required', 'attempts_left': 10})
+        raw = self.block(chv1_status=0x83, chv2_status=0x00)
+        self.assertEqual(server_module._chv_sim_state(raw, 'pin1')['state'],
+                         'required')
+
+    def test_a_short_block_is_unknown_without_a_status_word(self):
+        for length in (0, 14, 21):
+            with self.subTest(length=length):
+                result = server_module._chv_sim_state(bytes(length), 'pin1')
+                self.assertEqual(result, {'state': 'unknown',
+                                          'attempts_left': None})
+                self.assertNotIn('sw', result)
+
+    def test_the_hex_form_is_accepted(self):
+        raw = self.block()
+        self.assertEqual(server_module._chv_sim_state(raw.hex().upper(), 'pin2'),
+                         {'state': 'required', 'attempts_left': 10})
+        self.assertEqual(server_module._chv_sim_state(' '.join(
+            '%02X' % b for b in raw), 'pin2')['attempts_left'], 10)
+
+    def test_a_bad_code_is_refused(self):
+        with self.assertRaises(ValueError):
+            server_module._chv_sim_state(self.block(), 'pin3')
+
+
+class ChvStateSummaryTests(unittest.TestCase):
+    """``_chv_state_summary``: the ``/api/status`` / ``/api/chv-status`` block."""
+
+    def test_both_codes_are_present_with_uniform_fields(self):
+        summary = server_module._chv_state_summary({
+            'pin1': {'state': 'required', 'attempts_left': 3, 'sw': '63C3',
+                     'enabled': True},
+            'pin2': {'state': 'not_required', 'attempts_left': None,
+                     'sw': '9000', 'enabled': False},
+        })
+        self.assertEqual(summary, {
+            'pin1': {'state': 'required', 'attempts_left': 3, 'sw': '63C3',
+                     'enabled': True},
+            'pin2': {'state': 'not_required', 'attempts_left': None,
+                     'sw': '9000', 'enabled': False},
+        })
+
+    def test_a_missing_code_is_unknown(self):
+        summary = server_module._chv_state_summary({
+            'pin1': {'state': 'blocked', 'attempts_left': 0},
+        })
+        self.assertEqual(summary['pin1'],
+                         {'state': 'blocked', 'attempts_left': 0, 'sw': None,
+                          'enabled': None})
+        self.assertEqual(summary['pin2'],
+                         {'state': 'unknown', 'attempts_left': None, 'sw': None,
+                          'enabled': None})
+
+    def test_nothing_is_dropped(self):
+        # A SIM readout has no sw; a probe's sw/enabled survive verbatim.
+        for states in (None, {}, {'pin2': {'state': 'required',
+                                           'attempts_left': 10,
+                                           'enabled': None}}):
+            summary = server_module._chv_state_summary(states)
+            self.assertEqual(sorted(summary), ['pin1', 'pin2'])
+            for code in ('pin1', 'pin2'):
+                self.assertEqual(sorted(summary[code]),
+                                 ['attempts_left', 'enabled', 'state', 'sw'])
+                self.assertIn(summary[code]['state'], server_module.CHV_STATES)
+
+
+class ChvCombinedStateTests(unittest.TestCase):
+    """``_chv_combined_state``: the FCP's C6 flag decides over the probe.
+
+    TS 102 221 §9.5.2 ("for each bit set to '1' the corresponding key
+    reference (PIN) is enabled") vs §11.1.9.1.2 (the retry counter): the probe
+    alone cannot tell a disabled PIN from a locked one.  The precedence is
+    **hardware-confirmed** on the bench card (2026-11-23): its ADF.USIM ``C6``
+    reports PIN1 ``01`` disabled, yet the empty-data VERIFY PIN1 answers
+    ``63C3`` - the probe alone would have read "PIN1 locked, 3 tries left".
+    """
+
+    def test_a_disabled_pin_is_not_required(self):
+        # The bench card's actual answer for its disabled PIN1: the probe's
+        # 63C3 (3 retries, no attempt consumed) with C6 saying "disabled" -
+        # the flag wins, the counter is kept as information only.
+        probe = {'state': 'required', 'attempts_left': 3, 'sw': '63C3'}
+        entry = server_module._chv_combined_state(probe, False)
+        self.assertEqual(entry, {'state': 'not_required', 'attempts_left': 3,
+                                 'sw': '63C3', 'enabled': False})
+
+    def test_an_enabled_pin_keeps_the_probe_state(self):
+        for probe_state, attempts in (('required', 3), ('blocked', 0),
+                                      ('not_required', None),
+                                      ('not_usable', None),
+                                      ('not_initialized', None),
+                                      ('unknown', None)):
+            probe = {'state': probe_state, 'attempts_left': attempts,
+                     'sw': '63C3'}
+            entry = server_module._chv_combined_state(probe, True)
+            self.assertEqual(entry['state'], probe_state)
+            self.assertEqual(entry['attempts_left'], attempts)
+            self.assertIs(entry['enabled'], True)
+
+    def test_no_flag_is_probe_only(self):
+        probe = {'state': 'required', 'attempts_left': 2, 'sw': '63C2'}
+        entry = server_module._chv_combined_state(probe, None)
+        self.assertEqual(entry, {'state': 'required', 'attempts_left': 2,
+                                 'sw': '63C2', 'enabled': None})
+
+    def test_an_unknown_state_never_leaks_the_probe(self):
+        entry = server_module._chv_combined_state({'state': 'bogus'}, None)
+        self.assertEqual(entry['state'], 'unknown')
+        entry = server_module._chv_combined_state({}, True)
+        self.assertEqual(entry['state'], 'unknown')
+        self.assertEqual(entry, {'state': 'unknown', 'attempts_left': None,
+                                 'sw': None, 'enabled': True})
 
 
 if __name__ == '__main__':

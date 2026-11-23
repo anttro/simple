@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from simple_server.tlv import ber_tlv_list
 
 __all__ = ['Fcp', 'STRUCTURES', 'parse_fcp', 'parse_gsm_select',
-           'fcp_from_select_response']
+           'fcp_from_select_response', 'ps_reference_enabled']
 
 # TS 102 221 Table 11.5, structure bits b3-b1 (b6-b4 = 111 with b3-b1 = 001 is
 # the BER-TLV row).  Anything else (RFU) reports 'no_info'.
@@ -31,8 +31,14 @@ _TAG_FILE_DESCRIPTOR = 0x82
 _TAG_FILE_IDENTIFIER = 0x83
 _TAG_DF_NAME = 0x84
 _TAG_PROPRIETARY_INFO = 0xA5
+_TAG_PIN_STATUS = 0xC6
 _TAG_FCP_TEMPLATE = 0x62
 _TAG_FCI_TEMPLATE = 0x6F
+#: The PS template DO's children (TS 102 221 §11.1.1.4.10): the PS_DO ('90'),
+#: the usage qualifier ('95') and a key reference ('83', repeatable).
+_TAG_PS_DO = 0x90
+_TAG_USAGE_QUALIFIER = 0x95
+_TAG_KEY_REFERENCE = 0x83
 
 _STRUCTURE_BY_BITS = {
     0x00: 'no_info',
@@ -41,6 +47,10 @@ _STRUCTURE_BY_BITS = {
     0x06: 'cyclic',
 }
 
+#: The DOs the A5-wrapper heuristic looks for.  ``C6`` (the PS template) is
+#: deliberately **not** here: it is a DF-level DO a regular FCP carries next to
+#: ``82``, and listing it would *stop* the A5 unwrap for a wrapper that holds
+#: only ``C6`` (it would count as a hit).  The decision is unchanged.
 _DO_TAGS = (_TAG_FILE_SIZE, _TAG_FILE_DESCRIPTOR, _TAG_FILE_IDENTIFIER,
             _TAG_DF_NAME)
 
@@ -61,6 +71,12 @@ class Fcp(object):
     file_identifier: str = None
     shareable: bool = None
     structure: str = None
+    #: The PS template DO ``C6`` value as hex (the PIN status bitmap + its key
+    #: references), or ``None`` when the response has no ``C6``.  ``C6`` is
+    #: **mandatory** in an MF/DF/ADF FCP (TS 102 221 §11.1.1.3.1 Table 11.3,
+    #: printed p. 89: "PIN Status Template DO | 'C6' | 11.1.1.4.10 | M"); an
+    #: EF's FCP (Table 11.4) has none.  :func:`ps_reference_enabled` reads it.
+    ps_template: str = None
     raw: str = ''
     #: ``ber`` for a TS 102 221 FCP/FCI, ``gsm`` for the TS 51 011 §9.2.1
     #: SELECT response data of a 2G SIM (the GET RESPONSE payload).
@@ -166,6 +182,13 @@ def parse_fcp(data):
         if df_name:
             result.df_name = df_name.hex().upper()
 
+        # The PS template DO (TS 102 221 §11.1.1.4.10), mandatory in an
+        # MF/DF/ADF FCP (Table 11.3): the PIN enabled mask.  Kept raw; the
+        # reader is :func:`ps_reference_enabled`.
+        ps_template = values.get(_TAG_PIN_STATUS)
+        if ps_template:
+            result.ps_template = ps_template.hex().upper()
+
         descriptor = values.get(_TAG_FILE_DESCRIPTOR)
         result.shareable, result.structure = _structure(descriptor)
         if descriptor and result.structure in ('linear_fixed', 'cyclic'):
@@ -183,6 +206,78 @@ def parse_fcp(data):
 def fcp_from_select_response(fcp_bytes):
     """Alias for :func:`parse_fcp` - the SELECT response is the FCP/FCI."""
     return parse_fcp(fcp_bytes)
+
+
+def ps_reference_enabled(ps_template, reference):
+    """Is the PIN ``reference`` enabled on a DF/ADF FCP's PS template (``C6``)?
+
+    TS 102 221 V18.4.0 §9.5.2 (printed p. 77): "The status of a PIN that is
+    used by an application for user verification is stored in the PS Template
+    DO and shall be indicated in the FCP in a response to the SELECT or STATUS
+    command issued at the application/DF level. … The PS_DO is followed by one
+    or more key reference data objects indicated by tag '83'. … For each bit
+    set to '1' the corresponding key reference (PIN) is enabled.  The PS_DO is
+    coded using a bitmap list.  Bit b8 in the most significant byte corresponds
+    to the first key reference indicated by tag '83' following the PS_DO.  Bits
+    b7 to b1 are mapped to consecutive key references indicated by tag '83'."
+    §11.1.1.4.10 (printed p. 99) makes the key reference repeatable, "each
+    possibly preceded by a usage qualifier DO" (``95``), which applies to the
+    reference that follows it.  ``C6`` itself is mandatory in an MF/DF/ADF FCP
+    (Table 11.3, printed p. 89).
+
+    ``ps_template`` is the ``C6`` **value** (hex or bytes, e.g.
+    ``'9001C0830101'`` - the PS_DO ``90`` plus the key references), not the
+    whole FCP.  ``reference`` is the key reference byte as an int (``0x01``)
+    or a hex string (``'01'``).
+
+    Returns ``True``/``False`` for a listed reference whose bit is inside the
+    PS_DO, and ``None`` when the answer cannot be derived: an empty/malformed
+    template, no ``90``, the reference absent from the ``83`` list, or a bit
+    beyond the PS_DO bytes.  The specs print no rule for a reference missing
+    from the list, so such a reference must stay "unknown" - never "disabled".
+    """
+    try:
+        raw = _as_bytes(ps_template or b'')
+    except (TypeError, ValueError):
+        return None
+    if not raw:
+        return None
+    if isinstance(reference, (bytes, bytearray, memoryview)):
+        wanted = int.from_bytes(bytes(reference), 'big')
+    elif isinstance(reference, str):
+        try:
+            wanted = int(reference.strip(), 16)
+        except ValueError:
+            return None
+    else:
+        try:
+            wanted = int(reference)
+        except (TypeError, ValueError):
+            return None
+    ps_do = None
+    index = -1
+    for tag, value in ber_tlv_list(raw):
+        if tag == _TAG_PS_DO:
+            # The first PS_DO is the bitmap; a second one would be malformed.
+            if ps_do is None:
+                ps_do = bytes(value)
+            continue
+        if tag == _TAG_USAGE_QUALIFIER:
+            # The usage qualifier only says what the PIN is used for; the
+            # enabled bit comes from the PS_DO.  It applies to the next '83'.
+            continue
+        if tag != _TAG_KEY_REFERENCE or not value:
+            continue
+        index += 1
+        if int.from_bytes(bytes(value), 'big') != wanted:
+            continue
+        if ps_do is None:
+            return None
+        byte_index, bit = index >> 3, 7 - (index & 7)
+        if byte_index >= len(ps_do):
+            return None
+        return bool((ps_do[byte_index] >> bit) & 1)
+    return None
 
 
 #: TS 51 011 §9.3: the EF structure codings (byte 14 of the SELECT response

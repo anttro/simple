@@ -144,7 +144,8 @@ TEST_KIND_LABELS = {
 #: are listed too, so the guard is already right when they land).
 TEST_BLOCKED_PATHS = frozenset([
     '/api/command', '/api/cardinfo', '/api/tree', '/api/select', '/api/read',
-    '/api/write', '/api/apdu', '/api/verify-adm', '/api/chv', '/api/send-ota',
+    '/api/write', '/api/apdu', '/api/verify-adm', '/api/chv',
+    '/api/chv-status', '/api/send-ota',
     '/api/ram-install', '/api/ram-install-app', '/api/cap-compat',
     '/api/tar-probe', '/api/counter-probe',
     '/api/sp-verify', '/api/menu-select',

@@ -39,6 +39,7 @@ from simple_server import ota
 from simple_server import pbr
 from simple_server import scp80
 from simple_server import server as server_module
+from simple_server import testrun
 from simple_server import transport
 from simple_server.server import (ServerState, build_http_server, decode_iccid)
 
@@ -2671,6 +2672,10 @@ class VerifyAdmTests(HTTPTestBase):
 
         def __call__(self, apdu):
             if apdu[:2] == b'\x00\x20':
+                if len(apdu) == 4:
+                    # The empty-data VERIFY PIN probe (the v4.2.0 PIN state
+                    # read) is not an ADM verify and never carries a key.
+                    return b'', bytes.fromhex(self.sw)
                 self.verifies.append(apdu)
                 return b'', bytes.fromhex(self.sw)
             return super().__call__(apdu)
@@ -2833,14 +2838,25 @@ class ChvCard(CardScript):
     The detection/init APDUs go to :class:`CardScript`; the UICC ADF.USIM
     select, the 2G SIM's A0 select form (DF.GSM/MF) and the ``20``/``24``/
     ``2C`` commands are answered here.  Every APDU is recorded in ``flow``;
-    the CHV commands alone in ``chv``.
+    the data-bearing CHV commands in ``chv`` and the **empty-data** VERIFY PIN
+    probes (the case-1 ``0020 00<ref>`` readout) in ``probes`` - the probe
+    answers ``probe_sw`` and never carries a PIN value.  ``adf_fcp`` is the
+    ADF.USIM SELECT response (the DF's FCP with its PS template ``C6``;
+    ``adf_sw`` refuses it, e.g. ``6A82``), and ``sim_select`` the DF.GSM
+    SELECT response block for the 2G SIM state read (TS 51 011 §9.2.1).
     """
 
-    def __init__(self, sw='9000', sw_by_ins=None):
+    def __init__(self, sw='9000', sw_by_ins=None, probe_sw=None,
+                 sim_select=None, adf_fcp=None, adf_sw='9000'):
         super().__init__()
         self.sw = sw
         self.sw_by_ins = dict(sw_by_ins or {})
+        self.probe_sw = sw if probe_sw is None else probe_sw
+        self.sim_select = sim_select
+        self.adf_fcp = adf_fcp
+        self.adf_sw = adf_sw
         self.chv = []
+        self.probes = []
         self.flow = []
 
     def __call__(self, apdu):
@@ -2848,17 +2864,29 @@ class ChvCard(CardScript):
         self.flow.append(apdu)
         ins = apdu[1]
         if ins in (0x20, 0x24, 0x2C) and apdu[0] in (0x00, 0xA0):
+            if len(apdu) == 4:
+                # the empty-data VERIFY PIN probe (case 1): no PIN, no attempt
+                self.probes.append(apdu)
+                return b'', bytes.fromhex(self.probe_sw)
             self.chv.append(apdu)
             return b'', bytes.fromhex(self.sw_by_ins.get(ins, self.sw))
         if apdu[:2] == b'\x00\xa4' and apdu[2] == 0x04:
             aid = apdu[5:5 + apdu[4]].hex().upper()
             if aid == cards.AID_USIM:
                 self.selected = 'USIM'
-                return b'', b'\x90\x00'
+                return bytes(self.adf_fcp or b''), bytes.fromhex(self.adf_sw)
         if apdu[:2] == b'\xa0\xa4':
             self.selected = 'SIM'
-            return b'', b'\x90\x00'
+            return bytes(self.sim_select or b''), b'\x90\x00'
         return super().__call__(apdu)
+
+
+def ps_fcp(ps_template, descriptor=b'\x78'):
+    """A DF FCP (TS 102 221 Table 11.3) carrying the PS template DO ``C6``."""
+    c6 = bytes.fromhex(ps_template)
+    body = (bytes((0x82, len(descriptor))) + descriptor
+            + bytes((0xC6, len(c6))) + c6)
+    return bytes((0x62, len(body))) + body
 
 
 class ChvTests(HTTPTestBase):
@@ -2870,8 +2898,10 @@ class ChvTests(HTTPTestBase):
     The data is T.50 digits, ``FF``-padded to 8 bytes.
     """
 
-    def chv_state(self, sw='9000', sim=False, sw_by_ins=None):
-        card = ChvCard(sw=sw, sw_by_ins=sw_by_ins)
+    def chv_state(self, sw='9000', sim=False, sw_by_ins=None, probe_sw=None,
+                  sim_select=None, adf_fcp=None, adf_sw='9000'):
+        card = ChvCard(sw=sw, sw_by_ins=sw_by_ins, probe_sw=probe_sw,
+                       sim_select=sim_select, adf_fcp=adf_fcp, adf_sw=adf_sw)
         transport = FakeTransport(handler=card)
         state = make_state(reader='Reader A')
         state.open(transport=transport, start_threads=False)
@@ -2881,21 +2911,39 @@ class ChvTests(HTTPTestBase):
             state.transport = transport
         return state, card, transport
 
+    @staticmethod
+    def without_chv(body):
+        """A ``/api/chv`` response without its refreshed per-PIN state block."""
+        assert 'chv' in body, body
+        assert sorted(body['chv']) == ['pin1', 'pin2'], body['chv']
+        for code in ('pin1', 'pin2'):
+            assert sorted(body['chv'][code]) == ['attempts_left', 'enabled',
+                                                 'state', 'sw'], body['chv']
+        return {key: value for key, value in body.items() if key != 'chv'}
+
     def post(self, state, body):
         return self.served(state).json('POST', '/api/chv', body)
+
+    def post_status(self, state, body):
+        return self.served(state).json('POST', '/api/chv-status', body)
 
     def test_uicc_verify_pin1(self):
         state, card, _transport = self.chv_state()
         status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
                                          'pin': '1234'})
         self.assertEqual(status, 200, body)
-        self.assertEqual(body, {'ok': True, 'sw': '9000'})
+        self.assertEqual(self.without_chv(body), {'ok': True, 'sw': '9000'})
         self.assertEqual(card.chv[-1].hex().upper(),
                          '002000010831323334FFFFFFFF')
-        # the application PIN: ADF.USIM selected first, MF restored after
-        tail = [a.hex().upper() for a in card.flow[-3:]]
+        # the application PIN: ADF.USIM selected first, MF restored after;
+        # the post-exchange state refresh repeats that around its empty-data
+        # probe (`0020 00 01`, v4.2.0)
+        tail = [a.hex().upper() for a in card.flow[-6:]]
         self.assertEqual(tail, ['00A4040407A000000087100200',
                                 '002000010831323334FFFFFFFF',
+                                '00A40004023F0000',
+                                '00A4040407A000000087100200',
+                                '00200001',
                                 '00A40004023F0000'])
 
     def test_sim_verify_pin1(self):
@@ -2904,9 +2952,13 @@ class ChvTests(HTTPTestBase):
                                          'pin': '1234'})
         self.assertEqual(status, 200, body)
         self.assertTrue(body['ok'])
-        tail = [a.hex().upper() for a in card.flow[-3:]]
+        # DF.GSM selected first, MF restored after; the v4.2.0 state read
+        # repeats the DF.GSM select (TS 51 011 §9.2.1 - no VERIFY CHV)
+        tail = [a.hex().upper() for a in card.flow[-5:]]
         self.assertEqual(tail, ['A0A40000027F2000',
                                 'A02000010831323334FFFFFFFF',
+                                'A0A40000023F0000',
+                                'A0A40000027F2000',
                                 'A0A40000023F0000'])
 
     def test_pin2_references(self):
@@ -2965,6 +3017,9 @@ class ChvTests(HTTPTestBase):
             ({'sw': '6983'}, {'ok': False, 'sw': '6983', 'blocked': True}),
             ({'sw': '9840'}, {'ok': False, 'sw': '9840', 'blocked': True}),
             ({'sw': '9804'}, {'ok': False, 'sw': '9804', 'failed': True}),
+            ({'sw': '6984'}, {'ok': False, 'sw': '6984',
+                              'invalidated': True,
+                              'error': 'Referenced data invalidated'}),
         )
         for kwargs, expected in cases:
             with self.subTest(sw=kwargs['sw']):
@@ -2973,7 +3028,7 @@ class ChvTests(HTTPTestBase):
                                                  'code': 'pin1',
                                                  'pin': '1234'})
                 self.assertEqual(status, 200, body)
-                self.assertEqual(body, expected)
+                self.assertEqual(self.without_chv(body), expected)
 
     def test_a_security_error_is_reported(self):
         state, _card, _transport = self.chv_state(sw='6982')
@@ -2982,6 +3037,27 @@ class ChvTests(HTTPTestBase):
         self.assertEqual(status, 200, body)
         self.assertFalse(body['ok'])
         self.assertIn('Security status', body['error'])
+
+    def test_6984_is_an_invalidated_reference_not_a_blocked_pin(self):
+        # TS 102 221 §10.2.1.5.2 Table 10.13: 'Referenced data invalidated' -
+        # a generic refusal (ISO 7816-4 Table 6 prints "Reference data not
+        # usable", e.g. a PIN disabled for verification).  It reports neither
+        # attempts left nor a blocked state, so the mapping must not claim
+        # either - for a UICC and for a 2G SIM.
+        for sim in (False, True):
+            with self.subTest(sim=sim):
+                state, _card, _transport = self.chv_state(sw='6984', sim=sim)
+                status, body = self.post(state, {'action': 'verify',
+                                                 'code': 'pin1',
+                                                 'pin': '1234'})
+                self.assertEqual(status, 200, body)
+                self.assertEqual(self.without_chv(body),
+                                 {'ok': False, 'sw': '6984',
+                                  'invalidated': True,
+                                  'error': 'Referenced data invalidated'})
+                self.assertNotIn('blocked', body)
+                self.assertNotIn('attempts_left', body)
+                self.assertNotIn('failed', body)
 
     def test_the_values_are_validated_before_the_card(self):
         state, card, _transport = self.chv_state()
@@ -3010,6 +3086,266 @@ class ChvTests(HTTPTestBase):
                                          'pin': '1234'})
         self.assertEqual(status, 503)
         self.assertIn('no card session', body['error'])
+
+    # ---- the per-PIN state readout (v4.2.0) ------------------------------
+
+    def test_the_equip_reads_both_pin_states_without_a_pin(self):
+        # TS 102 221 §11.1.9.1.2: VERIFY PIN with an **empty data field** is a
+        # case-1 APDU (`00 20 00 <P2>`: no Lc, no Le) whose 63CX is the retry
+        # counter - no PIN value is sent and no attempt is consumed.
+        state, card, transport = self.chv_state(probe_sw='63C3')
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1'],
+                         {'state': 'required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': None})
+        self.assertEqual(chv['pin2'],
+                         {'state': 'required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': None})
+        self.assertEqual([a.hex().upper() for a in card.probes],
+                         ['00200001', '00200081'])
+        # not a single data-bearing CHV command: every VERIFY is the 4-byte
+        # probe, so no Lc/PIN byte can exist
+        self.assertEqual(card.chv, [])
+        verify = [a for a in transport.sent if a[:2] in (b'\x00\x20', b'\xa0\x20')]
+        self.assertEqual([a.hex().upper() for a in verify],
+                         ['00200001', '00200081'])
+
+    def test_chv_status_rereads_both_pins_by_default(self):
+        state, card, _transport = self.chv_state(probe_sw='63C2')
+        card.probe_sw = '63C1'
+        status, body = self.post_status(state, {})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['chv']['pin1']['attempts_left'], 1)
+        self.assertEqual(body['chv']['pin2']['attempts_left'], 1)
+        self.assertEqual(body['chv'], state.status()['chv'])
+
+    def test_chv_status_updates_only_the_requested_pin(self):
+        state, card, _transport = self.chv_state(probe_sw='63C2')
+        probes = len(card.probes)
+        card.probe_sw = '63C1'
+        status, body = self.post_status(state, {'codes': ['pin1']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual([a.hex().upper() for a in card.probes[probes:]],
+                         ['00200001'])
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'required', 'attempts_left': 1,
+                          'sw': '63C1', 'enabled': None})
+        # PIN2 keeps its cached entry (read at equip, 63C2)
+        self.assertEqual(body['chv']['pin2']['attempts_left'], 2)
+
+    def test_chv_status_reports_an_unknown_answer(self):
+        state, _card, _transport = self.chv_state(probe_sw='6A82')
+        status, body = self.post_status(state, {'codes': ['pin1', 'pin2']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': '6A82', 'enabled': None})
+
+    def test_chv_status_refuses_a_bad_codes_list(self):
+        state, card, _transport = self.chv_state()
+        probes = len(card.probes)
+        for codes in (['pin3'], [], 'pin3', 5):
+            with self.subTest(codes=codes):
+                status, body = self.post_status(state, {'codes': codes})
+                self.assertEqual(status, 400, body)
+        self.assertEqual(card.probes[probes:], [], 'no probe for a bad list')
+
+    def test_chv_status_without_a_card_is_503(self):
+        state = self.track(make_state())
+        self.assertIsNone(state.status()['chv'])
+        status, body = self.served(state).json('POST', '/api/chv-status', {})
+        self.assertEqual(status, 503)
+        self.assertIn('no card session', body['error'])
+
+    def test_a_2g_sim_state_comes_from_the_select_bytes(self):
+        # TS 51 011 §9.2.1: byte 14 (Detail 1) b8 = CHV1 disabled, byte 19 /
+        # 21 (Detail 2) b8 = initialised and b4-b1 the remaining presentations.
+        # VERIFY CHV cannot read the counter (§9.2.9), so no 20 command is sent.
+        block = bytearray(22)
+        block[13] = 0x00            # byte 14: CHV1 enabled
+        block[18] = 0x83            # byte 19: initialised, 3 left
+        block[20] = 0x00            # byte 21: CHV2 not initialised
+        state, card, transport = self.chv_state(sim=True,
+                                                sim_select=bytes(block))
+        probes = len(card.probes)
+        sent = len(transport.sent)
+        status, body = self.post_status(state, {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'required', 'attempts_left': 3,
+                          'sw': None, 'enabled': True})
+        self.assertEqual(body['chv']['pin2'],
+                         {'state': 'not_initialized', 'attempts_left': None,
+                          'sw': None, 'enabled': None})
+        self.assertEqual(card.probes[probes:], [])
+        self.assertEqual([a for a in transport.sent[sent:]
+                          if a[:2] in (b'\x00\x20', b'\xa0\x20')], [])
+
+    def test_a_failing_probe_is_not_fatal(self):
+        card = ChvCard()
+
+        def boom(apdu):
+            if bytes(apdu)[:2] in (b'\x00\x20', b'\xa0\x20'):
+                raise RuntimeError('probe failed')
+            return card(apdu)
+
+        transport = FakeTransport(handler=boom)
+        state = make_state(reader='Reader A')
+        state.open(transport=transport, start_threads=False)   # must not raise
+        self.track(state)
+        status = state.status()
+        self.assertTrue(status['connected'])
+        self.assertEqual(status['card_ready_session'], status['card_session'])
+        self.assertEqual(status['chv']['pin1']['state'], 'unknown')
+        self.assertEqual(status['chv']['pin2']['state'], 'unknown')
+
+    def test_a_verified_pin_stays_not_required_for_the_session(self):
+        # The v4.2.0 latch (the adm_session pattern): the card keeps answering
+        # 63CX to the attempt-free probe after a successful VERIFY (a verified
+        # PIN's counter is meaningless), and every later read in the session
+        # must still report not_required - otherwise the badge flips back to
+        # "locked" on a click or an editor open.
+        state, _card, _transport = self.chv_state(sw='9000', probe_sw='63C3')
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['chv']['pin1']['state'], 'not_required')
+        self.assertEqual(state.chv_verified.get('pin1'), state.card_session)
+        # a re-read in the same session keeps the latch
+        status, body = self.post_status(state, {'codes': ['pin1', 'pin2']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'not_required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': None})
+        self.assertEqual(body['chv']['pin2']['state'], 'required')
+        # a new card session forgets it: the probe answer wins again
+        state.card_session += 1
+        status, body = self.post_status(state, {'codes': ['pin1']})
+        self.assertEqual(body['chv']['pin1']['state'], 'required')
+        self.assertEqual(body['chv']['pin1']['attempts_left'], 3)
+
+    def test_the_verify_latch_is_cleared_by_the_teardown_and_not_set_by_other_actions(self):
+        state, _card, _transport = self.chv_state(sw='9000', probe_sw='63C3')
+        self.post(state, {'action': 'unblock', 'code': 'pin2',
+                          'puk': '12345678', 'new_pin': '4321'})
+        self.assertNotIn('pin2', state.chv_verified,
+                         'only a verify latches')
+        self.post(state, {'action': 'verify', 'code': 'pin1', 'pin': '1234'})
+        self.assertIn('pin1', state.chv_verified)
+        state.disconnect()
+        self.assertEqual(state.chv_verified, {})
+
+    def test_a_chv_operation_refreshes_and_returns_the_state(self):
+        state, card, _transport = self.chv_state(probe_sw='63C2')
+        probes = len(card.probes)
+        card.probe_sw = '63C1'
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['ok'])
+        # only the operated PIN is re-probed
+        self.assertEqual([a.hex().upper() for a in card.probes[probes:]],
+                         ['00200001'])
+        # a successful VERIFY satisfies the card's request: the refreshed
+        # entry must not claim 'required' right after it
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'not_required', 'attempts_left': 1,
+                          'sw': '63C1', 'enabled': None})
+        self.assertEqual(body['chv'], state.status()['chv'])
+
+    def test_a_disabled_pin_is_not_required_even_when_the_probe_answers_63cx(self):
+        # The probe alone cannot tell a disabled PIN from a locked one: a
+        # disabled PIN may answer the same 63CX (TS 102 221 §9.5.2 - the FCP's
+        # C6 says which references are enabled; §11.1.9.1.2 is the counter).
+        # PS_DO 80: PIN1 (01) enabled, PIN2 (81) disabled.
+        state, _card, _transport = self.chv_state(
+            probe_sw='63C3', adf_fcp=ps_fcp('900180830101830181'))
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1'],
+                         {'state': 'required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': True})
+        self.assertEqual(chv['pin2'],
+                         {'state': 'not_required', 'attempts_left': 3,
+                          'sw': '63C3', 'enabled': False})
+
+    def test_an_enabled_pin_answering_9000_is_already_verified(self):
+        state, _card, _transport = self.chv_state(
+            probe_sw='9000', adf_fcp=ps_fcp('9001C0830101830181'))
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1'],
+                         {'state': 'not_required', 'attempts_left': None,
+                          'sw': '9000', 'enabled': True})
+        self.assertEqual(chv['pin2'],
+                         {'state': 'not_required', 'attempts_left': None,
+                          'sw': '9000', 'enabled': True})
+
+    def test_a_reference_missing_from_the_c6_list_stays_probe_only(self):
+        # PS_DO + only PIN1's reference: PIN2 is unlisted -> the probe decides
+        # (no printed rule makes an unlisted reference disabled).
+        state, _card, _transport = self.chv_state(
+            probe_sw='63C2', adf_fcp=ps_fcp('9001C0830101'))
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1']['enabled'], True)
+        self.assertEqual(chv['pin1']['state'], 'required')
+        self.assertEqual(chv['pin2']['enabled'], None)
+        self.assertEqual(chv['pin2']['state'], 'required')
+
+    def test_no_probe_after_a_failed_adf_select(self):
+        # TS 102 221 §9.5.1: 81 (PIN2) is a local reference - a probe after a
+        # failed SELECT could read another application's PIN.
+        state, card, transport = self.chv_state(adf_sw='6A82')
+        chv = state.status()['chv']
+        self.assertEqual(card.probes, [])
+        self.assertEqual([a for a in transport.sent
+                          if a[:2] in (b'\x00\x20', b'\xa0\x20')], [])
+        self.assertEqual(chv['pin1'],
+                         {'state': 'unknown', 'attempts_left': None,
+                          'sw': None, 'enabled': None})
+        self.assertEqual(chv['pin2']['state'], 'unknown')
+
+    def test_the_2g_sim_equip_path(self):
+        # The SIM state is read during the equip itself (state.card.kind is
+        # 'sim' when _read_chv_state runs): enabled from byte 14 b8 for CHV1,
+        # None for CHV2, no 20 command.
+        block = bytearray(22)
+        block[13] = 0x80            # byte 14: CHV1 disabled
+        block[18] = 0x83            # byte 19: initialised, 3 left
+        block[20] = 0x8A            # byte 21: CHV2 initialised, 10 left
+        card = ChvCard(sim_select=bytes(block))
+        transport = FakeTransport(handler=card)
+        state = make_state(reader='Reader A')
+        sim = cards.CardType(kind='sim', cla='a0', aids=[], atr=ATR)
+        with mock.patch.object(cards, 'init_card', return_value=sim):
+            state.open(transport=transport, start_threads=False)
+        self.track(state)
+        self.assertEqual(state.card.kind, 'sim')
+        chv = state.status()['chv']
+        self.assertEqual(chv['pin1'],
+                         {'state': 'not_required', 'attempts_left': None,
+                          'sw': None, 'enabled': False})
+        self.assertEqual(chv['pin2'],
+                         {'state': 'required', 'attempts_left': 10,
+                          'sw': None, 'enabled': None})
+        self.assertEqual(card.probes, [])
+        self.assertEqual([a for a in transport.sent
+                          if a[:2] in (b'\x00\x20', b'\xa0\x20')], [])
+
+    def test_chv_status_is_blocked_during_a_test_run(self):
+        self.assertIn('/api/chv-status', testrun.TEST_BLOCKED_PATHS)
+
+    def test_a_6984_operation_reports_not_usable(self):
+        state, _card, _transport = self.chv_state(
+            sw='6984', probe_sw='6984',
+            adf_fcp=ps_fcp('9001C0830101830181'))
+        status, body = self.post(state, {'action': 'verify', 'code': 'pin1',
+                                         'pin': '1234'})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body['ok'])
+        self.assertEqual(body['chv']['pin1'],
+                         {'state': 'not_usable', 'attempts_left': None,
+                          'sw': '6984', 'enabled': True})
 
     def test_the_request_log_redacts_the_values(self):
         state, _card, _transport = self.chv_state()

@@ -16,8 +16,9 @@ serving and the endpoints - ``GET /api/version``, ``GET /api/status``,
 ``POST /api/reader``, ``POST /api/equip``, ``POST /api/reset`` (3c-3a), the
 file endpoints ``POST /api/tree|select|read|write`` (3c-3b) and the
 preset/plain-SCP80 set ``GET/POST /api/presets`` +
-``/api/presets/update|delete|import|import-outfile``, ``POST /api/verify-adm``,
-``POST /api/send-ota`` and ``POST /api/counter-probe`` (3c-3c-1), the CAP
+``/api/presets/update|delete|import|import-outfile``, ``POST
+/api/verify-adm|chv|chv-status``, ``POST /api/send-ota`` and
+``POST /api/counter-probe`` (3c-3c-1), the CAP
 analysis and the single-card RAM installs ``POST /api/cap-info``,
 ``POST /api/ram-install`` and ``POST /api/ram-install-app`` (3c-3c-2a), the
 ``POST /api/cap-compat``, ``POST /api/tar-probe`` and the batch install
@@ -114,6 +115,7 @@ from simple_server import cat as cat_module
 from simple_server import cat_session
 from simple_server import commands
 from simple_server import esim as esim_module
+from simple_server import fcp as fcp_module
 from simple_server import files as files_module
 from simple_server import netmon
 from simple_server import netsim as netsim_module
@@ -143,7 +145,7 @@ __all__ = [
 #: The server version served by ``GET /api/version``.  It moves together with
 #: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
 #: three).
-VERSION = '4.1.0'
+VERSION = '4.2.0'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
@@ -612,6 +614,18 @@ def _chv_sw_result(sw):
     The UNBLOCK command's counter runs 10 -> `63C9`..`63C1`, `63C0`
     (§11.1.13.1.1).  ``6983``/``9840`` are blocked; ``6982`` (security
     status), ``6985`` (conditions) and the 6Axx errors are failures.
+
+    ``6984`` is "Referenced data invalidated" (ETSI TS 102 221 V18.4.0
+    §10.2.1.5.2 Table 10.13, printed p. 83 - in the ``69`` "command not
+    allowed" group; ISO/IEC 7816-4:2005 §5.1.3 Table 6, printed p. 12, prints
+    the same pair as "Reference data not usable").  Table 10.16 (printed
+    pp. 85-86) lists it as a possible answer to VERIFY PIN, CHANGE PIN and
+    UNBLOCK PIN, but **no clause assigns it a CHV-specific meaning**: it
+    reports neither attempts left nor a blocked state.  The blocked answers
+    are ``63C0``/``6983`` (§11.1.9.1.1/§11.1.13.1.1, printed pp. 106/111) and
+    ``9840`` (TS 51 011 §9.4.5) - so a ``6984`` result never claims either.
+    A card whose PIN is disabled / not initialized for verification answers
+    this way: the PIN is simply not usable on that card.
     """
     if sw == '9000':
         return {'ok': True, 'sw': sw}
@@ -625,10 +639,178 @@ def _chv_sw_result(sw):
         return {'ok': False, 'sw': sw, 'blocked': True}
     if sw == '9804':
         return {'ok': False, 'sw': sw, 'failed': True}
+    if sw == '6984':
+        # TS 102 221 §10.2.1.5.2 Table 10.13 (printed p. 83): 'Referenced
+        # data invalidated' - a generic "command not allowed" answer that
+        # Table 10.16 (pp. 85-86) lists for the three PIN commands.  It
+        # reports neither attempts left nor a blocked state (those are
+        # 63C0/6983, and 9840 on a 2G SIM), so the caller must not claim
+        # either.
+        return {'ok': False, 'sw': sw, 'invalidated': True,
+                'error': 'Referenced data invalidated'}
     return {'ok': False, 'sw': sw,
             'error': ('Security status not satisfied' if sw == '6982'
                       else 'Conditions of use not satisfied' if sw == '6985'
                       else _sw_error(sw))}
+
+
+#: The per-PIN state vocabulary of the attempt-free readouts
+#: (:func:`_chv_probe_result` / :func:`_chv_sim_state`, v4.2.0): ``required``
+#: (the card asks for the PIN, with ``attempts_left`` retries left),
+#: ``not_required`` (no verification needed - disabled or already verified),
+#: ``blocked`` (0 retries left), ``not_usable`` (the ISO "reference data not
+#: usable" answer), ``not_initialized`` (the card has no such CHV) and
+#: ``unknown`` (any other answer; the SW is kept).
+CHV_STATES = ('required', 'not_required', 'blocked', 'not_usable',
+              'not_initialized', 'unknown')
+
+
+def _chv_probe_result(sw):
+    """A UICC's VERIFY PIN *empty-data* probe answer (TS 102 221 / ISO 7816-4).
+
+    The probe presents no PIN: TS 102 221 V18.4.0 §11.1.9.1.2 "PIN retry
+    counter", printed p. 107: "The VERIFY PIN with empty data field is used to
+    retrieve the PIN retry counter from the UICC.  This function is performed
+    whether or not the relevant PIN is disabled or blocked." ... "The number
+    of retries, if any, is indicated in the response by SW1 SW2 = '63CX',
+    where X indicates the number of retries left." ... "A VERIFY PIN command
+    with empty data field applied to a blocked PIN shall return SW1 SW2 =
+    '63C0' or SW1 SW2 = '6983'."  §11.1.9.3 (printed p. 107) codes it
+    ``Lc`` Empty or '08' / Data EMPTY or PIN value / Le Not present - so the
+    probe is a case-1 APDU, and a 63CX answer is final (no GET RESPONSE).
+
+    ISO/IEC 7816-4:2005 §7.5.6 (printed p. 54) interprets the two answers:
+    "The absence of command data field is used to check whether the
+    verification is required (SW1-SW2 = '63CX' where 'X' encodes the number
+    of further allowed retries), or not (SW1-SW2 = '9000')."  §7.5.1
+    (printed p. 50): "SW1-SW2 set to '6A88' means 'reference data not
+    found'."  Table 6 (printed p. 12): "'69' '84' Reference data not usable".
+
+    Returns ``{'state', 'attempts_left', 'sw'}`` with ``state`` one of
+    :data:`CHV_STATES`: ``9000`` -> ``not_required``; ``63CX`` with X>0 ->
+    ``required`` + X; ``63C0``/``6983`` -> ``blocked``; ``6A88`` ->
+    ``not_initialized``; ``6984`` -> ``not_usable``; anything else ->
+    ``unknown``.  The SW is always kept for the UI/log.
+    """
+    sw = str(sw or '').strip().upper()
+    result = {'state': 'unknown', 'attempts_left': None, 'sw': sw}
+    if sw == '9000':
+        result['state'] = 'not_required'
+    elif re.fullmatch(r'63C[1-9A-F]', sw):
+        result['state'] = 'required'
+        result['attempts_left'] = int(sw[3], 16)
+    elif sw in ('63C0', '6983'):
+        result['state'] = 'blocked'
+        result['attempts_left'] = 0
+    elif sw == '6A88':
+        result['state'] = 'not_initialized'
+    elif sw == '6984':
+        result['state'] = 'not_usable'
+    return result
+
+
+def _chv_sim_state(select_bytes, code):
+    """A 2G SIM's PIN state from the MF/DF SELECT response block (TS 51 011).
+
+    A 2G SIM cannot read its retry counter with VERIFY CHV: TS 51 011 V4.15.0
+    §9.2.9 (printed p. 27) says VERIFY CHV "can not be used to retrieve the
+    retry counter value".  The readout is the MF/DF file information of the
+    SELECT/STATUS response (§9.2.1, printed pp. 23-24; §9.2.2, p. 25, returns
+    the same block): byte 14 "File characteristics" (Detail 1) `b8=0: CHV1
+    enabled; b8=1: CHV1 disabled`; byte 19 = CHV1 status and byte 21 = CHV2
+    status (Detail 2) `b8=0: secret code not initialised`, `b8=1: secret code
+    initialised`, `b4-b1: Number of false presentations remaining ('0' means
+    blocked)`; bytes 20/22 are the UNBLOCK statuses.  Bytes 1-22 are
+    mandatory, and Note 2 says to take the data from the application
+    directory on a multi-application card, not the MF (the caller selects
+    DF.GSM).
+
+    ``select_bytes`` is the raw response as ``bytes`` or hex.  A shorter
+    answer is ``unknown`` with no ``sw`` (nothing was read); CHV1 checks its
+    disabled bit before the status byte (a disabled CHV1 needs no
+    verification whatever its counter says), CHV2 reads byte 21 alone.
+    Returns ``{'state', 'attempts_left'}`` with ``state`` one of
+    :data:`CHV_STATES`.
+    """
+    if isinstance(select_bytes, str):
+        raw = bytes.fromhex(re.sub(r'\s', '', select_bytes) or '')
+    else:
+        raw = bytes(select_bytes or b'')
+    code = str(code or '').strip().lower()
+    if code not in CHV_CODES:
+        raise ValueError("code must be 'pin1' or 'pin2'")
+    if len(raw) < 22:
+        return {'state': 'unknown', 'attempts_left': None}
+    if code == 'pin1':
+        if raw[13] & 0x80:
+            # byte 14 Detail 1 b8 = 1: CHV1 disabled
+            return {'state': 'not_required', 'attempts_left': None}
+        status = raw[18]                     # byte 19: CHV1 status
+    else:
+        status = raw[20]                     # byte 21: CHV2 status
+    if not status & 0x80:
+        return {'state': 'not_initialized', 'attempts_left': None}
+    remaining = status & 0x0F
+    if remaining == 0:
+        return {'state': 'blocked', 'attempts_left': 0}
+    return {'state': 'required', 'attempts_left': remaining}
+
+
+def _chv_combined_state(probe, enabled):
+    """One PIN's state from the FCP's ``C6`` flag and the probe's answer.
+
+    The probe alone cannot tell a **disabled** PIN from a **locked** one: the
+    empty-data VERIFY PIN probe reports an enabled PIN's retry counter
+    (TS 102 221 §11.1.9.1.2), but a disabled PIN may answer the same ``63CX``
+    with a meaningless counter.  The DF's PS template DO ``C6`` - mandatory in
+    an MF/DF/ADF FCP (TS 102 221 §11.1.1.3.1 Table 11.3, printed p. 89) - says
+    which references are enabled (§9.5.2, printed p. 77: "For each bit set to
+    '1' the corresponding key reference (PIN) is enabled"), read by
+    :func:`simple_server.fcp.ps_reference_enabled`.
+
+    * ``enabled is False``: the PIN is disabled on this card -> ``not_required``
+      (the probe's counter, if any, is kept as information only);
+    * ``enabled is True``: the probe decides (``63CX`` -> ``required`` + X,
+      ``63C0``/``6983`` -> ``blocked``, ``9000`` -> ``not_required``,
+      ``6984`` -> ``not_usable``, ``6A88`` -> ``not_initialized``, else
+      ``unknown``);
+    * ``enabled is None`` (no ``C6``, the reference not in the ``83`` list, a
+      bit beyond the PS_DO): the probe alone - the specs print no rule for an
+      unlisted reference, so it must never become "disabled".
+
+    Returns the entry shape ``{'state', 'attempts_left', 'sw', 'enabled'}``.
+    """
+    state = str((probe or {}).get('state') or 'unknown')
+    if state not in CHV_STATES:
+        state = 'unknown'
+    if enabled is False:
+        state = 'not_required'
+    return {'state': state,
+            'attempts_left': (probe or {}).get('attempts_left'),
+            'sw': (probe or {}).get('sw'),
+            'enabled': enabled}
+
+
+def _chv_state_summary(states):
+    """The ``chv`` block of ``/api/status`` / ``/api/chv-status`` (both codes).
+
+    Every code of :data:`CHV_CODES` is present with the uniform ``state`` /
+    ``attempts_left`` / ``sw`` / ``enabled`` fields; a code the caller did not
+    read is ``unknown``.  Nothing is dropped: a probe's ``sw`` stays, an
+    unread/inapplicable ``attempts_left``/``sw``/``enabled`` stays ``None``.
+    """
+    states = states if isinstance(states, dict) else {}
+    summary = {}
+    for code in CHV_CODES:
+        entry = states.get(code)
+        if not isinstance(entry, dict):
+            entry = {}
+        state = entry.get('state') or 'unknown'
+        summary[code] = {'state': state if state in CHV_STATES else 'unknown',
+                         'attempts_left': entry.get('attempts_left'),
+                         'sw': entry.get('sw'),
+                         'enabled': entry.get('enabled')}
+    return summary
 
 
 #: The request-body fields whose values are SCP80 key material (masked in the
@@ -889,6 +1071,18 @@ class ServerState(object):
         self.arr = None
         self.pbr = None
         self.netstate = None
+        #: The per-PIN state block (``{'pin1': …, 'pin2': …}``, v4.2.0) from
+        #: the attempt-free readout (:meth:`_read_chv_state`); ``/api/status``
+        #: serves it and ``POST /api/chv-status`` re-reads it.  ``None`` while
+        #: no card session is attached.
+        self.chv = None
+        #: The PIN verify latch (v4.2.0, the ``adm_session`` pattern): the
+        #: ``card_session`` in which a code's VERIFY succeeded, so every later
+        #: attempt-free read in that session reports it ``not_required`` even
+        #: when the card keeps answering ``63CX`` (a verified PIN's retry
+        #: counter is meaningless).  Keyed by code (``pin1``/``pin2``); a
+        #: session change or a teardown clears it.
+        self.chv_verified = {}
         #: The operator's PROVIDE LOCAL INFORMATION overrides (qualifier code ->
         #: hex), the legacy module-level ``_PLI_DATA``.  It belongs to the
         #: operator, not to the card session: every :class:`CatSession` gets
@@ -1213,6 +1407,8 @@ class ServerState(object):
         self.arr = None
         self.pbr = None
         self.netstate = None
+        self.chv = None
+        self.chv_verified = {}
         self.selection = None
         if skip_card_init:
             self.poll_suspended = False
@@ -1232,6 +1428,15 @@ class ServerState(object):
                 log.debug('EID read failed: %s', exc)
         self.arr = self._read_ef_cache(ARR_READ_PATHS, ARR_RECORD_LIMIT)
         self.pbr = self._read_ef_cache(PBR_READ_PATHS, PBR_RECORD_LIMIT)
+        # The per-PIN state (v4.2.0): the attempt-free readout, still in the
+        # CAT-free window - the header badge is ready right after equip.  The
+        # helper promises not to raise, but _file_ops()/the summary sit outside
+        # that contract, so the equip sequence guards it like the ICCID read.
+        try:
+            self.chv = self._read_chv_state()
+        except Exception as exc:                # best effort, never fatal
+            log.debug('CHV state read failed: %s', exc)
+            self.chv = None
         # The network-state monitor: only for a card whose ICCID was readable
         # (the legacy rule - the monitor describes one identifiable profile).
         if self.iccid:
@@ -1312,6 +1517,8 @@ class ServerState(object):
         self.arr = None
         self.pbr = None
         self.netstate = None
+        self.chv = None
+        self.chv_verified = {}
         self.poll_suspended = False
         if bump:
             self.card_session += 1
@@ -2076,6 +2283,113 @@ class ServerState(object):
             self.adm_failed_session = None
         return result
 
+    def _read_chv_state(self, codes=None):
+        """Read the PIN states **without presenting a PIN** (best effort).
+
+        A UICC: select ADF.USIM once - the PIN is an **application PIN** of the
+        3GPP application (TS 102 221 §9.5.1), and the DF's FCP is where the PIN
+        status lives: the PS template DO ``C6`` is **mandatory** in an
+        MF/DF/ADF FCP (TS 102 221 §11.1.1.3.1 Table 11.3, printed p. 89) and
+        its PS_DO bitmap says which key references are enabled (§9.5.2,
+        printed p. 77: "For each bit set to '1' the corresponding key
+        reference (PIN) is enabled"), read by
+        :func:`simple_server.fcp.ps_reference_enabled`.  Then the VERIFY PIN
+        **empty-data** probe (§11.1.9.1.2, printed p. 107) - ``00 20 00 <P2>``,
+        a case-1 APDU (no Lc, no Le, so no PIN value is ever sent) - reports
+        the retry counter without consuming an attempt.  ``C6`` decides, the
+        probe supplies the counter: a **disabled** PIN may answer the same
+        ``63CX``, and its counter is meaningless (:func:`_chv_combined_state`).
+
+        A 2G SIM cannot probe (TS 51 011 §9.2.9: VERIFY CHV "can not be used to
+        retrieve the retry counter value"), so its states come from the
+        DF.GSM SELECT response bytes (:func:`_chv_sim_state`; the application
+        directory, not the MF - §9.2.1 Note 2), with ``enabled`` from byte 14
+        b8 for CHV1 (``None`` for CHV2 - it has no such bit).
+
+        A **failed ADF select sends no probe**: the previous selection stays,
+        and ``81`` (PIN2) is a *local* reference (TS 102 221 §9.5.1 level 2),
+        so a probe there could read a different application's PIN.  Every
+        requested code is ``unknown`` then.
+
+        A code whose VERIFY **succeeded in this card session**
+        (:attr:`chv_verified`) is always ``not_required``: the card accepted
+        the PIN, so its probe counter is meaningless and the badge must not
+        flip back to "locked" (the same latch the ADM badge uses; a session
+        change forgets it).
+
+        ``codes`` limits the read (default both).  MF is restored in a
+        ``finally``.  Never raises: a failing code is ``unknown`` and a
+        failing selection leaves every code ``unknown`` (logged at debug) -
+        this runs inside the equip sequence, so it must not cost the session.
+        """
+        codes = list(CHV_CODES) if not codes else [code for code in CHV_CODES
+                                                   if code in codes]
+        kind = ('sim' if self.card is not None and self.card.kind == 'sim'
+                else 'uicc')
+        ops = self._file_ops()
+        states = {}
+        selected = False
+        try:
+            if kind == 'sim':
+                fcp = ops.select_file('7F20')       # DF.GSM (TS 51 011 §9.1)
+                selected = True
+                raw = bytes.fromhex(fcp.raw) if fcp.raw else b''
+                for code in codes:
+                    # The MF/DF block is TS 51 011 §9.2.1's; a card answering
+                    # the SIM select form with a BER FCP has no Detail 1/2.
+                    if fcp.form != 'gsm':
+                        states[code] = _chv_combined_state({}, None)
+                        continue
+                    enabled = None
+                    if code == 'pin1' and len(raw) >= 22:
+                        # byte 14 (index 13) Detail 1 b8: 1 = CHV1 disabled.
+                        # CHV2 has no disabled bit.
+                        enabled = not (raw[13] & 0x80)
+                    states[code] = _chv_combined_state(
+                        _chv_sim_state(fcp.raw, code), enabled)
+            else:
+                fcp = self._chv_select_app(ops, kind)
+                selected = fcp is not None
+                if not selected:
+                    # TS 102 221 §9.5.1: 81 is a local reference - never probe
+                    # while the selection is unknown.
+                    log.debug('CHV state: ADF.USIM select failed - no probe')
+                else:
+                    for code in codes:
+                        ref = CHV_REFERENCES[kind][code][0]
+                        enabled = fcp_module.ps_reference_enabled(
+                            fcp.ps_template, ref)
+                        probe = {'state': 'unknown', 'attempts_left': None,
+                                 'sw': None}
+                        try:
+                            # 4-byte APDU = case 1: no Lc/Le, no PIN value; the
+                            # card's 63CX is final (no GET RESPONSE).
+                            apdu = ops._apdu('20', '00', '%02X' % ref)
+                            _data, sw = ops._send(apdu)
+                            probe = _chv_probe_result(sw)
+                        except Exception as exc:
+                            log.debug('CHV state probe %s failed: %s',
+                                      code, exc)
+                        states[code] = _chv_combined_state(probe, enabled)
+        except Exception as exc:
+            log.debug('CHV state read failed: %s', exc)
+        finally:
+            if selected:
+                try:
+                    esim_module.restore_mf(ops)
+                except Exception as exc:
+                    log.debug('CHV state: MF restore failed: %s', exc)
+        # A VERIFY that succeeded in this session keeps the code not_required
+        # however the probe answers (a verified PIN's counter is meaningless);
+        # only the state changes, `enabled`/`attempts_left`/`sw` stay.
+        for code in codes:
+            if (self.chv_verified.get(code) == self.card_session
+                    and isinstance(states.get(code), dict)):
+                entry = dict(states[code])
+                entry['state'] = 'not_required'
+                states[code] = entry
+        return _chv_state_summary(states)
+
     def _chv_select_app(self, ops, kind):
         """Select the PIN's application before a CHV command (best effort).
 
@@ -2084,17 +2398,17 @@ class ServerState(object):
         the MF but in the relevant application directory (e.g. DFGSM)"); a
         UICC's PIN is an **application PIN** of the 3GPP application
         (ADF.USIM), not the Universal PIN (TS 102 221 §9.4.2/§9.5.1; TS 31.101
-        §9.6: "PIN2 is used only in the ADF").  Returns True when a selection
-        was made (the caller restores MF afterwards).
+        §9.6: "PIN2 is used only in the ADF").  Returns the selected DF's
+        :class:`~simple_server.fcp.Fcp` (truthy) - :meth:`_read_chv_state`
+        reads its ``C6`` PIN status - or ``None`` when no selection was made
+        (the caller restores MF afterwards).
         """
         if kind == 'sim':
-            ops.select_file('7F20')
-            return True
+            return ops.select_file('7F20')
         try:
-            ops.select_adf(cards.AID_USIM)
-            return True
+            return ops.select_adf(cards.AID_USIM)
         except commands.FileError:
-            return False
+            return None
 
     def chv_operation(self, body):
         """``POST /api/chv``: VERIFY / CHANGE / UNBLOCK a PIN (CHV).
@@ -2115,10 +2429,18 @@ class ServerState(object):
         (:data:`CHV_REFERENCES`), and the PIN's application is selected first
         (:meth:`_chv_select_app`).  The result is :func:`_chv_sw_result`:
         ``63Cx`` attempts left (``63C0``/``6983``/``9840`` blocked),
-        ``9804`` a 2G SIM failure with attempts left, ``6982``/``6985`` and
-        the 6Axx errors as errors.  A successful UNBLOCK resets the counters
-        and sets the new PIN on the card (TS 102 221 §11.1.13.1.1); the preset
-        store is not updated - the PWA offers the value for saving.
+        ``9804`` a 2G SIM failure with attempts left, ``6984`` the generic
+        "referenced data invalidated" answer (``invalidated: True``; TS 102
+        221 §10.2.1.5.2 Table 10.13 - neither an attempt count nor a blocked
+        state, e.g. a PIN disabled / not initialized for verification),
+        ``6982``/``6985`` and the 6Axx errors as errors.  A successful UNBLOCK
+        resets the counters and sets the new PIN on the card (TS 102 221
+        §11.1.13.1.1); the preset store is not updated - the PWA offers the
+        value for saving.  The response also carries ``chv`` - the refreshed
+        per-PIN state block (:meth:`_read_chv_state`, the attempt-free
+        readout), so the UI's PIN badge follows the exchange; a successful
+        ``verify`` latches that PIN as ``not_required`` for the card session
+        (later reads keep it, a session change forgets it).
         """
         action = str(body.get('action') or '').strip().lower()
         if action not in ('verify', 'change', 'unblock'):
@@ -2155,10 +2477,74 @@ class ServerState(object):
             _data, sw = self.transport.send_apdu(apdu)
             sw = bytes(sw or b'').hex().upper()
             log.info('CHV %s %s -> SW: %s', action.upper(), code.upper(), sw)
-            return _chv_sw_result(sw)
+            result = _chv_sw_result(sw)
         finally:
             if selected:
                 esim_module.restore_mf(ops)
+        if action == 'verify' and result.get('ok'):
+            # The latch every later read in this session consults (the ADM
+            # pattern); set before the refresh so that read already honours it.
+            self.chv_verified[code] = self.card_session
+        # Refresh the operated code's state with the attempt-free readout, so
+        # the UI's PIN badge follows the exchange without a second request.
+        try:
+            merged = dict(self.chv or {})
+            merged[code] = self._read_chv_state([code])[code]
+            if action == 'verify' and result.get('ok'):
+                # A successful VERIFY is exactly what the card asks for: the
+                # PIN is verified for this session, so the refreshed entry
+                # must not claim 'required' (the badge would read "locked"
+                # right after a successful verify).  change/unblock only set
+                # a new value and keep the probe's answer.
+                entry = dict(merged.get(code) or {})
+                entry['state'] = 'not_required'
+                merged[code] = entry
+            self.chv = _chv_state_summary(merged)
+        except Exception as exc:                # best effort, never fatal
+            log.debug('CHV state refresh after %s failed: %s', action, exc)
+        if self.chv is not None:
+            result['chv'] = self.chv
+        return result
+
+    def chv_status(self, body):
+        """``POST /api/chv-status``: re-read the PIN states (no PIN presented).
+
+        ``codes`` optionally limits the re-read to ``pin1``/``pin2`` (the
+        others keep their cached entry); the default reads both.  The read is
+        the attempt-free one of :meth:`_read_chv_state` - a UICC's empty-data
+        VERIFY PIN (TS 102 221 §11.1.9.1.2) plus the application DF's ``C6``
+        PS template (mandatory in an MF/DF/ADF FCP, §11.1.1.3.1 Table 11.3;
+        the PS_DO bitmap, §9.5.2), or a 2G SIM's DF.GSM SELECT bytes
+        (TS 51 011 §9.2.1) - so no PIN value is ever sent and no attempt is
+        consumed.  Returns ``{'ok': True, 'chv': <the summary block>}``: the
+        same shape ``/api/status`` carries, with ``required``/``not_required``/
+        ``blocked``/``not_usable``/``not_initialized``/``unknown`` and the
+        tri-state ``enabled`` per PIN (a disabled PIN reads ``not_required``
+        even when the probe answers ``63CX``).
+        """
+        if not self.connected or self.transport is None:
+            raise NoCardSessionError('no card session: equip a card first')
+        codes = body.get('codes') if isinstance(body, dict) else None
+        if codes in (None, ''):
+            codes = list(CHV_CODES)
+        elif isinstance(codes, str):
+            codes = [codes]
+        if not isinstance(codes, (list, tuple)):
+            raise ValueError('codes must be a list of pin1/pin2')
+        wanted = []
+        for code in codes:
+            text = str(code or '').strip().lower()
+            if text not in CHV_CODES:
+                raise ValueError("codes must be 'pin1' and/or 'pin2'")
+            if text not in wanted:
+                wanted.append(text)
+        if not wanted:
+            raise ValueError('codes must name pin1 and/or pin2')
+        fresh = self._read_chv_state(wanted)
+        merged = dict(self.chv or {})
+        merged.update({code: fresh[code] for code in wanted})
+        self.chv = _chv_state_summary(merged)
+        return {'ok': True, 'chv': self.chv}
 
     # ---- the plain SCP80 secured-packet send (3c-3c-1) --------------------
 
@@ -5204,7 +5590,12 @@ class ServerState(object):
         (3c-3b), the latter a placeholder now.
         ``adm_verified`` is the ADM latch of the current card session (the
         legacy's ``rs.adm_verified``): a successful VERIFY until the next
-        equip/disconnect.  ``euicc``/``eid`` describe the eUICC (the EID is
+        equip/disconnect.  ``chv`` is the per-PIN lock state
+        (``{'pin1': {'state', 'attempts_left', 'sw', 'enabled'}, 'pin2': …}``,
+        v4.2.0) from the attempt-free readout - ``enabled`` is the DF FCP's
+        PS template ``C6`` flag (``True``/``False``/``None``), ``state`` one of
+        ``required``/``not_required``/``blocked``/``not_usable``/
+        ``not_initialized``/``unknown``; ``None`` without a card session.  ``euicc``/``eid`` describe the eUICC (the EID is
         read best effort at equip); ``ram_progress`` is the RAM operation in
         flight (:attr:`ram_progress`): the install chain holds the card lock,
         so this card-free poll is how its step/elapsed stay visible.
@@ -5247,6 +5638,11 @@ class ServerState(object):
             # bumps `card_session` and clears it.
             'adm_verified': bool(self.connected
                                  and self.adm_session == self.card_session),
+            # The per-PIN lock state (v4.2.0): the attempt-free readout
+            # (`_read_chv_state`) - 'required' (with attempts_left),
+            # 'not_required', 'blocked', 'not_usable', 'not_initialized' or
+            # 'unknown', the FCP C6 `enabled` flag and the probe's sw.
+            'chv': (self.chv if self.connected else None),
             'proactive_mode': self.proactive_mode(),
             'poll': {'enabled': bool(self.poll_enabled),
                      'suspended': suspended,
@@ -5569,6 +5965,8 @@ def make_handler(state, log_requests=False):
                     self._post_adm(body)
                 elif path == '/api/chv':
                     self._post_chv(body)
+                elif path == '/api/chv-status':
+                    self._post_chv_status(body)
                 elif path == '/api/send-ota':
                     self._post_ota(body)
                 elif path == '/api/counter-probe':
@@ -5851,6 +6249,11 @@ def make_handler(state, log_requests=False):
 
         def _post_chv(self, body):
             self._post_card(lambda: self.state_ref.chv_operation(body),
+                            {'ok': False})
+
+        def _post_chv_status(self, body):
+            """The attempt-free PIN state re-read (card-gated, best effort)."""
+            self._post_card(lambda: self.state_ref.chv_status(body),
                             {'ok': False})
 
         def _post_ota(self, body):
