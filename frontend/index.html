@@ -1048,8 +1048,8 @@
 			</div>
 		</div>
 		<div id="pysim-connect-info" class="mb-3 text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
-			<p data-l10n="To access local card reader, you need pysim-simple-server running locally.">To access local card reader, you need pysim-simple-server running locally.</p>
-			<p><span data-l10n="To connect, install">To connect, install</span> <a href="https://github.com/anttro/simple" target="_blank" class="text-blue-600 dark:text-blue-400 underline">pysim-simple-server</a>: <code class="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">git clone https://github.com/anttro/simple.git</code> <span data-l10n="and start it.">and start it.</span><br><span data-l10n="Refer to pysim-simple-server README files for details.">Refer to pysim-simple-server README files for details.</span> <span data-l10n="Click">Click</span> <b data-l10n="Connect">Connect</b> <span data-l10n="when pysim-simple-server is ready">when pysim-simple-server is ready</span></p>
+			<p data-l10n="To access local card reader, you need simple-server running locally.">To access local card reader, you need simple-server running locally.</p>
+			<p><span data-l10n="To connect, install">To connect, install</span> <a href="https://github.com/anttro/simple" target="_blank" class="text-blue-600 dark:text-blue-400 underline">SIMple</a>: <code class="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">git clone https://github.com/anttro/simple.git</code> <span data-l10n="and start it.">and start it.</span><br><span data-l10n="Refer to the SIMple README files for details.">Refer to the SIMple README files for details.</span> <span data-l10n="Click">Click</span> <b data-l10n="Connect">Connect</b> <span data-l10n="when simple-server is ready">when simple-server is ready</span></p>
 			<div id="pysim-connect-msg" class="text-xs"></div>
 		</div>
 		<div id="pysim-connected-row" class="mb-3 hidden">
@@ -4391,8 +4391,8 @@ function chainBuildFcp(chainId, idx, kind) {
 // The picker merges three file sources, deduped by the canonical FID path:
 // the loaded file-manager tree (authoritative names and probed presence), the
 // custom-file list, and the standard list shipped as frontend/uicc_files.json
-// (built from pySim by pysim_simple_server/uicc_files.py and precached by the
-// service worker, so the builders work offline).  Probed-absent files
+// (built from pySim by the generator in the simple-pysim fork and precached
+// by the service worker, so the builders work offline).  Probed-absent files
 // (exists === false) are dropped; without a card the list is the specs default
 // until "Probe all files" has run in the file manager.
 let _uiccStdFiles = null;
@@ -5436,8 +5436,8 @@ function genSp() {
 }
 
 // ===== SCP80 SMS segmentation (TS 31.115 4.2/4.3) =====
-// Capacities mirror the server's SCP80_*_BYTES constants (pysim_simple_server/
-// server.py): 140 octets of SMS user data minus the UDH, which carries the
+// Capacities mirror the server's SCP80_*_BYTES constants (simple_server/
+// scp80.py): 140 octets of SMS user data minus the UDH, which carries the
 // concatenation IE (5 octets) in every SM and the CPI IE (2 octets) in the
 // first one of a concatenated command.
 const SCP80_MAX_SMS = 5;
@@ -9526,7 +9526,7 @@ async function testInit() {
 
 // ===== pysim integration =====
 // Default to a local server on 127.0.0.1:8080. If this PWA is served by
-// pysim-simple-server itself (same origin), detect the co-located API once
+// simple-server itself (same origin), detect the co-located API once
 // and switch to a relative base; otherwise keep the default and wait for the
 // user to point at a server.
 let pysimBase = 'http://127.0.0.1:8080';
@@ -10095,7 +10095,9 @@ async function pysimConnect() {
 		_pysimServerAvailable = false;
 		_pysimCardEquipped = false;
 		pysimApplyAvailability();
-		const hint = t(pysimIsLikelyBlocked() ? 'pysim-blocked-hint' : 'pysim-unreachable-hint')
+		const hint = t(pysimIsLikelyBlocked()
+			? 'The browser may have blocked access to the local card server. Allow local-network access for this site (Chrome/Edge/Vivaldi: Site settings &rarr; Local network access &rarr; Allow). Also check that simple-server is running at {url}.'
+			: 'Could not connect to the card server. Check that simple-server is running and the address is correct ({url}). If this page is opened over HTTPS, also allow local-network access in the browser (Chrome/Edge/Vivaldi: Site settings &rarr; Local network access &rarr; Allow).')
 			.replace('{url}', esc(pysimBase));
 		msgEl.innerHTML =
 			'<span class="text-red-500">' + t('Connection failed:') + ' ' + esc(e.message) + '</span>' +
@@ -11284,7 +11286,7 @@ function capMemBytes(n) {
 }
 
 // Estimate box body; pure apart from esc()/t().  `mem` is the server's
-// memory object (pysim_simple_server.capmem.memory_json).
+// memory object (simple_server.shared.capmem.memory_json).
 // Suggested C6/C7/C8 quotas as one readable line: decimal bytes (what the
 // install form takes and what GP 9.7 encodes) with the hex equivalent in
 // parentheses (how the C7/C8 install parameters are coded).  C6 = non-volatile
@@ -11655,7 +11657,7 @@ const ETSI_TOOLKIT_RELEASE = {
 // Annex W, ETSI TS 102 223 Annex V, ETSI TS 101 220 Annex Q); the reference
 // with the per-row sources lives in the workspace at
 // docs/uicc/ETSI-3GPP-Releases.md, the Python mirror in
-// pysim_simple_server/catrelease.py (drift-guarded by tests/test_catrelease.py).
+// simple_server/shared/catrelease.py (drift-guarded by tests/test_catrelease.py).
 // Release 4 is the specification baseline; an absent item means the histories
 // do not pin it down - never filter on it.  Releases below 6 display as
 // "pre-Rel-6" (catReleaseLabel).
@@ -17173,7 +17175,7 @@ function pysimFsResetEdit() {
 // appears in the user-facing names.
 
 // The test-script `event` value may be the editor's hex byte, a number or one
-// of the server's name keywords (pysim_simple_server/events.py's
+// of the server's name keywords (simple_server/shared/events.py's
 // EVENT_NAMES); this map mirrors it, drift-guarded through
 // frontend/tests/event_vectors.json ("aliases").
 const EVENT_ALIASES = {
@@ -27243,7 +27245,7 @@ function pysimFsDecRemoveItem(btn) {
 
 // ===== Network simulation (Phone tab) =====
 // Sends the scenario parameters to POST /api/net-sim and renders the step
-// log.  The scenarios are implemented in pysim_simple_server/netsim.py
+// log.  The scenarios are implemented in simple_server/netsim.py
 // (trace study: projects/UICC_NAA.md section 13).
 
 let _netSimOpResults = [];
@@ -27871,12 +27873,12 @@ const LANG_RU = {
 	'Install Package (.cap file)': 'Установка пакета (.cap файл)',
 	'Server URL': 'URL сервера',
 	'Connect': 'Подключиться',
-	'To access local card reader, you need pysim-simple-server running locally.': 'Для доступа к локальному картридеру необходим запущенный pysim-simple-server.',
+	'To access local card reader, you need simple-server running locally.': 'Для доступа к локальному картридеру необходим запущенный сервер SIMple (simple-server).',
 	'To connect, install': 'Для подключения установите',
 	'and start it.': 'и запустите его.',
-	'Refer to pysim-simple-server README files for details.': 'Подробности — в README файлах pysim-simple-server.',
+	'Refer to the SIMple README files for details.': 'Подробности — в README-файлах SIMple.',
 	'Click': 'Нажмите кнопку',
-	'when pysim-simple-server is ready': 'когда pysim-simple-server будет готов',
+	'when simple-server is ready': 'когда simple-server будет готов',
 	'Equip card': 'Подключить карту',
 	'Check status': 'Проверить статус',
 	'Reset card': 'Сброс карты',
@@ -28065,8 +28067,8 @@ const LANG_RU = {
 	'Checking card...': 'Проверка карты...',
 	'Connected': 'Подключено',
 	'Connection failed:': 'Ошибка подключения:',
-	'pysim-blocked-hint': 'Браузер, вероятно, заблокировал доступ к локальному серверу карт. Разрешите доступ к локальной сети для этого сайта (Chrome/Edge/Vivaldi: Настройки сайта → Доступ к локальной сети → Разрешить). Также проверьте, что pysim-simple-server запущен по адресу {url}.',
-	'pysim-unreachable-hint': 'Не удалось подключиться к серверу карт. Проверьте, что pysim-simple-server запущен и адрес указан верно ({url}). Если эта страница открыта по HTTPS, также разрешите доступ к локальной сети в браузере (Chrome/Edge/Vivaldi: Настройки сайта → Доступ к локальной сети → Разрешить).',
+	'The browser may have blocked access to the local card server. Allow local-network access for this site (Chrome/Edge/Vivaldi: Site settings &rarr; Local network access &rarr; Allow). Also check that simple-server is running at {url}.': 'Браузер, вероятно, заблокировал доступ к локальному серверу карт. Разрешите доступ к локальной сети для этого сайта (Chrome/Edge/Vivaldi: Настройки сайта → Доступ к локальной сети → Разрешить). Также проверьте, что simple-server запущен по адресу {url}.',
+	'Could not connect to the card server. Check that simple-server is running and the address is correct ({url}). If this page is opened over HTTPS, also allow local-network access in the browser (Chrome/Edge/Vivaldi: Site settings &rarr; Local network access &rarr; Allow).': 'Не удалось подключиться к серверу карт. Проверьте, что simple-server запущен и адрес указан верно ({url}). Если эта страница открыта по HTTPS, также разрешите доступ к локальной сети в браузере (Chrome/Edge/Vivaldi: Настройки сайта → Доступ к локальной сети → Разрешить).',
 	'No card detected. Insert card and click Equip card button': 'Карта не обнаружена. Вставьте карту и нажмите Подключить карту',
 	'Card inserted — press Equip': 'Карта вставлена — нажмите «Подключить карту»',
 	'Card inserted — initializing...': 'Карта вставлена — инициализация...',
