@@ -194,6 +194,56 @@ ENTRIES = [
 ]
 
 
+class GsmSelectTests(unittest.TestCase):
+    """The TS 51 011 §9.2.1 SELECT response data (a 2G SIM's file information).
+
+    The vectors are the bench 2G SIM's real answers: EF.ICCID (transparent),
+    EF.IMSI (transparent) and EF.ARR (linear fixed, 31 records of 76 bytes =
+    2356 bytes).
+    """
+
+    ICCID = '0000000A2FE204000F00FF01060000002F0604'
+    IMSI = '000000096F07040014001401060000002F060C'
+    ARR = '000009342F0604000400FF0106014C002F0601'
+
+    def test_a_transparent_file(self):
+        info = fcp.parse_gsm_select(self.ICCID)
+        self.assertEqual(info.form, 'gsm')
+        self.assertEqual(info.file_size, 10)
+        self.assertEqual(info.file_identifier, '2FE2')
+        self.assertEqual(info.structure, 'transparent')
+        self.assertIsNone(info.record_len)
+        self.assertIsNone(info.num_of_rec)
+        self.assertEqual(info.raw, self.ICCID)
+
+    def test_a_linear_fixed_file_reports_its_record_layout(self):
+        info = fcp.parse_gsm_select(self.ARR)
+        self.assertEqual(info.file_size, 2356)
+        self.assertEqual(info.record_len, 76)
+        self.assertEqual(info.num_of_rec, 31)
+        self.assertEqual(info.structure, 'linear_fixed')
+
+    def test_a_cyclic_file(self):
+        # size 12, structure 03 (cyclic), record length 6 -> 2 records
+        info = fcp.parse_gsm_select('0000000C6F3904000F00FF01060306')
+        self.assertEqual((info.structure, info.record_len, info.num_of_rec),
+                         ('cyclic', 6, 2))
+
+    def test_a_short_response_yields_no_fields(self):
+        info = fcp.parse_gsm_select('0000')
+        self.assertEqual(info.form, 'gsm')
+        self.assertIsNone(info.file_size)
+        self.assertIsNone(info.structure)
+
+    def test_a_ber_fcp_goes_through_the_ber_parser(self):
+        # Some cards answer a BER FCP even to the TS 51 011 select form.
+        info = fcp.parse_gsm_select(TRANSPARENT_FCP)
+        self.assertEqual(info.form, 'ber')
+        self.assertEqual(info.file_size, 16)
+        self.assertEqual(info.structure, 'transparent')
+        self.assertEqual(info.raw, TRANSPARENT_FCP.hex().upper())
+
+
 class FileModelTests(unittest.TestCase):
     def setUp(self):
         self.model = files.FileModel(ENTRIES)
@@ -219,6 +269,19 @@ class FileModelTests(unittest.TestCase):
     def test_ambiguous_name_raises(self):
         with self.assertRaises(files.AmbiguousFile):
             self.model.resolve('EF.IMSI')
+
+    def test_the_structure_is_read_and_validated(self):
+        model = files.FileModel([
+            {'name': 'EF.X', 'fid': '1234', 'kind': 'ef', 'path': 'MF/1234',
+             'structure': 'linear_fixed'},
+        ])
+        self.assertEqual(model.resolve('EF.X').structure, 'linear_fixed')
+        # The standard entries without the field stay unknown (the card's
+        # SELECT decides; the model structure is only a no-FCP fallback).
+        self.assertIsNone(self.model.resolve('EF.ICCID').structure)
+        with self.assertRaises(ValueError):
+            files.FileModel([{'name': 'EF.Y', 'fid': '1235',
+                              'structure': 'nonsense'}])
 
     def test_unknown_selector_raises(self):
         with self.assertRaises(files.UnknownFile):
@@ -428,6 +491,76 @@ class FileOpsTests(unittest.TestCase):
         info = fcp.parse_fcp(fcp_template(ber(0x82, FD_LINEAR)))
         with self.assertRaises(ValueError):
             commands.FileOps(FakeLink([])).read_file(info)
+
+    # ---- the size-agnostic read (no-FCP cards) ---------------------------
+
+    def test_read_binary_until_end_stops_on_a_short_read(self):
+        link = FakeLink([(b'\x01\x02', '9000')])
+        self.assertEqual(commands.FileOps(link).read_binary_until_end(),
+                         (b'\x01\x02', '9000'))
+        self.assertEqual(link.sent_hex(), ['00b0000000'])
+
+    def test_read_binary_until_end_keeps_the_6282_bytes(self):
+        link = FakeLink([(b'\xaa\xbb', '6282')])
+        self.assertEqual(commands.FileOps(link).read_binary_until_end(),
+                         (b'\xaa\xbb', '6282'))
+
+    def test_read_binary_until_end_stops_on_the_sim_out_of_range(self):
+        link = FakeLink([(b'', '9402')])
+        self.assertEqual(commands.FileOps(link).read_binary_until_end(),
+                         (b'', '9402'))
+
+    def test_read_binary_until_end_6b00_after_data_is_the_end(self):
+        link = FakeLink([(b'\xaa' * 256, '9000'), (b'', '6b00')])
+        data, sw = commands.FileOps(link).read_binary_until_end()
+        self.assertEqual((len(data), sw), (256, '6b00'))
+        self.assertEqual(link.sent_hex(), ['00b0000000', '00b0010000'])
+
+    def test_read_binary_until_end_an_immediate_6b00_is_an_error(self):
+        # 6B00 is "wrong P1-P2", not an end-of-file code: at offset 0 it is a
+        # failed read, not an empty file (the spec-checker's caveat).
+        link = FakeLink([(b'', '6b00')])
+        with self.assertRaises(commands.UnexpectedStatusWord):
+            commands.FileOps(link).read_binary_until_end()
+
+    def test_read_binary_until_end_refuses_a_security_error(self):
+        link = FakeLink([(b'', '6982')])
+        with self.assertRaises(commands.UnexpectedStatusWord):
+            commands.FileOps(link).read_binary_until_end()
+
+    def test_read_binary_until_end_zero_progress_stops(self):
+        link = FakeLink([(b'', '9000')])
+        self.assertEqual(commands.FileOps(link).read_binary_until_end(),
+                         (b'', '9000'))
+
+    def test_read_binary_until_end_is_bounded(self):
+        link = FakeLink([(b'\xaa' * 256, '9000'), (b'\xbb' * 44, '9000')])
+        data, sw = commands.FileOps(link).read_binary_until_end(max_bytes=300)
+        self.assertEqual((len(data), sw), (300, '9000'))
+        self.assertEqual(link.sent_hex(), ['00b0000000', '00b001002c'])
+
+    def test_read_binary_until_end_validates_its_parameters(self):
+        with self.assertRaises(ValueError):
+            commands.FileOps(FakeLink([])).read_binary_until_end(chunk=0)
+        with self.assertRaises(ValueError):
+            commands.FileOps(FakeLink([])).read_binary_until_end(max_bytes=70000)
+
+    def test_select_file_sim_form_parses_the_gsm_information(self):
+        link = FakeLink([(bytes.fromhex('0000000A2FE204000F00FF01060000'
+                                        '002F0604'), '9000')])
+        info = commands.FileOps(link, cla='a0', sel_fcp=False).select_file(
+            '2FE2')
+        self.assertEqual(link.sent_hex(), ['a0a40000022fe200'])
+        self.assertEqual(info.form, 'gsm')
+        self.assertEqual(info.file_size, 10)
+        self.assertEqual(info.structure, 'transparent')
+
+    def test_select_file_sim_form_parses_a_ber_answer(self):
+        link = FakeLink([(TRANSPARENT_FCP, '9000')])
+        info = commands.FileOps(link, cla='a0', sel_fcp=False).select_file(
+            '2FE2')
+        self.assertEqual(info.form, 'ber')
+        self.assertEqual(info.file_size, 16)
 
     def test_arguments_are_validated(self):
         ops = commands.FileOps(FakeLink([]))

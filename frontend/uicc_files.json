@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-25",
+ "generated": "2026-11-23",
  "files": [
   {
    "path": "MF/2F00",
@@ -7,7 +7,8 @@
    "sym": "MF/EF.DIR",
    "fid": "2F00",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/2F05",
@@ -15,7 +16,8 @@
    "sym": "MF/EF.PL",
    "fid": "2F05",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/2F06",
@@ -23,7 +25,8 @@
    "sym": "MF/EF.ARR",
    "fid": "2F06",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/2F08",
@@ -31,7 +34,8 @@
    "sym": "MF/EF.UMPC",
    "fid": "2F08",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/2FE2",
@@ -39,7 +43,8 @@
    "sym": "MF/EF.ICCID",
    "fid": "2FE2",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10",
@@ -63,7 +68,8 @@
    "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PSC",
    "fid": "4F22",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/5F3A/4F23",
@@ -71,7 +77,8 @@
    "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.CC",
    "fid": "4F23",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/5F3A/4F24",
@@ -79,7 +86,8 @@
    "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PUID",
    "fid": "4F24",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/5F3A/4F30",
@@ -87,7 +95,8 @@
    "sym": "MF/DF.TELECOM/DF.PHONEBOOK/EF.PBR",
    "fid": "4F30",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/5F3B",
@@ -103,7 +112,8 @@
    "sym": "MF/DF.TELECOM/DF.MULTIMEDIA/EF.MML",
    "fid": "4F47",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "ber_tlv"
   },
   {
    "path": "MF/7F10/5F3B/4F48",
@@ -111,7 +121,8 @@
    "sym": "MF/DF.TELECOM/DF.MULTIMEDIA/EF.MMDF",
    "fid": "4F48",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "ber_tlv"
   },
   {
    "path": "MF/7F10/5F3D",
@@ -127,7 +138,8 @@
    "sym": "MF/DF.TELECOM/DF.MCS/EF.MST",
    "fid": "4F01",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/5F3D/4F02",
@@ -135,7 +147,8 @@
    "sym": "MF/DF.TELECOM/DF.MCS/EF.MCS_CONFIG",
    "fid": "4F02",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "ber_tlv"
   },
   {
    "path": "MF/7F10/5F3E",
@@ -151,7 +164,8 @@
    "sym": "MF/DF.TELECOM/DF.V2X/EF.VST",
    "fid": "4F01",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/5F3E/4F02",
@@ -159,7 +173,8 @@
    "sym": "MF/DF.TELECOM/DF.V2X/EF.V2X_CONFIG",
    "fid": "4F02",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "ber_tlv"
   },
   {
    "path": "MF/7F10/5F3F",
@@ -191,7 +206,8 @@
    "sym": "MF/DF.TELECOM/EF.ADN",
    "fid": "6F3A",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F3B",
@@ -199,7 +215,8 @@
    "sym": "MF/DF.TELECOM/EF.FDN",
    "fid": "6F3B",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F3C",
@@ -207,7 +224,8 @@
    "sym": "MF/DF.TELECOM/EF.SMS",
    "fid": "6F3C",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F3D",
@@ -215,7 +233,8 @@
    "sym": "MF/DF.TELECOM/EF.CCP",
    "fid": "6F3D",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F40",
@@ -223,7 +242,8 @@
    "sym": "MF/DF.TELECOM/EF.MSISDN",
    "fid": "6F40",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F42",
@@ -231,7 +251,8 @@
    "sym": "MF/DF.TELECOM/EF.SMSP",
    "fid": "6F42",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F43",
@@ -239,7 +260,8 @@
    "sym": "MF/DF.TELECOM/EF.SMSS",
    "fid": "6F43",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F10/6F44",
@@ -247,7 +269,8 @@
    "sym": "MF/DF.TELECOM/EF.LND",
    "fid": "6F44",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F47",
@@ -255,7 +278,8 @@
    "sym": "MF/DF.TELECOM/EF.SMSR",
    "fid": "6F47",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F49",
@@ -263,7 +287,8 @@
    "sym": "MF/DF.TELECOM/EF.SDN",
    "fid": "6F49",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4A",
@@ -271,7 +296,8 @@
    "sym": "MF/DF.TELECOM/EF.EXT1",
    "fid": "6F4A",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4B",
@@ -279,7 +305,8 @@
    "sym": "MF/DF.TELECOM/EF.EXT2",
    "fid": "6F4B",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4C",
@@ -287,7 +314,8 @@
    "sym": "MF/DF.TELECOM/EF.EXT3",
    "fid": "6F4C",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4D",
@@ -295,7 +323,8 @@
    "sym": "MF/DF.TELECOM/EF.BDN",
    "fid": "6F4D",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4E",
@@ -303,7 +332,8 @@
    "sym": "MF/DF.TELECOM/EF.EXT4",
    "fid": "6F4E",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F4F",
@@ -311,7 +341,8 @@
    "sym": "MF/DF.TELECOM/EF.ECCP",
    "fid": "6F4F",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F10/6F58",
@@ -319,7 +350,8 @@
    "sym": "MF/DF.TELECOM/EF.CMI",
    "fid": "6F58",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20",
@@ -335,7 +367,8 @@
    "sym": "MF/DF.GSM/EF.LP",
    "fid": "6F05",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F07",
@@ -343,7 +376,8 @@
    "sym": "MF/DF.GSM/EF.IMSI",
    "fid": "6F07",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F20",
@@ -351,7 +385,8 @@
    "sym": "MF/DF.GSM/EF.Kc",
    "fid": "6F20",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F2C",
@@ -359,7 +394,8 @@
    "sym": "MF/DF.GSM/EF.DCK",
    "fid": "6F2C",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F30",
@@ -367,7 +403,8 @@
    "sym": "MF/DF.GSM/EF.PLMNsel",
    "fid": "6F30",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F31",
@@ -375,7 +412,8 @@
    "sym": "MF/DF.GSM/EF.HPPLMN",
    "fid": "6F31",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F32",
@@ -383,7 +421,8 @@
    "sym": "MF/DF.GSM/EF.CNL",
    "fid": "6F32",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F37",
@@ -391,7 +430,8 @@
    "sym": "MF/DF.GSM/EF.ACMmax",
    "fid": "6F37",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F38",
@@ -399,7 +439,8 @@
    "sym": "MF/DF.GSM/EF.SST",
    "fid": "6F38",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F39",
@@ -407,7 +448,8 @@
    "sym": "MF/DF.GSM/EF.ACM",
    "fid": "6F39",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "cyclic"
   },
   {
    "path": "MF/7F20/6F3E",
@@ -415,7 +457,8 @@
    "sym": "MF/DF.GSM/EF.GID1",
    "fid": "6F3E",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F3F",
@@ -423,7 +466,8 @@
    "sym": "MF/DF.GSM/EF.GID2",
    "fid": "6F3F",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F41",
@@ -431,7 +475,8 @@
    "sym": "MF/DF.GSM/EF.PUCT",
    "fid": "6F41",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F45",
@@ -439,7 +484,8 @@
    "sym": "MF/DF.GSM/EF.CBMI",
    "fid": "6F45",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F46",
@@ -447,7 +493,8 @@
    "sym": "MF/DF.GSM/EF.SPN",
    "fid": "6F46",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F48",
@@ -455,7 +502,8 @@
    "sym": "MF/DF.GSM/EF.CBMID",
    "fid": "6F48",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F50",
@@ -463,7 +511,8 @@
    "sym": "MF/DF.GSM/EF.CBMIR",
    "fid": "6F50",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F51",
@@ -471,7 +520,8 @@
    "sym": "MF/DF.GSM/EF.NIA",
    "fid": "6F51",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6F52",
@@ -479,7 +529,8 @@
    "sym": "MF/DF.GSM/EF.KcGPRS",
    "fid": "6F52",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F53",
@@ -487,7 +538,8 @@
    "sym": "MF/DF.GSM/EF.LOCIGPRS",
    "fid": "6F53",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F54",
@@ -495,7 +547,8 @@
    "sym": "MF/DF.GSM/EF.SUME",
    "fid": "6F54",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F60",
@@ -503,7 +556,8 @@
    "sym": "MF/DF.GSM/EF.PLMNwAcT",
    "fid": "6F60",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F61",
@@ -511,7 +565,8 @@
    "sym": "MF/DF.GSM/EF.OPLMNwAcT",
    "fid": "6F61",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F62",
@@ -519,7 +574,8 @@
    "sym": "MF/DF.GSM/EF.HPLMNwAcT",
    "fid": "6F62",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F63",
@@ -527,7 +583,8 @@
    "sym": "MF/DF.GSM/EF.CPBCCH",
    "fid": "6F63",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F64",
@@ -535,7 +592,8 @@
    "sym": "MF/DF.GSM/EF.InvScan",
    "fid": "6F64",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F74",
@@ -543,7 +601,8 @@
    "sym": "MF/DF.GSM/EF.BCCH",
    "fid": "6F74",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F78",
@@ -551,7 +610,8 @@
    "sym": "MF/DF.GSM/EF.ACC",
    "fid": "6F78",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F7B",
@@ -559,7 +619,8 @@
    "sym": "MF/DF.GSM/EF.FPLMN",
    "fid": "6F7B",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6F7E",
@@ -567,7 +628,8 @@
    "sym": "MF/DF.GSM/EF.LOCI",
    "fid": "6F7E",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FAD",
@@ -575,7 +637,8 @@
    "sym": "MF/DF.GSM/EF.AD",
    "fid": "6FAD",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FAE",
@@ -583,7 +646,8 @@
    "sym": "MF/DF.GSM/EF.Phase",
    "fid": "6FAE",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB1",
@@ -591,7 +655,8 @@
    "sym": "MF/DF.GSM/EF.VGCS",
    "fid": "6FB1",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB2",
@@ -599,7 +664,8 @@
    "sym": "MF/DF.GSM/EF.VGCSS",
    "fid": "6FB2",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB3",
@@ -607,7 +673,8 @@
    "sym": "MF/DF.GSM/EF.VBS",
    "fid": "6FB3",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB4",
@@ -615,7 +682,8 @@
    "sym": "MF/DF.GSM/EF.VBSS",
    "fid": "6FB4",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB5",
@@ -623,7 +691,8 @@
    "sym": "MF/DF.GSM/EF.eMLPP",
    "fid": "6FB5",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB6",
@@ -631,7 +700,8 @@
    "sym": "MF/DF.GSM/EF.AAeM",
    "fid": "6FB6",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FB7",
@@ -639,7 +709,8 @@
    "sym": "MF/DF.GSM/EF.ECC",
    "fid": "6FB7",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FC5",
@@ -647,7 +718,8 @@
    "sym": "MF/DF.GSM/EF.PNN",
    "fid": "6FC5",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FC6",
@@ -655,7 +727,8 @@
    "sym": "MF/DF.GSM/EF.OPL",
    "fid": "6FC6",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FC7",
@@ -663,7 +736,8 @@
    "sym": "MF/DF.GSM/EF.MBDN",
    "fid": "6FC7",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FC8",
@@ -671,7 +745,8 @@
    "sym": "MF/DF.GSM/EF.EXT6",
    "fid": "6FC8",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FC9",
@@ -679,7 +754,8 @@
    "sym": "MF/DF.GSM/EF.MBI",
    "fid": "6FC9",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FCA",
@@ -687,7 +763,8 @@
    "sym": "MF/DF.GSM/EF.MWIS",
    "fid": "6FCA",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FCB",
@@ -695,7 +772,8 @@
    "sym": "MF/DF.GSM/EF.CFIS",
    "fid": "6FCB",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FCC",
@@ -703,7 +781,8 @@
    "sym": "MF/DF.GSM/EF.EXT7",
    "fid": "6FCC",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FCD",
@@ -711,7 +790,8 @@
    "sym": "MF/DF.GSM/EF.SPDI",
    "fid": "6FCD",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FCE",
@@ -719,7 +799,8 @@
    "sym": "MF/DF.GSM/EF.MMSN",
    "fid": "6FCE",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FCF",
@@ -727,7 +808,8 @@
    "sym": "MF/DF.GSM/EF.EXT8",
    "fid": "6FCF",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FD0",
@@ -735,7 +817,8 @@
    "sym": "MF/DF.GSM/EF.MMSICP",
    "fid": "6FD0",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "MF/7F20/6FD1",
@@ -743,7 +826,8 @@
    "sym": "MF/DF.GSM/EF.MMSUP",
    "fid": "6FD1",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "linear_fixed"
   },
   {
    "path": "MF/7F20/6FD2",
@@ -751,7 +835,8 @@
    "sym": "MF/DF.GSM/EF.MMSUCP",
    "fid": "6FD2",
    "kind": "ef",
-   "root": "MF"
+   "root": "MF",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ECASD",
@@ -795,7 +880,8 @@
    "sym": "ADF.ISIM/EF.IMPI",
    "fid": "6F02",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6F03",
@@ -803,7 +889,8 @@
    "sym": "ADF.ISIM/EF.DOMAIN",
    "fid": "6F03",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6F04",
@@ -811,7 +898,8 @@
    "sym": "ADF.ISIM/EF.IMPU",
    "fid": "6F04",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F06",
@@ -819,7 +907,8 @@
    "sym": "ADF.ISIM/EF.ARR",
    "fid": "6F06",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F07",
@@ -827,7 +916,8 @@
    "sym": "ADF.ISIM/EF.IST",
    "fid": "6F07",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6F09",
@@ -835,7 +925,8 @@
    "sym": "ADF.ISIM/EF.P-CSCF",
    "fid": "6F09",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F0A",
@@ -843,7 +934,8 @@
    "sym": "ADF.ISIM/EF.GBAUAPI",
    "fid": "6F0A",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F0B",
@@ -851,7 +943,8 @@
    "sym": "ADF.ISIM/EF.IMSDCI",
    "fid": "6F0B",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6F3C",
@@ -859,7 +952,8 @@
    "sym": "ADF.ISIM/EF.SMS",
    "fid": "6F3C",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F42",
@@ -867,7 +961,8 @@
    "sym": "ADF.ISIM/EF.SMSP",
    "fid": "6F42",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6F43",
@@ -875,7 +970,8 @@
    "sym": "ADF.ISIM/EF.SMSS",
    "fid": "6F43",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6F47",
@@ -883,7 +979,8 @@
    "sym": "ADF.ISIM/EF.SMSR",
    "fid": "6F47",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6FAD",
@@ -891,7 +988,8 @@
    "sym": "ADF.ISIM/EF.AD",
    "fid": "6FAD",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6FD5",
@@ -899,7 +997,8 @@
    "sym": "ADF.ISIM/EF.GBABP",
    "fid": "6FD5",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6FD7",
@@ -907,7 +1006,8 @@
    "sym": "ADF.ISIM/EF.GBANL",
    "fid": "6FD7",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6FDD",
@@ -915,7 +1015,8 @@
    "sym": "ADF.ISIM/EF.NAFKCA",
    "fid": "6FDD",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6FE7",
@@ -923,7 +1024,8 @@
    "sym": "ADF.ISIM/EF.UICCIARI",
    "fid": "6FE7",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6FF7",
@@ -931,7 +1033,8 @@
    "sym": "ADF.ISIM/EF.FromPreferred",
    "fid": "6FF7",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.ISIM/6FF8",
@@ -939,7 +1042,8 @@
    "sym": "ADF.ISIM/EF.IMSConfigData",
    "fid": "6FF8",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.ISIM/6FFA",
@@ -947,7 +1051,8 @@
    "sym": "ADF.ISIM/EF.WebRTCURI",
    "fid": "6FFA",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.ISIM/6FFC",
@@ -955,7 +1060,8 @@
    "sym": "ADF.ISIM/EF.XCAPConfigData",
    "fid": "6FFC",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.ISIM/6FFE",
@@ -963,7 +1069,8 @@
    "sym": "ADF.ISIM/EF.MuDMiDConfigData",
    "fid": "6FFE",
    "kind": "ef",
-   "root": "ADF.ISIM"
+   "root": "ADF.ISIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM",
@@ -988,7 +1095,8 @@
    "sym": "ADF.USIM/DF.PHONEBOOK/EF.PSC",
    "fid": "4F22",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3A/4F23",
@@ -996,7 +1104,8 @@
    "sym": "ADF.USIM/DF.PHONEBOOK/EF.CC",
    "fid": "4F23",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3A/4F24",
@@ -1004,7 +1113,8 @@
    "sym": "ADF.USIM/DF.PHONEBOOK/EF.PUID",
    "fid": "4F24",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3A/4F30",
@@ -1012,7 +1122,8 @@
    "sym": "ADF.USIM/DF.PHONEBOOK/EF.PBR",
    "fid": "4F30",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F3B",
@@ -1028,7 +1139,8 @@
    "sym": "ADF.USIM/DF.GSM-ACCESS/EF.Kc",
    "fid": "4F20",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3B/4F52",
@@ -1036,7 +1148,8 @@
    "sym": "ADF.USIM/DF.GSM-ACCESS/EF.KcGPRS",
    "fid": "4F52",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3B/4F63",
@@ -1044,7 +1157,8 @@
    "sym": "ADF.USIM/DF.GSM-ACCESS/EF.CPBCCH",
    "fid": "4F63",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3B/4F64",
@@ -1052,7 +1166,8 @@
    "sym": "ADF.USIM/DF.GSM-ACCESS/EF.InvScan",
    "fid": "4F64",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F3C",
@@ -1108,7 +1223,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.Pseudo",
    "fid": "4F41",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F42",
@@ -1116,7 +1232,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.UPLMNWLAN",
    "fid": "4F42",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F43",
@@ -1124,7 +1241,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.OPLMNWLAN",
    "fid": "4F43",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F44",
@@ -1132,7 +1250,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.UWSIDL",
    "fid": "4F44",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F40/4F45",
@@ -1140,7 +1259,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.OWSIDL",
    "fid": "4F45",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F40/4F46",
@@ -1148,7 +1268,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.WRI",
    "fid": "4F46",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F47",
@@ -1156,7 +1277,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.HWSIDL",
    "fid": "4F47",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F40/4F48",
@@ -1164,7 +1286,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.WEHPLMNPI",
    "fid": "4F48",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F49",
@@ -1172,7 +1295,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.WHPI",
    "fid": "4F49",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F4A",
@@ -1180,7 +1304,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.WLRPLMN",
    "fid": "4F4A",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F40/4F4B",
@@ -1188,7 +1313,8 @@
    "sym": "ADF.USIM/DF.WLAN/EF.HPLMNDAI",
    "fid": "4F4B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F50",
@@ -1204,7 +1330,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.ACSGL",
    "fid": "4F81",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F50/4F82",
@@ -1212,7 +1339,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.CSGT",
    "fid": "4F82",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F50/4F83",
@@ -1220,7 +1348,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.HNBN",
    "fid": "4F83",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F50/4F84",
@@ -1228,7 +1357,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.OCSGL",
    "fid": "4F84",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F50/4F85",
@@ -1236,7 +1366,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.OCSGT",
    "fid": "4F85",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F50/4F86",
@@ -1244,7 +1375,8 @@
    "sym": "ADF.USIM/DF.HNB/EF.OHNBN",
    "fid": "4F86",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F70",
@@ -1292,7 +1424,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_MON",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F02",
@@ -1300,7 +1433,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_ANN",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F03",
@@ -1308,7 +1442,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSEFUNC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F04",
@@ -1316,7 +1451,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_COM",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F05",
@@ -1324,7 +1460,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_MON",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F06",
@@ -1332,7 +1469,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RADIO_ANN",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F07",
@@ -1340,7 +1478,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_POLICY",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F08",
@@ -1348,7 +1487,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_PLMN",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F09",
@@ -1356,7 +1496,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_GC",
    "fid": "4F09",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F10",
@@ -1364,7 +1505,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PST",
    "fid": "4F10",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F11",
@@ -1372,7 +1514,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.UIRC",
    "fid": "4F11",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5F90/4F12",
@@ -1380,7 +1523,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_GM_DISCOVERY",
    "fid": "4F12",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F13",
@@ -1388,7 +1532,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RELAY",
    "fid": "4F13",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5F90/4F14",
@@ -1396,7 +1541,8 @@
    "sym": "ADF.USIM/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
    "fid": "4F14",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FA0",
@@ -1436,7 +1582,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GS3GPPLOCI",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F02",
@@ -1444,7 +1591,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GSN3GPPLOCI",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F03",
@@ -1452,7 +1600,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GS3GPPNSC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5FC0/4F04",
@@ -1460,7 +1609,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GSN3GPPNSC",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5FC0/4F05",
@@ -1468,7 +1618,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GAUTHKEYS",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F06",
@@ -1476,7 +1627,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.UAC_AIC",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F07",
@@ -1484,7 +1636,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.SUCI_Calc_Info",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F08",
@@ -1492,7 +1645,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.OPL5G",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5FC0/4F09",
@@ -1500,7 +1654,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.SUPI_NAI",
    "fid": "4F09",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0A",
@@ -1508,7 +1663,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.Routing_Indicator",
    "fid": "4F0A",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0B",
@@ -1516,7 +1672,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.URSP",
    "fid": "4F0B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0C",
@@ -1524,7 +1681,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.TN3GPPSNN",
    "fid": "4F0C",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0D",
@@ -1532,7 +1690,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.CAG",
    "fid": "4F0D",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0E",
@@ -1540,7 +1699,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.SOR-CMCI",
    "fid": "4F0E",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F0F",
@@ -1548,7 +1708,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.DRI",
    "fid": "4F0F",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F10",
@@ -1556,7 +1717,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GSEDRX",
    "fid": "4F10",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F11",
@@ -1564,7 +1726,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.5GNSWO_CONF",
    "fid": "4F11",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F15",
@@ -1572,7 +1735,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.MCHPPLMN",
    "fid": "4F15",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FC0/4F16",
@@ -1580,7 +1744,8 @@
    "sym": "ADF.USIM/DF.5GS/EF.KAUSF_DERIVATION",
    "fid": "4F16",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FD0",
@@ -1596,7 +1761,8 @@
    "sym": "ADF.USIM/DF.SAIP/EF.SUCI_Calc_Info",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FE0",
@@ -1612,7 +1778,8 @@
    "sym": "ADF.USIM/DF.SNPN/EF.PWS_SNPN",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FE0/4F02",
@@ -1620,7 +1787,8 @@
    "sym": "ADF.USIM/DF.SNPN/EF.NID",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/5FF0",
@@ -1636,7 +1804,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_ST",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F02",
@@ -1644,7 +1813,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_DD",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F03",
@@ -1652,7 +1822,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_DC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F04",
@@ -1660,7 +1831,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_U2NRU",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F05",
@@ -1668,7 +1840,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_RU",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F06",
@@ -1676,7 +1849,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_UIR",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F07",
@@ -1684,7 +1858,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_U2URU",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF0/4F08",
@@ -1692,7 +1867,8 @@
    "sym": "ADF.USIM/DF.5G_ProSe/EF.5G_PROSE_EU",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/5FF1",
@@ -1708,7 +1884,8 @@
    "sym": "ADF.USIM/DF.5MBSUECONFIG/EF.5MBSUECONFIG",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F01",
@@ -1716,7 +1893,8 @@
    "sym": "ADF.USIM/EF.eAKA",
    "fid": "6F01",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F02",
@@ -1724,7 +1902,8 @@
    "sym": "ADF.USIM/EF.OCST",
    "fid": "6F02",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F05",
@@ -1732,7 +1911,8 @@
    "sym": "ADF.USIM/EF.LI",
    "fid": "6F05",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F06",
@@ -1740,7 +1920,8 @@
    "sym": "ADF.USIM/EF.ARR",
    "fid": "6F06",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F07",
@@ -1748,7 +1929,8 @@
    "sym": "ADF.USIM/EF.IMSI",
    "fid": "6F07",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F08",
@@ -1756,7 +1938,8 @@
    "sym": "ADF.USIM/EF.Keys",
    "fid": "6F08",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F09",
@@ -1764,7 +1947,8 @@
    "sym": "ADF.USIM/EF.KeysPS",
    "fid": "6F09",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F0A",
@@ -1772,7 +1956,8 @@
    "sym": "ADF.USIM/EF.GBAUAPI",
    "fid": "6F0A",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F0B",
@@ -1780,7 +1965,8 @@
    "sym": "ADF.USIM/EF.IMSDCI",
    "fid": "6F0B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F2C",
@@ -1788,7 +1974,8 @@
    "sym": "ADF.USIM/EF.DCK",
    "fid": "6F2C",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F31",
@@ -1796,7 +1983,8 @@
    "sym": "ADF.USIM/EF.HPPLMN",
    "fid": "6F31",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F32",
@@ -1804,7 +1992,8 @@
    "sym": "ADF.USIM/EF.CNL",
    "fid": "6F32",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F37",
@@ -1812,7 +2001,8 @@
    "sym": "ADF.USIM/EF.ACMmax",
    "fid": "6F37",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F38",
@@ -1820,7 +2010,8 @@
    "sym": "ADF.USIM/EF.UST",
    "fid": "6F38",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F39",
@@ -1828,7 +2019,8 @@
    "sym": "ADF.USIM/EF.ACM",
    "fid": "6F39",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6F3B",
@@ -1836,7 +2028,8 @@
    "sym": "ADF.USIM/EF.FDN",
    "fid": "6F3B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F3C",
@@ -1844,7 +2037,8 @@
    "sym": "ADF.USIM/EF.SMS",
    "fid": "6F3C",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F3E",
@@ -1852,7 +2046,8 @@
    "sym": "ADF.USIM/EF.GID1",
    "fid": "6F3E",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F3F",
@@ -1860,7 +2055,8 @@
    "sym": "ADF.USIM/EF.GID2",
    "fid": "6F3F",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F40",
@@ -1868,7 +2064,8 @@
    "sym": "ADF.USIM/EF.MSISDN",
    "fid": "6F40",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F41",
@@ -1876,7 +2073,8 @@
    "sym": "ADF.USIM/EF.PUCT",
    "fid": "6F41",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F42",
@@ -1884,7 +2082,8 @@
    "sym": "ADF.USIM/EF.SMSP",
    "fid": "6F42",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F43",
@@ -1892,7 +2091,8 @@
    "sym": "ADF.USIM/EF.SMSS",
    "fid": "6F43",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F45",
@@ -1900,7 +2100,8 @@
    "sym": "ADF.USIM/EF.CBMI",
    "fid": "6F45",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F46",
@@ -1908,7 +2109,8 @@
    "sym": "ADF.USIM/EF.SPN",
    "fid": "6F46",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F47",
@@ -1916,7 +2118,8 @@
    "sym": "ADF.USIM/EF.SMSR",
    "fid": "6F47",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F48",
@@ -1924,7 +2127,8 @@
    "sym": "ADF.USIM/EF.CBMID",
    "fid": "6F48",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F49",
@@ -1932,7 +2136,8 @@
    "sym": "ADF.USIM/EF.SDN",
    "fid": "6F49",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F4B",
@@ -1940,7 +2145,8 @@
    "sym": "ADF.USIM/EF.EXT2",
    "fid": "6F4B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F4C",
@@ -1948,7 +2154,8 @@
    "sym": "ADF.USIM/EF.EXT3",
    "fid": "6F4C",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F4D",
@@ -1956,7 +2163,8 @@
    "sym": "ADF.USIM/EF.BDN",
    "fid": "6F4D",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F4E",
@@ -1964,7 +2172,8 @@
    "sym": "ADF.USIM/EF.EXT5",
    "fid": "6F4E",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F4F",
@@ -1972,7 +2181,8 @@
    "sym": "ADF.USIM/EF.CCP2",
    "fid": "6F4F",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F50",
@@ -1980,7 +2190,8 @@
    "sym": "ADF.USIM/EF.CBMIR",
    "fid": "6F50",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F55",
@@ -1988,7 +2199,8 @@
    "sym": "ADF.USIM/EF.EXT4",
    "fid": "6F55",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F56",
@@ -1996,7 +2208,8 @@
    "sym": "ADF.USIM/EF.EST",
    "fid": "6F56",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F57",
@@ -2004,7 +2217,8 @@
    "sym": "ADF.USIM/EF.ACL",
    "fid": "6F57",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F58",
@@ -2012,7 +2226,8 @@
    "sym": "ADF.USIM/EF.CMI",
    "fid": "6F58",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6F5B",
@@ -2020,7 +2235,8 @@
    "sym": "ADF.USIM/EF.START-HFN",
    "fid": "6F5B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F5C",
@@ -2028,7 +2244,8 @@
    "sym": "ADF.USIM/EF.THRESHOLD",
    "fid": "6F5C",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F60",
@@ -2036,7 +2253,8 @@
    "sym": "ADF.USIM/EF.PLMNwAcT",
    "fid": "6F60",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F61",
@@ -2044,7 +2262,8 @@
    "sym": "ADF.USIM/EF.OPLMNwAcT",
    "fid": "6F61",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F62",
@@ -2052,7 +2271,8 @@
    "sym": "ADF.USIM/EF.HPLMNwAcT",
    "fid": "6F62",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F65",
@@ -2060,7 +2280,8 @@
    "sym": "ADF.USIM/EF.RPLMNAcTD",
    "fid": "6F65",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F73",
@@ -2068,7 +2289,8 @@
    "sym": "ADF.USIM/EF.PSLOCI",
    "fid": "6F73",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F78",
@@ -2076,7 +2298,8 @@
    "sym": "ADF.USIM/EF.ACC",
    "fid": "6F78",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F7B",
@@ -2084,7 +2307,8 @@
    "sym": "ADF.USIM/EF.FPLMN",
    "fid": "6F7B",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F7E",
@@ -2092,7 +2316,8 @@
    "sym": "ADF.USIM/EF.LOCI",
    "fid": "6F7E",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6F80",
@@ -2100,7 +2325,8 @@
    "sym": "ADF.USIM/EF.ICI",
    "fid": "6F80",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6F81",
@@ -2108,7 +2334,8 @@
    "sym": "ADF.USIM/EF.OCI",
    "fid": "6F81",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6F82",
@@ -2116,7 +2343,8 @@
    "sym": "ADF.USIM/EF.ICT",
    "fid": "6F82",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6F83",
@@ -2124,7 +2352,8 @@
    "sym": "ADF.USIM/EF.OCT",
    "fid": "6F83",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6FAD",
@@ -2132,7 +2361,8 @@
    "sym": "ADF.USIM/EF.AD",
    "fid": "6FAD",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB1",
@@ -2140,7 +2370,8 @@
    "sym": "ADF.USIM/EF.VGCS",
    "fid": "6FB1",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB2",
@@ -2148,7 +2379,8 @@
    "sym": "ADF.USIM/EF.VGCSS",
    "fid": "6FB2",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB3",
@@ -2156,7 +2388,8 @@
    "sym": "ADF.USIM/EF.VBS",
    "fid": "6FB3",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB4",
@@ -2164,7 +2397,8 @@
    "sym": "ADF.USIM/EF.VBSS",
    "fid": "6FB4",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB5",
@@ -2172,7 +2406,8 @@
    "sym": "ADF.USIM/EF.eMLPP",
    "fid": "6FB5",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB6",
@@ -2180,7 +2415,8 @@
    "sym": "ADF.USIM/EF.AAeM",
    "fid": "6FB6",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FB7",
@@ -2188,7 +2424,8 @@
    "sym": "ADF.USIM/EF.ECC",
    "fid": "6FB7",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FC4",
@@ -2196,7 +2433,8 @@
    "sym": "ADF.USIM/EF.NETPAR",
    "fid": "6FC4",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FC5",
@@ -2204,7 +2442,8 @@
    "sym": "ADF.USIM/EF.PNN",
    "fid": "6FC5",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FC6",
@@ -2212,7 +2451,8 @@
    "sym": "ADF.USIM/EF.OPL",
    "fid": "6FC6",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FC7",
@@ -2220,7 +2460,8 @@
    "sym": "ADF.USIM/EF.MBDN",
    "fid": "6FC7",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FC8",
@@ -2228,7 +2469,8 @@
    "sym": "ADF.USIM/EF.EXT6",
    "fid": "6FC8",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FC9",
@@ -2236,7 +2478,8 @@
    "sym": "ADF.USIM/EF.MBI",
    "fid": "6FC9",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FCA",
@@ -2244,7 +2487,8 @@
    "sym": "ADF.USIM/EF.MWIS",
    "fid": "6FCA",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FCB",
@@ -2252,7 +2496,8 @@
    "sym": "ADF.USIM/EF.CFIS",
    "fid": "6FCB",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FCC",
@@ -2260,7 +2505,8 @@
    "sym": "ADF.USIM/EF.EXT7",
    "fid": "6FCC",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FCD",
@@ -2268,7 +2514,8 @@
    "sym": "ADF.USIM/EF.SPDI",
    "fid": "6FCD",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FCE",
@@ -2276,7 +2523,8 @@
    "sym": "ADF.USIM/EF.MMSN",
    "fid": "6FCE",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FCF",
@@ -2284,7 +2532,8 @@
    "sym": "ADF.USIM/EF.EXT8",
    "fid": "6FCF",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FD0",
@@ -2292,7 +2541,8 @@
    "sym": "ADF.USIM/EF.MMSICP",
    "fid": "6FD0",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FD1",
@@ -2300,7 +2550,8 @@
    "sym": "ADF.USIM/EF.MMSUP",
    "fid": "6FD1",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FD2",
@@ -2308,7 +2559,8 @@
    "sym": "ADF.USIM/EF.MMSUCP",
    "fid": "6FD2",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FD3",
@@ -2316,7 +2568,8 @@
    "sym": "ADF.USIM/EF.NIA",
    "fid": "6FD3",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FD4",
@@ -2324,7 +2577,8 @@
    "sym": "ADF.USIM/EF.VGCSCA",
    "fid": "6FD4",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FD5",
@@ -2332,7 +2586,8 @@
    "sym": "ADF.USIM/EF.VBSCA",
    "fid": "6FD5",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FD6",
@@ -2340,7 +2595,8 @@
    "sym": "ADF.USIM/EF.GBABP",
    "fid": "6FD6",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FD7",
@@ -2348,7 +2604,8 @@
    "sym": "ADF.USIM/EF.MSK",
    "fid": "6FD7",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FD8",
@@ -2356,7 +2613,8 @@
    "sym": "ADF.USIM/EF.MUK",
    "fid": "6FD8",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FD9",
@@ -2364,7 +2622,8 @@
    "sym": "ADF.USIM/EF.EHPLMN",
    "fid": "6FD9",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FDA",
@@ -2372,7 +2631,8 @@
    "sym": "ADF.USIM/EF.GBANL",
    "fid": "6FDA",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FDB",
@@ -2380,7 +2640,8 @@
    "sym": "ADF.USIM/EF.EHPLMNPI",
    "fid": "6FDB",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FDC",
@@ -2396,7 +2657,8 @@
    "sym": "ADF.USIM/EF.NAFKCA",
    "fid": "6FDD",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FDE",
@@ -2404,7 +2666,8 @@
    "sym": "ADF.USIM/EF.SPNI",
    "fid": "6FDE",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FDF",
@@ -2412,7 +2675,8 @@
    "sym": "ADF.USIM/EF.PNNI",
    "fid": "6FDF",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FE2",
@@ -2420,7 +2684,8 @@
    "sym": "ADF.USIM/EF.NCP-IP",
    "fid": "6FE2",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FE3",
@@ -2428,7 +2693,8 @@
    "sym": "ADF.USIM/EF.EPSLOCI",
    "fid": "6FE3",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FE4",
@@ -2436,7 +2702,8 @@
    "sym": "ADF.USIM/EF.EPSNSC",
    "fid": "6FE4",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FE6",
@@ -2444,7 +2711,8 @@
    "sym": "ADF.USIM/EF.UFC",
    "fid": "6FE6",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FE8",
@@ -2452,7 +2720,8 @@
    "sym": "ADF.USIM/EF.NASCONFIG",
    "fid": "6FE8",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FEC",
@@ -2460,7 +2729,8 @@
    "sym": "ADF.USIM/EF.PWS",
    "fid": "6FEC",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FED",
@@ -2468,7 +2738,8 @@
    "sym": "ADF.USIM/EF.FDNURI",
    "fid": "6FED",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FEE",
@@ -2476,7 +2747,8 @@
    "sym": "ADF.USIM/EF.BDNURI",
    "fid": "6FEE",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FEF",
@@ -2484,7 +2756,8 @@
    "sym": "ADF.USIM/EF.SDNURI",
    "fid": "6FEF",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM/6FF0",
@@ -2500,7 +2773,8 @@
    "sym": "ADF.USIM/EF.IPS",
    "fid": "6FF1",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM/6FF2",
@@ -2516,7 +2790,8 @@
    "sym": "ADF.USIM/EF.ePDGId",
    "fid": "6FF3",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FF4",
@@ -2524,7 +2799,8 @@
    "sym": "ADF.USIM/EF.ePDGSelection",
    "fid": "6FF4",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FF5",
@@ -2532,7 +2808,8 @@
    "sym": "ADF.USIM/EF.ePDGIdEm",
    "fid": "6FF5",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FF6",
@@ -2540,7 +2817,8 @@
    "sym": "ADF.USIM/EF.ePDGSelectionEm",
    "fid": "6FF6",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FF7",
@@ -2548,7 +2826,8 @@
    "sym": "ADF.USIM/EF.FromPreferred",
    "fid": "6FF7",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FF8",
@@ -2556,7 +2835,8 @@
    "sym": "ADF.USIM/EF.IMSConfigData",
    "fid": "6FF8",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM/6FF9",
@@ -2580,7 +2860,8 @@
    "sym": "ADF.USIM/EF.XCAPConfigData",
    "fid": "6FFC",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM/6FFD",
@@ -2588,7 +2869,8 @@
    "sym": "ADF.USIM/EF.EARFCNList",
    "fid": "6FFD",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM/6FFE",
@@ -2596,7 +2878,8 @@
    "sym": "ADF.USIM/EF.MuDMiDConfigData",
    "fid": "6FFE",
    "kind": "ef",
-   "root": "ADF.USIM"
+   "root": "ADF.USIM",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM-NON-IMSI",
@@ -2621,7 +2904,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PSC",
    "fid": "4F22",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3A/4F23",
@@ -2629,7 +2913,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.CC",
    "fid": "4F23",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3A/4F24",
@@ -2637,7 +2922,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PUID",
    "fid": "4F24",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3A/4F30",
@@ -2645,7 +2931,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.PHONEBOOK/EF.PBR",
    "fid": "4F30",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3B",
@@ -2661,7 +2948,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.Kc",
    "fid": "4F20",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3B/4F52",
@@ -2669,7 +2957,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.KcGPRS",
    "fid": "4F52",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3B/4F63",
@@ -2677,7 +2966,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.CPBCCH",
    "fid": "4F63",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3B/4F64",
@@ -2685,7 +2975,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.GSM-ACCESS/EF.InvScan",
    "fid": "4F64",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F3C",
@@ -2741,7 +3032,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.Pseudo",
    "fid": "4F41",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F42",
@@ -2749,7 +3041,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.UPLMNWLAN",
    "fid": "4F42",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F43",
@@ -2757,7 +3050,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.OPLMNWLAN",
    "fid": "4F43",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F44",
@@ -2765,7 +3059,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.UWSIDL",
    "fid": "4F44",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F45",
@@ -2773,7 +3068,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.OWSIDL",
    "fid": "4F45",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F46",
@@ -2781,7 +3077,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WRI",
    "fid": "4F46",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F47",
@@ -2789,7 +3086,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.HWSIDL",
    "fid": "4F47",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F48",
@@ -2797,7 +3095,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WEHPLMNPI",
    "fid": "4F48",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F49",
@@ -2805,7 +3104,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WHPI",
    "fid": "4F49",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F4A",
@@ -2813,7 +3113,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.WLRPLMN",
    "fid": "4F4A",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F40/4F4B",
@@ -2821,7 +3122,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.WLAN/EF.HPLMNDAI",
    "fid": "4F4B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50",
@@ -2837,7 +3139,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.ACSGL",
    "fid": "4F81",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50/4F82",
@@ -2845,7 +3148,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.CSGT",
    "fid": "4F82",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50/4F83",
@@ -2853,7 +3157,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.HNBN",
    "fid": "4F83",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50/4F84",
@@ -2861,7 +3166,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OCSGL",
    "fid": "4F84",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50/4F85",
@@ -2869,7 +3175,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OCSGT",
    "fid": "4F85",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F50/4F86",
@@ -2877,7 +3184,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.HNB/EF.OHNBN",
    "fid": "4F86",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F70",
@@ -2925,7 +3233,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_MON",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F02",
@@ -2933,7 +3242,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_ANN",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F03",
@@ -2941,7 +3251,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSEFUNC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F04",
@@ -2949,7 +3260,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_COM",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F05",
@@ -2957,7 +3269,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_MON",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F06",
@@ -2965,7 +3278,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RADIO_ANN",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F07",
@@ -2973,7 +3287,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_POLICY",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F08",
@@ -2981,7 +3296,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_PLMN",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F09",
@@ -2989,7 +3305,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_GC",
    "fid": "4F09",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F10",
@@ -2997,7 +3314,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PST",
    "fid": "4F10",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F11",
@@ -3005,7 +3323,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.UIRC",
    "fid": "4F11",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F12",
@@ -3013,7 +3332,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_GM_DISCOVERY",
    "fid": "4F12",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F13",
@@ -3021,7 +3341,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RELAY",
    "fid": "4F13",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5F90/4F14",
@@ -3029,7 +3350,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.ProSe/EF.PROSE_RELAY_DISCOVERY",
    "fid": "4F14",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FA0",
@@ -3069,7 +3391,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GS3GPPLOCI",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F02",
@@ -3077,7 +3400,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSN3GPPLOCI",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F03",
@@ -3085,7 +3409,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GS3GPPNSC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F04",
@@ -3093,7 +3418,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSN3GPPNSC",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F05",
@@ -3101,7 +3427,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GAUTHKEYS",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F06",
@@ -3109,7 +3436,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.UAC_AIC",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F07",
@@ -3117,7 +3445,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SUCI_Calc_Info",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F08",
@@ -3125,7 +3454,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.OPL5G",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F09",
@@ -3133,7 +3463,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SUPI_NAI",
    "fid": "4F09",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0A",
@@ -3141,7 +3472,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.Routing_Indicator",
    "fid": "4F0A",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0B",
@@ -3149,7 +3481,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.URSP",
    "fid": "4F0B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0C",
@@ -3157,7 +3490,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.TN3GPPSNN",
    "fid": "4F0C",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0D",
@@ -3165,7 +3499,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.CAG",
    "fid": "4F0D",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0E",
@@ -3173,7 +3508,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.SOR-CMCI",
    "fid": "4F0E",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F0F",
@@ -3181,7 +3517,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.DRI",
    "fid": "4F0F",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F10",
@@ -3189,7 +3526,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GSEDRX",
    "fid": "4F10",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F11",
@@ -3197,7 +3535,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.5GNSWO_CONF",
    "fid": "4F11",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F15",
@@ -3205,7 +3544,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.MCHPPLMN",
    "fid": "4F15",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FC0/4F16",
@@ -3213,7 +3553,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5GS/EF.KAUSF_DERIVATION",
    "fid": "4F16",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FD0",
@@ -3229,7 +3570,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.SAIP/EF.SUCI_Calc_Info",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FE0",
@@ -3245,7 +3587,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.SNPN/EF.PWS_SNPN",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FE0/4F02",
@@ -3253,7 +3596,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.SNPN/EF.NID",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0",
@@ -3269,7 +3613,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_ST",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F02",
@@ -3277,7 +3622,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_DD",
    "fid": "4F02",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F03",
@@ -3285,7 +3631,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_DC",
    "fid": "4F03",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F04",
@@ -3293,7 +3640,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_U2NRU",
    "fid": "4F04",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F05",
@@ -3301,7 +3649,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_RU",
    "fid": "4F05",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F06",
@@ -3309,7 +3658,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_UIR",
    "fid": "4F06",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F07",
@@ -3317,7 +3667,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_U2URU",
    "fid": "4F07",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF0/4F08",
@@ -3325,7 +3676,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5G_ProSe/EF.5G_PROSE_EU",
    "fid": "4F08",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/5FF1",
@@ -3341,7 +3693,8 @@
    "sym": "ADF.USIM-non-IMSI/DF.5MBSUECONFIG/EF.5MBSUECONFIG",
    "fid": "4F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F01",
@@ -3349,7 +3702,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.eAKA",
    "fid": "6F01",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F02",
@@ -3357,7 +3711,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.OCST",
    "fid": "6F02",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F05",
@@ -3365,7 +3720,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.LI",
    "fid": "6F05",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F06",
@@ -3373,7 +3729,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ARR",
    "fid": "6F06",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F08",
@@ -3381,7 +3738,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.Keys",
    "fid": "6F08",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F09",
@@ -3389,7 +3747,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.KeysPS",
    "fid": "6F09",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F0A",
@@ -3397,7 +3756,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.GBAUAPI",
    "fid": "6F0A",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F0B",
@@ -3405,7 +3765,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.IMSDCI",
    "fid": "6F0B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F2C",
@@ -3413,7 +3774,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.DCK",
    "fid": "6F2C",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F31",
@@ -3421,7 +3783,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.HPPLMN",
    "fid": "6F31",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F32",
@@ -3429,7 +3792,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CNL",
    "fid": "6F32",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F37",
@@ -3437,7 +3801,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ACMmax",
    "fid": "6F37",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F38",
@@ -3445,7 +3810,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.UST",
    "fid": "6F38",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F39",
@@ -3453,7 +3819,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ACM",
    "fid": "6F39",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F3B",
@@ -3461,7 +3828,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.FDN",
    "fid": "6F3B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F3C",
@@ -3469,7 +3837,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SMS",
    "fid": "6F3C",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F3E",
@@ -3477,7 +3846,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.GID1",
    "fid": "6F3E",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F3F",
@@ -3485,7 +3855,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.GID2",
    "fid": "6F3F",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F40",
@@ -3493,7 +3864,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MSISDN",
    "fid": "6F40",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F41",
@@ -3501,7 +3873,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PUCT",
    "fid": "6F41",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F42",
@@ -3509,7 +3882,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SMSP",
    "fid": "6F42",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F43",
@@ -3517,7 +3891,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SMSS",
    "fid": "6F43",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F45",
@@ -3525,7 +3900,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CBMI",
    "fid": "6F45",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F46",
@@ -3533,7 +3909,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SPN",
    "fid": "6F46",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F47",
@@ -3541,7 +3918,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SMSR",
    "fid": "6F47",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F48",
@@ -3549,7 +3927,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CBMID",
    "fid": "6F48",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F49",
@@ -3557,7 +3936,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SDN",
    "fid": "6F49",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F4B",
@@ -3565,7 +3945,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT2",
    "fid": "6F4B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F4C",
@@ -3573,7 +3954,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT3",
    "fid": "6F4C",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F4D",
@@ -3581,7 +3963,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.BDN",
    "fid": "6F4D",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F4E",
@@ -3589,7 +3972,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT5",
    "fid": "6F4E",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F4F",
@@ -3597,7 +3981,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CCP2",
    "fid": "6F4F",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F50",
@@ -3605,7 +3990,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CBMIR",
    "fid": "6F50",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F55",
@@ -3613,7 +3999,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT4",
    "fid": "6F55",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F56",
@@ -3621,7 +4008,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EST",
    "fid": "6F56",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F57",
@@ -3629,7 +4017,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ACL",
    "fid": "6F57",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F58",
@@ -3637,7 +4026,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CMI",
    "fid": "6F58",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F5B",
@@ -3645,7 +4035,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.START-HFN",
    "fid": "6F5B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F5C",
@@ -3653,7 +4044,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.THRESHOLD",
    "fid": "6F5C",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F60",
@@ -3661,7 +4053,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PLMNwAcT",
    "fid": "6F60",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F61",
@@ -3669,7 +4062,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.OPLMNwAcT",
    "fid": "6F61",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F62",
@@ -3677,7 +4071,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.HPLMNwAcT",
    "fid": "6F62",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F65",
@@ -3685,7 +4080,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.RPLMNAcTD",
    "fid": "6F65",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F73",
@@ -3693,7 +4089,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PSLOCI",
    "fid": "6F73",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F78",
@@ -3701,7 +4098,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ACC",
    "fid": "6F78",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F7B",
@@ -3709,7 +4107,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.FPLMN",
    "fid": "6F7B",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F7E",
@@ -3717,7 +4116,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.LOCI",
    "fid": "6F7E",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F80",
@@ -3725,7 +4125,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ICI",
    "fid": "6F80",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F81",
@@ -3733,7 +4134,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.OCI",
    "fid": "6F81",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F82",
@@ -3741,7 +4143,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ICT",
    "fid": "6F82",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6F83",
@@ -3749,7 +4152,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.OCT",
    "fid": "6F83",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FAD",
@@ -3757,7 +4161,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.AD",
    "fid": "6FAD",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB1",
@@ -3765,7 +4170,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VGCS",
    "fid": "6FB1",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB2",
@@ -3773,7 +4179,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VGCSS",
    "fid": "6FB2",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB3",
@@ -3781,7 +4188,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VBS",
    "fid": "6FB3",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB4",
@@ -3789,7 +4197,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VBSS",
    "fid": "6FB4",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB5",
@@ -3797,7 +4206,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.eMLPP",
    "fid": "6FB5",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB6",
@@ -3805,7 +4215,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.AAeM",
    "fid": "6FB6",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FB7",
@@ -3813,7 +4224,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ECC",
    "fid": "6FB7",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC4",
@@ -3821,7 +4233,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.NETPAR",
    "fid": "6FC4",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC5",
@@ -3829,7 +4242,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PNN",
    "fid": "6FC5",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC6",
@@ -3837,7 +4251,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.OPL",
    "fid": "6FC6",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC7",
@@ -3845,7 +4260,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MBDN",
    "fid": "6FC7",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC8",
@@ -3853,7 +4269,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT6",
    "fid": "6FC8",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FC9",
@@ -3861,7 +4278,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MBI",
    "fid": "6FC9",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCA",
@@ -3869,7 +4287,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MWIS",
    "fid": "6FCA",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCB",
@@ -3877,7 +4296,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.CFIS",
    "fid": "6FCB",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCC",
@@ -3885,7 +4305,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT7",
    "fid": "6FCC",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCD",
@@ -3893,7 +4314,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SPDI",
    "fid": "6FCD",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCE",
@@ -3901,7 +4323,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MMSN",
    "fid": "6FCE",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FCF",
@@ -3909,7 +4332,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EXT8",
    "fid": "6FCF",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD0",
@@ -3917,7 +4341,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MMSICP",
    "fid": "6FD0",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD1",
@@ -3925,7 +4350,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MMSUP",
    "fid": "6FD1",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD2",
@@ -3933,7 +4359,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MMSUCP",
    "fid": "6FD2",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD3",
@@ -3941,7 +4368,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.NIA",
    "fid": "6FD3",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD4",
@@ -3949,7 +4377,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VGCSCA",
    "fid": "6FD4",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD5",
@@ -3957,7 +4386,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.VBSCA",
    "fid": "6FD5",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD6",
@@ -3965,7 +4395,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.GBABP",
    "fid": "6FD6",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD7",
@@ -3973,7 +4404,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MSK",
    "fid": "6FD7",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD8",
@@ -3981,7 +4413,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MUK",
    "fid": "6FD8",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FD9",
@@ -3989,7 +4422,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EHPLMN",
    "fid": "6FD9",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FDA",
@@ -3997,7 +4431,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.GBANL",
    "fid": "6FDA",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FDB",
@@ -4005,7 +4440,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EHPLMNPI",
    "fid": "6FDB",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FDC",
@@ -4021,7 +4457,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.NAFKCA",
    "fid": "6FDD",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FDE",
@@ -4029,7 +4466,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SPNI",
    "fid": "6FDE",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FDF",
@@ -4037,7 +4475,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PNNI",
    "fid": "6FDF",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FE2",
@@ -4045,7 +4484,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.NCP-IP",
    "fid": "6FE2",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FE3",
@@ -4053,7 +4493,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EPSLOCI",
    "fid": "6FE3",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FE4",
@@ -4061,7 +4502,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EPSNSC",
    "fid": "6FE4",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FE6",
@@ -4069,7 +4511,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.UFC",
    "fid": "6FE6",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FE8",
@@ -4077,7 +4520,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.NASCONFIG",
    "fid": "6FE8",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FEC",
@@ -4085,7 +4529,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.PWS",
    "fid": "6FEC",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FED",
@@ -4093,7 +4538,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.FDNURI",
    "fid": "6FED",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FEE",
@@ -4101,7 +4547,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.BDNURI",
    "fid": "6FEE",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FEF",
@@ -4109,7 +4556,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.SDNURI",
    "fid": "6FEF",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "linear_fixed"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF0",
@@ -4125,7 +4573,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.IPS",
    "fid": "6FF1",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "cyclic"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF2",
@@ -4141,7 +4590,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ePDGId",
    "fid": "6FF3",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF4",
@@ -4149,7 +4599,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ePDGSelection",
    "fid": "6FF4",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF5",
@@ -4157,7 +4608,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ePDGIdEm",
    "fid": "6FF5",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF6",
@@ -4165,7 +4617,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.ePDGSelectionEm",
    "fid": "6FF6",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF7",
@@ -4173,7 +4626,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.FromPreferred",
    "fid": "6FF7",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF8",
@@ -4181,7 +4635,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.IMSConfigData",
    "fid": "6FF8",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FF9",
@@ -4205,7 +4660,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.XCAPConfigData",
    "fid": "6FFC",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "ber_tlv"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FFD",
@@ -4213,7 +4669,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.EARFCNList",
    "fid": "6FFD",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "transparent"
   },
   {
    "path": "ADF.USIM-NON-IMSI/6FFE",
@@ -4221,7 +4678,8 @@
    "sym": "ADF.USIM-non-IMSI/EF.MuDMiDConfigData",
    "fid": "6FFE",
    "kind": "ef",
-   "root": "ADF.USIM-NON-IMSI"
+   "root": "ADF.USIM-NON-IMSI",
+   "structure": "ber_tlv"
   }
  ]
 }

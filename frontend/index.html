@@ -1980,7 +1980,7 @@
 // ===== Version =====
 // Single source of truth for the PWA version: shown in the header and used
 // by the server version check in pysimConnect().
-const SIMPLE_VERSION = '4.0.0';
+const SIMPLE_VERSION = '4.0.1';
 document.getElementById('app-version').textContent = 'v' + SIMPLE_VERSION;
 
 // ===== view history (the browser Back/Forward buttons) =====
@@ -16712,6 +16712,16 @@ function pysimFsInfoHtml(sel, name, opts) {
 	if (!sel.fci_hex) {
 		return attrs.length ? '<div class="' + metaCls + '">' + attrs.join(' · ') + '</div>' : '';
 	}
+	// A 2G SIM answers the TS 51 011 §9.2.1 file information, not a BER FCP:
+	// the metadata line above carries its size/record layout, so the FCP
+	// decoder would only report a parse failure on the same bytes.
+	if (sel.fci_form === 'gsm') {
+		return '<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-2">' +
+			(name ? '<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">' + esc(name) + '</legend>' : '') +
+			(attrs.length ? '<div class="' + metaCls + '">' + attrs.join(' · ') + '</div>' : '') +
+			'<div class="text-xs font-mono text-gray-500 dark:text-slate-400">' + esc(t('TS 51 011 file information (the card returns no FCP)')) + '</div>' +
+			'</fieldset>';
+	}
 	// One bordered block per selected file: the metadata line and the decoded
 	// FCI together, with the symbolic name embedded in the border.
 	return '<fieldset class="border border-gray-200 dark:border-slate-700 rounded p-2">' +
@@ -16790,7 +16800,8 @@ async function pysimFsRead() {
 			pysimFsShowError(statusEl, data.sw, data.error);
 			return false;
 		}
-		statusEl.textContent = 'SW: ' + data.sw + ' OK';
+		statusEl.textContent = 'SW: ' + data.sw + ' OK' +
+			(data.size_inferred ? ' · ' + t('size inferred from the read') : '');
 		if (pysimFsDecodedMode) {
 			out.innerHTML = pysimFsDecodedHtml(node || pysimFsFallbackNode(rawName), data);
 		} else if (data.records) {
@@ -21253,6 +21264,19 @@ async function profilerBuildFileRule(path, c, ignoreFids, ignoreNames, fciMode, 
 					rule.content = { mode: 'exact', kind: 'transparent', expected: rd.data };
 				}
 			}
+			// The card returned no size: the server's read inferred it from
+			// the data (READ BINARY/RECORD until the end).  A value the
+			// select already reported stays.
+			if (rd.size_inferred) {
+				if (rd.records) {
+					if (rule.numRecords === null) rule.numRecords = rd.records.length;
+					if (rule.recordLen === null && rd.records.length) {
+						rule.recordLen = (rd.records[0].data || '').length / 2 || null;
+					}
+				} else if (rule.fileSize === null) {
+					rule.fileSize = (rd.data || '').length / 2;
+				}
+			}
 		}
 	} catch (e) {}
 	return rule;
@@ -21349,6 +21373,19 @@ async function profilerBuildSnapshotFile(path, c, timing) {
 				if (binTimes.length) {
 					file.timing = file.timing || { select_ms: null, read_ms: null };
 					file.timing.read_ms = binTimes.reduce((a, b) => a + b, 0);
+				}
+			}
+			// The card returned no size: the server's read inferred it from
+			// the data (READ BINARY/RECORD until the end).  A value the
+			// select already reported stays.
+			if (rd.size_inferred) {
+				if (rd.records) {
+					if (file.numRecords === null) file.numRecords = rd.records.length;
+					if (file.recordLen === null && rd.records.length) {
+						file.recordLen = (rd.records[0].data || '').length / 2 || null;
+					}
+				} else if (file.fileSize === null) {
+					file.fileSize = (rd.data || '').length / 2;
 				}
 			}
 		}
@@ -27877,6 +27914,8 @@ const LANG_RU = {
 	'To connect, install': 'Для подключения установите',
 	'and start it.': 'и запустите его.',
 	'Refer to the SIMple README files for details.': 'Подробности — в README-файлах SIMple.',
+	'size inferred from the read': 'размер определён чтением',
+	'TS 51 011 file information (the card returns no FCP)': 'Информация о файле TS 51 011 (карта не возвращает FCP)',
 	'Click': 'Нажмите кнопку',
 	'when simple-server is ready': 'когда simple-server будет готов',
 	'Equip card': 'Подключить карту',

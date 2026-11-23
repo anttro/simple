@@ -19,7 +19,8 @@ from dataclasses import dataclass
 
 from simple_server.tlv import ber_tlv_list
 
-__all__ = ['Fcp', 'STRUCTURES', 'parse_fcp', 'fcp_from_select_response']
+__all__ = ['Fcp', 'STRUCTURES', 'parse_fcp', 'parse_gsm_select',
+           'fcp_from_select_response']
 
 # TS 102 221 Table 11.5, structure bits b3-b1 (b6-b4 = 111 with b3-b1 = 001 is
 # the BER-TLV row).  Anything else (RFU) reports 'no_info'.
@@ -61,6 +62,9 @@ class Fcp(object):
     shareable: bool = None
     structure: str = None
     raw: str = ''
+    #: ``ber`` for a TS 102 221 FCP/FCI, ``gsm`` for the TS 51 011 §9.2.1
+    #: SELECT response data of a 2G SIM (the GET RESPONSE payload).
+    form: str = 'ber'
 
 
 def _as_bytes(data):
@@ -179,3 +183,46 @@ def parse_fcp(data):
 def fcp_from_select_response(fcp_bytes):
     """Alias for :func:`parse_fcp` - the SELECT response is the FCP/FCI."""
     return parse_fcp(fcp_bytes)
+
+
+#: TS 51 011 §9.3: the EF structure codings (byte 14 of the SELECT response
+#: data).  There is no BER-TLV row in a 2G SIM's list.
+_GSM_STRUCTURE = {
+    0x00: 'transparent',
+    0x01: 'linear_fixed',
+    0x03: 'cyclic',
+}
+
+
+def parse_gsm_select(data):
+    """Parse a TS 51 011 §9.2.1 SELECT response (the 2G SIM file information).
+
+    A 2G SIM's SELECT returns no TS 102 221 FCP; its response data is the
+    GSM "file information": bytes 1-2 RFU, **3-4 file size**, 5-6 file
+    identifier, 7 type of file, 8-11 access conditions, 12 file status,
+    13 length of the following data, **14 structure** (TS 51 011 §9.3:
+    ``00`` transparent, ``01`` linear fixed, ``03`` cyclic) and **15 record
+    length** (mandatory for a linear fixed or cyclic EF, optional for a
+    transparent one).  Bytes 1-14 are mandatory; a shorter answer yields
+    all-``None`` fields, like a malformed BER FCP.
+
+    The record count is not in the answer: it is the file size divided by
+    the record length.
+
+    Some cards answer a BER FCP (``62``/``6F`` template) even to the TS 51
+    011 select form; those go through :func:`parse_fcp` unchanged.
+    """
+    raw = _as_bytes(data)
+    if len(raw) >= 2 and raw[0] in (_TAG_FCP_TEMPLATE, _TAG_FCI_TEMPLATE):
+        return parse_fcp(raw)
+    result = Fcp(raw=raw.hex().upper(), form='gsm')
+    if len(raw) < 14:
+        return result
+    result.file_size = int.from_bytes(raw[2:4], 'big')
+    result.file_identifier = raw[4:6].hex().upper()
+    result.structure = _GSM_STRUCTURE.get(raw[13])
+    if result.structure in ('linear_fixed', 'cyclic') and len(raw) >= 15:
+        result.record_len = raw[14] or None
+    if result.record_len:
+        result.num_of_rec = result.file_size // result.record_len
+    return result

@@ -215,6 +215,40 @@ test('profilerBuildFileRule captures contents for non-ignored files', async () =
 	assert.ok(calls.includes('/api/read'));
 });
 
+test('profilerBuildFileRule takes the inferred size from the read', async () => {
+	mockFetch({
+		'/api/select': () => ({ name: 'EF.ICCID', fid: '2FE2', file_type: 'transparent', file_size: null, record_len: null, num_of_rec: null, fci_hex: null, exists: true }),
+		'/api/read': () => ({ success: true, data: '980711090000640090F8', size_inferred: true }),
+	});
+	const rule = await profilerBuildFileRule('MF/2FE2',
+		{ fid: '2FE2', name: 'EF.ICCID' }, new Set(), new Set());
+	assert.strictEqual(rule.fileSize, 10);
+	assert.strictEqual(rule.recordLen, null);
+});
+
+test('profilerBuildFileRule takes the inferred record layout from the read', async () => {
+	mockFetch({
+		'/api/select': () => ({ name: 'EF.ARR', fid: '2F06', file_type: 'linear_fixed', file_size: null, record_len: null, num_of_rec: null, fci_hex: null, exists: true }),
+		'/api/read': () => ({ success: true, size_inferred: true, records: [
+			{ num: 1, data: 'AABB' }, { num: 2, data: 'CCDD' }] }),
+	});
+	const rule = await profilerBuildFileRule('MF/2F06',
+		{ fid: '2F06', name: 'EF.ARR' }, new Set(), new Set());
+	assert.strictEqual(rule.numRecords, 2);
+	assert.strictEqual(rule.recordLen, 2);
+	assert.strictEqual(rule.fileSize, null);
+});
+
+test('profilerBuildFileRule keeps the select metadata over the inferred one', async () => {
+	mockFetch({
+		'/api/select': () => ({ name: 'EF.ICCID', fid: '2FE2', file_type: 'transparent', file_size: 10, record_len: null, num_of_rec: null, exists: true }),
+		'/api/read': () => ({ success: true, data: 'AABB', size_inferred: true }),
+	});
+	const rule = await profilerBuildFileRule('MF/2FE2',
+		{ fid: '2FE2', name: 'EF.ICCID' }, new Set(), new Set());
+	assert.strictEqual(rule.fileSize, 10);
+});
+
 test('profilerBuildFileRule falls back to the select name when the child has none', async () => {
 	mockFetch({ '/api/select': () => KCGPRS_SELECT });
 	const rule = await profilerBuildFileRule('MF/7F20/6F52', { fid: '6F52' }, new Set(), new Set());
@@ -833,6 +867,21 @@ test('pysimFsInfoHtml shows FID, type, size and the decoded FCI', () => {
 	assert.ok(out.indexOf('<legend') < out.indexOf('FID: 6F4F'), out);
 	assert.ok(out.indexOf('FID: 6F4F') < out.indexOf('File descriptor'), out);
 	assert.ok(out.includes('<legend class="px-1 text-xs font-mono font-medium text-gray-500 dark:text-slate-400">EF.SAMPLE</legend>'), out);
+	delete global.t;
+});
+
+test('pysimFsInfoHtml labels a 2G SIM select response instead of FCP decoding it', () => {
+	global.t = s => s;
+	const out = pysimFsInfoHtml({
+		fid: '2FE2', file_type: 'transparent', file_size: 10,
+		record_len: null, num_of_rec: null, fci_form: 'gsm',
+		fci_hex: '0000000A2FE204000F00FF01060000002F0604',
+	}, 'EF.ICCID');
+	assert.ok(out.includes('FID: 2FE2'), out);
+	assert.ok(out.includes('Size: 10'), out);
+	assert.ok(out.includes('TS 51 011 file information'), out);
+	// the BER FCP decoder is not run on the GSM bytes (no corrupt-FCI note)
+	assert.ok(!out.includes('corrupt'), out);
 	delete global.t;
 });
 
@@ -1770,6 +1819,28 @@ test('profilerBuildSnapshotFile captures exact contents for everything readable'
 	const u = await profilerBuildSnapshotFile('MF/7F20/6F20', { fid: '6F20', name: 'EF.Kc' });
 	assert.strictEqual(u.content, null);
 	assert.strictEqual(u.fileSize, 9);
+});
+
+test('profilerBuildSnapshotFile takes the inferred size from the read', async () => {
+	mockFetch({
+		'/api/select': () => ({ name: 'EF.ICCID', fid: '2FE2', file_type: 'transparent', file_size: null, record_len: null, num_of_rec: null, fci_hex: null, exists: true }),
+		'/api/read': () => ({ success: true, data: '980711090000640090F8', size_inferred: true }),
+	});
+	const f = await profilerBuildSnapshotFile('MF/2FE2', { fid: '2FE2', name: 'EF.ICCID' });
+	assert.strictEqual(f.fileSize, 10);
+	assert.strictEqual(f.recordLen, null);
+});
+
+test('profilerBuildSnapshotFile takes the inferred record layout from the read', async () => {
+	mockFetch({
+		'/api/select': () => ({ name: 'EF.ARR', fid: '2F06', file_type: 'linear_fixed', file_size: null, record_len: null, num_of_rec: null, fci_hex: null, exists: true }),
+		'/api/read': () => ({ success: true, size_inferred: true, records: [
+			{ num: 1, data: 'AABB' }, { num: 2, data: 'CCDD' }] }),
+	});
+	const f = await profilerBuildSnapshotFile('MF/2F06', { fid: '2F06', name: 'EF.ARR' });
+	assert.strictEqual(f.numRecords, 2);
+	assert.strictEqual(f.recordLen, 2);
+	assert.strictEqual(f.fileSize, null);
 });
 
 test('profilerScanCard snapshot mode builds snapshot entries with ICCID', async () => {

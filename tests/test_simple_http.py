@@ -1372,13 +1372,12 @@ class FileSelectTests(HTTPTestBase):
         self.assertEqual(status, 200, body)
         self.assertEqual(body['name'], 'EF.IMSI')
 
-    def test_a_card_without_an_fcp_cannot_be_read(self):
-        # A 2G SIM's SELECT carries no FCP (TS 51 011 §9.2.1) and a UICC may
-        # omit it too.  /api/read is FCP-driven, so it refuses instead of
-        # guessing a length: this is a KNOWN unsupported case until the
-        # decision recorded in docs/pysim-phaseout.md (an explicit `length`,
-        # or READ BINARY Le=256 stopping on a short read) - the legacy server
-        # failed here as well, and this test makes a future fix visible.
+    def test_a_card_without_an_fcp_is_read_until_the_end(self):
+        # A card whose SELECT returned no data at all: the read uses READ
+        # BINARY Le=256 and stops on the short answer, marked size_inferred
+        # (the recorded no-FCP decision).  A 2G SIM's own SELECT response is
+        # the TS 51 011 file information and is parsed, so this is the
+        # residual "returned nothing" case.
         state, _fake = open_file_state(handler=FileCard(files={
             '2FE2': {'fcp': b'', 'content': ICCID_HEX}}))
         self.track(state)
@@ -1389,11 +1388,63 @@ class FileSelectTests(HTTPTestBase):
         self.assertEqual(body['file_type'], 'transparent')
         self.assertIsNone(body['file_size'])
         self.assertIsNone(body['fci_hex'])
+        self.assertIsNone(body['fci_form'])
         status, body = harness.json('POST', '/api/read', {'path': 'MF/2FE2'})
         self.assertEqual(status, 200, body)
-        self.assertFalse(body['success'])
-        self.assertIsNone(body['sw'])
-        self.assertIn('no file size', body['error'])
+        self.assertTrue(body['success'], body)
+        self.assertEqual(body['data'], ICCID_HEX.upper())
+        self.assertEqual(body['sw'], '9000')
+        self.assertTrue(body['size_inferred'])
+
+    def test_a_2g_sim_select_reports_the_gsm_file_information(self):
+        # The bench 2G SIM's EF.ICCID answer (TS 51 011 §9.2.1): size 10 at
+        # bytes 3-4, FID 2FE2, structure 00 (transparent).
+        state = self.track(make_state())
+        fake = FileCard(files={
+            '2FE2': {'fcp': bytes.fromhex(
+                '0000000A2FE204000F00FF01060000002F0604'),
+                'content': ICCID_HEX}})
+        state.transport = fake
+        state.card = cards.CardType(kind='sim', cla='a0', aids=[], atr=ATR)
+        state.connected = True
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/select',
+                                    {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body['file_size'], body['record_len'],
+                          body['num_of_rec']), (10, None, None))
+        self.assertEqual(body['file_type'], 'transparent')
+        self.assertEqual(body['fci_form'], 'gsm')
+        self.assertEqual(body['fci_hex'],
+                         '0000000A2FE204000F00FF01060000002F0604')
+        status, body = harness.json('POST', '/api/read', {'path': 'MF/2FE2'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'], body)
+        self.assertEqual(body['data'], ICCID_HEX.upper())
+        self.assertNotIn('size_inferred', body)
+
+    def test_a_2g_sim_record_file_reports_its_record_layout(self):
+        # size 6, structure 01 (linear fixed), record length 2 -> 3 records.
+        gsm = '000000062F0604000400FF01060102'
+        state = self.track(make_state())
+        fake = FileCard(files={'2F06': {
+            'fcp': bytes.fromhex(gsm),
+            'records': ['AA01', 'BB02', 'CC03']}})
+        state.transport = fake
+        state.card = cards.CardType(kind='sim', cla='a0', aids=[], atr=ATR)
+        state.connected = True
+        harness = self.served(state)
+        status, body = harness.json('POST', '/api/select',
+                                    {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body['file_size'], body['record_len'],
+                          body['num_of_rec']), (6, 2, 3))
+        self.assertEqual(body['file_type'], 'linear_fixed')
+        status, body = harness.json('POST', '/api/read', {'path': 'MF/2F06'})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'], body)
+        self.assertEqual([r['data'] for r in body['records']],
+                         ['AA01', 'BB02', 'CC03'])
 
 
 class FileReadTests(HTTPTestBase):
@@ -1487,6 +1538,42 @@ class FileReadTests(HTTPTestBase):
         self.assertEqual(body['records'],
                          [{'num': index + 1, 'data': value}
                           for index, value in enumerate(ARR_RECORDS[:2])])
+
+    def test_the_length_parameter_sizes_a_transparent_read(self):
+        state, fake = open_file_state(handler=FileCard(files={
+            '2FE2': {'fcp': b'', 'content': ICCID_HEX}}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2FE2', 'length': 4})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'], body)
+        self.assertEqual(body['data'], ICCID_HEX[:8].upper())
+        self.assertNotIn('size_inferred', body)
+        self.assertIn('00b0000004', [apdu.hex() for apdu in fake.sent])
+
+    def test_the_record_len_parameter_sizes_a_record_read(self):
+        state, _fake = open_file_state(handler=FileCard(files={
+            '2F06': {'fcp': b'', 'records': ['AA01', 'BB02', 'CC03']}}))
+        self.track(state)
+        status, body = self.served(state).json(
+            'POST', '/api/read', {'path': 'MF/2F06', 'record_len': 2})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['success'], body)
+        self.assertEqual([r['data'] for r in body['records']],
+                         ['AA01', 'BB02', 'CC03'])
+        self.assertTrue(body['size_inferred'])
+
+    def test_the_read_size_parameters_are_validated(self):
+        state, _fake = open_file_state()
+        self.track(state)
+        harness = self.served(state)
+        for body in ({'path': 'MF/2FE2', 'length': 0},
+                     {'path': 'MF/2FE2', 'length': 'x'},
+                     {'path': 'MF/2FE2', 'record_len': 300},
+                     {'path': 'MF/2F06', 'length': 4},
+                     {'path': 'MF/2FE2', 'record_len': 4}):
+            status, answer = harness.json('POST', '/api/read', body)
+            self.assertEqual(status, 400, (body, answer))
 
     def test_two_requests_do_not_share_apdu_times(self):
         # The timing proxy is per request (the snapshot scan aggregates the

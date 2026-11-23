@@ -181,7 +181,9 @@ class FileOps(object):
             return self._select('00', fid, fid)
         apdu = self._apdu('A4', '00', '00', bytes.fromhex(fid), le=256)
         data, _sw = self._require(apdu, not_found=fid)
-        return fcp_module.parse_fcp(data)
+        # A 2G SIM answers the GSM file information, not a BER FCP (TS 51 011
+        # §9.2.1); a card that still sends a BER FCP is parsed as one.
+        return fcp_module.parse_gsm_select(data)
 
     def select_adf(self, aid):
         """SELECT by DF name (``00A4 0404 <len> <aid> 00``); returns the FCP."""
@@ -237,6 +239,63 @@ class FileOps(object):
                              % length)
         apdu = self._apdu('B2', '%02X' % rec_num, '04', le=length)
         return self._require(apdu)
+
+    def read_binary_until_end(self, chunk=256, max_bytes=0xFFFF):
+        """READ BINARY from offset 0 until the card signals the end.
+
+        The size-agnostic read for a file whose SELECT returned no size (the
+        recorded no-FCP decision, ``docs/pysim-phaseout.md``).  ``chunk``
+        bytes are requested per read (``Le = 256``); the loop stops on:
+
+        * a **short read** - ``9000`` with fewer than ``chunk`` bytes (the
+          T=0 ``6CXX`` retry makes the card serve the remaining bytes with a
+          final ``9000``, TS 102 221 §7.3.1.1.5.1);
+        * the **``6282``** end-of-file warning ("End of file/record reached
+          before reading Le bytes", TS 102 221 §10.2.1.3 Table 10.9) - the
+          bytes it carries are kept;
+        * the TS 51 011 **``9402``** out-of-range address of a 2G SIM (§9.4.4:
+          "When the error in P1 or P2 is caused by the addressed record being
+          out of range, then the return code '94 02' shall be used");
+        * ``6B00`` ("Wrong parameter(s) P1-P2", Table 10.11) **after** bytes
+          were read - it is not an end-of-file code (the spec-checker's
+          caveat), so an immediate ``6B00`` is an error, not an empty file;
+        * zero progress (a ``9000`` with no data) and the ``max_bytes`` bound
+          (the EF size field is two octets: 65 535 bytes).
+
+        Any other status word raises :class:`UnexpectedStatusWord` - a
+        security refusal (``6982``/``6985``) or a wrong-length error must
+        not be reported as a successfully read prefix.  Returns ``(data,
+        sw)`` with the last status word.
+        """
+        chunk = 256 if chunk is None else int(chunk)
+        if not 1 <= chunk <= 256:
+            raise ValueError('chunk must be 1..256')
+        max_bytes = int(max_bytes)
+        if not 0 <= max_bytes <= 0xFFFF:
+            raise ValueError('max_bytes must be 0..65535')
+        collected = b''
+        sw = FCP_SW
+        while len(collected) < max_bytes:
+            size = min(chunk, max_bytes - len(collected))
+            offset = len(collected)
+            apdu = self._apdu('B0', '%02X' % (offset >> 8),
+                              '%02X' % (offset & 0xFF), le=size)
+            data, sw = self._send(apdu)
+            if sw == FCP_SW:
+                if not data:
+                    break
+                collected += data
+                if len(data) < size:
+                    break
+                continue
+            if sw == '6282' or sw == '9402':
+                collected += data
+                break
+            if sw == '6b00' and collected:
+                collected += data
+                break
+            raise UnexpectedStatusWord(apdu.hex().upper(), sw, FCP_SW)
+        return collected, sw
 
     def read_record(self, rec_num, length):
         """READ RECORD ``rec_num`` (1-based) of ``length`` bytes; returns it."""

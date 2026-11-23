@@ -469,23 +469,38 @@ Deliberate, documented decisions:
   legacy parity: the SELECT failure carries no status word in the body), so
   the PWA's inline Verify ADM never appears for a select refusal - a frontend
   change would be needed to offer it there.
-- **A card whose SELECT returns no FCP is known-unsupported for `/api/read`**
-  (a 2G SIM on the TS 51 011 form, or a UICC omitting the FCP): the read is
-  FCP-driven (`read_file` needs `fcp.file_size` for a transparent EF and
-  `record_len` for a record EF), so every read answers `success: false` with
-  "the FCP carries no file size".  The legacy was equally broken.  **Decision
-  (2026-11-22, after the cutover):** (a) wire the explicit `length` /
-  `record_len` parameters through `/api/read` (`FileOps.read_file` already
-  accepts them; the PWA gains a field later), and (b) add the size-agnostic
-  fallback - READ BINARY with `Le = 256` accumulating until a short read /
-  a refusal (`6282`/`6B00`) / zero progress (bounded), and READ RECORD with
-  `Le = 256` until refused (the count side already does this when
-  `num_of_rec` is `None`); mark the response `size_inferred: true` so the
-  PWA/snapshot knows the size came from the read.  **Rejected:** borrowing
-  the nominal size from `uicc_files.json` (a spec size may differ per card;
-  a silent over-/under-read is worse than "unknown").  Pinned by
-  `tests/test_simple_http.py` (`test_a_card_without_an_fcp_cannot_be_read`) so
-  a future fix is visible.
+- **A card whose SELECT returns no FCP** (a 2G SIM on the TS 51 011 form, or
+  a UICC omitting the FCP) is handled with two sources, in this order:
+  1. **The card's own SELECT response.**  A 2G SIM answers the TS 51 011
+     §9.2.1 file information, not a BER FCP: bytes 3-4 are the **file size**,
+     byte 14 the **structure** (`00` transparent, `01` linear fixed, `03`
+     cyclic) and byte 15 the **record length** (bytes 1-14 mandatory).  The
+     spec-checker quoted the table; `fcp.parse_gsm_select` parses it into the
+     ordinary `Fcp` fields (`form: 'gsm'`, the record count computed as
+     size / record length), so the size-driven read path works unchanged and
+     `/api/select` reports the card's real values (live bench card: EF.ICCID
+     size 10, EF.ARR 31 × 76 B).  This is the **card's own** answer - not the
+     rejected nominal model size.  A card that answers a BER FCP to the SIM
+     select form goes through `parse_fcp` instead.
+  2. **A size-agnostic fallback** (the 2026-11-22 decision, implemented
+     2026-11-23) for a card that returns nothing at all: the explicit
+     `length` / `record_len` request parameters, READ BINARY `Le = 256`
+     accumulating until a short read / the `6282` warning (the bytes it
+     carries are kept) / the 2G SIM's `9402` out-of-range address / zero
+     progress (bounded at 65 535 bytes), and READ RECORD `Le = 256` until a
+     refusal; both marked `size_inferred: true` for the PWA/snapshot.  The
+     spec-checker's caveat: `6B00` is "wrong P1-P2", **not** an end-of-file
+     code - an immediate `6B00` is a failed read (the recorded decision's
+     `6282`/`6B00` list is corrected here), while `6B00` after bytes were
+     read is the end.
+  The model's `structure` (regenerated into `uicc_files.json` from the fork's
+  generator, per the pySim EF class) picks the transparent/record path when
+  neither the card nor the FCP gives one.  **Rejected:** borrowing the nominal
+  **size** from `uicc_files.json` (the structure is not a size; a spec size
+  may differ per card).  Tests: `tests/test_simple_files.py`
+  (`GsmSelectTests`, `read_binary_until_end`, the SIM select parse),
+  `tests/test_simple_http.py` (the GSM select/read, the fallback, the explicit
+  parameters); the live 2G read check is pending the card.
 - **`selection`** (`/api/status`) is published by select/read/write:
   `{path, name, fid, kind, size, record_len, num_records}`.  It describes the
   last file a file endpoint addressed, not a live mirror of the card's
@@ -1302,8 +1317,8 @@ ADF**, the AID probe strictly last; the TS 51 011 `select_file` form carries
 the response-data octet (`A0A4 0000 02 <fid> 00`, pySim's form - the T=0
 transform strips it on the wire).  Live result: `init_card` classifies `sim`
 (CLA `a0`, no AIDs), and EF.ICCID reads `980701721274117946FF` →
-`897010272147119764`.  The no-FCP read limitation (below) stands for this
-card.
+`897010272147119764`.  The no-FCP read limitation is addressed below (the
+GSM SELECT-response parse + the size-agnostic fallback).
 
 ## Phase 3c-3e-2b outcome (the SCP81/BIP control endpoints)
 

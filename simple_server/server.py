@@ -143,7 +143,7 @@ __all__ = [
 #: The server version served by ``GET /api/version``.  It moves together with
 #: ``pyproject.toml`` and the PWA header (``tests/test_version.py`` pins the
 #: three).
-VERSION = '4.0.0'
+VERSION = '4.0.1'
 
 #: The TERMINAL PROFILE of a real BIP-capable handset (the legacy default): the
 #: live card only starts HTTP OTA when BIP commands and events are advertised.
@@ -539,6 +539,20 @@ _SW_ERRORS = {
     '6a88': 'Referenced data not found',
     '6a82': 'File not found',
 }
+
+
+def _read_int(value, name, minimum, maximum):
+    """A validated optional integer request field (``None``/``''`` = absent)."""
+    if value is None or value == '':
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError('%s must be an integer, got %r' % (name, value)) from None
+    if not minimum <= number <= maximum:
+        raise ValueError('%s must be %d..%d, got %d'
+                         % (name, minimum, maximum, number))
+    return number
 
 
 def _sw_error(sw):
@@ -1371,9 +1385,11 @@ class ServerState(object):
         The response is the legacy shape the PWA's file manager, the snapshot
         scan and the Profiler consume (``file_size``/``record_len``/
         ``num_of_rec``/``fci_hex``/``apdu_times``); ``fci_hex`` is the raw
-        SELECT response (the FCP/FCI template) or ``None`` when the card
-        returned none (a 2G SIM's SELECT carries no FCP).  The file becomes
-        the published ``/api/status`` ``selection``.
+        SELECT response and ``fci_form`` says what it is: ``ber`` for a
+        TS 102 221 FCP/FCI, ``gsm`` for a 2G SIM's TS 51 011 §9.2.1 file
+        information (parsed into the same fields - file size, structure,
+        record length), ``None`` when the card returned no data at all.
+        The file becomes the published ``/api/status`` ``selection``.
         """
         ops, timed = self._file_endpoint_ops()
         info, probe, fcp, path = self._select_node(body, ops)
@@ -1386,6 +1402,7 @@ class ServerState(object):
                 'record_len': fcp.record_len,
                 'num_of_rec': fcp.num_of_rec,
                 'fci_hex': fcp.raw or None,
+                'fci_form': (fcp.form if fcp.raw else None),
                 'apdu_times': timed.times,
                 'exists': True}
 
@@ -1398,6 +1415,20 @@ class ServerState(object):
         ran pySim's server-side EF decoders, which this server does not have;
         the PWA decodes client-side from these same bytes, so the mode is
         refused with a 400 instead of being silently ignored.
+
+        ``length`` / ``record_len`` are caller-supplied sizes for a file whose
+        SELECT reported none (a card that returned no data, a custom file):
+        ``length`` is the transparent read size, ``record_len`` the record
+        length.  A value the FCP already reports wins (the card's layout is
+        authoritative).  Without them a transparent file is read with
+        ``Le = 256`` until the card signals the end (a short read, the
+        ``6282`` end-of-file warning, the TS 51 011 ``9402`` out-of-range
+        address) and a record file with ``Le = 256`` from record 1 until a
+        refusal; both cases are marked ``size_inferred: true``.  A **2G
+        SIM's** SELECT carries the TS 51 011 §9.2.1 file information (file
+        size at bytes 3-4, structure at 14, record length at 15), so it is
+        parsed into the ordinary FCP fields and the fallback is only for a
+        card that returned nothing.
 
         A card-level read failure (a refused READ) is a ``200`` with
         ``success: false`` and the card's ``sw`` - the PWA prints the status
@@ -1417,13 +1448,28 @@ class ServerState(object):
                 "(mode 'raw'); the decoded view is client-side.  The legacy "
                 "'decoded' mode was pySim's server-side EF decoder and is "
                 "gone with pySim." % (body.get('mode'),))
+        length = _read_int(body.get('length'), 'length', 1, 0xFFFF)
+        record_len = _read_int(body.get('record_len'), 'record_len', 1, 256)
         ops, timed = self._file_endpoint_ops()
         info, probe, fcp, path = self._select_node(body, ops)
         file_type = self._node_file_type(info, fcp)
         self._publish_selection(info, probe, fcp, path)
+        # A size parameter that contradicts the file's structure is a request
+        # error (400), not a card failure: it is decided after the SELECT
+        # (the type is the card's answer) but must not read as a read error.
+        if file_type in ('linear_fixed', 'cyclic') and length is not None:
+            raise ValueError('length is the transparent read size; use '
+                             'record_len for a %s file' % file_type)
+        if file_type not in ('linear_fixed', 'cyclic') and record_len is not None:
+            raise ValueError('record_len was given but the file is %s, not a '
+                             'record file' % file_type)
+        inferred = False
         try:
             if file_type in ('linear_fixed', 'cyclic'):
-                records, sw, refusal = self._read_records(ops, fcp)
+                inferred = fcp.record_len is None or fcp.num_of_rec is None
+                record_length = fcp.record_len or record_len or 256
+                records, sw, refusal = self._read_records(
+                    ops, fcp, length=record_length)
                 if refusal is None:
                     result = {'success': True, 'sw': sw,
                               'file_type': file_type, 'records': records}
@@ -1435,13 +1481,21 @@ class ServerState(object):
                                         else message),
                               'records': records}
             else:
-                data, sw = ops.read_file(fcp)
+                if length is not None:
+                    data, sw = ops.read_file(fcp, length=length)
+                elif fcp.file_size is not None:
+                    data, sw = ops.read_file(fcp)
+                else:
+                    data, sw = ops.read_binary_until_end()
+                    inferred = True
                 result = {'success': True, 'sw': sw, 'file_type': file_type,
                           'data': bytes(data or b'').hex().upper()}
         except (commands.FileError, ValueError) as exc:
             sw = getattr(exc, 'sw', None)
-            return {'success': False, 'sw': sw, 'file_type': file_type,
-                    'error': _sw_error(sw) if sw else str(exc)}
+            result = {'success': False, 'sw': sw, 'file_type': file_type,
+                      'error': _sw_error(sw) if sw else str(exc)}
+        if inferred:
+            result['size_inferred'] = True
         result['apdu_times'] = timed.times
         return result
 
@@ -1692,6 +1746,12 @@ class ServerState(object):
         if info is not None and info.is_df:
             return 'df'
         structure = getattr(fcp, 'structure', None)
+        if structure is None and info is not None:
+            # A card that returned no structure (the TS 51 011 §9.2.1 GSM
+            # answer is parsed, but a card may return nothing at all): the
+            # standard list's structure decides the read path.  A nominal
+            # *size* is never borrowed - only the structure.
+            structure = getattr(info, 'structure', None)
         if structure is None:
             return 'transparent'
         if structure == 'no_info':
@@ -1720,13 +1780,15 @@ class ServerState(object):
         }
 
     @staticmethod
-    def _read_records(ops, fcp):
+    def _read_records(ops, fcp, length=None):
         """Read every record of the selected record-structured file.
 
         Bounded by the FCP's record count.  A card that does not report the
         count is read until it refuses a record (the legacy pySim
         ``read_records`` tolerance - ``num_of_rec`` is ``None``, not ``0``),
-        and a refusal of record 1 is an error.
+        and a refusal of record 1 is an error.  ``length`` covers an FCP that
+        lacks the record length (the size-agnostic no-FCP read passes 256,
+        i.e. ``Le = 256``; the card returns the record's real length).
 
         Returns ``(records, sw, refusal)``.  ``refusal`` is ``None`` when the
         whole announced file was read; otherwise it is ``(sw, message)`` for
@@ -1742,7 +1804,7 @@ class ServerState(object):
         while len(records) < limit:
             index = len(records) + 1
             try:
-                data, sw = ops.read_file(fcp, rec=index)
+                data, sw = ops.read_file(fcp, rec=index, length=length)
             except (commands.FileError, ValueError) as exc:
                 if not records:
                     raise

@@ -385,19 +385,24 @@ Selects the node and reports its FCP metadata; the node also becomes the
 ```json
 {"name": "EF.ICCID", "fid": "2FE2", "file_type": "transparent",
  "file_size": 10, "record_len": null, "num_of_rec": null,
- "fci_hex": "621082024021...",
+ "fci_hex": "621082024021...", "fci_form": "ber",
  "apdu_times": [{"type": "select", "ms": 12}], "exists": true}
 ```
 
 `file_type` is `df` for a DF/ADF/MF, else the EF structure
 (`transparent`, `linear_fixed`, `cyclic`, or `no_info_given` when the
 descriptor's structure bits are RFU - the string the stored profiles and
-snapshots pin).  `fci_hex` is the raw FCP template (`'62'`) from the SELECT
-response, or `null` when the card returned none (a 2G SIM's SELECT carries no
-FCP); `file_size`/`record_len`/`num_of_rec` drive the profiler's metadata
-checks.  `apdu_times` reports the request's own commands (classified
-`select`/`read_binary`/`read_record`, command-sent to response-received) for
-the snapshot timing statistics.
+snapshots pin).  `fci_hex` is the raw SELECT response and `fci_form` says
+what it is: `ber` for a TS 102 221 FCP/FCI, **`gsm`** for a 2G SIM's
+TS 51 011 §9.2.1 file information, or `null` when the card returned no data
+at all.  The GSM answer is parsed into the same fields - bytes 3-4 are the
+file size, byte 14 the structure (`00` transparent, `01` linear fixed, `03`
+cyclic) and byte 15 the record length, with the record count computed as
+size / record length - so a 2G SIM reports its own real
+`file_size`/`record_len`/`num_of_rec` (the live bench card: EF.ICCID size
+10, EF.ARR 31 records of 76 bytes).  `apdu_times` reports the request's own
+commands (classified `select`/`read_binary`/`read_record`, command-sent to
+response-received) for the snapshot timing statistics.
 
 #### `POST /api/read`
 
@@ -422,10 +427,35 @@ upper-case hex under `data`; a linear-fixed/cyclic EF answers
                 {"type": "read_record", "ms": 11}, {"type": "read_record", "ms": 13}]}
 ```
 
+```json
+{"success": true, "sw": "9000", "file_type": "transparent",
+ "data": "980711090000640090F8", "size_inferred": true,
+ "apdu_times": [{"type": "select", "ms": 11},
+                {"type": "read_binary", "ms": 8}]}
+```
+
 `mode` must be `"raw"` (the default).  **There is no `mode: "decoded"`**: the
 legacy mode ran pySim's server-side EF decoders; the PWA decodes the same raw
 bytes client-side, so any other value is a `400` naming the rule instead of
 being silently ignored.
+
+`length` / `record_len` carry a caller-supplied size for a file whose SELECT
+reported none (a card that returned nothing, a custom file): `length` is the
+transparent read size (1-65535), `record_len` the record length (1-256).  A
+value the FCP already reports wins (the card's layout is authoritative); a
+`length` on a record file or a `record_len` on a transparent one is a `400`.
+Without them a transparent file is read with **`READ BINARY Le = 256`** until
+the card signals the end - a short read, the `6282` end-of-file warning (its
+bytes are kept), or the 2G SIM's `9402` out-of-range address - and a record
+file with `Le = 256` from record 1 until a refusal; both are marked
+**`size_inferred: true`** (the PWA uses it for the profile/snapshot
+metadata).  An immediate `6B00` is a failed read, not an empty file (it is
+"wrong P1-P2", not an end-of-file code).
+
+A **2G SIM's** SELECT carries the TS 51 011 §9.2.1 file information, which
+`/api/select` parses into the ordinary fields, so its files are read with the
+size-driven path; the read-until fallback is the residual "the card returned
+nothing" case.
 
 A **card-level** read failure (a refused READ) is a `200` with
 `success: false` and the card's status word plus an `error` line - the PWA

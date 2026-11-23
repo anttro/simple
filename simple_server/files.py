@@ -11,10 +11,11 @@ it came from (``standard``/``pbr``/``supplement``/``custom``), so "custom" is
 a tag on one tree instead of a special case in four places.
 
 The entry shape is the asset's: one dict per file with
-``{path, name, sym, fid, kind, root[, aid]}``.  ``path`` is the FID chain
-(``MF/7F10/5F3A/4F30``), ``sym`` the symbolic one
+``{path, name, sym, fid, kind, root[, aid][, structure]}``.  ``path`` is the
+FID chain (``MF/7F10/5F3A/4F30``), ``sym`` the symbolic one
 (``MF/DF.TELECOM/DF.PHONEBOOK/EF.PBR``), ``kind`` one of ``ef``/``df``/``adf``
-(``mf`` is added for the implicit root).
+(``mf`` is added for the implicit root) and ``structure`` the EF structure the
+standard list records (used only when a card's SELECT returns no structure).
 
 Resolution is case-insensitive and two-level: a bare FID is looked up across
 the whole tree (a bare FID that matches several files is ambiguous - use a
@@ -32,7 +33,7 @@ from dataclasses import dataclass
 
 __all__ = [
     'DEFAULT_ASSET', 'FileInfo', 'FileModel', 'FileModelError',
-    'UnknownFile', 'AmbiguousFile',
+    'UnknownFile', 'AmbiguousFile', 'STRUCTURES',
 ]
 
 # The committed asset, relative to the repository root (this file lives in
@@ -43,6 +44,10 @@ DEFAULT_ASSET = os.path.join(
 
 KINDS = ('ef', 'df', 'adf', 'mf')
 SOURCES = ('standard', 'custom', 'pbr', 'supplement')
+#: The EF structure keywords the asset may carry (the same names the FCP
+#: parser reports).  They matter when a card's SELECT returns no structure:
+#: the model decides between the transparent and the record read.
+STRUCTURES = ('transparent', 'linear_fixed', 'cyclic', 'ber_tlv')
 
 _FID_RE = re.compile(r'^[0-9A-F]{4}$')
 
@@ -97,6 +102,17 @@ def _kind(value):
     return kind
 
 
+def _structure_value(value, name):
+    """A validated EF ``structure`` from an asset entry (``None`` = unknown)."""
+    structure = _norm(value).lower()
+    if not structure:
+        return None
+    if structure not in STRUCTURES:
+        raise ValueError('unknown structure %r for %s (one of %s)'
+                         % (value, name, ', '.join(STRUCTURES)))
+    return structure
+
+
 @dataclass
 class FileInfo(object):
     """One file of the model.
@@ -106,7 +122,9 @@ class FileInfo(object):
     application identifier when known.  ``parent_known`` flags a custom file
     whose parent DF the model does not know yet - it is kept (the standard
     list may simply not describe that DF) but cannot be selected until the
-    parent appears.
+    parent appears.  ``structure`` is the EF structure the standard list
+    records (``transparent``/``linear_fixed``/``cyclic``/``ber_tlv``); it is
+    used only when the card's SELECT returns no structure of its own.
     """
 
     name: str
@@ -118,6 +136,7 @@ class FileInfo(object):
     parent: str = None
     path: str = ''
     parent_known: bool = True
+    structure: str = None
 
     @property
     def is_df(self):
@@ -192,6 +211,7 @@ class FileModel(object):
             parent=parent,
             path=path,
             parent_known=True,
+            structure=_structure_value(entry.get('structure'), name),
         )
         return info
 

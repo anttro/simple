@@ -9,6 +9,34 @@ every change carries a descriptive commit message.
 
 ## [Unreleased]
 
+## [4.0.1] — 2026-11-23
+
+### Added
+
+- **The size-agnostic read fallback** for a card that returns no file
+  information at all: `/api/read` accepts `length` (transparent) and
+  `record_len`, and otherwise reads READ BINARY/RECORD with `Le = 256` until
+  the card signals the end (a short read, the `6282` warning, the 2G SIM's
+  `9402` out-of-range address; an immediate `6B00` is an error, not an empty
+  file), marking the response `size_inferred: true`.  The PWA uses the
+  inferred size for the profile/snapshot metadata and notes it in the
+  file-manager status line.
+- The standard file list (`uicc_files.json`) now carries each EF's
+  `structure` (regenerated from the `simple-pysim` fork's pySim generator);
+  it picks the transparent/record path when neither the card nor the FCP
+  gives one.
+
+### Fixed
+
+- **2G SIM file reads.**  A 2G SIM's SELECT returns no TS 102 221 FCP; its
+  TS 51 011 §9.2.1 file information (file size at bytes 3-4, the structure
+  at byte 14, the record length at byte 15) is now parsed, so
+  `/api/select` reports the card's real size and record layout and
+  `/api/read` works through the normal size-driven path (EF.ICCID, EF.ARR
+  31 × 76 B, ...).  The file manager, profiles and snapshots now work on a
+  2G SIM.  `fci_form: "gsm"` says what the raw SELECT response is; the PWA
+  labels it instead of decoding it as a BER FCP.
+
 ## [4.0.0] — 2026-11-23
 
 ### Changed
